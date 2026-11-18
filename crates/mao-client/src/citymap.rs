@@ -182,6 +182,8 @@ pub struct Map {
     pub no_market: bool,
     /// "Construct" may be pressed.
     pub can_construct: bool,
+    /// What the land costs and its upkeep (the city record's), for the buying dialog.
+    pub costs: (u32, u32),
 }
 
 impl Map {
@@ -194,6 +196,7 @@ impl Map {
         self.nodes.extend(pending);
         self.selected = selected.and_then(|s| self.nodes.iter().position(|n| (n.item, n.tile) == s && !n.demolishing));
         self.buildables = data.buildables;
+        self.costs = data.costs;
         if !data.zones.0.is_empty() {
             self.zones = data.zones;
             self.tiles = data.tiles;

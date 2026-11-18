@@ -5735,3 +5735,42 @@ rate. Not read: the light handed to the rain's colour (the day's intensity is us
 Not ported: cloud shadows (no reader of `UseCloudShadows` was found; they are switched off in Rubi-Ka's script).
 `MAO_WEATHER=<entry>:<value>,…` sets the table by hand, for a picture (`map <playfield> --image`) or a live look.
 Tests: the four in `precipitation.rs`.
+
+### The city controller: the dialog that buys the land, the lock, the tip (WIN-110)
+
+(The Escape option of the entry was done the same day with SET-030.)
+
+- **GUI type 1, the land-buying dialog.** It is the terminal's own opening (`AOTransportSignal` code 5) with its
+  type 1 (`SlotOpenCityTerminal`, GUI.dll FUN_100e6c24: types 1 and 2 have a window). FUN_100e7339: a window of
+  389 by 239 with its own kept place (`CityTerminalBuyDlgConfig`; here the layout name `CityTerminalBuy`) and two
+  tabs. "Buy Land Area" is `BuyLandView_c` (FUN_100e6388), made in code, not from `CityTerminal.xml`: the text
+  `CityTerminal_BuyLandDialogText` (category 10002) fed the price and then the upkeep, which are the playfield's
+  city record's two numbers (the client read them already, `citymap::Data::costs`), and the buttons Purchase and
+  Cancel at the bottom right. "City Map" is the house view in its show-only mode with no control view.
+  **Purchase is enabled in lease mode 3 only (FUN_100e6208), and its press sends `ClientRequestBuyIIR_c` at once
+  (FUN_100e6225 → `CityAI_c::ClientRequestBuy`): the original asks nothing first.** Cancel and the window's
+  close button send the session's close request. `Command::Buy` → `mao_net::city::buy`, which was built and
+  tested before and never called.
+- **A fault that went with it:** a type 1 opening left the client holding a session with no window: nothing could
+  send the close request, and a later opening of any controller was ignored while that session was held, until
+  the server ended it or the character zoned.
+- **The lock.** An item that waits on the map as a house about to be built is locked in the inventory
+  (`InventoryItemLocker_c`, set by the map's FUN_100e4cef; taken off by Delete, by Construct at its press, by the
+  item's going and by the map view's end: no answer of the server is waited for). Here the lock is not kept: each
+  frame the places that wait on the map (`Map::locked`) are the locked ones (`gear::city_locked`), so it cannot
+  stick. A locked item shows `GFX_GUI_INV_ITEM_LOCK` in its cell's bottom right corner (FUN_10040bda), is not
+  taken up, split or added to a trade (FUN_100cc6e8, FUN_100cae1b), is not used, and an item let go on it gives
+  the line `DroppedItemWasLocked` (category 10003, FUN_100cc855). Not done: the same mark on a shortcut bar's
+  copy of the item; the picture's own colour (`GUIConfig` colour 0x1000000, not read).
+- **The tip.** Over the map, in every mode, the pointer's place in the world is a tip (FUN_100478c7, the map
+  view's answer to the tips' question): the title `PointerPosition` (category 10000), the body "%.1fx%.1f" of the
+  world's x and z under the pointer, not snapped to the tiles. It comes through the general tip (half a second's
+  rest); a button held takes it away. A small departure: this client's tip goes while the pointer moves, where
+  the original leaves the old one up until the next rest.
+
+What rests on what: **no capture has a type 1 opening, a purchase or its answer**; which lease mode the server
+sends with a type 1 opening is not known, nor what it answers. The window, its texts and its enabling are from the
+code and were looked at in offscreen pictures (`MAO_UI_PREVIEW=cityterminal MAO_CITY_TYPE=1`, `MAO_CITY_LEASE`,
+`MAO_CITY_TAB`; the lock with `MAO_UI_PREVIEW=gear MAO_CITY_LOCKS=<places>`). **Purchase must never be pressed in
+a test: one click, no question, the price shown (hundreds of millions).**
+Test: `the_buying_text_and_the_map_tip`.

@@ -2239,7 +2239,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The item is only not taken a second time by the map; the inventory does not lock it.
 - A player notices: The item can still be moved or used in the backpack while it waits on the map.
 - Where: `crates/mao-client/src/cityterminal.rs:33`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): Done with WIN-110: the waiting item shows the lock's picture and is not taken up, split, traded or used; a drop on it is told (DroppedItemWasLocked). The locked places are the map's waiting ones each frame.
 
 #### `INV-062` Closing a bag window does not tell the server
 
@@ -5021,7 +5022,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Not done ("Not here": GUI type 1, the lock (such an item is not taken a second time instead), the tip); no esc_cityterminal found; the map itself is built.
 - A player notices: A city's land cannot be bought; no Escape option; item not visibly locked.
 - Where: `crates/mao-client/src/cityterminal.rs:35`; `docs/CLIENT_UI.md:3890`; `docs/CLIENT_UI.md:3919`; `crates/mao-client/src/cityterminal.rs:33`; `docs/GUI_DLL_PARITY.md:111`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): The land-buying dialog (GUI type 1: the text with the price and upkeep, Purchase in lease mode 3 only and sent at its press with no question as in the original, Cancel, the map shown only), the inventory's lock on an item that waits on the map (picture, no take-up, use, trade or drop on it) and the pointer's place as a tip over the map; the Escape option came with SET-030. A type 1 opening used to leave a session with no window that blocked every later opening. No capture has a type 1 opening or a purchase: from the code, looked at in offscreen pictures. Purchase is never to be pressed in a test.
 
 #### `WIN-111` Popup menus lack icons, sub-menus, sliders, separators, type-to-search
 
@@ -5143,7 +5145,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: No tip over the map.
 - A player notices: Hovering over the city map shows no coordinates.
 - Where: `crates/mao-client/src/cityterminal.rs:34`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): Done with WIN-110: the title PointerPosition and the world's x and z as %.1fx%.1f, through the general tip. The map view does answer the tips' question (BuildingMapView_c's vtable slot +0x98, FUN_100478c7).
 
 #### `WIN-124` Dialog boxes: no text-field form, no close time-out, not modal
 

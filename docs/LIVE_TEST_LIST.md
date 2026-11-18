@@ -905,6 +905,12 @@ These were written before this list; some may have been seen working since witho
   you look; in a sand or toxic storm short coloured streaks are blown past and the screen is tinted and flickers.
   If the streaks hang sideways or sit behind you, tell me. `MAO_WEATHER=0:0.9,8:5`
   (an environment variable at start) forces rain.
+- [ ] City map (2026-11-18): rest the pointer on your city's map: a tip with its coordinates. Put a building item
+  on the map (do NOT press Construct): the item shows a padlock in the inventory and cannot be picked up; Delete
+  on the map takes the padlock off.
+- [ ] Buying dialog (2026-11-18), only if you ever use the controller of land that is for sale: the window with
+  the price shows. **Do not press Purchase unless you mean to buy**; Cancel closes it. Send me the log either way
+  (the opening's numbers were never seen).
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

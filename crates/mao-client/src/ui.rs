@@ -394,7 +394,7 @@ fn esc_default(name: &str) -> bool {
 pub const ESCAPABLE: &[&str] = &[
     "Options", "Whom-Pah", "Browser", "Help", "Option panel", "loot", "Shop", "Perks", "Research",
     "Missions", "PlanetMap", "Info", "NPCChat", "Nano programs", "Inventory", "Wear", "Inspect", "Tradeskill", "ChatConfig",
-    "Raid", "LFT", "CityTerminal",
+    "Raid", "LFT", "CityTerminal", "CityTerminalBuy",
 ];
 
 /// The `esc_*` option that lets Escape close a window (by its `chrome::window` name), which the original's window reads when
@@ -438,7 +438,7 @@ pub fn escape_option(name: &str, loot_kind: Option<u32>, trading: bool) -> Optio
         // (FUN_10103127, FUN_100f0d2e, FUN_100e7847: each window's own option, read when it is made)
         "Raid" => "esc_raid",
         "LFT" => "esc_lft",
-        "CityTerminal" => "esc_cityterminal",
+        "CityTerminal" | "CityTerminalBuy" => "esc_cityterminal",
         _ => return None,
     }))
 }
@@ -1404,6 +1404,8 @@ impl Ui {
             if city_terminal.session.is_some() {
                 requests.city = city_terminal.show(&ctx, palette, automap.ground_texture(), hud.stats.get(&33).copied());
             }
+            // (the items that wait on its map are locked in the inventory; none when the window is gone)
+            crate::gear::set_city_locks(city_terminal.map.locked());
             for url in gear.show_inspect(&ctx, &hud.inspected, &hud.stats, palette) {
                 info_view.show_url(&url);
             }
@@ -1585,6 +1587,10 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let (mut gear_open, mut gear) = (hud.gear_open, crate::gear::GearWindow::default());
     if let Ok(tab) = std::env::var("MAO_GEAR_TAB") {
         gear.select_tab(&tab);
+    }
+    // (MAO_CITY_LOCKS=<place>,…: inventory places locked as the city controller's map locks them, for a picture)
+    if let Ok(places) = std::env::var("MAO_CITY_LOCKS") {
+        crate::gear::set_city_locks(places.split(',').filter_map(|p| p.trim().parse().ok()).collect());
     }
     // (MAO_SPLIT=<place>: the box that asks how many to split off the stack at that place, as Ctrl+click opens it)
     if let Some(place) = std::env::var("MAO_SPLIT").ok().and_then(|p| p.parse().ok()) {

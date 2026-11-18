@@ -52,6 +52,23 @@ pub struct GearItem {
 /// at once (GUI.dll FUN_10041aa4 -> FUN_1004258f), which the inventory answers with `View::BeginDrag` (FUN_100cc6e8),
 /// and the drag lasts until the next click.
 pub static DRAGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+
+/// The inventory places of the items that wait on the city controller's map (GUI.dll's `InventoryItemLocker_c`, fed
+/// by the map's FUN_100e4cef and emptied by its delete, its construct and its going): locked. A locked item shows
+/// the lock's picture and is not taken up, used, traded or dropped on.
+static CITY_LOCKS: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+
+/// The frame's word from the city controller's window: the places that wait on its map now.
+pub fn set_city_locks(places: Vec<u32>) {
+    let mut locks = CITY_LOCKS.lock().unwrap_or_else(|e| e.into_inner());
+    if *locks != places {
+        *locks = places;
+    }
+}
+
+pub fn city_locked(place: u32) -> bool {
+    CITY_LOCKS.lock().unwrap_or_else(|e| e.into_inner()).contains(&place)
+}
 /// The item in hand was taken up this frame: the click that takes it up does not also put it down. (A flag the
 /// interface clears when the frame is over, not the frame's number: what follows the frame's drawing, the use of an
 /// item on the world, already counts the next one.)

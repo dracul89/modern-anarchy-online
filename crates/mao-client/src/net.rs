@@ -9158,6 +9158,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         Command::Close => connection.send(&mao_net::city::close_session(own, city)),
                         Command::Advantages => connection.send(&n3::org_command(own, mao_net::city::ORG_SHOW_CITY, (0, 0), 0, "", false)),
                         Command::ToggleCloak => connection.send(&mao_net::city::toggle_cloak(own, city)),
+                        // (`ClientRequestBuy`, the buying dialog's Purchase: the city's number alone)
+                        Command::Buy => connection.send(&mao_net::city::buy(own, city)),
                         // (`ClientRequestDemolish`: the house's tile as the playfield's list has it)
                         Command::Demolish(x, z) => connection.send(&mao_net::city::demolish(own, city, (x, z))),
                         // (`ClientRequestBuild` for each waiting house, the headquarters first: its template, its tile,

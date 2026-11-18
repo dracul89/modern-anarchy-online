@@ -31,7 +31,8 @@ fn line(name: &str, args: &[Arg]) -> String {
     if let Some(group) = crate::chatgroups::feedback_group(name) {
         GROUP.set(Some(group));
     }
-    let text = texts().and_then(|t| t.named(ldb::FEEDBACK, name)).unwrap_or_else(|| english(name));
+    // (`DroppedItemWasLocked` is of the inventory's own category, 10003: GUI.dll FUN_100cc855)
+    let text = texts().and_then(|t| t.named(ldb::FEEDBACK, name).or_else(|| t.named(10003, name).filter(|_| name == "DroppedItemWasLocked"))).unwrap_or_else(|| english(name));
     ldb::format(text, args)
 }
 
@@ -39,6 +40,7 @@ fn line(name: &str, args: &[Arg]) -> String {
 fn english(name: &str) -> &'static str {
     match name {
         "Feedback_FallDamage" => "You took %u points of fall damage.",
+        "DroppedItemWasLocked" => "That item is locked.",
         "Feedback_CantLogOutInAFight" => "You can't log out while in a fight.",
         "Feedback_AttackedByForPointsOfDamage" => "You were attacked with %s for %u points of %s damage.",
         "Feedback_YouWereAttackedByNanobotsFrom" => "You were attacked with nanobots from %s for %u points of %s damage.",

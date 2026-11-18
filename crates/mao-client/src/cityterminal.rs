@@ -30,8 +30,17 @@
 //! The window's close request (FUN_100e7203) only asks the server to end the session: the window stays till the
 //! server's code 7.
 //!
-//! **Not here:** GUI type 1, the dialog that buys the land; the lock the original puts on an item that waits on the
-//! map (here such an item is not taken a second time); the pointer's place as a tip over the map.
+//! **GUI type 1 is the dialog that buys the land** (the same opening with its type 1; FUN_100e7339): 389 by 239, two
+//! tabs. "Buy Land Area" (`BuyLandView_c`, FUN_100e6388, built in code, not from the XML): the text
+//! `CityTerminal_BuyLandDialogText` fed the land's price and its upkeep (the city record's two numbers), and the
+//! buttons Purchase and Cancel. Purchase can be pressed in lease mode 3 only, and its press sends the request
+//! (`ClientRequestBuyIIR_c`, FUN_100e6225) **at once: the original asks nothing first, and the price is in the
+//! hundreds of millions**. Cancel and the window's close ask the server to end the session. "City Map": the map,
+//! shown only. No capture has a type 1 opening, a purchase or its answer: all of it rests on the code.
+//!
+//! An item that waits on the map is locked in the inventory (`InventoryItemLocker_c`: `gear::city_locked`, drawn and
+//! refused in `invwindows.rs`) until it is taken off the map, built, or the window goes. Over the map the pointer's
+//! place in the world is told as a tip (FUN_100478c7: "%.1fx%.1f" of x and z, not snapped) once it has rested.
 
 use crate::citymap::{Build, Geometry, Map, Mode, Refusal, TILE};
 use crate::gui::view::{Id, Tree};
@@ -108,6 +117,8 @@ pub enum Command {
     Demolish(i32, i32),
     /// The houses in [`BUILDS`] to be built.
     Construct,
+    /// The land bought (GUI type 1's Purchase).
+    Buy,
 }
 
 /// The houses "Construct" asks for, till the network loop takes them (the command itself carries nothing: the loop's
@@ -178,6 +189,17 @@ fn add_charge_bar(tree: &mut Tree, root: Id) {
     }
 }
 
+/// The buying page's text: `CityTerminal_BuyLandDialogText` fed the land's price, then its upkeep (FUN_100e6388).
+pub fn buy_text(costs: (u32, u32)) -> String {
+    let text = crate::gui::xml::ldb_named(10002, "CityTerminal_BuyLandDialogText", "This land costs %d credits, and %d credits of upkeep.");
+    mao_formats::ldb::format(&text, &[mao_formats::ldb::Arg::Int(costs.0 as i64), mao_formats::ldb::Arg::Int(costs.1 as i64)])
+}
+
+/// The map tip's body for a place in the world (x, z): the original's "%.1fx%.1f".
+pub fn pointer_text(place: [f32; 2]) -> String {
+    format!("{:.1}x{:.1}", place[0], place[1])
+}
+
 /// The text of a drop's refusal (the original's error box).
 fn refusal_text(refusal: &Refusal) -> String {
     match refusal {
@@ -213,6 +235,10 @@ impl CityTerminalWindow {
 
     /// The network loop's word on the houses, the building items and the zones.
     pub fn set_map(&mut self, data: crate::citymap::Data) {
+        // (the land's price is in the buying page's text)
+        if data.costs != self.map.costs {
+            self.shown = None;
+        }
         self.map.set(data);
     }
 
@@ -220,7 +246,7 @@ impl CityTerminalWindow {
     pub fn sample() -> CityTerminalWindow {
         use crate::citymap::{Buildable, Data, Node, Shape, Zones};
         let mut w = CityTerminalWindow::default();
-        w.set(Some(Session { city: CityId { city: (0xc419, 0xc000), playfield: 1, model: (0xc79e, 6010) }, gui_type: 2, lease: 3, third: 0, org: "An organisation".into(), upkeep: 15_000_000, bill: Some(1_794_750_000), cloak: 1, cloak_possible: true, charge: 0.6 }));
+        w.set(Some(Session { city: CityId { city: (0xc419, 0xc000), playfield: 1, model: (0xc79e, 6010) }, gui_type: std::env::var("MAO_CITY_TYPE").ok().and_then(|t| t.parse().ok()).unwrap_or(2), lease: std::env::var("MAO_CITY_LEASE").ok().and_then(|t| t.parse().ok()).unwrap_or(3), third: 0, org: "An organisation".into(), upkeep: 15_000_000, bill: Some(1_794_750_000), cloak: 1, cloak_possible: true, charge: 0.6 }));
         w.tab = std::env::var("MAO_CITY_TAB").ok().and_then(|t| t.parse().ok()).unwrap_or(0);
         let shape = |kind: i32, tiles: (i32, i32)| Shape { kind, tiles, mask: vec![0xff; ((tiles.0 * tiles.1 + 7) / 8) as usize], doors: vec![[tiles.0 as f32 * 2.0, 0.0, 1.0]], guards: vec![[2.0, 0.0, tiles.1 as f32 * 4.0 - 2.0]] };
         let standing = |kind: i32, tiles: (i32, i32), tile: (i32, i32), demolishing: bool| Node { item: None, template: kind as u32, shape: shape(kind, tiles), tile, rotation: 0, demolishing, valid: true };
@@ -251,7 +277,30 @@ impl CityTerminalWindow {
         let caption = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
         let (mut trees, mut tabs, map);
         (trees, tabs) = (Vec::new(), Vec::new());
-        if session.lease == 1 {
+        if session.gui_type == 1 {
+            // (FUN_100e7339: the buying page, made in code as FUN_100e6388 makes it — a spacer, the text with borders
+            // of 5, a spacer, and the two buttons at the right — and the map, shown only: mode 2, no control view)
+            // (the original gives the text an aspect ratio of 2, which this layout has not: a least height stands in)
+            let escape = |t: String| t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
+            let label = |name: &str, own: &str| escape(crate::gui::xml::ldb_named(10002, name, own));
+            let page = format!(
+                "<View name=\"BuyLandView\" view_layout=\"vertical\"><VLayoutSpacer/>\
+                 <TextView feature_flags=\"TVF_MULTILINE|TVF_WORD_WRAP\" layout_borders=\"Rect(5,5,5,5)\" max_size=\"Point(16000,16000)\" min_size=\"Point(0,120)\" name=\"BuyLandText\"/>\
+                 <VLayoutSpacer/><View view_layout=\"horizontal\"><HLayoutSpacer/>\
+                 <Button label=\"{}\" layout_borders=\"Rect(5,0,0,5)\" name=\"BuyLandPurchaseButton\"/>\
+                 <Button label=\"{}\" layout_borders=\"Rect(5,0,5,5)\" name=\"BuyLandCancelButton\"/></View></View>",
+                label("CityTerminal_BuyLandPurchaseButLabel", "Purchase"),
+                label("CityTerminal_BuyLandCancelButLabel", "Cancel")
+            );
+            let mut tree = Tree::default();
+            tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+            let root = crate::gui::create(&mut tree, crate::gui::xml::parse(&page).first()?)?;
+            trees.push((tree, root));
+            tabs.push((caption("BuyLandArea", "Buy Land Area"), Page::View(0)));
+            trees.push(view("CityMapView")?);
+            map = Some(1);
+            tabs.push((caption("CityMap", "City Map"), Page::Houses(Mode::View)));
+        } else if session.lease == 1 {
             let (mut tree, root) = view("InspectCityPanel")?;
             add_charge_bar(&mut tree, root);
             map = Some(0);
@@ -295,9 +344,14 @@ impl CityTerminalWindow {
 
     /// The views filled from the session (the slots of the interface's signals: FUN_100e91af, FUN_100e92a4,
     /// FUN_100e91c6, FUN_100e9242, FUN_100e918e, FUN_100e70c5).
-    fn fill(views: &mut Views, s: &Session) {
+    fn fill(views: &mut Views, s: &Session, costs: (u32, u32)) {
         for (tree, root) in &mut views.trees {
             let root = *root;
+            // (the buying page: the price and the upkeep in its text; Purchase with lease mode 3 only, FUN_100e6208)
+            set_text(tree, root, "BuyLandText", &buy_text(costs));
+            if let Some(id) = tree.find(root, "BuyLandPurchaseButton") {
+                tree.get_mut(id).enabled = s.full();
+            }
             set_text(tree, root, "OrgNameView", &s.org);
             set_text(tree, root, "UpkeepDateView", &s.bill.map(long_date).unwrap_or_default());
             set_text(tree, root, "UpkeepAmountView", &crate::vitals::grouped(s.upkeep as i64));
@@ -340,7 +394,7 @@ impl CityTerminalWindow {
     }
 
     /// The map in its dock: drawn, and the mouse on it.
-    fn show_map(&mut self, ui: &mut egui::Ui, ground: Option<(egui::TextureId, [f32; 2])>, own_side: Option<i64>) {
+    fn show_map(&mut self, ui: &mut egui::Ui, palette: &Palette, ground: Option<(egui::TextureId, [f32; 2])>, own_side: Option<i64>) {
         let Some(g) = Geometry::new(&self.map.zones, self.map.tiles) else { return };
         let skin = crate::skin::skin(ui.ctx());
         let (map, drag) = (&mut self.map, &mut self.drag);
@@ -399,6 +453,14 @@ impl CityTerminalWindow {
             let pointer = ui.input(|i| i.pointer.interact_pos()).filter(|p| rect.contains(*p) && visible.contains(*p));
             let content = |p: egui::Pos2| [p.x - rect.min.x, p.y - rect.min.y];
             let held = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
+            // (the pointer's place as a tip, FUN_100478c7: the world's x and z under it, not snapped, in every mode;
+            // it comes when the pointer has rested, as every tip does, and a button down takes it away)
+            let measure = crate::gui::font::Measure { ctx: Some(ui.ctx().clone()) };
+            let env = crate::gui::host::Env { skin: skin.as_deref(), palette, measure: &measure };
+            let source = egui::Id::new("city-map-tip");
+            let place = pointer.filter(|_| held == u32::MAX && !ui.input(|i| i.pointer.any_down())).map(|p| g.world(content(p)));
+            let body = place.map_or(String::new(), pointer_text);
+            crate::gui::tooltip::hover(ui.ctx(), &env, source, place.map(|_| source.with(&body)), &crate::gui::xml::ldb_named(10000, "PointerPosition", "Pointer position"), &body);
             if map.mode == Mode::Build && held != u32::MAX {
                 // (an inventory item let go over the map: a house to build with its least corner on that tile, or an
                 // error box. The hand is emptied either way.)
@@ -458,8 +520,8 @@ impl CityTerminalWindow {
             self.views = None;
             return None;
         };
-        // (GUI type 2 only: type 1, the buying of the land, is not here)
-        if session.gui_type != 2 {
+        // (`SlotOpenCityTerminal`: types 1 and 2 have a window)
+        if !(1..=2).contains(&session.gui_type) {
             return None;
         }
         if self.views.is_none() {
@@ -468,7 +530,7 @@ impl CityTerminalWindow {
         }
         let views = self.views.as_mut()?;
         if self.shown.as_ref() != Some(&session) {
-            Self::fill(views, &session);
+            Self::fill(views, &session, self.map.costs);
             self.shown = Some(session.clone());
         }
         let skin = crate::skin::skin(ctx);
@@ -476,14 +538,15 @@ impl CityTerminalWindow {
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
         let mut tab = self.tab.min(views.tabs.len().saturating_sub(1));
         let mut is_open = true;
-        let size = egui::vec2(499.0, 499.0);
+        // (the buying dialog is a window of its own size and place: `CityTerminalBuyDlgConfig`)
+        let (name, size) = if session.gui_type == 1 { ("CityTerminalBuy", egui::vec2(389.0, 239.0)) } else { ("CityTerminal", egui::vec2(499.0, 499.0)) };
         let middle = ctx.content_rect().center() - size / 2.0;
         // (the map's dock on the screen, when the open tab has it)
         let mut dock = None;
         let (tabs, trees, map_tree) = (&views.tabs, &mut views.trees, views.map);
         let may_build = session.may_build();
         let map = &mut self.map;
-        crate::chrome::window(ctx, palette, "CityTerminal", "", &mut is_open, |w| w.default_size(size).resizable(true).default_pos(crate::layout::pos("CityTerminal", middle)), |ui| {
+        crate::chrome::window(ctx, palette, name, "", &mut is_open, |w| w.default_size(size).resizable(true).default_pos(crate::layout::pos(name, middle)), |ui| {
             crate::chrome::tab_view(ui, palette, &names, &mut tab, |ui, tab| {
                 let Some(&(_, page)) = tabs.get(tab) else { return };
                 let index = match page {
@@ -516,7 +579,7 @@ impl CityTerminalWindow {
             // (drawn after the window's own views, in their layer, inside the dock)
             let mut ui = egui::Ui::new(ctx.clone(), egui::Id::new("city-map-dock"), egui::UiBuilder::new().layer_id(layer).max_rect(rect));
             ui.set_clip_rect(rect.intersect(clip));
-            self.show_map(&mut ui, ground, own_side);
+            self.show_map(&mut ui, palette, ground, own_side);
         }
         let views = self.views.as_mut()?;
         let mut command = None;
@@ -527,6 +590,10 @@ impl CityTerminalWindow {
                 }
                 match tree.get(id).name.as_str() {
                     "DumpAdvantagesButton" => command = Some(Command::Advantages),
+                    // (FUN_100e6225 and FUN_100e62ba: the purchase asked for at the press, nothing asked first; Cancel
+                    // is the close request)
+                    "BuyLandPurchaseButton" => command = Some(Command::Buy),
+                    "BuyLandCancelButton" => command = Some(Command::Close),
                     "EnableCloakingDeviceButton" => {
                         command = Some(Command::ToggleCloak);
                         // (the button shows the server's word, not the press: it turns when code 14 comes)
@@ -588,6 +655,19 @@ mod tests {
         // (lease mode 3 with the third word past 1: everything but the map's building)
         let s = Session { third: 2, ..Session::open(&open()).unwrap() };
         assert!(s.full() && !s.may_build());
+    }
+
+    /// The buying page's text carries the price and then the upkeep; the map tip is the world's x and z to a tenth.
+    #[test]
+    fn the_buying_text_and_the_map_tip() {
+        let text = buy_text((500_000_000, 15_000_000));
+        let (price, upkeep) = (text.find("500000000"), text.find("15000000"));
+        assert!(price.is_some() && upkeep.is_some() && price < upkeep, "{text}");
+        assert_eq!(pointer_text([2104.5, 3310.0]), "2104.5x3310.0");
+        // (a type 1 opening is a session of its own kind, with Purchase only in lease mode 3)
+        let s = Session { gui_type: 1, ..Session::open(&open()).unwrap() };
+        assert!(s.full());
+        assert!(!Session { lease: 2, ..s }.full());
     }
 
     #[test]

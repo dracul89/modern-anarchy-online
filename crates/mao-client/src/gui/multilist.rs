@@ -234,11 +234,14 @@ pub struct Rows {
     dragged: bool,
     /// The grid's picture's size, once drawn.
     picture: Shared<Option<egui::Vec2>>,
+    /// The items that are locked (`InventoryListViewItem_c` +0xf0): the lock's picture in the cell's bottom right
+    /// corner (FUN_10040bda: picture 0xfc, `GFX_GUI_INV_ITEM_LOCK`).
+    pub locked: Vec<i64>,
 }
 
 impl Rows {
     fn new(grid: Option<GridMode>) -> Rows {
-        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, stash: None, last_click: None, pressed: None, dragged: false, picture: Shared::new(None) }
+        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, stash: None, last_click: None, pressed: None, dragged: false, picture: Shared::new(None), locked: Vec::new() }
     }
     fn step() -> f32 {
         ROW_HEIGHT + 1.0 + SPACE.y
@@ -361,6 +364,11 @@ impl Rows {
                 && let Some(s) = skin.and_then(|s| s.get(grid::SELECTED))
             {
                 p.painter.image(s.texture.id(), cell, uv, egui::Color32::WHITE);
+            }
+            if self.locked.contains(&item.id)
+                && let Some(s) = skin.and_then(|s| s.get("GFX_GUI_INV_ITEM_LOCK"))
+            {
+                p.painter.image(s.texture.id(), egui::Rect::from_min_size(cell.max - s.size, s.size), uv, egui::Color32::WHITE);
             }
         }
         if g.labels_on_top {
@@ -959,6 +967,16 @@ pub fn selected(tree: &Tree, id: Id) -> Option<i64> {
 }
 
 /// `MultiListViewItem_c::Select`: one row at a time.
+/// The grid's locked items ([`Rows::locked`]).
+pub fn set_locked(tree: &mut Tree, id: Id, locked: Vec<i64>) {
+    let Some((_, _, rows)) = parts(tree, id) else { return };
+    if let Some(r) = tree.control_mut::<Rows>(rows)
+        && r.locked != locked
+    {
+        r.locked = locked;
+    }
+}
+
 pub fn select(tree: &mut Tree, id: Id, item: Option<i64>) {
     let Some((_, _, rows)) = parts(tree, id) else { return };
     if let Some(r) = tree.control_mut::<Rows>(rows) {

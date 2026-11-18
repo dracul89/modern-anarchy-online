@@ -207,6 +207,8 @@ fn fill(view: &mut GridView, items: &[(&GearItem, Option<(usize, usize)>)], text
         multilist::set_items(&mut view.tree, view.list, rows);
         view.shown = now;
     }
+    // (the items that wait on the city controller's map: the lock's picture on them)
+    multilist::set_locked(&mut view.tree, view.list, items.iter().filter(|(i, _)| crate::gear::city_locked(i.slot)).map(|(i, _)| i.slot as i64).collect());
 }
 
 /// The wear window's four grids.
@@ -462,6 +464,9 @@ impl ItemWindows {
                             self.awaited = Some((free, cell, std::time::Instant::now()));
                         }
                     }
+                } else if onto.is_some_and(|o| crate::gear::city_locked(o.slot)) {
+                    // (let go on an item that waits on the city's map: told, and nothing done, FUN_100cc855)
+                    events.feedback.push("DroppedItemWasLocked");
                 } else if let (Some(cell), Some(held)) = (hovered_cell, by_slot.get(&from).copied()) {
                     use crate::places::Placing;
                     match (crate::places::placing(&stack(held), split, onto.map(stack).as_ref()), onto) {
@@ -605,12 +610,16 @@ impl ItemWindows {
                 if split > 0 {
                     // (a split is used on nothing: the right button ends it, FUN_100cc855)
                     crate::gear::put_down();
+                } else if crate::gear::city_locked(*slot) {
+                    events.feedback.push("DroppedItemWasLocked");
+                    crate::gear::put_down();
                 } else if from != *slot && from >= BACKPACK_FIRST && *slot >= BACKPACK_FIRST {
                     events.combines.push((from, *slot));
                     crate::gear::put_down();
                 }
-            } else {
-                // (with Shift too: the original's menu comes by the held button only)
+            } else if !crate::gear::city_locked(*slot) {
+                // (with Shift too: the original's menu comes by the held button only. A locked item, one that waits
+                // on the city's map, is not used: FUN_100cae1b.)
                 events.uses.push(*slot);
             }
         }
@@ -710,6 +719,9 @@ impl ItemWindows {
                 eprintln!("items: Ctrl+click on place {} ({:?}): count {}, {} clicks, ctrl {ctrl}, shift {shift}, in hand {:?}", item.slot, item.name, item.count, clicks, held);
             }
             match click(clicks, shift, ctrl, held.is_some(), item.slot >= BACKPACK_FIRST && item.count > 1) {
+                // (an item that waits on the city controller's map is locked: not taken up, split or traded,
+                // FUN_100cc6e8 and FUN_100cae1b)
+                Click::Trade | Click::Split | Click::TakeUp if crate::gear::city_locked(item.slot) => {}
                 Click::Info => events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
                 // (the second click of two: the first one's split box goes)
                 Click::Trade => {

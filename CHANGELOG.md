@@ -12,6 +12,14 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   green storms are wind-blown streaks in their colours and tint the screen, flickering, as in the game.
 - Overcast weather dims the sky and the fog; the dimming used to follow the wrong weather value.
 
+### Windows
+
+- A city controller of land that is for sale opens the buying dialog: the price and upkeep, Purchase and Cancel,
+  and the city's map. **Purchase buys at once, as in the game: there is no second question.** (Using such a
+  controller used to open nothing and block every controller until you zoned.)
+- A building item placed on the city map is locked in the inventory (a small padlock) until it is built or taken
+  off the map, and the map tells the pointer's coordinates as a tip.
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher
