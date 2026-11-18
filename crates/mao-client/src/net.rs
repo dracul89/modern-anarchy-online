@@ -13203,7 +13203,8 @@ mod prop_anim_tests {
         let stat = |k: u32| w.stats.get(&k).copied();
         assert_eq!((stat(54), stat(52), stat(53), stat(57), stat(350)), (Some(3), Some(4240), Some(8347), Some(4050), Some(7150)));
         assert_eq!(crate::stats::experience(&w.stats), (Some(190), Some(3100)));
-        assert_eq!(w.game_lines.len(), 2);
+        // (the experience that made the level, 0x104, then the level's line and, below level 4, the points')
+        assert_eq!(w.game_lines.len(), 3);
         // (another character's level is not the client's)
         let mut w = super::World { own: 7, ..Default::default() };
         w.add(&super::Message { kind: 0x7f405a16, identity: (0xc350, 8), data: hex("00000000030000209b0000109000000fd200001bee000000000000000400000104") }.frame(7));
