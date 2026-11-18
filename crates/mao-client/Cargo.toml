@@ -49,3 +49,9 @@ xcap = { version = "=0.7.1", default-features = false }
 
 [lints]
 workspace = true
+
+# (macOS: the login's process, which waits for the game's, is taken out of the Dock while it waits: launcher.rs,
+# `leave_the_dock`. The versions winit itself uses.)
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.2.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSRunningApplication"] }
+objc2-foundation = { version = "0.2.2", default-features = false, features = ["std", "NSThread"] }

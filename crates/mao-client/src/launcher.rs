@@ -904,6 +904,7 @@ impl ApplicationHandler for Launcher {
                         // the loop; it stood frozen behind the game's. Hidden first, so that it is gone from the screen
                         // whether or not that message is still read.)
                         gfx.window.set_visible(false);
+                        leave_the_dock();
                         event_loop.exit();
                         return;
                     } else {
@@ -936,6 +937,22 @@ impl ApplicationHandler for Launcher {
 /// The exit code of a game that ended because the character logged out (`/camp`, sitting for 30 s): the launcher shows the
 /// character screen again.
 pub const LOGGED_OUT: i32 = 42;
+
+/// The login's process stays while the game runs (it waits for the game's end, to bring the login back after a
+/// logout), with its window hidden. On macOS a process that has had a window keeps its place in the Dock, the
+/// application switcher and Mission Control until it ends, so the game showed there twice, once with the loading
+/// screen it had last drawn. Here the process stops being an application to the system: no Dock icon, no place in
+/// the switcher, no window. It is still a process (Activity Monitor lists it), as on the other systems.
+#[cfg(target_os = "macos")]
+fn leave_the_dock() {
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+    if let Some(main) = objc2_foundation::MainThreadMarker::new() {
+        NSApplication::sharedApplication(main).setActivationPolicy(NSApplicationActivationPolicy::Prohibited);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn leave_the_dock() {}
 
 pub fn run(game: &str) -> Result<(), String> {
     crate::theme::set_game_dir(game);
