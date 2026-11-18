@@ -3964,6 +3964,10 @@ struct Characters {
     socials_started: std::collections::HashMap<u32, Instant>,
     /// When each character's last attack swing was set on its stack.
     swings_started: std::collections::HashMap<u32, Instant>,
+    /// Whether each creature is in a fight, as the world says before it is posed, and whether it was when last posed:
+    /// a creature in a fight stands in its fight stance, and plays the stance's start and stop when that changes.
+    creature_fight: std::collections::HashMap<u32, bool>,
+    creature_fought: std::collections::HashMap<u32, bool>,
     /// The weapon each character had drawn when last drawn (template and place), to play the draw and the holster.
     drawn: std::collections::HashMap<u32, Option<(u32, u32)>>,
     /// The weapon each character held when last drawn, in or out of a fight, to play the wield and the unwield.
@@ -4343,7 +4347,7 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, build: 1, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default() })
+        Ok(Characters { head_meshes, build: 1, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -4399,9 +4403,21 @@ impl Characters {
         });
         // (the first of the action's animations the database really holds)
         let mut chosen = None;
+        // (in a fight a creature stands in its fight stance. The original makes an item of each of a creature's natural
+        // weapons and gives it the stance's actions, FUN_1006b14c: class 0x1a the start 0x406, class 0x10 the idle 0x407,
+        // class 0x1b the stop 0x408; FUN_1003cce2 loops the idle after the start for as long as the weapon is out)
+        let fighting = death.is_none() && self.creature_fight.get(&id).copied().unwrap_or(false);
         let candidates = match death {
             Some(d) => vec![d],
-            None => record.animation_candidates(action, seed),
+            None => {
+                let mut candidates = record.animation_candidates(action, seed);
+                if fighting && action == mao_formats::appearance::Action::Idle {
+                    if let Some(stance) = record.variant(0x407, seed) {
+                        candidates.insert(0, (0x407, stance));
+                    }
+                }
+                candidates
+            }
         };
         for (key, id) in candidates {
             let loaded = self.creature_anims.entry(id).or_insert_with(|| {
@@ -4437,8 +4453,10 @@ impl Characters {
                         let a = mao_formats::item::weapon_actions(d, slot, class);
                         if a.is_empty() && class != 0xb { mao_formats::item::attack_actions(d, slot) } else { a }
                     }
-                    Some(_) => vec![0x40a],
-                    None => vec![],
+                    // (a body without the weapons' attachment points swings `unarmed-rswing` whatever it holds: FUN_1006a782.
+                    // One with them and no weapon item swings its natural weapon's own attack in the original, FUN_1006a014,
+                    // an item this client does not make: the same `unarmed-rswing` stands in for it, a guess.)
+                    _ => vec![0x40a],
                 };
                 let mut found = None;
                 if !actions.is_empty() {
@@ -4473,8 +4491,32 @@ impl Characters {
             }
             _ => None,
         };
+        // (the stance's start as the fight begins and its stop as it ends, once, as a player's weapon is drawn and put away)
+        let fought = self.creature_fought.insert(id, fighting);
+        let flourish = match (fought, fighting) {
+            (Some(false), true) => record.variant(0x406, seed),
+            (Some(true), false) if death.is_none() => record.variant(0x408, seed),
+            _ => None,
+        }
+        .and_then(|anim| {
+            let loaded = self.creature_anims.entry(anim).or_insert_with(|| {
+                let a = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: anim }).ok()??).ok()?;
+                let length = a.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
+                Some((a, length))
+            });
+            let (a, length) = loaded.as_ref()?;
+            if !self.anims_by_id.contains_key(&anim) {
+                self.anims_by_id.insert(anim, (Arc::new(a.clone()), *length));
+            }
+            Some((anim, *length))
+        });
         // The creature's stack: its movement looping at priority 0 on layer 2, as a player's.
         let (stack, tick) = self.stacks.entry(id).or_insert_with(|| (Default::default(), Instant::now()));
+        let flourish = flourish.map(|(anim, total)| {
+            let handle = stack.set_animation(anim, 0, 1, 2, 0, 1.0, total);
+            stack.set_time(handle, 0.0, total);
+            total
+        });
         let dt = tick.elapsed().as_secs_f32().min(0.5);
         *tick = Instant::now();
         let stack_key = (action, if death.is_some() { 9 } else { hold as u8 }, anim_id);
@@ -4482,6 +4524,10 @@ impl Characters {
             // (a death is held at its end: direction 3 plays it once and keeps the last frame)
             let handle = stack.set_animation(anim_id, 0, -1, 2, if death.is_some() { 3 } else { 0 }, 1.0, length);
             stack.set_time(handle, 0.0, if hold { 0.0 } else { length });
+            // (the standing animation waits for the start or the stop to play out, as a player's does)
+            if let Some(played) = flourish {
+                stack.set_delay(handle, (played - 300.0).max(0.0));
+            }
             self.movement_keys.insert(id, stack_key);
             self.movement_handles.insert(id, handle);
         }
@@ -5193,9 +5239,17 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         let deform = world.deforms.get(&id).map(|(d, at)| (d, at.elapsed().as_secs_f32()));
         if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some() && !world.grid), characters.as_mut()) {
             let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
-            let action = if moving { mao_formats::appearance::Action::Walk } else { mao_formats::appearance::Action::Idle };
-            // (an attack swings the weapon the server said the creature holds in the place it names)
-            let swing = world.swings.get(&id).and_then(|&(slot, began, pick, class)| Some((*world.weapons.get(&(id, slot as u8))?, slot, began, pick, class)));
+            // (one the server sent running runs: its own run where its template has one)
+            let action = match (moving, world.path_runs.contains(&id)) {
+                (true, true) => mao_formats::appearance::Action::Run,
+                (true, false) => mao_formats::appearance::Action::Walk,
+                (false, _) => mao_formats::appearance::Action::Idle,
+            };
+            // (an attack swings the weapon the server said the creature holds in the place it names. Most creatures are
+            // told to hold none, and they swing all the same: template 0, `creature_parts`. Until 2026-11-17 a creature
+            // with no weapon item never swung at all: Arete's dockers and collectors stood still while they hit.)
+            let swing = world.swings.get(&id).map(|&(slot, began, pick, class)| (world.weapons.get(&(id, slot as u8)).copied().unwrap_or(0), slot, began, pick, class));
+            chars.creature_fight.insert(id, world.fighting.contains_key(&id));
             if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.held_action(id), swing, &info.meshes) {
                 // (the creature at the size its update gives it, a percentage of its template's: the original's dynel
                 // takes its `Scale` stat as the body's scale, `SetBodyScale`, Gamecode FUN_100892ca; the bosses of Arete
@@ -12252,6 +12306,39 @@ mod movement_tests {
     /// `MAO_GAME`: a worn Yalmaha XL (96088, in a place under the backpack's) makes one's own character its craft, NPC
     /// template 99470 at scale 20; in the backpack or taken off it does not. The craft's body loads and, flying, plays the
     /// template's walk (it has no animation for the fly action, 179).
+    /// `MAO_GAME`: Arete Landing's docker (template 0x44f1, the android's body) is told to hold no weapon. Attacking, it
+    /// swings its `attack-push` (the template's animation for `unarmed-rswing`, 0x40a); in a fight it stands in its
+    /// `idle_unarmed` after the `unarmed-start`, and plays `unarmed-stop` when the fight is over. Sent running, it runs.
+    #[test]
+    fn a_creature_with_no_weapon_swings_and_takes_its_stance() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let mut chars = Characters::new(db).unwrap();
+        use mao_formats::appearance::Action;
+        let playing = |chars: &Characters| chars.stacks[&7].0.entries.iter().map(|e| e.id).collect::<Vec<u32>>();
+        let animation = |chars: &Characters, action: u32| chars.creatures[&0x44f1].as_ref().unwrap().0.variant(action, 7).unwrap();
+        // (standing, at peace: its `idle-stand`)
+        chars.creature_parts(7, 0x44f1, Action::Idle, 0.0, 1.0, &[], &[], None, None, None, &[]).unwrap();
+        let (stand, start, stance, stop, push, run) = (animation(&chars, 120), animation(&chars, 0x406), animation(&chars, 0x407), animation(&chars, 0x408), animation(&chars, 0x40a), animation(&chars, 101));
+        assert_eq!(playing(&chars), vec![stand]);
+        // (the fight begins: the start, and the stance behind it)
+        chars.creature_fight.insert(7, true);
+        chars.creature_parts(7, 0x44f1, Action::Idle, 0.0, 1.0, &[], &[], None, None, None, &[]).unwrap();
+        assert!(playing(&chars).contains(&start) && playing(&chars).contains(&stance), "{:?}", playing(&chars));
+        assert_eq!(chars.movement_keys[&7].2, stance);
+        // (an attack with no weapon item in the place, template 0: the push)
+        chars.creature_parts(7, 0x44f1, Action::Idle, 0.0, 1.0, &[], &[], None, None, Some((0, 0, Instant::now(), 0, 0xb)), &[]).unwrap();
+        assert!(playing(&chars).contains(&push), "{:?}", playing(&chars));
+        // (sent running while it fights: its run)
+        chars.creature_parts(7, 0x44f1, Action::Run, 0.0, 1.0, &[], &[], None, None, None, &[]).unwrap();
+        assert_eq!(chars.movement_keys[&7].2, run);
+        // (the fight is over: the stop, and standing as before)
+        chars.creature_fight.insert(7, false);
+        chars.creature_parts(7, 0x44f1, Action::Idle, 0.0, 1.0, &[], &[], None, None, None, &[]).unwrap();
+        assert!(playing(&chars).contains(&stop), "{:?}", playing(&chars));
+        assert_eq!(chars.movement_keys[&7].2, stand);
+    }
+
     #[test]
     fn a_worn_yalmaha_is_its_craft() {
         let Some(game) = std::env::var_os("MAO_GAME") else { return };

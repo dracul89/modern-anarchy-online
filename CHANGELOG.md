@@ -10,8 +10,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - Every creature killed turns into its remains: one that died while running at the character kept its own name,
   could not be looted and lay there for good, as did one that left no corpse.
-- A creature sent running by the server runs at its own speed; it used to follow at a walk, metres behind where the
-  server had it, and fought from there.
+- A creature sent running by the server runs at its own speed, with its run; it used to follow at a walk, metres
+  behind where the server had it, and fought from there.
+- Creatures that hold no weapon (most of them) swing when they attack, and stand in their fight stance for as long
+  as they fight; they used to stand still while they hit.
 
 ## 0.1.5 (2026-11-17)
 

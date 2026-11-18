@@ -4773,3 +4773,34 @@ report did not say more, and nothing else of the attack animations was changed.
 Not done: a corpse whose body the client has not got (one walked away from and come back to, or made before the
 arrival) is not drawn, only named; the original draws a corpse from its own data. The run speed's fall below 15%
 health is not applied to creatures. Not seen live.
+
+## Creatures' attacks: the swing without a weapon, the fight stance, the run (2026-11-17, the user: "the creatures'")
+
+Asked which attack animation looked off, the user said the creatures'. What the client did: a creature's attack
+(`AttackInfo`) swung "the weapon the server said the creature holds in the place it names", and with no such
+weapon nothing. The captures' dockers, automatons and fleas attack from places 0 and 1 and are never told to hold
+a weapon item (`WeaponItemFullUpdate`: none for them in 93 attacks), so they stood still while they hit. They also
+stood in their plain `idle-stand` through a fight, and walked when the server sent them running.
+
+The original (Gamecode):
+
+- `FUN_1006b14c` makes an item of each of a creature's natural weapons (a list the character holds, at the
+  creature's level as the quality) and gives it the stance's actions: class 0x1a the start, action 0x406; class
+  0x10 the idle, 0x407; class 0x1b the stop, 0x408. For a creature it is put into the next free weapon place.
+- `FUN_1003cce2` loops the drawn weapon's idle (class 0x10) after its start (0x1a) for as long as it fights: for a
+  creature its `idle-unarmed` after its `unarmed-start`.
+- `FUN_1006a782` swings: a body without the weapons' attachment points `unarmed-rswing` (0x40a), whatever is in
+  the place; one with them the weapon's class 0xb action (`FUN_1006a014`). The animation is the creature's own for
+  the action (`FUN_1003cac9`): the android's `attack-push`, the floating picker's `attack-grab`.
+
+Now (`net.rs`, `creature_parts`): an attack swings whether or not a weapon item is known for the place; a creature
+in a fight (`World::fighting`) stands in its 0x407 where its template has one, plays its 0x406 when the fight
+begins and its 0x408 when it ends, the standing animation waiting for them as a player's does; a creature sent
+running (`path_runs`) plays its run.
+
+A guess, said plainly: a body WITH the weapons' attachment points and no weapon item (a humanoid NPC fighting with
+its natural weapon) swings that natural weapon's own attack in the original. The client does not make those items
+and swings `unarmed-rswing` there too. Where the list of natural weapons comes from was not read.
+
+Seen offline: the docker standing, in its stance and after its push (`creature 44f1` with `MAO_HELD=407`, `40a`),
+and the test `a_creature_with_no_weapon_swings_and_takes_its_stance`. Not seen live.
