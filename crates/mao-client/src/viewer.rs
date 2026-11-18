@@ -858,6 +858,14 @@ fn sky_fog(scene: &Scene, script: Option<[f32; 3]>) -> Option<([f32; 3], f32, f3
     }
 }
 
+/// The `FogMode` option (`VisualFog_t::SetFogMode`, DisplaySystem 0x10058409, called with the preference's value when it
+/// changes): at 0 the frame's gathered density is a tenth; the fog is not turned off, the mode kept is 3 as for every
+/// other value, and the values 1 to 3 draw alike.
+fn fog_mode(fog: Option<([f32; 3], f32)>, mode: Option<f64>) -> Option<([f32; 3], f32)> {
+    let factor = if mode == Some(0.0) { 0.1 } else { 1.0 };
+    fog.map(|(colour, density)| (colour, density * factor))
+}
+
 /// The fog's start and end for a view distance: the haze begins a seventh of the way out (250 of the default 1800), or at 40.
 pub fn fog_for(distance: f32) -> (f32, f32) {
     ((distance / 7.2).max(40.0), distance)
@@ -2542,7 +2550,7 @@ impl ApplicationHandler for App {
                     w.scene.daylight = if interior { 1.0 } else { self.daylight * e.sky };
                     w.scene.ambient = e.ambient;
                     self.area_fog_base = if interior { None } else { e.fog };
-                    w.scene.area_fog = self.area_fog_base;
+                    w.scene.area_fog = fog_mode(self.area_fog_base, crate::prefs::get("FogMode"));
                     if self.keys.char_distance != self.settings.char_distance || self.keys.auto_loot != self.settings.auto_loot {
                         self.keys.char_distance = self.settings.char_distance;
                         self.keys.auto_loot = self.settings.auto_loot;
@@ -2630,7 +2638,7 @@ impl ApplicationHandler for App {
                 let under = under_water(camera.eye());
                 w.scene.under_water = under.is_some();
                 if let Some((colour, weight)) = under.and_then(under_water_fog) {
-                    w.scene.area_fog = crate::environment::add_fog(self.area_fog_base, colour, weight, self.environment.fog_light);
+                    w.scene.area_fog = fog_mode(crate::environment::add_fog(self.area_fog_base, colour, weight, self.environment.fog_light), crate::prefs::get("FogMode"));
                 }
                 if std::mem::take(&mut self.screenshot) {
                     // (the window as it shows, with its open windows and the web page: `screenshot.rs`; else the scene and
@@ -3150,6 +3158,18 @@ impl ApplicationHandler for App {
 #[cfg(test)]
 mod camera_tests {
     use super::*;
+
+    /// The `FogMode` option at 0 leaves a tenth of the fog; every other value, and none, all of it.
+    #[test]
+    fn the_fog_mode_thins_the_fog() {
+        let fog = Some(([0.5, 0.5, 0.5], 0.8));
+        assert_eq!(fog_mode(fog, Some(3.0)), fog);
+        assert_eq!(fog_mode(fog, Some(1.0)), fog);
+        assert_eq!(fog_mode(fog, None), fog);
+        let thin = fog_mode(fog, Some(0.0)).unwrap();
+        assert!(thin.0 == [0.5, 0.5, 0.5] && (thin.1 - 0.08).abs() < 1e-6);
+        assert_eq!(fog_mode(None, Some(0.0)), None);
+    }
 
     /// `VehicleForwardUpdate`'s rule: the mouse pitches a flyer up to just short of straight up or down and never over; a
     /// step that would pass the limit is dropped whole.

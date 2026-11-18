@@ -5567,3 +5567,89 @@ Test: `a_death_is_told_by_the_message_that_carries_its_reason`.
   on each pet's going and after zoning; here only when a pet comes.
 Tests: `a_pet_has_its_place_and_its_kept_name`, `a_pets_name_is_kept_and_given_back`,
 `a_pet_command_carries_its_pets_and_its_text`.
+
+## Popup menus like the original, and options that did nothing (2026-11-18)
+
+The user: "port SET-030 and WIN-111". Read anew in the original by two readers; what a port rests on was checked
+against the decompile and the drop-in ports first, and what could not be found there was left. The menus were looked
+at in offscreen renders; none of it was seen in the live game.
+
+### The popup menu: separators, the mark at the right, sub-menus, sliders, typing (WIN-111)
+
+`gui/popup.rs` is `PopupMenu_c` whole now, bar what no menu of the original uses (icons, more than one choice):
+
+- **Entries of three kinds** (`popup::Entry`): text, a separator (5 high, a line of 0x606060 at 2 and one of 0xd0d0d0
+  at 3; the pointer, the keys and the search pass over it, `IsStatic`), and a slider (`PopupMenuSliderItem_c`: a
+  `Slider_c` in the label column, 80 wide at least, no label of its own).
+- **The tail column**, as wide as the widest picture plus 10: `GFX_GUI_MENU_CHECK` for a ticked entry (it was drawn
+  at the left before), `GFX_GUI_MENU_SUB_ARROW` for an entry with a sub-menu.
+- **Sub-menus**: an entry rested on for 300 ms opens its own (200 ms when another is open already), 6 right of the
+  parent's entries, to the left when it would leave the screen; the pointer may cross into it; Right opens it by key
+  and Left closes it. A choice is told by its place through the menus (`popup::Event::Chosen(path)`).
+- **Sliders**: only the knob is grabbed, the value is told while it moves and when it is let go, and the menu stays
+  up. Only the chat window's "how solid" menu has them, as in the original.
+- **Typing** finds the first entry that starts with what was typed (case put aside, a leading `/` put aside, the
+  typed text forgotten after a second). Escape, Delete and Backspace close; Enter chooses; Tab pages; Up and Down
+  do not wrap. Any button let go after a press in the menu chooses the highlighted entry; a dead one closes the menu.
+- `chrome::menu_of` / `chrome::menu_path` are the windows' way to it; `chrome::menu` (one flat list, the entry's
+  number) is unchanged for the menus that need no more.
+
+**The menus changed with it:**
+
+- **The chat window's menu** is one menu with its sub-menus, in the original's order: Visual (the mode's sub-menu,
+  the two sliders' sub-menu for a borderless window, the four switches, always behind / on top), a separator, the
+  channel to talk to, the channels shown (public and combat, each its list), the auto-subscribe switch, a
+  separator, the chat settings, a separator, rename / delete / new window; this client's own "move to a window" entries
+  after one more separator. Before, each of those was a new flat menu in the first's place, and "how solid" was two
+  lists of ten steps. The sliders run 0 to 1 (the window not active first, then the active one), the window follows
+  the knob, and each has its tip (the tip is a guess from the texts' names, `..._InactiveToolTip`: the item's own
+  tip code was not read). A group ticked in a channel list still leaves the list up for the next one, which is
+  this client's own.
+- **The container windows' item menu**: Looter is a real sub-menu (in a raid: the teams, each its members' sub-menu).
+- **The nano programs window's menu**: Auto Arrange is a sub-menu with its two separators.
+
+Not done: the same sub-menu in the backpack's own menu (WIN-109) and the NCU window (its grid's order is not
+ported). `MAO_UI_PREVIEW=popup` (`MAO_POPUP_PATH=7`, `MAO_POPUP_AT=x,y`) renders a menu with every kind
+of entry. Tests: the five in `gui/popup.rs`, `the_windows_menu_holds_its_sub_menus`,
+`an_items_menu_follows_its_container`, `the_arrange_menu_marks_the_grids_order`.
+
+### Options that did nothing (SET-030)
+
+The entry's "names" were done before (`ShowAllNames`, the organization's name overhead). Of the rest, what could be
+confirmed in the code was ported, and no default look changes by it:
+
+- **`FogMode`** (`VisualFog_t::SetFogMode`, DisplaySystem 0x10058409, difftested in the drop-in): at 0 the frame's
+  gathered fog density is a tenth. The fog is never turned off by it (the mode kept is 3 for 0 too), and 1 to 3 draw
+  alike. `viewer.rs` `fog_mode`.
+- **"All effects"** (`ToggleAllEffects`, GUI.dll FUN_100c00ea): a change sets thirteen preferences to its value:
+  the water, the wildlife, the space ships, the two clouds, the shadows, the six effect kinds and the smooth
+  animations. `controlcenter::ALL_EFFECTS`.
+- **`RealisticClouds` / `SimpleClouds`** (`VisualSingleCloud_t`'s frame, the drop-in's `fxsinglecloud.rs`): with both
+  off the single clouds are not drawn. Not done: the original takes the realistic ones as off while the camera is
+  under water, builds the simple-only ones with two sides for ten (RND-075), and its volume-dot effect draws only
+  with the simple clouds on.
+- **`WaitForVertSync`**: this client's own `vsync` setting follows a change of the option (the reverse is not
+  shown: the option's box keeps its own value).
+- **The seven `VisualFlags` boxes** (`opt_bitnum`, `OptionCheckBox_c` FUN_100c22ba / FUN_100c21b7): **a fault**.
+  Each box showed "the whole number is not 0" and wrote 0 or 1 over all seven; now each shows and sets its own bit
+  (helmet 2, shoulder pads 0 1 3 4, social tab 5 6). The number is still not sent to the server (the original's
+  `CharacterAction` for stat 673 is not ported), so the boxes change nothing others see.
+- **Escape** closes the raid window (`esc_raid`, FUN_10103127), the team search (`esc_lft`, FUN_100f0d2e) and the
+  city terminal (`esc_cityterminal`, FUN_100e7847) by their options. **A fault with it**: the shared container
+  window of a bag that is not one's own read `esc_backpacks`; the original reads `esc_chests` there and
+  `esc_backpacks` for one's own backpacks' windows, which Escape did not close at all (FUN_100ccefe). `esc_vehicle`
+  is the mech selection's and `esc_towerbuildmenu` the tower menu's: neither window exists here.
+
+**Left, and why:**
+
+- `ViewDistance`, `DisplayCharViewDistance`, `ZoomTo1stPerson`, `MouseWheel` (for the camera): the code that reads
+  them is in none of the decompiles at hand (GUI.dll only stores them; `MouseWheel` = 1 there connects the wheel to
+  the sidebar's scrolling). The reader's figures for them (a far plane of the value times 1000, characters within 5
+  to 80 m, wheel modes) could not be checked, so nothing was built on them. This client's own view and character
+  distances (`/setoption view_distance`, `char_distance`) are as before.
+- `FadeCharacter*` and `ShowMyCharacter` (the own character fading near the camera, hidden in first person): a real
+  port of its own, not started.
+- `RealisticWater`, `Wildlife`, `IsSpaceShipsShown`, `SmoothAnimations`: what they switch is not in this client.
+- The Direct3D 7 ground and texture options, the advertisements, the hotbar and fade options, and
+  `AutoTargetMOB` / `AutoTargetPvP` / `DisableXPGain` (their message was never seen).
+Tests: `the_fog_mode_thins_the_fog`, `a_bit_box_shows_and_sets_its_bit`, `escape_closes_by_the_original_options`.

@@ -101,6 +101,12 @@ pub fn keyboard_taken() -> bool {
     KEYBOARD.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Something of the interface has the keyboard this frame: a popup menu, which takes it for as long as it is up
+/// (`PopupMenu_c::Go`).
+pub fn take_keyboard() {
+    KEYBOARD.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// A new frame: no tree has the keyboard until one says so.
 pub fn begin_frame() {
     KEYBOARD.store(false, std::sync::atomic::Ordering::Relaxed);

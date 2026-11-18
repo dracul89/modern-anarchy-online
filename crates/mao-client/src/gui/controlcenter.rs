@@ -169,7 +169,16 @@ pub struct Output {
     pub windows: Vec<(&'static str, bool)>,
     /// Chat commands to run.
     pub commands: Vec<String>,
+    /// The values changed this frame that are numbers, with what they are now.
+    pub changed: Vec<(String, f64)>,
 }
+
+/// The preferences the option "all effects" (`ToggleAllEffects`) sets to its own value when it changes (GUI.dll
+/// FUN_100c00ea, thirteen `SetPrefInt`s).
+pub const ALL_EFFECTS: [&str; 13] = [
+    "RealisticWater", "Wildlife", "IsSpaceShipsShown", "RealisticClouds", "SimpleClouds", "Shadows", "BuffsFX", "TracersFX", "NanoEffectFX", "MuzzleFlashFX", "EnvironmentFX", "OthersFX",
+    "SmoothAnimations",
+];
 
 /// Where the player's own values are kept (beside the client's settings, as the program's `Prefs.xml`).
 pub fn prefs_path() -> PathBuf {
@@ -466,6 +475,13 @@ impl ControlCenter {
             }
             if let Some(v) = self.store.get(&name).filter(|v| !matches!(v, Variant::String(_) | Variant::Void)) {
                 crate::prefs::set(&name, v.as_double());
+                out.changed.push((name.clone(), v.as_double()));
+            }
+            if name == "ToggleAllEffects" {
+                let on = self.store.get_bool(&name);
+                for effect in ALL_EFFECTS {
+                    self.store.set_user(effect, Variant::Int32(i32::from(on)));
+                }
             }
         }
         if save {

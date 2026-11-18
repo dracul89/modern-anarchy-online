@@ -42,8 +42,9 @@
 //!
 //! Here Create Reference puts the item's link into the chat's line, as the inventory window's menu does (the
 //! original puts the item on the reference board, the Knowledge window, and makes a chat link only of what is
-//! dropped on the chat's line). The organization's contract has the first two entries only. The submenus replace
-//! the menu (the popup here has none of its own). A plain right click is left as it was: it takes the item, which
+//! dropped on the chat's line). The organization's contract has the first two entries only. The Looter entry and,
+//! in a raid, its teams are sub-menus (`gui::popup`, since 2026-11-18; they took the menu's place before). A plain
+//! right click is left as it was: it takes the item, which
 //! is the original's for the bank, a chest and the overflow, where the original uses an item of one's own backpack
 //! out of the bag and does nothing on a corpse.
 
@@ -226,6 +227,56 @@ pub fn looter_entries(team: &crate::team::Team, place: Option<usize>, known: &dy
     }
 }
 
+/// The menu's entries with the sub-menus under them: the Looter entry's ([`looter_entries`]) and, in a raid, each
+/// team's under that.
+pub fn menu_tree(kind: u32, team: &crate::team::Team, known: &dyn Fn(u32) -> bool) -> Vec<(Entry, Vec<(Entry, Vec<Entry>)>)> {
+    item_entries(kind, !team.members.is_empty())
+        .into_iter()
+        .map(|entry| {
+            let sub = if entry == Entry::Looters {
+                looter_entries(team, None, known)
+                    .into_iter()
+                    .map(|looter| {
+                        let members = match looter {
+                            Entry::Team(place) => looter_entries(team, Some(place), known),
+                            _ => Vec::new(),
+                        };
+                        (looter, members)
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            (entry, sub)
+        })
+        .collect()
+}
+
+/// The popup's entries for a [`menu_tree`].
+pub fn popup_entries(tree: &[(Entry, Vec<(Entry, Vec<Entry>)>)]) -> Vec<crate::gui::popup::Entry> {
+    use crate::gui::popup::Entry as Item;
+    let plain = |e: &Entry| {
+        let (label, enabled) = e.label();
+        Item::text(label, enabled)
+    };
+    tree.iter()
+        .map(|(entry, sub)| match entry {
+            Entry::Looters => Item::submenu(entry.label().0, true, sub.iter().map(|(looter, members)| if matches!(looter, Entry::Team(_)) { Item::submenu(looter.label().0, true, members.iter().map(plain).collect()) } else { plain(looter) }).collect()),
+            _ => plain(entry),
+        })
+        .collect()
+}
+
+/// The entry at a place of a [`menu_tree`], through its sub-menus.
+pub fn entry_at<'a>(tree: &'a [(Entry, Vec<(Entry, Vec<Entry>)>)], path: &[usize]) -> Option<&'a Entry> {
+    match path {
+        [a] => tree.get(*a).map(|e| &e.0),
+        [a, b] => tree.get(*a)?.1.get(*b).map(|e| &e.0),
+        [a, b, c] => tree.get(*a)?.1.get(*b)?.1.get(*c),
+        _ => None,
+    }
+}
+
 /// What a looter entry asks of the server: `N3Msg_SetLootAccess`'s raid command 5 (0x100184cf), its three
 /// identities: the corpse, the item's place in it with whether to roll for it, and the looter (none for the first
 /// two entries). Nothing for an entry that is no looter.
@@ -293,8 +344,8 @@ pub struct LootWindow {
     pub feedback: Vec<&'static str>,
     /// The item the right button went down on, and when: its menu comes 0.3 s later.
     right_held: Option<(u32, std::time::Instant)>,
-    /// The item menu that is up: the item, where it was opened, and its entries now (the menu, or a submenu).
-    item_menu: Option<(Chosen, egui::Pos2, Vec<Entry>)>,
+    /// The item menu that is up: the item and its entries with their sub-menus (`menu_tree`).
+    item_menu: Option<(Chosen, Vec<(Entry, Vec<(Entry, Vec<Entry>)>)>)>,
     item_popup: Option<crate::gui::popup::PopupMenu>,
     /// The item whose deleting is being asked about.
     confirm: Option<Chosen>,
@@ -649,16 +700,16 @@ impl LootWindow {
                     eprintln!("items: the menu of the container's place {place} opened by the held right button");
                 }
                 let chosen = Chosen { container: view.identity, handle: view.handle, place, low: item.item_id, high: item.high_id };
-                let entries = item_entries(view.identity.0, crate::team::with(|t| !t.members.is_empty()));
-                self.item_popup = Some(crate::chrome::menu_at(ctx, at, &entries.iter().map(Entry::label).collect::<Vec<_>>()));
-                self.item_menu = Some((chosen, at, entries));
+                let tree = crate::team::with(|t| menu_tree(view.identity.0, t, &crate::team::present));
+                self.item_popup = Some(crate::chrome::menu_of(ctx, at, popup_entries(&tree)));
+                self.item_menu = Some((chosen, tree));
                 self.confirm = None;
                 self.right_held = None;
             }
         }
-        if let Some(k) = crate::chrome::menu(ctx, palette, "container-item-menu", &mut self.item_popup)
-            && let Some((chosen, at, entries)) = self.item_menu.clone()
-            && let (Some(entry), Some(item)) = (entries.get(k), view.items.iter().find(|i| i.slot == chosen.place))
+        if let Some(crate::chrome::Picked::Entry(path)) = crate::chrome::menu_path(ctx, palette, "container-item-menu", &mut self.item_popup)
+            && let Some((chosen, tree)) = self.item_menu.clone()
+            && let (Some(entry), Some(item)) = (entry_at(&tree, &path), view.items.iter().find(|i| i.slot == chosen.place))
         {
             if crate::gear::traced() {
                 eprintln!("items: the container's place {}: the menu's {entry:?}", chosen.place);
@@ -667,16 +718,8 @@ impl LootWindow {
                 Entry::LookAt => self.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
                 Entry::Reference => self.references.push(crate::invwindows::reference(item)),
                 Entry::Delete => self.confirm = Some(chosen.clone()),
-                // (a submenu: its entries take the menu's place)
-                Entry::Looters | Entry::Team(_) => {
-                    let place = match entry {
-                        Entry::Team(place) => Some(*place),
-                        _ => None,
-                    };
-                    let next = crate::team::with(|t| looter_entries(t, place, &crate::team::present));
-                    self.item_popup = Some(crate::chrome::menu_at(ctx, at, &next.iter().map(Entry::label).collect::<Vec<_>>()));
-                    self.item_menu = Some((chosen.clone(), at, next));
-                }
+                // (the sub-menus' own entries are not chosen: they open)
+                Entry::Looters | Entry::Team(_) => {}
                 looter => {
                     if let Some(ids) = loot_access(looter, chosen.container, chosen.place) {
                         crate::net::raid_command(5, ids);
@@ -876,6 +919,14 @@ mod tests {
         assert_eq!(loot_access(&RandomLooter, corpse, 3), Some([corpse, (3, 1), (0, 0)]));
         assert_eq!(loot_access(&Member(2, "Mate".into(), true), corpse, 3), Some([corpse, (3, 0), (0xc350, 2)]));
         assert_eq!((loot_access(&Delete, corpse, 3), loot_access(&Team(1), corpse, 3)), (None, None));
+        // (the menu as the popup shows it: the Looter entry a sub-menu, in a raid its teams sub-menus under it; and the
+        // entry a choice's path names)
+        let tree = menu_tree(CORPSE, &team, &known);
+        let shown = popup_entries(&tree);
+        assert_eq!(shown.len(), 4);
+        let looters = shown[3].sub.as_ref().unwrap();
+        assert_eq!((looters.len(), looters[0].sub.is_none(), looters[2].sub.as_ref().map(Vec::len), looters[3].sub.as_ref().map(|s| (s[0].label.as_str(), s[0].enabled))), (4, true, Some(2), Some(("Far", false))));
+        assert_eq!((entry_at(&tree, &[2]), entry_at(&tree, &[3, 1]), entry_at(&tree, &[3, 3, 0]), entry_at(&tree, &[3, 9])), (Some(&Delete), Some(&RandomLooter), Some(&Member(9, "Far".into(), false)), None));
     }
 
     #[test]

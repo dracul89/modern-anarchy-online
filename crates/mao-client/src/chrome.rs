@@ -196,14 +196,48 @@ pub fn question(ctx: &egui::Context, palette: &Palette, name: &'static str, titl
 /// A right-click menu as the original's `PopupMenu_c` (`gui::popup`), for the client's windows: `entries` are the labels
 /// and whether each can be chosen.
 pub fn menu_at(ctx: &egui::Context, at: egui::Pos2, entries: &[(String, bool)]) -> crate::gui::popup::PopupMenu {
-    let entries = entries.iter().map(|(label, enabled)| crate::gui::popup::Entry { label: label.clone(), enabled: *enabled, mark: None }).collect();
+    let entries = entries.iter().map(|(label, enabled)| crate::gui::popup::Entry::text(label.clone(), *enabled)).collect();
     crate::gui::popup::PopupMenu::new(entries, at, None, ctx.cumulative_frame_nr())
 }
 
 /// A menu whose entries may have check marks ([`menu_at`]): label, whether it can be chosen, and the mark.
 pub fn menu_marked(ctx: &egui::Context, at: egui::Pos2, entries: &[(String, bool, Option<bool>)]) -> crate::gui::popup::PopupMenu {
-    let entries = entries.iter().map(|(label, enabled, mark)| crate::gui::popup::Entry { label: label.clone(), enabled: *enabled, mark: *mark }).collect();
+    let entries = entries.iter().map(|(label, enabled, mark)| crate::gui::popup::Entry { mark: *mark, ..crate::gui::popup::Entry::text(label.clone(), *enabled) }).collect();
     crate::gui::popup::PopupMenu::new(entries, at, None, ctx.cumulative_frame_nr())
+}
+
+/// A menu of entries of any kind: separators, sliders, sub-menus (`gui::popup::Entry`).
+pub fn menu_of(ctx: &egui::Context, at: egui::Pos2, entries: Vec<crate::gui::popup::Entry>) -> crate::gui::popup::PopupMenu {
+    crate::gui::popup::PopupMenu::new(entries, at, None, ctx.cumulative_frame_nr())
+}
+
+/// What a frame of a menu with sub-menus or sliders did ([`menu_path`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Picked {
+    /// The entry chosen, by its place through the sub-menus; the menu is gone.
+    Entry(Vec<usize>),
+    /// A slider entry's value now, and whether its knob was let go; the menu stays.
+    Slider(Vec<usize>, f64, bool),
+}
+
+/// A frame of an open menu that may have sub-menus and sliders ([`menu_of`]); the menu is gone once it closes.
+pub fn menu_path(ctx: &egui::Context, palette: &Palette, name: &str, menu: &mut Option<crate::gui::popup::PopupMenu>) -> Option<Picked> {
+    let open = menu.as_mut()?;
+    let skin = crate::skin::skin(ctx);
+    let measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+    let env = crate::gui::host::Env { skin: skin.as_deref(), palette, measure: &measure };
+    match open.frame(ctx, &env, egui::Id::unique(name)) {
+        crate::gui::popup::Event::None => None,
+        crate::gui::popup::Event::Chosen(path) => {
+            *menu = None;
+            Some(Picked::Entry(path))
+        }
+        crate::gui::popup::Event::Closed => {
+            *menu = None;
+            None
+        }
+        crate::gui::popup::Event::Slider(path, value, done) => Some(Picked::Slider(path, value, done)),
+    }
 }
 
 /// A frame of an open menu ([`menu_at`]): the entry chosen, if one was; the menu is gone once it closes.

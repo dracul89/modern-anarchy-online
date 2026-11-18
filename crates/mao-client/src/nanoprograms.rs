@@ -63,18 +63,21 @@ fn strain_name(strain: u32) -> String {
 }
 
 /// A window's "Auto Arrange" sub-menu (FUN_10041637, as the nano window asks for it): "Don't Auto Arrange" (not
-/// offered here: programs are not placed by hand), then "Unsorted" for the icon's column and "By <label>" for each
-/// other, the grid's sort column marked, then "Sort Ascending", marked when the order is ascending and dead while
-/// unsorted. The entries' keys and what the menu shows.
-pub fn arrange_menu(labels: &[(i32, String)], sort: (i32, i32)) -> (Vec<String>, Vec<(String, bool, Option<bool>)>) {
-    let mut keys = vec!["none".to_string()];
-    let mut entries = vec![("Don't Auto Arrange".to_string(), false, Some(false))];
+/// offered here: programs are not placed by hand), a separator, then "Unsorted" for the icon's column and "By
+/// <label>" for each other, the grid's sort column marked, a separator, then "Sort Ascending", marked when the order
+/// is ascending and dead while unsorted. The entries' keys (none for a separator) and what the menu shows.
+pub fn arrange_menu(labels: &[(i32, String)], sort: (i32, i32)) -> (Vec<String>, Vec<crate::gui::popup::Entry>) {
+    use crate::gui::popup::Entry;
+    let mut keys = vec!["none".to_string(), String::new()];
+    let mut entries = vec![Entry::marked("Don't Auto Arrange", false, false), Entry::separator()];
     for (id, label) in labels {
         keys.push(format!("by:{id}"));
-        entries.push((if *id == 0 { "Unsorted".to_string() } else { format!("By {label}") }, true, Some(sort.0 == *id)));
+        entries.push(Entry::marked(if *id == 0 { "Unsorted".to_string() } else { format!("By {label}") }, true, sort.0 == *id));
     }
+    keys.push(String::new());
+    entries.push(Entry::separator());
     keys.push("ascending".to_string());
-    entries.push(("Sort Ascending".to_string(), sort.0 != 0, Some(sort.1 == 0)));
+    entries.push(Entry::marked("Sort Ascending", sort.0 != 0, sort.1 == 0));
     (keys, entries)
 }
 
@@ -183,7 +186,7 @@ pub struct ProgramsWindow {
     rows: Vec<crate::gui::view::Id>,
     docked_layout: Option<bool>,
     /// The menu up (what each entry stands for and where it opened) and its picture.
-    menu: Option<(Vec<String>, egui::Pos2)>,
+    menu: Option<Vec<Vec<String>>>,
     popup: Option<crate::gui::popup::PopupMenu>,
     /// List mode, the grid's sort (column and order) and the hidden programs; not set until the kept ones are read.
     pub list: Option<bool>,
@@ -396,22 +399,28 @@ impl ProgramsWindow {
         if let Some(at) = over
             && ctx.input(|i| i.pointer.secondary_clicked())
         {
-            let (keys, entries): (Vec<String>, Vec<(String, bool, Option<bool>)>) = match hovered {
+            use crate::gui::popup::Entry;
+            // (the keys of the menu's entries, a sub-menu's under its entry's place)
+            let (keys, entries): (Vec<Vec<String>>, Vec<Entry>) = match hovered {
                 Some(id) => (
-                    vec![format!("look:{id}"), format!("{}:{id}", if school == HIDDEN { "unhide" } else { "hide" })],
-                    vec![(text("LookAtNano", "Look at"), true, None), (if school == HIDDEN { text("UnHideNano", "Show again") } else { text("HideNano", "Hide") }, true, None)],
+                    vec![vec![format!("look:{id}")], vec![format!("{}:{id}", if school == HIDDEN { "unhide" } else { "hide" })]],
+                    vec![Entry::text(text("LookAtNano", "Look at"), true), Entry::text(if school == HIDDEN { text("UnHideNano", "Show again") } else { text("HideNano", "Hide") }, true)],
                 ),
-                None => (
-                    vec!["list".to_string(), "hidden".to_string(), "arrange".to_string()],
-                    vec![(text("ListMode", "As a list"), true, Some(in_list)), (text("ShowHidden", "Show the hidden ones"), true, None), (text("AutoArrange", "Order"), !in_list, None)],
-                ),
+                None => {
+                    // (FUN_100d4f90: List Mode, Show Hidden, and Auto Arrange with its sub-menu, dead in list mode)
+                    let (arrange_keys, arrange) = arrange_menu(&labels, grid_sort);
+                    (
+                        vec![vec!["list".to_string()], vec!["hidden".to_string()], arrange_keys],
+                        vec![Entry::marked(text("ListMode", "As a list"), true, in_list), Entry::text(text("ShowHidden", "Show the hidden ones"), true), Entry::submenu(text("AutoArrange", "Order"), !in_list, arrange)],
+                    )
+                }
             };
-            self.popup = Some(crate::chrome::menu_marked(ctx, at, &entries));
-            self.menu = Some((keys, at));
+            self.popup = Some(crate::chrome::menu_of(ctx, at, entries));
+            self.menu = Some(keys);
         }
-        if let Some(chosen) = crate::chrome::menu(ctx, palette, "program-menu", &mut self.popup)
-            && let Some((keys, at)) = self.menu.take()
-            && let Some(key) = keys.get(chosen)
+        if let Some(crate::chrome::Picked::Entry(path)) = crate::chrome::menu_path(ctx, palette, "program-menu", &mut self.popup)
+            && let Some(keys) = self.menu.take()
+            && let Some(key) = keys.get(path[0]).and_then(|k| k.get(path.get(1).copied().unwrap_or(0)))
         {
             let (word, value) = key.split_once(':').unwrap_or((key.as_str(), ""));
             let number = value.parse::<u32>().unwrap_or(0);
@@ -431,12 +440,6 @@ impl ProgramsWindow {
                     crate::layout::set_tab("NanoViewConfig", usize::from(!in_list));
                 }
                 "hidden" => self.school = Some(HIDDEN),
-                // (the sub-menu: here it takes the menu's place)
-                "arrange" => {
-                    let (keys, entries) = arrange_menu(&labels, grid_sort);
-                    self.popup = Some(crate::chrome::menu_marked(ctx, at, &entries));
-                    self.menu = Some((keys, at));
-                }
                 "by" | "ascending" => {
                     let sort = if word == "by" { (number as i32, grid_sort.1) } else { (grid_sort.0, 1 - grid_sort.1) };
                     self.grid_sort = Some(sort);
@@ -498,13 +501,15 @@ mod tests {
     fn the_arrange_menu_marks_the_grids_order() {
         let labels = vec![(0, String::new()), (1, "Name".to_string()), (10, "NCU Cost".to_string())];
         let (keys, entries) = arrange_menu(&labels, (10, 1));
-        assert_eq!(keys, ["none", "by:0", "by:1", "by:10", "ascending"]);
-        assert_eq!(entries.iter().map(|e| e.0.as_str()).collect::<Vec<_>>(), ["Don't Auto Arrange", "Unsorted", "By Name", "By NCU Cost", "Sort Ascending"]);
+        assert_eq!(keys, ["none", "", "by:0", "by:1", "by:10", "", "ascending"]);
+        assert_eq!(entries.iter().map(|e| e.label.as_str()).collect::<Vec<_>>(), ["Don't Auto Arrange", "", "Unsorted", "By Name", "By NCU Cost", "", "Sort Ascending"]);
+        // (a separator after the first and before the last, as the original's sub-menu has them)
+        assert_eq!(entries.iter().map(|e| e.is_static()).collect::<Vec<_>>(), [false, true, false, false, false, true, false]);
         // (the sort column marked; descending: "Sort Ascending" unmarked; placing by hand is not offered)
-        assert_eq!(entries.iter().map(|e| e.2).collect::<Vec<_>>(), [Some(false), Some(false), Some(false), Some(true), Some(false)]);
-        assert!(!entries[0].1 && entries[4].1);
+        assert_eq!(entries.iter().map(|e| e.mark).collect::<Vec<_>>(), [Some(false), None, Some(false), Some(false), Some(true), None, Some(false)]);
+        assert!(!entries[0].enabled && entries[6].enabled);
         // (unsorted: nothing to turn round)
-        assert!(!arrange_menu(&labels, (0, 0)).1[4].1);
+        assert!(!arrange_menu(&labels, (0, 0)).1[6].enabled);
         // (the columns as the original adds them, the name the one the list starts sorted by)
         assert_eq!(COLUMNS.iter().map(|c| c.0).collect::<Vec<_>>(), [0, 1, 9, 10, 13, 11, 5, 6, 7, 16]);
     }

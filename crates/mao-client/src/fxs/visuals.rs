@@ -343,6 +343,12 @@ impl Visuals {
     /// The single clouds (`VisualSingleCloud_t`, `clouds.rs`): their four material groups, each a backdrop blended at the
     /// object's priority and sorting, round the camera.
     fn clouds(&mut self, o: &Obj, sky: &super::clouds::Sky, lights: &Lights) -> Vec<Draw> {
+        // (`VisualSingleCloud_t`'s frame: with neither the realistic clouds nor the simple ones wanted, none are drawn.
+        // Not here: the original takes the realistic ones as off while the camera is under water, and builds the
+        // simple-only ones with two sides for ten.)
+        if !crate::prefs::on("RealisticClouds") && !crate::prefs::on("SimpleClouds") {
+            return Vec::new();
+        }
         let altitude = float(o, "Altitude").unwrap_or(0.0);
         let sky = super::clouds::Sky { ground: lights.ground, ..*sky };
         let field = self.clouds.get_or_insert_with(super::clouds::Clouds::new);

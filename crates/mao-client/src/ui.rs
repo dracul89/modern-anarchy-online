@@ -394,6 +394,7 @@ fn esc_default(name: &str) -> bool {
 pub const ESCAPABLE: &[&str] = &[
     "Options", "Whom-Pah", "Browser", "Help", "Option panel", "loot", "Shop", "Perks", "Research",
     "Missions", "PlanetMap", "Info", "NPCChat", "Nano programs", "Inventory", "Wear", "Inspect", "Tradeskill", "ChatConfig",
+    "Raid", "LFT", "CityTerminal",
 ];
 
 /// The `esc_*` option that lets Escape close a window (by its `chrome::window` name), which the original's window reads when
@@ -405,11 +406,11 @@ pub fn escape_option(name: &str, loot_kind: Option<u32>, trading: bool) -> Optio
     Some(Some(match name {
         "Options" | "Whom-Pah" | "Browser" | "Help" => return Some(None),
         "Option panel" => "esc_optionpanel",
-        // (InventoryView_c FUN_100ccefe: a corpse, a container (an own backpack: the option of chests is for one in the world,
-        // which the client does not tell apart); the bank reads none)
+        // (InventoryView_c FUN_100ccefe: a corpse; a bag that is not one's own, which is a chest (one's own backpacks have
+        // their own windows and `esc_backpacks`: `Ui::close_with_escape`); the bank reads none)
         "loot" => match loot_kind {
             Some(crate::loot::CORPSE) => "esc_corpses",
-            Some(0xc749) => "esc_backpacks",
+            Some(crate::loot::BAG) => "esc_chests",
             _ => return None,
         },
         // (TradeView_c FUN_100e121e: `esc_trades` for a trade with a player, `esc_shops` for a shop)
@@ -434,6 +435,10 @@ pub fn escape_option(name: &str, loot_kind: Option<u32>, trading: bool) -> Optio
         "Wear" | "Inspect" => "esc_wear",
         "Tradeskill" => "esc_tradeskill",
         "ChatConfig" => "esc_chatconfig",
+        // (FUN_10103127, FUN_100f0d2e, FUN_100e7847: each window's own option, read when it is made)
+        "Raid" => "esc_raid",
+        "LFT" => "esc_lft",
+        "CityTerminal" => "esc_cityterminal",
         _ => return None,
     }))
 }
@@ -689,6 +694,15 @@ impl Ui {
         };
         for name in escape_closes(self.loot.kind(), self.shop.partner.is_some(), &esc, crate::chrome::pinned) {
             crate::chrome::close_soon(name);
+        }
+        // (one's own backpacks, each a window of its own: `esc_backpacks`, FUN_100ccefe)
+        if esc("esc_backpacks") {
+            for (identity, _) in self.bag_windows.iter().filter(|(_, w)| w.open) {
+                let name = format!("Container_{}x{}", identity.0, identity.1);
+                if !crate::chrome::pinned(&name) {
+                    crate::chrome::close_soon(&name);
+                }
+            }
         }
         if esc("esc_tips") {
             self.tips.close();
@@ -1075,6 +1089,13 @@ impl Ui {
             if let Some(cc) = control_center.as_mut() {
                 let out = cc.show(&ctx, palette, &hud.stats, &|n| cc_open.iter().any(|(m, on)| *m == n && *on));
                 cc_windows = out.windows;
+                // (the original's "wait for vertical sync" is this client's own setting of that: it follows the option)
+                if let Some(wait) = out.changed.iter().find(|c| c.0 == "WaitForVertSync").map(|c| c.1 != 0.0)
+                    && settings.vsync != wait
+                {
+                    settings.vsync = wait;
+                    settings.save();
+                }
                 for command in out.commands {
                     if let Some(line) = chat_window.run(&command) {
                         requests.chat.push(line);
@@ -1607,6 +1628,18 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         crate::pets::Pet { id: (0xc350, 0x7b1e6d65), name: "Widowmaker Battle Drone".into(), health: (69609, 69609), in_play: true, selected: false, family: Some(0x5f), pet_type: Some(10), flash: -1 },
         crate::pets::Pet { id: (0xc350, 0x7b1e6d66), name: "Healing pet".into(), health: (0, 0), in_play: false, selected: false, family: Some(0x60), pet_type: Some(15), flash: -1 },
     ];
+    // (MAO_UI_PREVIEW=popup: a menu with every kind of entry, its sub-menus open (MAO_POPUP_AT=x,y for its place))
+    let mut preview_popup = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("popup")).then(|| {
+        use crate::gui::popup::Entry;
+        let at = std::env::var("MAO_POPUP_AT").ok().and_then(|v| { let (x, y) = v.split_once(',')?; Some(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?)) }).unwrap_or(egui::pos2(300.0, 200.0));
+        let teams = vec![Entry::text("Free for all", true), Entry::text("Random looter", true), Entry::submenu("Team 1", true, vec![Entry::text("Somebody", true), Entry::text("Somebody away", false)]), Entry::submenu("Team 2", true, vec![Entry::text("Another", true)])];
+        let look = vec![Entry::marked("Normal", true, false), Entry::marked("Borderless", true, true), Entry::separator(), Entry::slider(0.0, 1.0, 0.3), Entry::slider(0.0, 1.0, 0.8)];
+        let entries = vec![Entry::text("Look at Item", true), Entry::text("Create Reference", true), Entry::text("Delete Item", false), Entry::separator(), Entry::marked("List Mode", true, true), Entry::marked("Show Hidden", true, false), Entry::separator(), Entry::submenu("Visual", true, look), Entry::submenu("Looter", true, teams)];
+        let mut menu = crate::gui::popup::PopupMenu::new(entries, at, Some(8), 0);
+        let path: Vec<usize> = std::env::var("MAO_POPUP_PATH").ok().map_or(vec![8, 2], |v| v.split('/').filter_map(|k| k.parse().ok()).collect());
+        menu.open_path(&path, 0);
+        menu
+    });
     // (MAO_UI_PREVIEW=tip: the tip window on the tips triggered)
     let mut preview_tips = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("tip")).then(crate::tips::Tips::default);
     // (MAO_UI_PREVIEW=factions: the faction window on sample standings)
@@ -1760,6 +1793,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(team) = preview_team.as_mut() {
                 team.show(&ctx, &palette);
+            }
+            if preview_popup.is_some() {
+                crate::chrome::menu_path(&ctx, &palette, "preview-popup", &mut preview_popup);
             }
             if let Some(window) = preview_pets.as_mut() {
                 let (mut fixed, mut remember) = (false, true);
@@ -2608,15 +2644,19 @@ mod tests {
     #[test]
     fn escape_closes_by_the_original_options() {
         let closes = escape_closes(None, false, &esc_default, |_| false);
-        for name in ["Options", "Help", "Option panel", "Shop", "perk-dialog", "team-invite", "Perks", "Research", "Missions", "PlanetMap", "Info", "Wear", "Inspect", "Tradeskill"] {
+        for name in ["Options", "Help", "Option panel", "Shop", "perk-dialog", "team-invite", "Perks", "Research", "Missions", "PlanetMap", "Info", "Wear", "Inspect", "Tradeskill", "Raid", "LFT", "CityTerminal"] {
             assert!(closes.contains(&name), "{name}");
         }
         for name in ["Inventory", "Nano programs", "NPCChat", "loot", "Team", "PetWindow", "Faction", "Friends", "Mail", "MissionView", "Stats", "NCU", "Chat"] {
             assert!(!closes.contains(&name), "{name}");
         }
-        // (the containers: a corpse and a backpack by their options, the bank never)
+        // (the containers: a corpse and a chest by their options, the bank never)
         assert_eq!(escape_option("loot", Some(crate::loot::CORPSE), false), Some(Some("esc_corpses")));
-        assert_eq!(escape_option("loot", Some(0xc749), false), Some(Some("esc_backpacks")));
+        assert_eq!(escape_option("loot", Some(0xc749), false), Some(Some("esc_chests")));
+        // (the raid, team search and city windows by theirs)
+        let no_raid = |name: &str| name != "esc_raid";
+        assert!(!escape_closes(None, false, &no_raid, |_| false).contains(&"Raid"));
+        assert!(escape_closes(None, false, &no_raid, |_| false).contains(&"LFT"));
         assert_eq!(escape_option("loot", None, false), None);
         // (a trade with a player by `esc_trades`, a shop by `esc_shops`)
         assert_eq!(escape_option("Shop", None, true), Some(Some("esc_trades")));

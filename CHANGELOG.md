@@ -75,6 +75,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The pet window shows the programs running on each pet as a row of icons under its bar; click one for its page.
 - "Remember Pet Names" in the pet window's menu: a pet you renamed gets that name again when you call one of its
   kind. `/pet rename <name>` now sends the name.
+- Right-click menus are the original's: sub-menus open beside their entry, separators, the tick at the right, and
+  typing a few letters jumps to an entry. The chat window's menu is one menu with its sub-menus, and a borderless
+  chat window's transparency is set with two sliders.
+- Escape closes the raid window, the team search and the city terminal (by their options), and your own backpacks'
+  windows.
 
 ### Missions
 
@@ -115,6 +120,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Five default keys now match the game's: walk/run on Backspace (was Numpad /), sneak attack J, fast attack N,
   aimed shot O, bow special attack Period. The map overlay, which had O, is on Ctrl+P. Keys you had changed
   yourself are kept.
+- Options that did nothing now act: fog "off" thins the fog to a tenth, "all effects" switches every effect option
+  at once, both cloud options off hides the single clouds, and "wait for vertical sync" sets the client's VSync.
+- The helmet, shoulder pad and social tab boxes each keep their own setting (ticking one overwrote the others).
 
 ## 0.1.5 (2026-11-17)
 

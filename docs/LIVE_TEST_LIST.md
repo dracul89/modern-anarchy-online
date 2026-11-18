@@ -891,6 +891,13 @@ These were written before this list; some may have been seen working since witho
   bar, fading as they run out; none when it has none. `/pet rename Rex` with the pet targeted: the name changes
   in the window (if not, the server's name message is not what the code says: send me the log). Call the pet
   again: it is named Rex by itself, and the log has the "pet ...: command 15" line.
+- [ ] Popup menus (2026-11-18): right-click a chat window's tab: Visual, Talk to Channel and Subscribe Channels open
+  sub-menus beside the menu when rested on; with a borderless window, Visual > Transparency has two sliders and the
+  window follows the knob; typing the first letters of an entry highlights it. On a corpse in a team, hold the right
+  button on an item: Looter opens a sub-menu.
+- [ ] Options (2026-11-18): Preferences: fog Off leaves a thin fog (not none); the helmet and shoulder pad boxes
+  can be ticked one by one and stay as set after closing the window; Escape closes the raid, team search and city
+  terminal windows and an open backpack.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

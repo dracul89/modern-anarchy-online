@@ -199,10 +199,57 @@ enum Menu {
     Visual,
     /// "Mode": normal or borderless.
     Mode,
-    /// "Transparency": the original's two sliders, here steps of ten for a window not active and for an active one.
+    /// "Transparency": the two sliders, for a window not active and for an active one.
     Solid,
     /// The right button on a character's name (FUN_1008e5ea): ignore, open the tell window, start a tell.
     Name,
+}
+
+/// An entry of an open menu with what choosing it means: the menu it is of, its key there, and its sub-menu's.
+struct Node {
+    menu: Menu,
+    key: String,
+    entry: crate::gui::popup::Entry,
+    sub: Vec<Node>,
+}
+
+impl Node {
+    fn leaf(menu: Menu, key: &str, entry: crate::gui::popup::Entry) -> Node {
+        Node { menu, key: key.to_string(), entry, sub: Vec::new() }
+    }
+
+    fn parent(menu: Menu, key: &str, label: String, enabled: bool, sub: Vec<Node>) -> Node {
+        Node { menu, key: key.to_string(), entry: crate::gui::popup::Entry::submenu(label, enabled, popup_entries(&sub)), sub }
+    }
+
+    fn separator(menu: Menu) -> Node {
+        Node::leaf(menu, "", crate::gui::popup::Entry::separator())
+    }
+}
+
+fn popup_entries(nodes: &[Node]) -> Vec<crate::gui::popup::Entry> {
+    nodes.iter().map(|n| n.entry.clone()).collect()
+}
+
+/// The entry at a place through the sub-menus.
+fn node_at<'a>(nodes: &'a [Node], path: &[usize]) -> Option<&'a Node> {
+    let (&k, rest) = path.split_first()?;
+    let node = nodes.get(k)?;
+    if rest.is_empty() { Some(node) } else { node_at(&node.sub, rest) }
+}
+
+/// The place of the entry whose sub-menu is this menu.
+fn path_to(nodes: &[Node], menu: Menu) -> Option<Vec<usize>> {
+    for (k, n) in nodes.iter().enumerate() {
+        if n.sub.first().is_some_and(|s| s.menu == menu) {
+            return Some(vec![k]);
+        }
+        if let Some(mut path) = path_to(&n.sub, menu) {
+            path.insert(0, k);
+            return Some(path);
+        }
+    }
+    None
 }
 
 /// The id of a frame's input bar.
@@ -235,7 +282,7 @@ pub struct ChatWindow {
     /// `ChatTextFadeDelay` and `ChatTextFadeTime`: how old a line is when it starts to fade, and how long it takes.
     pub fade_times: (f32, f32),
     /// The menu open (its kind, what each entry stands for and where it opened) and its picture.
-    menu: Option<(Menu, Vec<String>, egui::Pos2)>,
+    menu: Option<(Vec<Node>, egui::Pos2)>,
     popup: Option<crate::gui::popup::PopupMenu>,
     /// The chat configuration window (`chatconfig`).
     pub config: crate::chatconfig::ChatConfig,
@@ -517,93 +564,100 @@ impl ChatWindow {
     /// The right button on a character's name (FUN_1008e5ea): the three entries the chat view's flags allow, which a
     /// chat window's are all of.
     fn open_name_menu(&mut self, ctx: &egui::Context, name: &str, frame: Option<String>, at: egui::Pos2) {
-        let entries: Vec<(String, bool, Option<bool>)> = ["IgnoreUser", "OpenChat", "SendTell"].iter().map(|n| (menu_text(n), true, None)).collect();
-        self.popup = Some(crate::chrome::menu_marked(ctx, at, &entries));
-        self.menu = Some((Menu::Name, vec!["ignore".to_string(), "chat".to_string(), "tell".to_string()], at));
+        let nodes: Vec<Node> = [("ignore", "IgnoreUser"), ("chat", "OpenChat"), ("tell", "SendTell")].into_iter().map(|(k, n)| Node::leaf(Menu::Name, k, crate::gui::popup::Entry::text(menu_text(n), true))).collect();
+        self.popup = Some(crate::chrome::menu_of(ctx, at, popup_entries(&nodes)));
+        self.menu = Some((nodes, at));
         self.menu_name = (name.to_string(), frame);
     }
 
-    /// Opens one of the window's menus at a place.
-    fn open_menu(&mut self, ctx: &egui::Context, menu: Menu, at: egui::Pos2) {
-        if menu == Menu::Name {
-            return;
-        }
-        let Some(pane) = self.panes.get(self.menu_pane) else { return };
+    /// The window's menu (FUN_100abb98 under FUN_10097a40's "Visual"), its sub-menus inside it.
+    fn menu_tree(&self) -> Vec<Node> {
+        use crate::gui::popup::Entry;
+        let Some(pane) = self.panes.get(self.menu_pane) else { return Vec::new() };
         let mut groups: std::collections::BTreeSet<String> = chatgroups::BUILTIN.iter().map(|g| g.1.to_string()).collect();
         groups.extend(chatgroups::server_groups());
         groups.extend(pane.known.iter().cloned());
-        let (keys, entries): (Vec<String>, Vec<(String, bool, Option<bool>)>) = match menu {
-            // (FUN_10097a40 puts "Visual" over FUN_100abb98's entries; the configuration's is marked while its window
-            // is up)
-            Menu::Main => [
-                ("visual", menu_text("ChatWindowMenu_Visual"), true, None),
-                ("talk", menu_text("ChatWindowMenu_TalkToChannel"), true, None),
-                ("subscribe", menu_text("ChatWindowMenu_ChannelSubscribeMenu"), true, None),
-                ("auto", menu_text("ChatWindowMenu_AutoSubscribeChannels"), true, Some(pane.auto)),
-                ("config", menu_text("ChatWindowMenu_ChatConfiguration"), true, Some(self.config.open)),
-                ("rename", menu_text("RenameWindow"), true, None),
-                ("delete", menu_text("DeleteWindow"), self.panes.len() > 1, None),
-                ("new", menu_text("NewWindow"), true, None),
-            ]
+        let look = pane.look;
+        // (FUN_10099a56: the mode is for a window that has its frame to itself)
+        let alone = chatgroups::members(&self.panes, &pane.frame).len() == 1;
+        let mode = [("normal", "ChatWindowMenu_Style_Mode_Normal", !look.borderless), ("borderless", "ChatWindowMenu_Style_Mode_Borderless", look.borderless)]
             .into_iter()
-            .map(|(k, label, enabled, mark)| (k.to_string(), (label, enabled, mark)))
-            // (this client's own, in place of dragging the tab: out into a window of its own when it shares its frame,
-            // or into another frame, named by its first window)
-            .chain((chatgroups::members(&self.panes, &pane.frame).len() > 1).then(|| ("detach".to_string(), (menu_text("own:detach"), true, None))))
-            .chain(chatgroups::frames(&self.panes).into_iter().filter(|f| *f != pane.frame).map(|f| {
-                let first = self.panes.iter().find(|p| p.frame == f).map_or(f.clone(), |p| p.name.clone());
-                (format!("attach:{f}"), (menu_text("own:attach").replace("%s", &first), true, None))
-            }))
-            .unzip(),
-            Menu::Visual => {
-                let look = pane.look;
-                // (FUN_10099a56: the mode is for a window that has its frame to itself)
-                let alone = chatgroups::members(&self.panes, &pane.frame).len() == 1;
-                [
-                    ("mode", menu_text("ChatWindowMenu_Style_Mode"), alone, None),
-                    ("solid", menu_text("ChatWindowMenu_Style_Transparancy"), true, None),
-                    ("timestamps", menu_text("ShowTimestamps"), true, Some(pane.timestamps)),
-                    ("noinput", menu_text("DisableTextInput"), true, Some(!look.input)),
-                    ("hideinput", menu_text("ChatWindowMenu_Style_HideInputBarWhenInactive"), look.input, Some(look.hide_input)),
-                    ("fade", menu_text("ChatWindowMenu_Style_FadeMessages"), true, Some(look.fade)),
-                    ("behind", menu_text("ChatWindowMenu_Style_AlwaysBehind"), true, Some(look.layer < 0)),
-                    ("top", menu_text("ChatWindowMenu_Style_AlwaysOnTop"), true, Some(look.layer > 0)),
-                ]
+            .map(|(k, label, mark)| Node::leaf(Menu::Mode, k, Entry::marked(menu_text(label), true, mark)))
+            .collect();
+        let mut visual = vec![Node::parent(Menu::Visual, "mode", menu_text("ChatWindowMenu_Style_Mode"), alone, mode)];
+        // (how solid: only a borderless window's; two sliders from 0 to 1, the window not active first)
+        if look.borderless {
+            let solid = [("inactive", "ChatWindowMenu_Style_Transparancy_InactiveToolTip", look.solid.1), ("active", "ChatWindowMenu_Style_Transparancy_ActiveToolTip", look.solid.0)]
                 .into_iter()
-                // (how solid: only a borderless window's)
-                .filter(|e| e.0 != "solid" || look.borderless)
-                .map(|(k, label, enabled, mark)| (k.to_string(), (label, enabled, mark)))
-                .unzip()
-            }
-            Menu::Mode => [("normal", "ChatWindowMenu_Style_Mode_Normal", !pane.look.borderless), ("borderless", "ChatWindowMenu_Style_Mode_Borderless", pane.look.borderless)]
-                .into_iter()
-                .map(|(k, label, mark)| (k.to_string(), (menu_text(label), true, Some(mark))))
-                .unzip(),
-            Menu::Solid => {
-                let mut rows = Vec::new();
-                for (key, label, now) in [("inactive", "ChatWindowMenu_Style_Transparancy_InactiveToolTip", pane.look.solid.1), ("active", "ChatWindowMenu_Style_Transparancy_ActiveToolTip", pane.look.solid.0)] {
-                    rows.push((String::new(), (menu_text(label), false, None)));
-                    for step in (0..=100u8).step_by(10) {
-                        rows.push((format!("{key}:{step}"), (format!("{step}%"), true, Some((now + 5) / 10 * 10 == step))));
-                    }
-                }
-                rows.into_iter().unzip()
-            }
-            Menu::Subscribe => [("public", "Public Groups"), ("combat", "Combat Messages")].into_iter().map(|(k, label)| (k.to_string(), (label.to_string(), true, None))).unzip(),
-            Menu::Talk => {
-                let output = if pane.output.is_empty() { chatgroups::VICINITY } else { pane.output.as_str() };
-                let list: Vec<&String> = groups.iter().filter(|g| pane.selected.contains(*g) && chatgroups::talkable(g)).collect();
-                if list.is_empty() {
-                    (vec![String::new()], vec![(menu_text("NoSelectableGroups"), false, None)])
-                } else {
-                    list.into_iter().map(|g| (g.clone(), (g.clone(), true, Some(g == output)))).unzip()
-                }
-            }
-            Menu::Groups { combat } => groups.iter().filter(|g| chatgroups::is_combat(g) == combat).map(|g| (g.clone(), (g.clone(), true, Some(pane.selected.contains(g))))).unzip(),
-            Menu::Name => return,
-        };
-        self.popup = Some(crate::chrome::menu_marked(ctx, at, &entries));
-        self.menu = Some((menu, keys, at));
+                .map(|(k, tip, now)| Node::leaf(Menu::Solid, k, Entry::slider(0.0, 1.0, f64::from(now) / 100.0).tipped(menu_text(tip))))
+                .collect();
+            visual.push(Node::parent(Menu::Visual, "solid", menu_text("ChatWindowMenu_Style_Transparancy"), true, solid));
+        }
+        visual.push(Node::separator(Menu::Visual));
+        for (k, label, enabled, mark) in [
+            ("timestamps", "ShowTimestamps", true, pane.timestamps),
+            ("noinput", "DisableTextInput", true, !look.input),
+            ("hideinput", "ChatWindowMenu_Style_HideInputBarWhenInactive", look.input, look.hide_input),
+            ("fade", "ChatWindowMenu_Style_FadeMessages", true, look.fade),
+        ] {
+            visual.push(Node::leaf(Menu::Visual, k, Entry::marked(menu_text(label), enabled, mark)));
+        }
+        visual.push(Node::separator(Menu::Visual));
+        visual.push(Node::leaf(Menu::Visual, "behind", Entry::marked(menu_text("ChatWindowMenu_Style_AlwaysBehind"), true, look.layer < 0)));
+        visual.push(Node::leaf(Menu::Visual, "top", Entry::marked(menu_text("ChatWindowMenu_Style_AlwaysOnTop"), true, look.layer > 0)));
+
+        let output = if pane.output.is_empty() { chatgroups::VICINITY } else { pane.output.as_str() };
+        let mut talk: Vec<Node> = groups.iter().filter(|g| pane.selected.contains(*g) && chatgroups::talkable(g)).map(|g| Node::leaf(Menu::Talk, g, Entry::marked(g.clone(), true, g == output))).collect();
+        if talk.is_empty() {
+            talk.push(Node::leaf(Menu::Talk, "", Entry::text(menu_text("NoSelectableGroups"), false)));
+        }
+        // (FUN_100ab758: the kinds of groups, each kind's groups with their marks)
+        let kind = |combat: bool| -> Vec<Node> { groups.iter().filter(|g| chatgroups::is_combat(g) == combat).map(|g| Node::leaf(Menu::Groups { combat }, g, Entry::marked(g.clone(), true, pane.selected.contains(g)))).collect() };
+        let subscribe = vec![Node::parent(Menu::Subscribe, "public", "Public Groups".to_string(), true, kind(false)), Node::parent(Menu::Subscribe, "combat", "Combat Messages".to_string(), true, kind(true))];
+
+        let mut main = vec![
+            Node::parent(Menu::Main, "visual", menu_text("ChatWindowMenu_Visual"), true, visual),
+            Node::separator(Menu::Main),
+            Node::parent(Menu::Main, "talk", menu_text("ChatWindowMenu_TalkToChannel"), true, talk),
+            Node::parent(Menu::Main, "subscribe", menu_text("ChatWindowMenu_ChannelSubscribeMenu"), true, subscribe),
+            Node::leaf(Menu::Main, "auto", Entry::marked(menu_text("ChatWindowMenu_AutoSubscribeChannels"), true, pane.auto)),
+            Node::separator(Menu::Main),
+            // (marked while its window is up)
+            Node::leaf(Menu::Main, "config", Entry::marked(menu_text("ChatWindowMenu_ChatConfiguration"), true, self.config.open)),
+            Node::separator(Menu::Main),
+            Node::leaf(Menu::Main, "rename", Entry::text(menu_text("RenameWindow"), true)),
+            Node::leaf(Menu::Main, "delete", Entry::text(menu_text("DeleteWindow"), self.panes.len() > 1)),
+            Node::leaf(Menu::Main, "new", Entry::text(menu_text("NewWindow"), true)),
+        ];
+        // (this client's own, in place of dragging the tab: out into a window of its own when it shares its frame,
+        // or into another frame, named by its first window)
+        let mut own = Vec::new();
+        if chatgroups::members(&self.panes, &pane.frame).len() > 1 {
+            own.push(Node::leaf(Menu::Main, "detach", Entry::text(menu_text("own:detach"), true)));
+        }
+        for f in chatgroups::frames(&self.panes).into_iter().filter(|f| *f != pane.frame) {
+            let first = self.panes.iter().find(|p| p.frame == f).map_or(f.clone(), |p| p.name.clone());
+            own.push(Node::leaf(Menu::Main, &format!("attach:{f}"), Entry::text(menu_text("own:attach").replace("%s", &first), true)));
+        }
+        if !own.is_empty() {
+            main.push(Node::separator(Menu::Main));
+            main.extend(own);
+        }
+        main
+    }
+
+    /// Opens the window's menu at a place, with one of its sub-menus up when one is named.
+    fn open_menu(&mut self, ctx: &egui::Context, at: egui::Pos2, sub: Option<Menu>) {
+        let nodes = self.menu_tree();
+        if nodes.is_empty() {
+            return;
+        }
+        let mut popup = crate::chrome::menu_of(ctx, at, popup_entries(&nodes));
+        if let Some(path) = sub.and_then(|m| path_to(&nodes, m)) {
+            popup.open_path(&path, ctx.cumulative_frame_nr());
+        }
+        self.popup = Some(popup);
+        self.menu = Some((nodes, at));
     }
 
     /// An entry of the open menu was chosen.
@@ -621,13 +675,7 @@ impl ChatWindow {
         }
         let tab = self.menu_pane.min(self.panes.len().saturating_sub(1));
         match (menu, key) {
-            (Menu::Main, "talk") => self.open_menu(ctx, Menu::Talk, at),
-            (Menu::Main, "subscribe") => self.open_menu(ctx, Menu::Subscribe, at),
-            (Menu::Subscribe, kind) => self.open_menu(ctx, Menu::Groups { combat: kind == "combat" }, at),
             (Menu::Main, "config") => self.config.open = !self.config.open,
-            (Menu::Main, "visual") => self.open_menu(ctx, Menu::Visual, at),
-            (Menu::Visual, "mode") => self.open_menu(ctx, Menu::Mode, at),
-            (Menu::Visual, "solid") => self.open_menu(ctx, Menu::Solid, at),
             (Menu::Main, "rename") => self.config.rename(tab, &self.panes),
             // (always behind and always on top are the frame's: every window in it)
             (Menu::Visual, "behind" | "top") => {
@@ -671,18 +719,11 @@ impl ChatWindow {
                     (Menu::Visual, "hideinput") => pane.look.hide_input = !pane.look.hide_input,
                     (Menu::Visual, "fade") => pane.look.fade = !pane.look.fade,
                     (Menu::Mode, mode) => pane.look.borderless = mode == "borderless",
-                    (Menu::Solid, step) => {
-                        if let Some((which, value)) = step.split_once(':').and_then(|(w, v)| Some((w, v.parse::<u8>().ok()?))) {
-                            if which == "active" { pane.look.solid.0 = value } else { pane.look.solid.1 = value }
-                        }
-                        // (the list stays up, as a slider would)
-                        self.open_menu(ctx, menu, at);
-                    }
                     (Menu::Talk, group) if !group.is_empty() => pane.output = group.to_string(),
-                    (Menu::Groups { .. }, group) => {
+                    (Menu::Groups { .. }, group) if !group.is_empty() => {
                         pane.toggle(group);
-                        // (the list stays up for the next one)
-                        self.open_menu(ctx, menu, at);
+                        // (this client's own: the list stays up for the next one)
+                        self.open_menu(ctx, at, Some(menu));
                     }
                     _ => {}
                 }
@@ -1694,7 +1735,7 @@ impl ChatWindow {
         }
         if let Some((at, pane)) = menu_at {
             self.menu_pane = pane;
-            self.open_menu(ctx, Menu::Main, at);
+            self.open_menu(ctx, at, None);
         }
         // the presses on the lines' links: a character's name (FUN_1008fa92, FUN_100ac4c4), else the info view's
         for (frame, click) in clicks {
@@ -1734,29 +1775,46 @@ impl ChatWindow {
             }
             // (`config`: the chat configuration window up)
             self.config.open = menu == "config";
-            let menu = match menu.as_str() {
-                "main" => Some(Menu::Main),
-                "talk" => Some(Menu::Talk),
-                "public" => Some(Menu::Groups { combat: false }),
-                "combat" => Some(Menu::Groups { combat: true }),
-                "visual" => Some(Menu::Visual),
-                "mode" => Some(Menu::Mode),
-                "solid" => Some(Menu::Solid),
+            let sub = match menu.as_str() {
+                "main" => Some(None),
+                "talk" => Some(Some(Menu::Talk)),
+                "public" => Some(Some(Menu::Groups { combat: false })),
+                "combat" => Some(Some(Menu::Groups { combat: true })),
+                "visual" => Some(Some(Menu::Visual)),
+                "mode" => Some(Some(Menu::Mode)),
+                "solid" => Some(Some(Menu::Solid)),
                 _ => None,
             };
-            if let Some(menu) = menu {
-                self.open_menu(ctx, menu, egui::pos2(420.0, 120.0));
+            if let Some(sub) = sub {
+                self.open_menu(ctx, egui::pos2(420.0, 120.0), sub);
             }
             // (`name:<character>`: the menu of a name's right button)
             if let Some(name) = self.demo_name.take() {
                 self.open_name_menu(ctx, &name, None, egui::pos2(160.0, ctx.content_rect().height() - 215.0));
             }
         }
-        if let Some(k) = crate::chrome::menu(ctx, palette, "chat-menu", &mut self.popup)
-            && let Some((menu, keys, at)) = self.menu.take()
-            && let Some(key) = keys.get(k)
-        {
-            self.choose(ctx, menu, key, at);
+        match crate::chrome::menu_path(ctx, palette, "chat-menu", &mut self.popup) {
+            Some(crate::chrome::Picked::Entry(path)) => {
+                if let Some((nodes, at)) = self.menu.take()
+                    && let Some(node) = node_at(&nodes, &path)
+                {
+                    let (menu, key) = (node.menu, node.key.clone());
+                    self.choose(ctx, menu, &key, at);
+                }
+            }
+            // (a slider of "how solid": the window follows the knob, and the menu stays)
+            Some(crate::chrome::Picked::Slider(path, value, done)) => {
+                let which = self.menu.as_ref().and_then(|(nodes, _)| node_at(nodes, &path)).filter(|n| n.menu == Menu::Solid).map(|n| n.key == "active");
+                let tab = self.menu_pane.min(self.panes.len().saturating_sub(1));
+                if let (Some(active), Some(pane)) = (which, self.panes.get_mut(tab)) {
+                    let hundredths = (value * 100.0).round().clamp(0.0, 100.0) as u8;
+                    if active { pane.look.solid.0 = hundredths } else { pane.look.solid.1 = hundredths }
+                    if done {
+                        chatgroups::save(&self.panes);
+                    }
+                }
+            }
+            None => {}
         }
         if self.popup.is_none() {
             self.menu = None;
@@ -2067,6 +2125,38 @@ mod tests {
         chatgroups::invite(73, "Inviterthree");
         w.take_invitations();
         assert_eq!((w.outs.last(), w.lines.len()), (Some(&Out::PrivateDecline { owner: 73 }), said));
+    }
+
+    /// The window's menu holds its sub-menus as the original's does: "Visual" (with the mode and, for a borderless
+    /// window, the two sliders of how solid), a separator, the channels to talk to and to show, and so on.
+    #[test]
+    fn the_windows_menu_holds_its_sub_menus() {
+        let mut w = ChatWindow::default();
+        let tree = w.menu_tree();
+        let keys: Vec<&str> = tree.iter().map(|n| n.key.as_str()).collect();
+        assert_eq!(keys[..11], ["visual", "", "talk", "subscribe", "auto", "", "config", "", "rename", "delete", "new"]);
+        assert!(tree[1].entry.is_static() && tree[0].entry.sub.as_ref().is_some_and(|s| s.len() == tree[0].sub.len()));
+        // (the menus by their places: the talk list, the combat groups under "subscribe", the mode under "visual")
+        assert_eq!(path_to(&tree, Menu::Talk), Some(vec![2]));
+        assert_eq!(path_to(&tree, Menu::Groups { combat: true }), Some(vec![3, 1]));
+        assert_eq!(path_to(&tree, Menu::Mode), Some(vec![0, 0]));
+        // (a window with its frame: no sliders)
+        assert_eq!(path_to(&tree, Menu::Solid), None);
+        assert_eq!(tree[0].sub.iter().map(|n| n.key.as_str()).collect::<Vec<_>>(), ["mode", "", "timestamps", "noinput", "hideinput", "fade", "", "behind", "top"]);
+        // (borderless: the two sliders from 0 to 1, the window not active first, at the window's values)
+        w.panes[0].look.borderless = true;
+        w.panes[0].look.solid = (80, 30);
+        let tree = w.menu_tree();
+        assert_eq!(path_to(&tree, Menu::Solid), Some(vec![0, 1]));
+        let sliders: Vec<(&str, crate::gui::popup::Kind)> = tree[0].sub[1].sub.iter().map(|n| (n.key.as_str(), n.entry.kind.clone())).collect();
+        assert_eq!(sliders.iter().map(|s| s.0).collect::<Vec<_>>(), ["inactive", "active"]);
+        let value = |k: &crate::gui::popup::Kind| match k {
+            crate::gui::popup::Kind::Slider { min, max, value } => (*min, *max, (*value * 100.0).round()),
+            _ => panic!(),
+        };
+        assert_eq!((value(&sliders[0].1), value(&sliders[1].1)), ((0.0, 1.0, 30.0), (0.0, 1.0, 80.0)));
+        assert_eq!(node_at(&tree, &[0, 1, 1]).map(|n| (n.menu, n.key.as_str())), Some((Menu::Solid, "active")));
+        assert!(node_at(&tree, &[0, 1, 2]).is_none() && node_at(&tree, &[]).is_none());
     }
 
     #[test]

@@ -5030,7 +5030,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: string entries with check marks only
 - A player notices: right-click menus are flat
 - Where: `docs/GUI_DLL_PARITY.md:48`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): gui/popup.rs is PopupMenu_c with separators, the check and sub-menu arrow in the tail column, sub-menus (300/200 ms, placed beside their entry, flipped at the screen's edge), slider entries and type-to-search; the chat window's menu is one menu with its sub-menus and the two transparency sliders, the container item menu's Looter and the nano programs' Auto Arrange are sub-menus. Icons and more than one choice are used by no menu of the original and were left. Looked at in offscreen renders, not live. See CLIENT_UI.md, 'Popup menus like the original'.
 
 #### `WIN-112` Several character action tiles do nothing
 
@@ -8476,6 +8477,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: those option controls do nothing
 - Where: `docs/GUI_DLL_PARITY.md:108`; `docs/CLIENT_UI.md:2658`; `crates/mao-client/src/prefs.rs:1`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18): Acted on now, each confirmed in the decompile or the drop-in ports: FogMode (0 = a tenth of the fog), ToggleAllEffects (sets thirteen preferences), RealisticClouds/SimpleClouds (both off: no single clouds), WaitForVertSync (sets the client's vsync), the seven VisualFlags boxes (a fault: each overwrote the whole number; shown and kept per bit now, still not sent), esc_raid / esc_lft / esc_cityterminal, and esc_chests / esc_backpacks put right. Left because the code that reads them is in none of the decompiles at hand: ViewDistance, DisplayCharViewDistance, ZoomTo1stPerson, MouseWheel. Left as ports of their own: FadeCharacter*, ShowMyCharacter. Nothing to switch here: RealisticWater, Wildlife, IsSpaceShipsShown, SmoothAnimations.
 
 #### `SET-031` Per-character Prefs.xml key bindings not read
 

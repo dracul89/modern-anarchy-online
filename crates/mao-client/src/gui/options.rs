@@ -50,6 +50,9 @@ pub struct OptionCtl {
     pub kind: Kind,
     pub scale: f64,
     pub fmt: String,
+    /// `opt_bitnum`, a check box's: the box stands for that bit of the setting's number, not for the whole setting
+    /// (`OptionCheckBox_c` FUN_100c22ba; the seven boxes of `VisualFlags`).
+    pub bit: Option<u32>,
 }
 
 impl Control for OptionCtl {
@@ -88,6 +91,7 @@ fn wrapper(tree: &mut Tree, e: &Element, kind: Kind) -> Id {
         kind,
         scale: e.attribute("value_scale").and_then(|v| v.trim().parse().ok()).unwrap_or(1.0),
         fmt: e.attribute("value_fmt").unwrap_or("%.0f").to_string(),
+        bit: None,
     };
     let id = tree.add(Node::from_element(e, 4, Box::new(ctl)));
     tree.get_mut(id).layout = Layout::Vertical;
@@ -110,6 +114,11 @@ pub fn create_check(tree: &mut Tree, e: &Element) -> Id {
     let check = CheckBox::create(tree, &labelled("CheckBox", e.attribute("label").unwrap_or(""), None));
     tree.add_child(id, check);
     set_kind(tree, id, Kind::Check(check));
+    // (`atoi` of the attribute, the shift taken modulo 32)
+    let bit = e.attribute("opt_bitnum").map(|v| v.trim().parse::<i32>().unwrap_or(0) as u32 & 0x1f);
+    if let Some(c) = tree.control_mut::<OptionCtl>(id) {
+        c.bit = bit;
+    }
     id
 }
 
@@ -180,10 +189,10 @@ fn controls(tree: &Tree) -> Vec<Id> {
 pub fn sync(tree: &mut Tree, store: &Store) {
     for id in controls(tree) {
         let Some(c) = tree.control::<OptionCtl>(id) else { continue };
-        let (var, kind, scale, fmt, t) = (c.var.clone(), c.kind.clone(), c.scale, c.fmt.clone(), c.typ);
+        let (var, kind, scale, fmt, t, bit) = (c.var.clone(), c.kind.clone(), c.scale, c.fmt.clone(), c.typ, c.bit);
         let value = store.get(&var).cloned().unwrap_or(Variant::Int32(0));
         match kind {
-            Kind::Check(check) => CheckBox::set(tree, check, value.as_bool()),
+            Kind::Check(check) => CheckBox::set(tree, check, bit.map_or(value.as_bool(), |b| (1i32 << b) & value.as_int32() != 0)),
             Kind::Radio(radios) => {
                 for r in radios {
                     let on = tree.control::<RadioButton>(r).is_some_and(|b| radio_value(&b.value).equals(&value));
@@ -221,8 +230,16 @@ pub fn read_back(tree: &Tree, store: &mut Store) {
         match &c.kind {
             Kind::Check(check) => {
                 let on = CheckBox::checked(tree, *check);
-                if on != current.as_bool() {
-                    store.set_user(&c.var, typed(c.typ, old.as_ref(), if on { 1.0 } else { 0.0 }));
+                match c.bit {
+                    // (FUN_100c21b7: the number with the bit set or cleared, as an integer)
+                    Some(bit) => {
+                        let (now, mask) = (current.as_int32(), 1i32 << bit);
+                        if on != (now & mask != 0) {
+                            store.set_user(&c.var, Variant::Int32(if on { now | mask } else { now & !mask }));
+                        }
+                    }
+                    None if on != current.as_bool() => store.set_user(&c.var, typed(c.typ, old.as_ref(), if on { 1.0 } else { 0.0 })),
+                    None => {}
                 }
             }
             Kind::Radio(radios) => {
@@ -583,5 +600,36 @@ mod tests {
         assert!(!store.get_bool("SoundOnOff"));
         assert_eq!(store.get("FogMode"), Some(&Variant::Int32(0)));
         assert_eq!(store.get("MasterVolume").map(|v| v.as_double()), Some(0.25));
+    }
+
+    /// A check box with `opt_bitnum` stands for one bit of its setting's number: the shoulder pads, the helmet and the
+    /// social tab are seven boxes on the one `VisualFlags`.
+    #[test]
+    fn a_bit_box_shows_and_sets_its_bit() {
+        let doc = crate::gui::xml::parse(
+            r#"<root><ScrollView label="Char/Looks"><ScrollViewChild><View view_layout="vertical">
+            <OptionCheckBox label="Helmet" opt_type="variant" opt_variable="VisualFlags" opt_bitnum="2"/>
+            <OptionCheckBox label="Social" opt_type="variant" opt_variable="VisualFlags" opt_bitnum="5"/>
+            </View></ScrollViewChild></ScrollView></root>"#,
+        );
+        let mut tree = Tree::default();
+        crate::gui::create(&mut tree, &doc[0].children[0]).unwrap();
+        let mut store = Store::default();
+        store.load_config(r#"<Root><Value name="VisualFlags" value="31"/></Root>"#);
+        sync(&mut tree, &store);
+        let boxes: Vec<Id> = controls(&tree).iter().map(|&i| match tree.control::<OptionCtl>(i).unwrap().kind { Kind::Check(c) => c, _ => panic!() }).collect();
+        // (31: the five low bits; the helmet's is among them, the social tab's is not)
+        assert!(CheckBox::checked(&tree, boxes[0]) && !CheckBox::checked(&tree, boxes[1]));
+        // nothing touched: nothing written
+        read_back(&tree, &mut store);
+        assert_eq!(store.get("VisualFlags").map(|v| v.as_int32()), Some(31));
+        // the helmet hidden, the social tab on: each its own bit, the others kept
+        CheckBox::set(&mut tree, boxes[0], false);
+        read_back(&tree, &mut store);
+        assert_eq!(store.get("VisualFlags"), Some(&Variant::Int32(27)));
+        sync(&mut tree, &store);
+        CheckBox::set(&mut tree, boxes[1], true);
+        read_back(&tree, &mut store);
+        assert_eq!(store.get("VisualFlags"), Some(&Variant::Int32(59)));
     }
 }
