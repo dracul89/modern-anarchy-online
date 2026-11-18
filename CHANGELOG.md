@@ -4,7 +4,7 @@ What each release changed, as a player meets it. The commits have the detail, an
 thing was read from the original client. The release workflow puts a version's section at the top of that release's
 notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Releases page only.
 
-## Unreleased
+## 0.1.5 (2026-11-17)
 
 ### The launcher
 
