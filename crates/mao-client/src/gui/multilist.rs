@@ -967,6 +967,11 @@ pub fn selected(tree: &Tree, id: Id) -> Option<i64> {
 }
 
 /// `MultiListViewItem_c::Select`: one row at a time.
+/// The items' ids in the order they stand in now (sorted, when the view sorts).
+pub fn order(tree: &Tree, id: Id) -> Vec<i64> {
+    parts(tree, id).and_then(|(_, _, rows)| tree.control::<Rows>(rows)).map_or(Vec::new(), |r| r.items.iter().map(|i| i.id).collect())
+}
+
 /// The grid's locked items ([`Rows::locked`]).
 pub fn set_locked(tree: &mut Tree, id: Id, locked: Vec<i64>) {
     let Some((_, _, rows)) = parts(tree, id) else { return };

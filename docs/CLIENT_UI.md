@@ -5774,3 +5774,58 @@ code and were looked at in offscreen pictures (`MAO_UI_PREVIEW=cityterminal MAO_
 `MAO_CITY_TAB`; the lock with `MAO_UI_PREVIEW=gear MAO_CITY_LOCKS=<places>`). **Purchase must never be pressed in
 a test: one click, no question, the price shown (hundreds of millions).**
 Test: `the_buying_text_and_the_map_tip`.
+
+### The item windows' own menus: List Mode, Auto Arrange, Labels On Top (WIN-109)
+
+**Where the menu comes from.** In the original it is not a click in the item view (the list's mouse handler does
+nothing off an item, FUN_10041aa4): it is the frame's menu button, which asks the shown view to fill the menu
+through its virtual slot +0xf8 (FUN_100cbace for `InventoryView_c`, FUN_100e20d6 for `WearView_c`; the frame adds
+its own Autofade / Close entries after). This client's windows have no such button, so the menu is on the right
+button **beside the items**, as the nano programs' and the NCU's are.
+
+**The inventory and every container** (FUN_100cbace; `invwindows.rs`, `loot.rs`):
+
+- **List Mode**, with its mark: the items as rows, columns Icon (16), Name (200), Count (30), Quality (100)
+  (FUN_100ce55d through FUN_100ccde7's flags 0xb: no price column in these windows), sorted by the name at
+  first; a header press sorts, the widths can be dragged, and both are kept. Count is the stack (nothing counted
+  reads 1), Quality the item's.
+- **Auto Arrange**, a sub-menu (FUN_10041637, the one the nano programs window has), dead in list mode. For one's
+  own windows: "Don't Auto Arrange" (marked while the items stand where they were put), a separator, "Unsorted"
+  (packed in their present order), "By Name", "By Count", "By Quality", a separator, "Sort Ascending". For
+  another's container (a corpse, a chest, the overflow): only the three "By" entries and the order.
+  Choosing "Don't Auto Arrange" leaves every item in the cell the arranging had it in (`SetAutoArrange(false)`),
+  from where it can be placed by hand again.
+- **Another's container starts arranged by name** (FUN_100ce55d: `SetListSortColumn(1, 0)` and the grid's sort
+  (1, 0)): this client showed a corpse's items in their places' order.
+- **Rename** stays, third, on one's own backpacks.
+- While a view is a list or is arranged it has no cells to put an item in (FUN_100cc855): an item let go on an
+  empty spot stays where it was, two items do not change places, stacks still join, and a split's new stack
+  takes the first free place.
+- Kept per window: the inventory, each own backpack by its identity, the bank, and one for all other containers
+  (the original keeps a file each, `Containers/*.xml`; another's container has a file by its handle there, which
+  is new each time).
+
+**The wear window** (FUN_100e20d6): **Labels On Top**, with its mark, on all four pages (`SetGridLabelsOnTop`,
+FUN_100e1c7b; the labels white over the items, or grey under them), kept.
+
+**Left:**
+
+- **Unlock All Items** (the wear menu's second entry): it empties the locks that the item menu's Lock Item puts
+  on worn items (`InventoryItemLocker_c`, the `EquipmentLocks` value), which this client does not have.
+- **The bank placed by hand.** The original's bank is an own-style view ("Don't Auto Arrange" offered); here the
+  bank's items cannot be placed by hand, so its menu has "Unsorted" (the places' order, as before) and the three
+  "By" entries only.
+- The Inspect window's Labels On Top (its own kept value in the original); the name's rarity colour in list mode;
+  the frame's menu button and its Autofade / Close entries.
+- The nano programs window's "Don't Auto Arrange" is live in the original too (FUN_100d4f90 passes the flag);
+  here it stays dead, since programs cannot be placed by hand.
+
+A note corrected: the "list features 0x15" this client's comments give for these lists is an argument of
+FUN_100ce55d that it never reads; the lists' feature flags are 0 (0x10 for the wear pages).
+
+Looked at in offscreen pictures: a container as grid, as list and with its menu, an own backpack's menu and its
+arranging, the inventory in its three states, the wear page with its labels under the items
+(`MAO_UI_PREVIEW=loot` with `MAO_LOOT_LIST`, `MAO_LOOT_SORT=<n>`, `MAO_LOOT_MENU`; `MAO_UI_PREVIEW=gear` with
+`MAO_INV_LIST`, `MAO_INV_SORT=<n>`, `MAO_WEAR_LABELS=0`). **The mouse paths were not tried**: letting items go in
+list mode and in an arranged grid, and switching the arranging off, rest on the code alone.
+Tests: `the_arrange_menu_follows_the_container`.

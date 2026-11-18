@@ -5014,6 +5014,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No list view or column sorting of bags, bank, corpses or inventory; no labels-on-top switch, no unlock-all.
 - Where: `crates/mao-client/src/loot.rs:19`; `crates/mao-client/src/invwindows.rs:321`; `docs/CLIENT_UI.md:1797`; `docs/ORIGINAL_AUDIT.md:101`; `docs/GUI_DLL_PARITY.md:76`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18): Done: the window menus of the inventory, own backpacks, the bank, corpses, chests and the overflow (right button beside the items): List Mode (columns Icon, Name, Count, Quality; sort and widths kept) and Auto Arrange with its sub-menu (Don't Auto Arrange, Unsorted, By Name / Count / Quality, Sort Ascending; another's container only the By entries, and it starts sorted by name as in the original); the wear window's Labels On Top. Left: Unlock All Items (it empties per-item locks the client does not have), the bank placed by hand, the Inspect window's own Labels On Top, the frame's menu button. Looked at in offscreen pictures; the mouse paths in list mode and an arranged grid were not tried.
 
 #### `WIN-110` City controller window: no land-buying dialog, no item lock or pointer tip, no Escape option
 

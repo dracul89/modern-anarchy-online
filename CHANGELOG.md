@@ -19,6 +19,12 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   controller used to open nothing and block every controller until you zoned.)
 - A building item placed on the city map is locked in the inventory (a small padlock) until it is built or taken
   off the map, and the map tells the pointer's coordinates as a tip.
+- The inventory, backpacks, the bank, corpses and chests have their window menu (right click beside the items):
+  **List Mode** shows the items as a list with name, count and quality, sortable by its header; **Auto arrange**
+  orders the grid by name, count or quality, and "Don't Auto Arrange" gives hand placing back with the items
+  where they are.
+- A corpse's or chest's items are shown sorted by name, as in the game.
+- The wear window's menu (right click on an empty slot) has **Labels On Top**.
 
 ## 0.1.6 (2026-11-18)
 

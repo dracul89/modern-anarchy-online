@@ -121,6 +121,19 @@ pub struct ItemWindows {
     /// A backpack place about to get an item (a split's new stack, an item taken off), the cell it was let go on,
     /// and since when: the item is shown there when it comes (the original's `+0x150`, FUN_100ce25d).
     awaited: Option<(u32, usize, std::time::Instant)>,
+    /// The wear pages' labels over their items or under them (`WearView_c`'s menu, FUN_100e20d6: "Labels On Top",
+    /// kept as `WearViewConfig`'s `labels_on_top`; on at first), once read from what is kept; and the menu while it
+    /// is up.
+    labels_on_top: Option<bool>,
+    wear_popup: Option<crate::gui::popup::PopupMenu>,
+    /// The inventory's list mode and order (`Containers/Inventory.xml`'s `listview_mode`, `grid_sort_column` and
+    /// `grid_sort_order`; `None`: not auto arranged, each item at the cell it was put in), once read from what is
+    /// kept; its columns' widths and list sort; and its window menu while it is up, with the entries' keys.
+    inv_list: Option<bool>,
+    inv_sort: Option<Option<(i32, i32)>>,
+    inv_keeper: multilist::Keeper,
+    inv_menu: Option<Vec<Vec<String>>>,
+    inv_popup: Option<crate::gui::popup::PopupMenu>,
 }
 
 /// What a click on an item of a grid does.
@@ -190,8 +203,15 @@ fn entry(item: &GearItem, textures: &mut HashMap<u32, egui::TextureHandle>, ctx:
         id: item.slot as i64,
         icon: item.icon.as_ref().map(|icon| textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("item-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id()),
         count: item.count as u32,
-        cells: vec![(1, multilist::CellView::Text(item.name.clone()))],
-        keys: vec![(1, item.name.clone())],
+        // (FUN_1003dee6: the name, how many (nothing counted reads 1) and the quality; sorted by the cell, the name
+        // without its case, and the two numbers, FUN_1003d5f3)
+        cells: vec![(1, multilist::CellView::Text(item.name.clone())), (2, multilist::CellView::Text(item.count.max(1).to_string())), (4, multilist::CellView::Text(item.quality.to_string()))],
+        keys: vec![
+            (0, pos.map_or_else(|| format!("{:08}", item.slot), |(x, y)| format!("{y:04}{x:04}"))),
+            (1, item.name.to_lowercase()),
+            (2, format!("{:010}", item.count.max(1))),
+            (4, format!("{:010}", item.quality)),
+        ],
         pos,
         // (an item whose use is locked, a stim while First Aid is: faded for the time left, as a locked action is)
         left: crate::actions::lock_share(crate::actions::item_lock_left(item.item_id)),
@@ -351,8 +371,13 @@ impl ItemWindows {
     fn build(&mut self, ctx: &egui::Context) {
         let mut inventory = GridView::new(ctx, PACK_PLACES as i32, 5);
         multilist::set_max_items(&mut inventory.tree, inventory.list, PACK_PLACES as i32);
-        // (one's own container is not arranged, FUN_100ce55d: each item at the cell it is given, `places.rs`)
-        multilist::set_grid(&mut inventory.tree, inventory.list, |m| m.auto_arrange = false);
+        // (the list mode's columns, sorted by name; whether the grid is arranged is the frame's matter: one's own
+        // container starts not arranged, FUN_100ce55d, each item at the cell it is given, `places.rs`)
+        for (id, label, width, flags) in crate::loot::COLUMNS {
+            multilist::add_column(&mut inventory.tree, inventory.list, id, label, width, flags);
+        }
+        multilist::set_sort(&mut inventory.tree, inventory.list, 1, 0);
+        self.inv_keeper = Default::default();
         self.inventory = Some(inventory);
         self.wear = wear_grids(ctx);
         // (the tab shown when the window last went, `WearViewConfig`'s `selected_tab`: FUN_100e1ce0 saves it, FUN_100e24b8 reads it)
@@ -387,7 +412,22 @@ impl ItemWindows {
         let mut pack: Vec<&GearItem> = items.iter().filter(|i| i.slot >= BACKPACK_FIRST).collect();
         pack.sort_by_key(|i| i.slot);
         let mut is_open = *open;
+        // (the inventory's list mode and order, as kept; `MAO_INV_LIST=1` and `MAO_INV_SORT=<n>`, the kept number, for
+        // a picture)
+        let in_list = *self.inv_list.get_or_insert_with(|| std::env::var_os("MAO_INV_LIST").is_some() || crate::layout::tab("InventoryList") == Some(1));
+        let arranged = *self.inv_sort.get_or_insert_with(|| match std::env::var("MAO_INV_SORT").ok().and_then(|v| v.parse().ok()).or_else(|| crate::layout::tab("InventoryGridSort")) {
+            Some(n) if n > 0 => Some((((n - 1) / 2) as i32, ((n - 1) % 2) as i32)),
+            _ => None,
+        });
+        // (placed by hand: the grid while it is not arranged)
+        let hand = arranged.is_none() && !in_list;
+        let mut inv_menu_at = None;
         if let Some(view) = self.inventory.as_mut() {
+            multilist::set_list_mode(&mut view.tree, view.list, in_list);
+            if !in_list {
+                multilist::set_grid(&mut view.tree, view.list, |m| m.auto_arrange = !hand);
+            }
+            self.inv_keeper.before("InventoryConfig", &mut view.tree, view.list, (!in_list).then(|| arranged.unwrap_or((0, 0))));
             multilist::update(&mut view.tree, view.list);
             // (each item at its own cell, counted along the rows the window's width makes: the one it was put in by
             // hand, the one awaited for it, else the first free one; before the items have come nothing is forgotten)
@@ -410,7 +450,16 @@ impl ItemWindows {
                     hovered_item = Some((slot as u32, String::new()));
                 }
                 // (the cell under the pointer, with an item or not: where what is in hand is let go)
-                hovered_cell = pointer.and_then(|at| multilist::cell_at(tree, list, response.rect.min, at)).map(|(x, y)| y * columns + x).filter(|c| *c < PACK_PLACES as usize);
+                hovered_cell = pointer.and_then(|at| multilist::cell_at(tree, list, response.rect.min, at)).map(|(x, y)| y * columns + x).filter(|c| hand && *c < PACK_PLACES as usize);
+                // (the window's menu, FUN_100cbace: the right button beside the items; the original's is the frame's
+                // menu button)
+                if hovered_item.is_none()
+                    && dragged.is_none()
+                    && ui.input(|i| i.pointer.secondary_clicked())
+                    && let Some(at) = pointer.filter(|at| response.rect.contains(*at))
+                {
+                    inv_menu_at = Some(at);
+                }
                 // (`MAO_ITEM_TRACE`: where each item is, in the window's pixels, for a script's clicks; told when it changes)
                 if crate::gear::traced() {
                     let k = ui.ctx().pixels_per_point();
@@ -454,7 +503,14 @@ impl ItemWindows {
                 && shown.response.contains_pointer()
             {
                 let free = (BACKPACK_FIRST..BACKPACK_FIRST + PACK_PLACES).find(|p| !by_slot.contains_key(p));
-                let onto: Option<&GearItem> = hovered_cell.and_then(|c| crate::places::at(&cells, c)).and_then(|p| by_slot.get(&p).copied());
+                // (in list mode and in an arranged grid there are no cells to put an item in: what it is let go on is
+                // the item under the pointer; stacks still join and a split's new stack takes the first free place,
+                // FUN_100cc855's `GetLayoutMode() != 1` branches and `MoveItem` under auto arrange)
+                let onto: Option<&GearItem> = if hand {
+                    hovered_cell.and_then(|c| crate::places::at(&cells, c)).and_then(|p| by_slot.get(&p).copied())
+                } else {
+                    hovered_item.as_ref().map(|h| h.0).filter(|p| *p != from).and_then(|p| by_slot.get(&p).copied())
+                };
                 if from < BACKPACK_FIRST {
                     // (an item from the wear window goes back into the backpack: the first free place, shown in the
                     // cell it was let go on when that is empty)
@@ -467,11 +523,11 @@ impl ItemWindows {
                 } else if onto.is_some_and(|o| crate::gear::city_locked(o.slot)) {
                     // (let go on an item that waits on the city's map: told, and nothing done, FUN_100cc855)
                     events.feedback.push("DroppedItemWasLocked");
-                } else if let (Some(cell), Some(held)) = (hovered_cell, by_slot.get(&from).copied()) {
+                } else if let (Some(cell), Some(held)) = (hovered_cell.or((!hand).then_some(0)), by_slot.get(&from).copied()) {
                     use crate::places::Placing;
                     match (crate::places::placing(&stack(held), split, onto.map(stack).as_ref()), onto) {
                         // (an empty cell takes the item: `MultiListView_c::MoveItem`, the client's own matter)
-                        (Placing::Move, _) => {
+                        (Placing::Move, _) if hand => {
                             crate::places::put(crate::places::INVENTORY, from, cell);
                             if crate::gear::traced() {
                                 eprintln!("items: place {from} put into cell {cell}");
@@ -486,7 +542,7 @@ impl ItemWindows {
                         }
                         // (anything else: the two change cells and the other is in hand, taken up as by a click
                         // (FUN_100cc6e8: a bag's window closes); stacks of one kind and another level are told so)
-                        (Placing::Swap, Some(other)) => {
+                        (Placing::Swap, Some(other)) if hand => {
                             if crate::places::other_level(&stack(held), &stack(other)) {
                                 events.feedback.push("Feedback_CanOnlyStackItemsOfSameLevel");
                             }
@@ -504,7 +560,7 @@ impl ItemWindows {
                             Some(why) => events.feedback.extend(why),
                             None => {
                                 events.splits.push((from, split));
-                                self.awaited = free.map(|place| (place, cell, std::time::Instant::now()));
+                                self.awaited = free.filter(|_| hand).map(|place| (place, cell, std::time::Instant::now()));
                                 if crate::gear::traced() {
                                     eprintln!("items: {split} of place {from} split off into cell {cell}");
                                 }
@@ -516,6 +572,36 @@ impl ItemWindows {
                 }
             }
             Self::events_of(&mut view.tree, view.list, &mut events, items, dragged, &mut self.split_box);
+            self.inv_keeper.after("InventoryConfig", &view.tree, view.list, in_list);
+            // (FUN_100cbace: List Mode with its mark, and Auto Arrange with its sub-menu, dead in list mode)
+            if let Some(at) = inv_menu_at {
+                use crate::gui::popup::Entry;
+                let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
+                let (arrange_keys, arrange) = crate::loot::arrange_menu(arranged, crate::loot::Arrange::Own);
+                self.inv_menu = Some(vec![vec!["list".to_string()], arrange_keys]);
+                self.inv_popup = Some(crate::chrome::menu_of(ctx, at, vec![Entry::marked(text("ListMode", "As a list"), true, in_list), Entry::submenu(text("AutoArrange", "Order"), !in_list, arrange)]));
+            }
+            if let Some(crate::chrome::Picked::Entry(path)) = crate::chrome::menu_path(ctx, palette, "inventory-menu", &mut self.inv_popup)
+                && let Some(keys) = self.inv_menu.take()
+                && let Some(chosen) = path.first().and_then(|k| keys.get(*k)).and_then(|k| k.get(path.get(1).copied().unwrap_or(0)))
+            {
+                if chosen == "list" {
+                    self.inv_list = Some(!in_list);
+                    crate::layout::set_tab("InventoryList", usize::from(!in_list));
+                } else if let Some(new) = crate::loot::arrange_choice(chosen, arranged) {
+                    // (`SetAutoArrange(false)`: each item stays in the cell the arranging had it in)
+                    if new.is_none() {
+                        for (cell, id) in multilist::order(&view.tree, view.list).into_iter().enumerate() {
+                            crate::places::put(crate::places::INVENTORY, id as u32, cell);
+                        }
+                    }
+                    self.inv_sort = Some(new);
+                    crate::layout::set_tab("InventoryGridSort", new.map_or(0, |s| 1 + (s.0 * 2 + s.1) as usize));
+                }
+            }
+            if self.inv_popup.is_none() {
+                self.inv_menu = None;
+            }
         }
         *open = is_open;
         if !is_open {
@@ -533,6 +619,12 @@ impl ItemWindows {
             }
             let mut tab = self.tab.min(WEAR_TABS.len() - 1);
             let mut drop_on: Option<u32> = None;
+            // (`SetGridLabelsOnTop` on all four pages, FUN_100e1c7b; `MAO_WEAR_LABELS=0`: under the items, for a picture)
+            let labels_on_top = *self.labels_on_top.get_or_insert_with(|| std::env::var("MAO_WEAR_LABELS").as_deref() != Ok("0") && crate::layout::tab("WearLabelsOnTop") != Some(0));
+            for view in self.wear.iter_mut() {
+                multilist::set_grid(&mut view.tree, view.list, |m| m.labels_on_top = labels_on_top);
+            }
+            let mut wear_menu_at = None;
             let wear = &mut self.wear;
             let title = crate::gui::xml::ldb_text("#10000:383874");
             crate::chrome::window(ctx, palette, "Wear", &title, &mut wear_open, |w| w.default_pos(crate::layout::pos("Wear", egui::pos2(380.0, 70.0))).resizable(false), |ui| {
@@ -545,6 +637,10 @@ impl ItemWindows {
                     if let Some(at) = pointer {
                         if let Some(slot) = multilist::item_at(tree, list, response.rect.min, at) {
                             hovered_item = Some((slot as u32, cell_label(&WEAR_TABS[t], slot as u32)));
+                        } else if response.rect.contains(at) && dragged.is_none() && ui.input(|i| i.pointer.secondary_clicked()) {
+                            // (the window's menu, FUN_100e20d6: the right button beside the items; the original's is the
+                            // frame's menu button)
+                            wear_menu_at = Some(at);
                         }
                         // (an item let go over a wear cell is worn there; not a split, FUN_100e220f)
                         if dragged.is_some() && released && split == 0 && let Some(cell) = multilist::cell_at(tree, list, response.rect.min, at) {
@@ -565,6 +661,15 @@ impl ItemWindows {
             }
             for view in self.wear.iter_mut() {
                 Self::events_of(&mut view.tree, view.list, &mut events, items, dragged, &mut self.split_box);
+            }
+            // ("Labels On Top" with its mark. "Unlock All Items", the menu's other entry, is not here: it empties the
+            // locks the item menu's Lock Item puts on worn items, which this client has not.)
+            if let Some(at) = wear_menu_at {
+                self.wear_popup = Some(crate::chrome::menu_marked(ctx, at, &[(crate::gui::xml::ldb_named(10000, "LabelsOnTop", "Labels over the items"), true, Some(labels_on_top))]));
+            }
+            if crate::chrome::menu(ctx, palette, "wear-menu", &mut self.wear_popup) == Some(0) {
+                self.labels_on_top = Some(!labels_on_top);
+                crate::layout::set_tab("WearLabelsOnTop", usize::from(!labels_on_top));
             }
             if !wear_open {
                 self.wear_closed = true;

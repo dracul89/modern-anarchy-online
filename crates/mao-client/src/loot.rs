@@ -351,6 +351,78 @@ pub struct LootWindow {
     confirm: Option<Chosen>,
     /// Links for the chat's line (the menu's Create Reference).
     pub references: Vec<String>,
+    /// The container kind the three below were read for ([`config_key`]): the shared window goes from one to the next.
+    config: String,
+    /// List mode (`listview_mode`), and how the grid is ordered (`grid_sort_column` / `grid_sort_order`; `None`: not
+    /// auto arranged, each item at the cell it was put in), once read from what is kept.
+    list: Option<bool>,
+    grid_sort: Option<Option<(i32, i32)>>,
+    /// The columns' widths and the list's sort, kept (`listview_config`).
+    keeper: crate::gui::multilist::Keeper,
+    /// The window menu that is up: its entries' keys, by their places through the sub-menu.
+    window_menu: Option<Vec<Vec<String>>>,
+}
+
+/// What a container's list mode and order are kept under (the original keeps a file each: `Bank.xml`,
+/// `Container_<type>x<instance>.xml` for one's own backpack, `TempContainer_<handle>.xml` for another's; here the
+/// others share one, since their handles are new each time).
+fn config_key(view: &LootView) -> String {
+    match view.identity.0 {
+        _ if view.own => format!("Container_{}x{}", view.identity.0, view.identity.1),
+        BANK => "Bank".to_string(),
+        _ => "TempContainer".to_string(),
+    }
+}
+
+/// Which "Auto Arrange" sub-menu a container has (FUN_10041637's flag, `InventoryView_c` +0x14c): one's own
+/// (the flag set: not arranging at all is offered, and the order as it is), the bank (the flag is set in the
+/// original too; here its items cannot be placed by hand yet, so not arranging is not offered), or another's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arrange {
+    Own,
+    Bank,
+    Other,
+}
+
+/// The item views' columns (FUN_100ce55d with FUN_100ccde7's flags 0xb, so no price): id, the program's name for it,
+/// width, flags.
+pub const COLUMNS: [(i32, &str, f32, u32); 4] = [(0, "Icon", 16.0, 8), (1, "Name", 200.0, 0xe), (2, "Count", 30.0, 0xe), (4, "Quality", 100.0, 0xe)];
+
+/// The "Auto Arrange" sub-menu of an item view (FUN_10041637): with the flag "Don't Auto Arrange", marked while the
+/// grid is not arranged, and a separator; for each column "By <label>", marked when the grid is arranged by it (the
+/// icon's column is "Unsorted" with the flag and not there without); a separator; "Sort Ascending", marked when the
+/// order is ascending and dead while not arranged or unsorted. The keys (none for a separator) and the entries.
+pub fn arrange_menu(sort: Option<(i32, i32)>, kind: Arrange) -> (Vec<String>, Vec<crate::gui::popup::Entry>) {
+    use crate::gui::popup::Entry;
+    let (mut keys, mut entries) = (Vec::new(), Vec::new());
+    if kind == Arrange::Own {
+        keys.extend(["none".to_string(), String::new()]);
+        entries.extend([Entry::marked("Don't Auto Arrange", true, sort.is_none()), Entry::separator()]);
+    }
+    for (id, label, _, _) in COLUMNS {
+        if id == 0 && kind == Arrange::Other {
+            continue;
+        }
+        keys.push(format!("by:{id}"));
+        entries.push(Entry::marked(if id == 0 { "Unsorted".to_string() } else { format!("By {label}") }, true, sort.is_some_and(|s| s.0 == id)));
+    }
+    keys.extend([String::new(), "ascending".to_string()]);
+    entries.extend([Entry::separator(), Entry::marked("Sort Ascending", sort.is_some_and(|s| s.0 != 0), sort.is_none_or(|s| s.1 == 0))]);
+    (keys, entries)
+}
+
+/// What an "Auto Arrange" entry makes of the order (FUN_10041303, FUN_10041331, FUN_10041258): a column only when
+/// its entry was not marked, keeping the order (the icon's column always ascending); the order turned round.
+pub fn arrange_choice(key: &str, sort: Option<(i32, i32)>) -> Option<Option<(i32, i32)>> {
+    match key.split_once(':').unwrap_or((key, "")) {
+        ("none", _) => sort.is_some().then_some(None),
+        ("by", id) => {
+            let id: i32 = id.parse().ok()?;
+            (sort.map(|s| s.0) != Some(id)).then(|| Some((id, if id == 0 { 0 } else { sort.map_or(0, |s| s.1) })))
+        }
+        ("ascending", _) => sort.map(|s| Some((s.0, 1 - s.1))),
+        _ => None,
+    }
 }
 
 /// The most items a container's grid shows slots for (`ItemContainerView_c` FUN_100ce55d: `SetMaxItemCount` 102 for the bank,
@@ -391,10 +463,12 @@ impl LootWindow {
         tree.get_mut(root).layout = Layout::Base;
         let list = crate::gui::multilist::create_grid(&mut tree, "ItemContainerView", max_items(view.identity.0, view.own), columns(view.identity.0));
         tree.add_child(root, list);
-        // (one's own backpack is not arranged, FUN_100ce55d: each item at the cell it is given, `places.rs`)
-        if view.own {
-            crate::gui::multilist::set_grid(&mut tree, list, |m| m.auto_arrange = false);
+        // (the list mode's columns, sorted by name: `SetListSortColumn(1, 0)`)
+        for (id, label, width, flags) in COLUMNS {
+            crate::gui::multilist::add_column(&mut tree, list, id, label, width, flags);
         }
+        crate::gui::multilist::set_sort(&mut tree, list, 1, 0);
+        self.keeper = Default::default();
         self.views = Some((tree, root, list, view.identity));
         self.shown.clear();
     }
@@ -423,16 +497,42 @@ impl LootWindow {
         // it was put in by hand, else the first free one)
         let mut items: Vec<&GearItem> = view.items.iter().collect();
         items.sort_by_key(|i| i.slot);
+        // (the container's list mode and order, as kept: one's own backpack starts not arranged, each item at the
+        // cell it is given (`places.rs`); another's container starts arranged by name (FUN_100ce55d's
+        // `SetListSortColumn(1, 0)` and FUN_10041258(1, 0)); the bank in its places' order, as it stood here before)
+        let key = config_key(view);
+        if self.config != key {
+            (self.list, self.grid_sort, self.keeper) = (None, None, Default::default());
+            self.config = key.clone();
+        }
+        // (`MAO_LOOT_LIST=1` and `MAO_LOOT_SORT=<n>`, the kept number: for a picture)
+        let in_list = *self.list.get_or_insert_with(|| std::env::var_os("MAO_LOOT_LIST").is_some() || crate::layout::tab(&format!("{key}List")) == Some(1));
+        let arranged = *self.grid_sort.get_or_insert_with(|| match std::env::var("MAO_LOOT_SORT").ok().and_then(|v| v.parse().ok()).or_else(|| crate::layout::tab(&format!("{key}GridSort"))) {
+            Some(0) if view.own => None,
+            Some(n) if n > 0 => Some((((n - 1) / 2) as i32, ((n - 1) % 2) as i32)),
+            _ if view.own => None,
+            _ if view.identity.0 == BANK => Some((0, 0)),
+            _ => Some((1, 0)),
+        });
+        // (placed by hand: the grid of one's own backpack while it is not arranged)
+        let hand = view.own && arranged.is_none() && !in_list;
         let textures = &mut self.textures;
         let (tree, root, list, _) = self.views.as_mut()?;
         let (root, list) = (*root, *list);
+        crate::gui::multilist::set_list_mode(tree, list, in_list);
+        if !in_list {
+            crate::gui::multilist::set_grid(tree, list, |m| m.auto_arrange = !hand);
+        }
+        self.keeper.before(&format!("{key}Config"), tree, list, (!in_list).then(|| arranged.unwrap_or((0, 0))));
         crate::gui::multilist::update(tree, list);
         let grid_columns = crate::gui::multilist::grid_columns(tree, list).unwrap_or(3).max(1);
+        // (one's own backpack's cells are kept and counted whatever the view shows, so that "unsorted" is their order
+        // and switching the arranging off finds them)
         let cells = if view.own { crate::places::arrange(view.identity, &items.iter().map(|i| i.slot).collect::<Vec<_>>(), BAG_PLACES, self.awaited.map(|a| (a.0, a.1))) } else { crate::places::Cells::new() };
         if self.awaited.is_some_and(|(place, _, since)| items.iter().any(|i| i.slot == place) || since.elapsed() > std::time::Duration::from_secs(5)) {
             self.awaited = None;
         }
-        let now: Vec<(u32, u16, Option<u32>, Option<(usize, usize)>)> = items.iter().map(|i| (i.slot, i.count, i.icon.as_ref().map(|c| c.id), cells.get(&i.slot).map(|c| (c % grid_columns, c / grid_columns)))).collect();
+        let now: Vec<(u32, u16, Option<u32>, Option<(usize, usize)>)> = items.iter().map(|i| (i.slot, i.count, i.icon.as_ref().map(|c| c.id), cells.get(&i.slot).filter(|_| hand).map(|c| (c % grid_columns, c / grid_columns)))).collect();
         if self.shown != now {
             let rows: Vec<crate::gui::multilist::Item> = items
                 .iter()
@@ -441,8 +541,19 @@ impl LootWindow {
                     id: i.slot as i64,
                     icon: i.icon.as_ref().map(|icon| textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("loot-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR)).id()),
                     count: i.count as u32,
-                    cells: vec![(1, crate::gui::multilist::CellView::Text(i.name.clone()))],
-                    keys: vec![(1, i.name.clone())],
+                    // (FUN_1003dee6: the name, how many (nothing counted reads 1) and the quality; sorted by the place
+                    // or cell, the name without its case, and the two numbers, FUN_1003d5f3)
+                    cells: vec![
+                        (1, crate::gui::multilist::CellView::Text(i.name.clone())),
+                        (2, crate::gui::multilist::CellView::Text(i.count.max(1).to_string())),
+                        (4, crate::gui::multilist::CellView::Text(i.quality.to_string())),
+                    ],
+                    keys: vec![
+                        (0, format!("{:08}", cells.get(&i.slot).map_or(i.slot as usize, |c| *c))),
+                        (1, i.name.to_lowercase()),
+                        (2, format!("{:010}", i.count.max(1))),
+                        (4, format!("{:010}", i.quality)),
+                    ],
                     pos: shown.3,
                     left: None,
                     colour: None,
@@ -527,7 +638,7 @@ impl LootWindow {
                 }
                 let hovered = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::item_at(tree, list, response.rect.min, at));
                 // (the cell under the pointer, with an item or not: where an item of the backpack is put by hand)
-                hovered_cell = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::cell_at(tree, list, response.rect.min, at)).map(|(x, y)| y * grid_columns + x).filter(|c| *c < BAG_PLACES);
+                hovered_cell = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::cell_at(tree, list, response.rect.min, at)).map(|(x, y)| y * grid_columns + x).filter(|c| hand && *c < BAG_PLACES);
                 hovered_item = hovered.map(|slot| slot as u32);
                 // (a right click takes the item: the list's use signal, FUN_1004141b's button 2; not with an inventory
                 // item in hand, whose right click is a use of it on another; and not the letting go that ends the
@@ -539,9 +650,9 @@ impl LootWindow {
                 {
                     take = Some(Take::One { handle: view.handle, place: slot as u32 });
                 }
-                // (a backpack's own menu, FUN_100cbace: the right button beside the items)
-                if view.own
-                    && hovered.is_none()
+                // (the window's menu, FUN_100cbace: the right button beside the items. The original's is the frame's
+                // menu button.)
+                if hovered.is_none()
                     && ui.input(|i| i.pointer.secondary_clicked())
                     && let Some(at) = ui.input(|i| i.pointer.interact_pos()).filter(|at| response.rect.contains(*at))
                 {
@@ -552,6 +663,7 @@ impl LootWindow {
                 }
             });
         });
+        self.keeper.after(&format!("{key}Config"), tree, list, in_list);
         // (a click: with Shift the item's info; in one's own backpack or the bank it takes the item up, which a drag
         // does too; in a corpse or chest it takes the item into the inventory)
         let (shift, ctrl) = ctx.input(|i| (i.modifiers.shift, i.modifiers.ctrl));
@@ -619,16 +731,20 @@ impl LootWindow {
                 // (`MultiListView_c::MoveItem`, the client's own matter), or with a split in hand that many of the
                 // stack as a stack of their own; on another item the two join as stacks when they can
                 // (`N3Msg_JoinItems`), else they change cells and the other is in hand; a split on an item ends)
+                // (in list mode and in an arranged grid there are no cells to put an item in: stacks still join, and a
+                // split's new stack takes the first free place, FUN_100cc855's `GetLayoutMode() != 1` branches and
+                // `MoveItem` under auto arrange)
                 if view.own
                     && shown.as_ref().is_some_and(|s| s.response.contains_pointer())
-                    && let Some(cell) = hovered_cell
+                    && (!hand || hovered_cell.is_some())
                     && let Some(held) = view.items.iter().find(|i| i.slot == place)
                 {
                     use crate::places::Placing;
+                    let cell = hovered_cell.unwrap_or(0);
                     let stack = |i: &GearItem| crate::places::Stack { place: i.slot, low: i.item_id, high: i.high_id, quality: i.quality, can: i.can, count: i.count as u32 };
-                    let onto = crate::places::at(&cells, cell).and_then(|p| view.items.iter().find(|i| i.slot == p));
+                    let onto = if hand { crate::places::at(&cells, cell).and_then(|p| view.items.iter().find(|i| i.slot == p)) } else { hovered_item.filter(|p| *p != place).and_then(|p| view.items.iter().find(|i| i.slot == p)) };
                     match (crate::places::placing(&stack(held), split, onto.map(stack).as_ref()), onto) {
-                        (Placing::Move, _) => {
+                        (Placing::Move, _) if hand => {
                             crate::places::put(view.identity, place, cell);
                             if crate::gear::traced() {
                                 eprintln!("items: the container's place {place} put into cell {cell}");
@@ -640,7 +756,7 @@ impl LootWindow {
                                 eprintln!("items: the container's place {place} joined to the stack at place {}", other.slot);
                             }
                         }
-                        (Placing::Swap, Some(other)) => {
+                        (Placing::Swap, Some(other)) if hand => {
                             if crate::places::other_level(&stack(held), &stack(other)) {
                                 self.feedback.push("Feedback_CanOnlyStackItemsOfSameLevel");
                             }
@@ -659,7 +775,7 @@ impl LootWindow {
                                 Some(why) => self.feedback.extend(why),
                                 None => {
                                     take = Some(Take::Split { handle: view.handle, place, count: split });
-                                    self.awaited = free.map(|free| (free, cell, std::time::Instant::now()));
+                                    self.awaited = free.filter(|_| hand).map(|free| (free, cell, std::time::Instant::now()));
                                     if crate::gear::traced() {
                                         eprintln!("items: {split} of the container's place {place} split off into cell {cell}");
                                     }
@@ -744,11 +860,53 @@ impl LootWindow {
         }
         // a backpack's menu and its rename box ("Enter backpack name.", FUN_100cb852: OK, back to its own name, or not)
         let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
-        if let Some(at) = menu_at {
-            self.popup = Some(crate::chrome::menu_at(ctx, at, &[(text("Rename", "Rename"), true)]));
+        // (FUN_100cbace: List Mode with its mark, Auto Arrange with its sub-menu, dead in list mode, and for one's own
+        // backpack Rename)
+        // (`MAO_LOOT_MENU=1`: the menu with its sub-menu up, for a picture)
+        let pictured = std::env::var_os("MAO_LOOT_MENU").is_some() && self.popup.is_none() && ctx.cumulative_frame_nr() < 3;
+        if let Some(at) = menu_at.or(pictured.then_some(egui::pos2(520.0, 200.0))) {
+            use crate::gui::popup::Entry;
+            let kind = if view.own { Arrange::Own } else if view.identity.0 == BANK { Arrange::Bank } else { Arrange::Other };
+            let (arrange_keys, arrange) = arrange_menu(arranged, kind);
+            let mut keys = vec![vec!["list".to_string()], arrange_keys];
+            let mut entries = vec![Entry::marked(text("ListMode", "As a list"), true, in_list), Entry::submenu(text("AutoArrange", "Order"), !in_list, arrange)];
+            if view.own {
+                keys.push(vec!["rename".to_string()]);
+                entries.push(Entry::text(text("Rename", "Rename"), true));
+            }
+            let mut popup = crate::chrome::menu_of(ctx, at, entries);
+            if pictured {
+                popup.open_path(&[1], ctx.cumulative_frame_nr());
+            }
+            self.popup = Some(popup);
+            self.window_menu = Some(keys);
         }
-        if crate::chrome::menu(ctx, palette, "backpack-menu", &mut self.popup) == Some(0) {
-            self.renaming = Some(title.clone());
+        if let Some(crate::chrome::Picked::Entry(path)) = crate::chrome::menu_path(ctx, palette, "backpack-menu", &mut self.popup)
+            && let Some(keys) = self.window_menu.take()
+            && let Some(chosen) = path.first().and_then(|k| keys.get(*k)).and_then(|k| k.get(path.get(1).copied().unwrap_or(0)))
+        {
+            match chosen.as_str() {
+                "rename" => self.renaming = Some(title.clone()),
+                "list" => {
+                    self.list = Some(!in_list);
+                    crate::layout::set_tab(&format!("{key}List"), usize::from(!in_list));
+                }
+                other => {
+                    if let Some(new) = arrange_choice(other, arranged) {
+                        // (`SetAutoArrange(false)`: each item stays in the cell the arranging had it in)
+                        if new.is_none() && view.own {
+                            for (cell, id) in crate::gui::multilist::order(tree, list).into_iter().enumerate() {
+                                crate::places::put(view.identity, id as u32, cell);
+                            }
+                        }
+                        self.grid_sort = Some(new);
+                        crate::layout::set_tab(&format!("{key}GridSort"), new.map_or(0, |s| 1 + (s.0 * 2 + s.1) as usize));
+                    }
+                }
+            }
+        }
+        if self.popup.is_none() {
+            self.window_menu = None;
         }
         if let Some(typed) = self.renaming.as_mut() {
             let mut asking = true;
@@ -895,6 +1053,32 @@ mod tests {
     /// (no delete there); the looters on a corpse for one in a team. The looters: free for all, random, the team's
     /// members (one the client does not know cannot be chosen), in a raid the teams that have members. What each
     /// looter asks: the corpse, the place with the roll, the looter.
+    /// The "Auto Arrange" sub-menu by whose container it is, and what its entries make of the order.
+    #[test]
+    fn the_arrange_menu_follows_the_container() {
+        // (another's container, arranged by name: the three columns, a separator, the order)
+        let (keys, entries) = arrange_menu(Some((1, 0)), Arrange::Other);
+        assert_eq!(keys, ["by:1", "by:2", "by:4", "", "ascending"]);
+        assert_eq!(entries.iter().map(|e| e.label.as_str()).collect::<Vec<_>>(), ["By Name", "By Count", "By Quality", "", "Sort Ascending"]);
+        assert_eq!(entries.iter().map(|e| e.mark).collect::<Vec<_>>(), [Some(true), Some(false), Some(false), None, Some(true)]);
+        assert!(entries[4].enabled);
+        // (one's own, not arranged: "Don't Auto Arrange" marked, the order as it is offered, nothing to turn round)
+        let (keys, entries) = arrange_menu(None, Arrange::Own);
+        assert_eq!(keys, ["none", "", "by:0", "by:1", "by:2", "by:4", "", "ascending"]);
+        assert_eq!((entries[0].mark, entries[2].label.as_str(), entries[2].mark, entries[7].enabled), (Some(true), "Unsorted", Some(false), false));
+        // (the bank: the order as it is, but not "no arranging"; unsorted has nothing to turn round either)
+        let (keys, entries) = arrange_menu(Some((0, 0)), Arrange::Bank);
+        assert_eq!((keys[0].as_str(), entries[0].mark, entries.last().unwrap().enabled), ("by:0", Some(true), false));
+        // (a column only when it is not the one already; the order kept, but for the unsorted; the order turned)
+        assert_eq!(arrange_choice("by:2", Some((1, 1))), Some(Some((2, 1))));
+        assert_eq!(arrange_choice("by:1", Some((1, 1))), None);
+        assert_eq!(arrange_choice("by:0", Some((1, 1))), Some(Some((0, 0))));
+        assert_eq!(arrange_choice("by:4", None), Some(Some((4, 0))));
+        assert_eq!(arrange_choice("ascending", Some((2, 0))), Some(Some((2, 1))));
+        assert_eq!(arrange_choice("ascending", None), None);
+        assert_eq!((arrange_choice("none", Some((1, 0))), arrange_choice("none", None), arrange_choice("", None)), (Some(None), None, None));
+    }
+
     #[test]
     fn an_items_menu_follows_its_container() {
         use Entry::*;
