@@ -1771,6 +1771,10 @@ pub struct EntityInfo {
     /// of the body it is drawn as when not its own (a polymorph, a Yalmaha), else 0. Nothing for a creature, whose
     /// is its [`template`](Self::template).
     pub monster: Option<u32>,
+    /// A player's scale before a list set it for a while (the byte the full update has with the flags' bit 23, which
+    /// the exec FUN_1007835c hands to FUN_10064ea9 for stat 360: the value the `Scale` goes back to when the temporary
+    /// set ends, a Yalmaha's 20 for one). 110, 100 and 90 for the captures' riders.
+    pub kept_scale: Option<u8>,
     /// A creature's health and its maximum (flag bit 0): Gamecode's reader (FUN_1007916d) takes, after the second flags word
     /// and an `i32`, the family, line-of-sight height and one more value (each a byte with flag bits 17, 19 and 25, else an
     /// `i16`), an `i16` and a byte when that is above zero, the level (a byte, an `i16` with bit 12), the maximum (`+0x98`: an
@@ -1823,7 +1827,15 @@ fn npc_template(post: &[u8]) -> Option<u32> {
 /// short's length and its bytes. Every one of the captures' 1404 player updates reads so (scales 90, 100 and 110,
 /// which look like character creation's three heights, and 20 and 80 with a monster body); the two-string path and
 /// version 0x39 are in none of them.
-fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, flags2: u32) -> Option<(u32, u16)> {
+///
+/// After the scale, where the message goes on that far: a short and a byte, then a counted block that the
+/// character's vehicle reads (`CharVehicle_t`'s FUN_1006f587: the velocity, three floats, and the movement status,
+/// FUN_10070981, whose first byte is the **movement mode**: 3 run, 8 sitting, 7 flying; 42 bytes for every player in
+/// the captures, 28 for a creature, the same structure). Then the head's mesh (a word, flag 0x80), the run speed (a
+/// byte, a short with flag 0x2000), and with flag 0x800000 the byte of [`EntityInfo::kept_scale`] (read only where
+/// the flags 0x10 and 0x400, whose fields were not laid out here, are both clear, as on every rider in the captures).
+/// The two after the scale: the movement mode and the kept scale.
+fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, flags2: u32) -> Option<(u32, u16, Option<u8>, Option<u8>)> {
     let take = |at: &mut usize, n: usize| -> Option<&[u8]> {
         let b = d.get(*at..*at + n)?;
         *at += n;
@@ -1851,7 +1863,19 @@ fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, fl
     take(&mut at, if flags & 0x4000 != 0 { 1 } else { wide })?;
     let monster = u32::from_be_bytes(take(&mut at, 4)?.try_into().ok()?);
     let scale = u16::from_be_bytes(take(&mut at, 2)?.try_into().ok()?);
-    Some((monster, scale))
+    let mut rest = || -> Option<(u8, Option<u8>)> {
+        take(&mut at, 3)?;
+        let length = u32::from_be_bytes(take(&mut at, 4)?.try_into().ok()?) as usize;
+        let mode = *take(&mut at, length)?.get(12)?;
+        let kept = (|| {
+            (flags & 0x80_0000 != 0 && flags & 0x410 == 0).then_some(())?;
+            take(&mut at, if flags & 0x80 != 0 { 4 } else { 0 } + if flags & 0x2000 != 0 { 2 } else { 1 })?;
+            take(&mut at, 1).map(|b| b[0])
+        })();
+        Some((mode, kept))
+    };
+    let (mode, kept) = rest().map_or((None, None), |(mode, kept)| (Some(mode), kept));
+    Some((monster, scale, mode, kept))
 }
 
 /// A creature's template and, in the two bytes after it, its body's scale in percent (the original's capture of
@@ -2360,17 +2384,17 @@ impl Message {
             None => (None, None),
         };
         // (a player's: no template, which would have it drawn as a creature, but its scale and its monster body)
-        let (monster, scale) = match player_monster_and_scale(d, at, version, flags, flags2).filter(|_| flags & 1 == 0) {
-            Some((monster, scale)) => (Some(monster), Some(scale)),
-            None => (None, scale),
+        let (monster, scale, player_mode, kept_scale) = match player_monster_and_scale(d, at, version, flags, flags2).filter(|_| flags & 1 == 0) {
+            Some((monster, scale, mode, kept)) => (Some(monster), Some(scale), mode, kept),
+            None => (None, scale, None, None),
         };
-        let move_mode = d.get(at - 8..).and_then(npc_move_mode).filter(|_| flags & 1 != 0);
+        let move_mode = d.get(at - 8..).and_then(npc_move_mode).filter(|_| flags & 1 != 0).or(player_mode);
         let run_speed = d.get(at - 8..).and_then(|post| npc_run_speed(post, flags)).filter(|_| flags & 1 != 0);
         let (family, health) = match creature_fields(d, at, flags) {
             Some((family, health)) if flags & 1 != 0 => (Some(family), Some(health)),
             _ => (None, None),
         };
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, health, family, move_mode, run_speed })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, health, family, move_mode, run_speed })
     }
 }
 
@@ -2497,6 +2521,13 @@ mod entity_tests {
         assert_eq!(info.unknown_a0, Some(0xf7e));
     }
 
+    /// Three of the captures' player updates, whole to their movement block and a little past it (names
+    /// overwritten): `arete-20261031-0842` #2883 and #3567, one player before and after he put a Yalmaha XL on, and
+    /// `arete-20261031-1505` #857.
+    pub const ON_FOOT: &str = "003a00004ac80000028f4546e9cb420fa8f5445c0f25000000003f4af648000000003f1c05420000064909414141414141414100001812410001000100000eb400000000002d017901aa017401a7017b01897b095400000000000064007f010000002a00000000000000008000000003010001000100010001000000030000000000000000000000000000000000009d3a9f0000";
+    pub const ON_A_CRAFT: &str = "003a00806aca0000028f454894914268d19f44689747beacef5bbd42df88bc8c105a3f709b780000064909414141414141414100201812410001000100000eb400000000002d017901aa017401a7017b01897b0954000001848e0014007f010000002abf620ead40e6f300410b328807020101000100010001000000033f80000000000000000000000000000000009d3a01d9640000";
+    pub const FLYING: &str = "003a04006aca0000021c43faac204128f670440c117200000000bf7df8dd000000003e00a22c0000066908414141414141410020181241100001ff000046bc02a68eec0126040103ed045004c9045204d300001280000e4f4f4f4f4f4f4f4f4f4f4f4f4f4fdc105e0000000000006e0075000000002a80000000000000008000000007010001000100010001000000030000000000000000000000000000000000009cff06be0000";
+
     /// A player's body scale and monster body, from the captures' full updates (cut after the scale, the names
     /// overwritten): 110 and 90 of two players at Arete Landing; 110 behind an organization's name (the flags' bit
     /// 26); 90 before visual flags that are not 0x1f (which the creatures' search by shape would not find); and a
@@ -2517,6 +2548,16 @@ mod entity_tests {
         );
         assert_eq!(read("003a04006aca0000028f45455000424dc7ad4458800000000000bf3504f3800000003f3504f4000006600a4141414141414141410000181249000100010000141b000000000005017d017d017d01e8018001ac0019f81800054f4f4f4f4f7e06420000000000005a007f000000002a80"), (Some(0), Some(90)));
         assert_eq!(read("003a00a06ac80000028f4549f000421000004464c00000000000bf536d47000000003f10579d0000064a0b414141414141414141410020181241000100010000074e0000000000050190018000fd0156016800ff700856000001848e0014003b010000002a80"), (Some(99470), Some(20)));
+        // (those five are cut before the block; whole, the update also says the movement mode and, for one on a
+        // craft, the scale it had before. Three of the captures' players: one on foot who runs; the same one a few
+        // seconds later, away on a Yalmaha XL and flying, 100 before it; and one flying on his own body)
+        let read = |s: &str| {
+            let info = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x1234), data: hex(s) }.entity_info().unwrap();
+            (info.monster, info.scale, info.move_mode, info.kept_scale)
+        };
+        assert_eq!(read(ON_FOOT), (Some(0), Some(100), Some(3), None));
+        assert_eq!(read(ON_A_CRAFT), (Some(99470), Some(20), Some(7), Some(100)));
+        assert_eq!(read(FLYING), (Some(0), Some(110), Some(7), None));
         // (cut short before the scale: none, and the rest still read)
         let short = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x1234), data: hex("003a00204ac80020da154561917f42510f5b4444583a00000000bf70e0f5000000003ead5c330000058809414141414141414100001812410001000100000014000000000005000f0006000a00030003000301003c00000000") }.entity_info().unwrap();
         assert_eq!((short.monster, short.scale, short.unknown_a0), (None, None, Some(0x14)));

@@ -60,6 +60,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   sessions.
 - The factions window starts with the standings' titles, as the game's does, and remembers the choice between
   titles and numbers.
+- The raid window's "Convert To Raid" and "Raid Locks" buttons work, and in a raid it shows all six teams. Outside
+  a raid its teams are empty, as in the game.
 
 ### Missions
 
@@ -68,6 +70,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - For characters of level 200 to 220 a mission's page shows its pay in shadow knowledge when read in the
   Shadowlands.
 - The mission terminal's window remembers where its sliders were left.
+- Zoning while in a team no longer empties the perk list.
 
 ### Flight
 
@@ -82,6 +85,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Doors make their sounds as they open and close.
 - Other players are drawn at their own height (most are a tenth shorter or taller than the middle size) instead
   of all the same.
+- Other players on a Yalmaha or another craft are drawn in it, flying, and polymorphed players as the creature
+  they are, when they come into view or mount in view. Players who are sitting when they come into view are drawn
+  sitting.
 
 ### Chat
 

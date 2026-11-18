@@ -5,6 +5,15 @@
 //! health, max health, max nano, nano) as they change. Leaving is the client's 0x18; the server's 0x20 names who left (oneself:
 //! the team is gone). aosharp's `Team` names the same actions. Asking somebody in is the client's own 0x1a naming them
 //! (Gamecode `N3Msg_TeamJoinRequest`), from the window's Recruit button (GUI.dll FUN_100782b2).
+//!
+//! A raid is up to six teams. Gamecode's team object (made by FUN_10065dff) has six member lists and, at +0x38, the
+//! own team's place among them, -1 outside a raid; outside a raid the own team is list 0. Here the own team is
+//! always [`Team::members`] (what the team window, the chat and the missions read), the place is [`Team::raid`], and
+//! the raid's other teams are [`Team::others`] by their place ([`Team::raid_team`] is the original's
+//! `N3Msg_GetTeamMemberList` in a raid). The lists come with the world-entry message (its team flags' bit 1: the own
+//! place and all six lists), a member with `TeamMember` (its third field is the member's team's place), one leaves
+//! with `CharacterAction` 0x20 (its second parameter the place), and `RaidIIR_c` of type 0 says the own team is
+//! place 0 of a new raid. No capture has a raid: all of it is read from the code.
 
 use std::sync::Mutex;
 
@@ -34,9 +43,106 @@ pub struct Team {
     pub level: Option<i64>,
     /// The client's own character (the connection keeps it told).
     pub own: u32,
+    /// The own team's place in the raid, 0 to 5 (Gamecode's team object +0x38); none outside a raid.
+    pub raid: Option<usize>,
+    /// The raid's other teams by their place (the own team's place stays empty here: it is `members`).
+    pub others: [Vec<Mate>; 6],
 }
 
 impl Team {
+    /// `N3Msg_IsInRaidTeam` (0x10018439): in a team that has a place in a raid.
+    pub fn in_raid(&self) -> bool {
+        !self.members.is_empty() && self.raid.is_some()
+    }
+
+    /// Whether the client's own character leads its team, as `N3Msg_CreateRaid` asks (0x1001856a: in a team whose
+    /// leader, as the server named it, is oneself; not [`is_leader`]'s guess of the first member).
+    pub fn leads(&self) -> bool {
+        !self.members.is_empty() && self.leader == Some(self.own)
+    }
+
+    /// The members of the raid's team at `place` (`N3Msg_GetTeamMemberList` in a raid): the own team at its place.
+    pub fn raid_team(&self, place: usize) -> &[Mate] {
+        if self.raid == Some(place) { &self.members } else { self.others.get(place).map_or(&[], Vec::as_slice) }
+    }
+
+    /// The list a member of the team at `place` is kept in, as the server names the place (`TeamMember`'s field,
+    /// 0x20's parameter; below 0 outside a raid, which Gamecode takes for list 0, FUN_10066361): the own team's, or
+    /// one of the others'. None for a place past the sixth.
+    fn list(&mut self, place: i32) -> Option<&mut Vec<Mate>> {
+        let place = place.max(0) as usize;
+        if self.raid.is_none() || self.raid == Some(place) { Some(&mut self.members) } else { self.others.get_mut(place) }
+    }
+
+    /// A member told by the server (`TeamMember`: FUN_1007a57c → FUN_10066361 adding): one's own character's
+    /// place is the own team's from now on; the member is put in its team's list.
+    pub fn joined(&mut self, id: u32, place: i32, name: &str, level: i64, profession: i64) {
+        if id == self.own {
+            self.set_place((0..6).contains(&place).then_some(place as usize));
+        }
+        let Some(list) = self.list(place) else { return };
+        let at = match list.iter().position(|m| m.id == id) {
+            Some(at) => at,
+            None => {
+                list.push(Mate { id, ..Mate::default() });
+                list.len() - 1
+            }
+        };
+        (list[at].name, list[at].level, list[at].profession) = (name.to_string(), level, profession);
+    }
+
+    /// The own team's place in the raid changes: the team kept for that place among the others is the own one's
+    /// part now (its members join `members`), and nothing of the own team is left among the others.
+    pub fn set_place(&mut self, place: Option<usize>) {
+        self.raid = place;
+        if let Some(place) = place {
+            for mate in std::mem::take(&mut self.others[place]) {
+                if !self.members.iter().any(|m| m.id == mate.id) {
+                    self.members.push(mate);
+                }
+            }
+        }
+    }
+
+    /// One left (the server's `CharacterAction` 0x20, case 8 of FUN_1005d61f → FUN_10066361 removing): oneself,
+    /// the team and the raid are gone (FUN_10065ec2: leader, place and all six lists); another is taken off the list
+    /// of the place the action names.
+    pub fn left(&mut self, id: u32, place: i32) {
+        if id == self.own {
+            self.members.clear();
+            self.others = Default::default();
+            (self.leader, self.raid) = (None, None);
+        } else if let Some(list) = self.list(place) {
+            list.retain(|m| m.id != id);
+        }
+    }
+
+    /// A member wherever it is kept, the own team or another of the raid.
+    pub fn known(&mut self, id: u32) -> Option<&mut Mate> {
+        self.members.iter_mut().chain(self.others.iter_mut().flatten()).find(|m| m.id == id)
+    }
+
+    /// The whole of the teams as the world-entry message has them (`FullCharacterIIR_t`'s exec FUN_10073f78: the
+    /// leader, and the own team's list, or with a raid the own place and the six lists). A member that stays keeps
+    /// the health and nano last heard.
+    pub fn set_all(&mut self, leader: u32, place: Option<usize>, lists: Vec<Vec<Mate>>) {
+        let before: Vec<Mate> = self.members.drain(..).chain(self.others.iter_mut().flat_map(|l| l.drain(..))).collect();
+        let kept = |mut mate: Mate| {
+            if let Some(old) = before.iter().find(|m| m.id == mate.id) {
+                (mate.health, mate.nano) = (old.health, old.nano);
+            }
+            mate
+        };
+        if let Some(place) = place {
+            self.raid = Some(place);
+        }
+        for (k, list) in lists.into_iter().enumerate().take(6) {
+            let list: Vec<Mate> = list.into_iter().map(&kept).collect();
+            // (without a raid there is the one list, the own team's)
+            if place.is_none() || place == Some(k) { self.members = list } else { self.others[k] = list }
+        }
+        self.leader = Some(leader);
+    }
     /// A member, added when new.
     pub fn member(&mut self, id: u32) -> &mut Mate {
         if let Some(at) = self.members.iter().position(|m| m.id == id) {
@@ -44,6 +150,73 @@ impl Team {
         }
         self.members.push(Mate { id, ..Mate::default() });
         self.members.last_mut().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod raid_tests {
+    use super::*;
+
+    fn names(list: &[Mate]) -> Vec<&str> {
+        list.iter().map(|m| m.name.as_str()).collect()
+    }
+
+    /// Outside a raid every member is the own team's, whatever place the server names (-1 in the captures). Once
+    /// the own character has a place, members of that place are the own team's and the others' go to their teams;
+    /// one who leaves is taken off the list of the place named; oneself leaving ends it all.
+    #[test]
+    fn members_go_to_their_teams() {
+        let mut t = Team { own: 1, ..Team::default() };
+        t.joined(1, -1, "Own", 5, 4);
+        t.joined(2, -1, "Mate", 7, 3);
+        assert_eq!((names(&t.members), t.raid, t.in_raid()), (vec!["Own", "Mate"], None, false));
+        // (told again, a member is not there twice, and takes the new level)
+        t.joined(2, -1, "Mate", 8, 3);
+        assert_eq!((t.members.len(), t.members[1].level, t.members[1].profession), (2, 8, 3));
+        // (the raid: the own team is place 0; another team's member comes)
+        t.set_place(Some(0));
+        t.joined(9, 3, "Far", 20, 6);
+        t.joined(3, 0, "Third", 6, 1);
+        assert_eq!((names(&t.members), names(t.raid_team(3)), names(t.raid_team(0)), t.raid_team(1).len()), (vec!["Own", "Mate", "Third"], vec!["Far"], vec!["Own", "Mate", "Third"], 0));
+        assert!(t.in_raid() && t.known(9).is_some() && t.known(77).is_none());
+        // (a place past the sixth is nobody's)
+        t.joined(10, 6, "Nowhere", 1, 1);
+        assert!(t.known(10).is_none());
+        // (one's own place told with one's own member message: the team kept for that place joins the own)
+        let mut moved = Team { own: 1, ..Team::default() };
+        moved.joined(2, -1, "Mate", 7, 3);
+        moved.set_place(Some(0));
+        moved.joined(8, 4, "Later", 9, 2);
+        moved.joined(1, 4, "Own", 5, 4);
+        assert_eq!((moved.raid, names(&moved.members)), (Some(4), vec!["Mate", "Later", "Own"]));
+        assert!(moved.others.iter().all(Vec::is_empty));
+        // (leaving: another by its place, then oneself)
+        t.left(9, 0);
+        assert!(t.known(9).is_some());
+        t.left(9, 3);
+        t.left(2, 0);
+        assert_eq!((names(&t.members), t.raid_team(3).len()), (vec!["Own", "Third"], 0));
+        t.joined(9, 3, "Far", 20, 6);
+        t.leader = Some(1);
+        t.left(1, 0);
+        assert!(t.members.is_empty() && t.others.iter().all(Vec::is_empty) && t.raid.is_none() && t.leader.is_none());
+    }
+
+    /// The world-entry message's teams: without a raid the one list is the own team; with one, the list at the own
+    /// place is, and the rest are the others. A member that stays keeps its bars.
+    #[test]
+    fn the_teams_are_set_whole() {
+        let mate = |id: u32, name: &str| Mate { id, name: name.to_string(), ..Mate::default() };
+        let mut t = Team { own: 1, ..Team::default() };
+        t.joined(2, -1, "Mate", 7, 3);
+        t.known(2).unwrap().health = (40, 50);
+        t.set_all(2, None, vec![vec![mate(2, "Mate"), mate(1, "Own")]]);
+        assert_eq!((names(&t.members), t.leader, t.raid, t.members[0].health), (vec!["Mate", "Own"], Some(2), None, (40, 50)));
+        assert!(t.leads() == false && !t.in_raid());
+        t.set_all(1, Some(2), vec![vec![mate(7, "Far")], Vec::new(), vec![mate(1, "Own"), mate(2, "Mate")], Vec::new(), Vec::new(), vec![mate(8, "Last")]]);
+        assert_eq!((names(&t.members), names(t.raid_team(0)), names(t.raid_team(5)), t.raid, t.leads()), (vec!["Own", "Mate"], vec!["Far"], vec!["Last"], Some(2), true));
+        assert_eq!(t.members[1].health, (40, 50));
+        assert!(t.others[2].is_empty());
     }
 }
 
@@ -63,7 +236,7 @@ pub enum Command {
     Kick(u32),
 }
 
-static TEAM: Mutex<Team> = Mutex::new(Team { members: Vec::new(), invite: None, leader: None, level: None, own: 0 });
+static TEAM: Mutex<Team> = Mutex::new(Team { members: Vec::new(), invite: None, leader: None, level: None, own: 0, raid: None, others: [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()] });
 static COMMANDS: Mutex<Vec<Command>> = Mutex::new(Vec::new());
 
 /// The team as the connection last heard it.

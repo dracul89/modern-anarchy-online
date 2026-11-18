@@ -618,6 +618,84 @@ mod tests {
         assert_eq!(Schema::global().encode_n3(0x52526858, data[0], &parsed.value).unwrap(), data);
     }
 
+    /// The world-entry message's team part, as `FullCharacterIIR_t`'s reader FUN_10073dca reads it: a word of flags;
+    /// with bit 0 the leader and the team's list; with bit 1 too the own team's place in the raid before six lists;
+    /// then a list of identities, a list of spells and the perks. (Until 2026-11-18 the flags were taken for a count
+    /// of identities: right without a team, by luck; with one, the perks were left unread.) No capture has the raid's
+    /// form.
+    #[test]
+    fn the_world_entry_message_has_its_team_part() {
+        let message = |tail: &[u32], names: &[(usize, &str)]| -> Vec<u8> {
+            let mut d = vec![0u8];
+            for v in [0x1au32, 0x3f1, 0x3f1, 0x3f1, 0, 0, 0, 0, 0, 0, 0x3f1, 0x3f1, 0x3f1, 0x3f1, 0] {
+                d.extend_from_slice(&v.to_be_bytes());
+            }
+            for (k, v) in tail.iter().enumerate() {
+                // (a name stands in the tail as its place holder: two bytes of length and the text)
+                match names.iter().find(|n| n.0 == k) {
+                    Some((_, name)) => {
+                        d.extend_from_slice(&(name.len() as u16).to_be_bytes());
+                        d.extend_from_slice(name.as_bytes());
+                    }
+                    None => d.extend_from_slice(&v.to_be_bytes()),
+                }
+            }
+            d
+        };
+        let int = |p: &Parsed, name: &str| p.value.get(name).and_then(Value::as_int);
+        let count = |p: &Parsed, name: &str| match p.value.get(name) {
+            Some(Value::List(l)) => Some(l.len()),
+            _ => None,
+        };
+        // (no team: the flags, the three lists, here with one perk)
+        let none = Schema::global().parse_n3(0x29304349, &message(&[0, 0x3f1, 0x3f1, 0x7e2, 0x1234, 0, 0, 0], &[])).unwrap();
+        assert_eq!((none.left, int(&none, "TeamFlags"), count(&none, "TeamMembers"), count(&none, "Perks")), (0, Some(0), None, Some(1)));
+        // (a team: the leader, one list of one member (identity, name, a word, then a byte and two shorts packed here
+        // as a byte's word... the entry's last five bytes are a byte, the level and the profession)
+        let member = |id: u32| vec![0xc350, id, 0 /* the name */, 0];
+        let mut tail = vec![1, 0xc350, 0x22, 0x7e2];
+        tail.extend(member(0x21));
+        let name_at = tail.len() - 2;
+        let mut bytes = message(&tail, &[(name_at, "Mate")]);
+        // (the byte, level 5, profession 4)
+        bytes.extend_from_slice(&[0, 0, 5, 0, 4]);
+        for v in [0x3f1u32, 0x3f1, 0x7e2, 0x1234, 0, 0, 0] {
+            bytes.extend_from_slice(&v.to_be_bytes());
+        }
+        let team = Schema::global().parse_n3(0x29304349, &bytes).unwrap();
+        assert_eq!((team.left, int(&team, "TeamFlags"), count(&team, "TeamMembers"), count(&team, "RaidTeam2"), count(&team, "Perks")), (0, Some(1), Some(1), None, Some(1)));
+        assert_eq!(team.value.get("TeamLeader").and_then(|v| v.get("Instance")).and_then(Value::as_int), Some(0x22));
+        let Some(Value::List(members)) = team.value.get("TeamMembers") else { panic!() };
+        assert_eq!((members[0].get("Level").and_then(Value::as_int), members[0].get("Profession").and_then(Value::as_int)), (Some(5), Some(4)));
+        assert!(matches!(members[0].get("Name"), Some(Value::Str(n)) if n == "Mate"));
+        // (a raid: the own place, then six lists, the others empty)
+        let raid = Schema::global().parse_n3(0x29304349, &message(&[3, 0xc350, 0x22, 4, 0x3f1, 0x3f1, 0x3f1, 0x3f1, 0x3f1, 0x3f1, 0x3f1, 0x3f1, 0x3f1], &[])).unwrap();
+        assert_eq!((raid.left, int(&raid, "RaidTeam"), count(&raid, "TeamMembers"), count(&raid, "RaidTeam6"), count(&raid, "Perks")), (0, Some(4), Some(0), Some(0), Some(0)));
+    }
+
+    /// `MAO_CAPTURES`: every captured world-entry message reads to its last byte, and the ones sent in a team (the
+    /// 16:55 Arete capture's, a team of two) have the leader, both members and the perks behind them.
+    #[test]
+    fn captured_world_entries_read_whole() {
+        let Some(dir) = std::env::var_os("MAO_CAPTURES") else { return };
+        let (mut read, mut in_team) = (0, 0);
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let Ok(text) = std::fs::read_to_string(entry.path().join("dump.txt")) else { continue };
+            for line in text.lines().filter(|l| l.contains(" S>C ") && l.contains("kind 29304349 ")) {
+                let Some(data) = line.split("bytes: ").nth(1).map(hex) else { continue };
+                let p = Schema::global().parse_n3(0x29304349, &data).unwrap();
+                assert_eq!(p.left, 0, "{}", &line[..40.min(line.len())]);
+                read += 1;
+                if p.value.get("TeamFlags").and_then(Value::as_int) == Some(1) {
+                    in_team += 1;
+                    assert!(matches!(p.value.get("TeamMembers"), Some(Value::List(l)) if l.len() == 2));
+                    assert!(p.value.get("TeamLeader").and_then(|v| v.get("Instance")).and_then(Value::as_int).is_some());
+                }
+            }
+        }
+        eprintln!("world entries read whole: {read}, in a team: {in_team}");
+    }
+
     /// The captured messages (`MAO_CAPTURES`: a folder of `dump.txt` files from `mao-client net msg-dump`) that parse whole come back
     /// to the same bytes. Prints how many did; skipped without the folder.
     #[test]

@@ -3593,7 +3593,7 @@ list for a worn item, at login or after a zoning. In flight:
   character's place by the polymorph's road (the original's is the same, stat 359 from FUN_100a7aa2) at the scale
   the list sets, 20 % (`World::crafts`), playing the template's walk while it flies. "Yalmaha XL" is template 99470,
   `sleek_vehicle_cat.cir`, 11.4 units long and so 2.3 m at 20 %; whether that is its size in the original was not
-  checked against a picture. Another character's Yalmaha is not known to the client (it is not told what others wear).
+  checked against a picture. (Another character's Yalmaha is known since 2026-11-18: see "Other players' crafts and flight".)
 Not done: the entering effect (2000, colour 0xfff0e0ff), the ways flight ends besides the list (character action
 0xac, the kind-5 areas, state flag 0x2000000), the mode's refusal of sit, sneak and crawl, the criteria operators 70
 and 112, the pitched body.
@@ -3990,8 +3990,7 @@ Tests: `leaving_a_yalmaha_gives_the_size_back` (the user's Yalmaha, worn, a zoni
 300 in the flight's speed), `the_temporary_set`, `one_shown_value_is_the_tables`. **Not tried live.** Not known: what
 the original has kept for a character that logs in on its craft (the server's stored value is then the 20; here the
 character would stay small after leaving it until the server says otherwise). The log now has a line when the server
-tells one's own `MonsterData` or `Scale` ("own stat 360 from the server: ..."). Not done: another player's craft from
-its update (the template and scale are there for a player too), `MonsterData`'s own handling in the temporary set.
+tells one's own `MonsterData` or `Scale` ("own stat 360 from the server: ..."). (Another player's craft from its update: done 2026-11-18; what is kept for one that logs in on its craft is in the update too, the byte with the flags' bit 23.) Not done: `MonsterData`'s own handling in the temporary set.
 
 **A click steps along the mouse's line; the mission request's first byte (2026-11-15; the user: "using the teleporter
 behind windcaller Karrec was hard to target and use", "missions aren't working in ICC").**
@@ -5347,3 +5346,91 @@ key the player chose stays. So someone who never touched these keys gets the ori
 to Ctrl+P included, and someone who put the overlay on O and F6, or J on the jump, keeps that and the action that wanted
 the key stays without one. The file is written as version 3 at the next save.
 Test: `the_older_key_table_is_brought_up_to_date`.
+
+## Three more: the raid window, other players' crafts and flight (2026-11-18)
+
+The user, after the list of what was left of the high "missing" entries: "port CHT-049, MOV-020 and RND-135".
+Read anew in the original by two readers; the claims the ports rest on were checked against the code and the
+captures. None of it was seen in the live game.
+
+### The raid window: its teams and its two buttons (CHT-049)
+
+`RaidWindow_c` (GUI.dll FUN_10103127, refill FUN_10102bbe), as read:
+
+- **The six teams are filled only in a raid** (`N3Msg_IsInRaidTeam`): each from `N3Msg_GetTeamMemberList(place)`,
+  a member's name, profession picture and level, the leader of one's own team in 0x11eeaa. In a plain team, and
+  without one, all 36 lines are empty. This client showed the own team as Team 1 in a plain team: no longer.
+- **Convert To Raid** is enabled in a team that is no raid yet (leader or not); the click is `N3Msg_CreateRaid`,
+  which sends the raid command 1 only for the team's leader and says nothing otherwise. **Raid Locks** always sends
+  command 6; the answer is said in the chat. Both use today's `n3::raid_command`.
+- **Where the teams come from** (`team.rs`): Gamecode's team object has six lists and the own team's place (+0x38,
+  -1 outside a raid). The world-entry message carries them (its team flags' bit 1: the own place and six lists),
+  `TeamMember`'s third field is the member's team's place, `CharacterAction` 0x20's second parameter the place of
+  the one who leaves, and `RaidIIR_c` of type 0 makes the own team place 0. `Team::raid`, `Team::others`,
+  `Team::raid_team`.
+
+**Two faults found on the way, both mended:**
+
+- **Zoning in a team emptied the perk list.** The schema read the world-entry message's team flags as a count of
+  identities; with a team (flags 1) the lists behind it slipped by one and the perks were left unread. The tail is
+  now as `FullCharacterIIR_t`'s reader FUN_10073dca reads it: all 52 captured world entries read to their last byte
+  (17 of them sent in a team of two), which they did not before.
+- **A team member's profession was never right**: `TeamMember`'s profession is a short and the name's length a
+  word (FUN_1007a4ea); read as a word and a short, the profession came out shifted (0x40000 for a Fixer), so the
+  raid window's profession pictures could not show.
+
+No capture has a raid. Everything about one (the flags' bit 1, places other than -1, the `RaidIIR_c` answers,
+and above all what the server sends when) is the code's alone; the non-raid halves of the same readers match the
+captures byte for byte. Not ported: a line's menu for the leader (make leader, kick), dragging a member to another
+team (`/raid move` does it by numbers), and the raid bars (`RaidBar.xml`: a small window per member with its health
+and nano, made by dragging a member out of the raid window; it needs the drag and other characters' stats).
+Tests: `the_teams_show_only_in_a_raid`, `members_go_to_their_teams`, `the_teams_are_set_whole`,
+`the_team_follows_the_server` (its raid part), `the_world_entry_message_has_its_team_part`,
+`captured_world_entries_read_whole` (`MAO_CAPTURES`).
+
+### Other players' crafts and flight (MOV-020, RND-135)
+
+How the original knows, for a character that is not one's own:
+
+- **At its announcement, from the full update**: `MonsterData` and `Scale` (set as stats 359 and 360 for a player
+  too), and the **movement mode**, the thirteenth byte of the counted block behind them, which the character's
+  vehicle reads straight into its status (FUN_1006f587 → FUN_10070981): 3 run, 8 sitting, 7 flying. With the
+  flags' bit 23 there is also the scale the character had before a list set it (FUN_10064ea9: what `Scale` goes
+  back to), which answers the old question of what is kept for one that logs in on its craft. In the captures:
+  three players on a Yalmaha XL (template 99470 at 20, flying, 100 or 110 kept), one on another craft at 80, one
+  flying on his own body, and several polymorphed (the leet, 17655, at 90).
+- **Afterwards the server sends the cause, not the result**: `TemplateAction` 6 or 7 for the character (an item
+  put on or taken off), and the client runs the item's wear list on that character itself (FUN_1007aa44 →
+  FUN_1004d68c, no test for one's own). One capture has it: a player 41 m away puts a Yalmaha XL on, the message
+  comes, and then only his moves, half a metre up and climbing; no stat, no spell list. A character that is
+  announced again while present was sent a `Despawn` first.
+
+Ported (`World::add`'s arm for a player's update, `World::others_wear`):
+
+- A player announced with a monster body has that body at its scale (`crafts`, drawn by the road one's own craft
+  takes), until announced without, gone (`Despawn`), or the playfield changes. Announced in mode 7 it flies, on a
+  craft or on its own body. Announced sitting (mode 8) it sits; until now every announced player stood.
+- An item put on in view: when its wear list has a body without criteria (the Yalmahas) and the character has
+  none, that body; when it has the fly spell (the Yalmahas, a jetpack), the character stands up and flies. Taken
+  off: the body goes if it is still that item's, the flight ends, and one who had been announced on the craft is a
+  person again at the kept scale.
+
+What rests on what: the announcement on ten captured players and the code; the mount on one capture and the code
+(what the original draws in the seconds after it was not checked in a picture); **the dismount on the code alone**
+(the message kind is captured for clothes and weapons, not for a craft). A missed dismount would leave a small
+craft walking about until the player's next announcement.
+
+Not ported, and found beside it (none changed here):
+
+- **`Buff` (`39343c68`) is the removal of a program, not a sign that it runs.** Its exec (FUN_100726e5 →
+  FUN_10051041) ends the nano, and in the captures it comes when a program's time is up (15.07 s after a 15 s
+  program's start), when it is cancelled, and just before a re-cast. This client takes it for "this nano is
+  running" (`buffs_seen`, the 30 s of `morphed_until` and `riding_until`, a target's NCU list). The start is
+  `CharacterAction` 0x62 on the character, which the client reads for its own only; and there `word(17)` is taken
+  for the character the nano is on, where it is the caster (the character is the message's identity). So another
+  player's polymorph started in view is still shown by the wrong signal; announced polymorphs are right now.
+- A hoverbike program on another player, started or ended in view: its list has criteria, the client does not
+  run it, and no capture shows whether the server sends the list to onlookers.
+- `docs/FLIGHT_ORIGINAL.md`'s "Who runs the spell" says a worn item's list comes from the server. It does not:
+  the client runs every spell of the wear list at `TemplateAction` 6 (corrected there).
+Tests: `another_players_craft_and_flight_are_known` (`MAO_GAME` for the mount), `a_player_is_announced_with_its_scale`.

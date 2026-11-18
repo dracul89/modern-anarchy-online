@@ -1566,14 +1566,116 @@
      "type": "GameTuple<int, int>[]"
     },
     {
-     "name": "UnknownIdentities",
-     "size": "int32",
-     "type": "Identity[]"
+     "name": "TeamFlags",
+     "type": "int",
+     "flag": "team"
+    },
+    {
+     "name": "TeamLeader",
+     "type": "Identity",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "team",
+       "type": "Identity",
+       "values": [1, 3, 5, 7, 9, 11, 13, 15]
+      }
+     ]
+    },
+    {
+     "name": "RaidTeam",
+     "type": "int",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "team",
+       "type": "int",
+       "values": [3, 7, 11, 15]
+      }
+     ]
     },
     {
      "name": "TeamMembers",
      "size": "x3f1",
-     "type": "TeamMember[]"
+     "type": "TeamMember[]",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "team",
+       "type": "TeamMember[]",
+       "values": [1, 3, 5, 7, 9, 11, 13, 15]
+      }
+     ]
+    },
+    {
+     "name": "RaidTeam2",
+     "size": "x3f1",
+     "type": "TeamMember[]",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "team",
+       "type": "TeamMember[]",
+       "values": [3, 7, 11, 15]
+      }
+     ]
+    },
+    {
+     "name": "RaidTeam3",
+     "size": "x3f1",
+     "type": "TeamMember[]",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "team",
+       "type": "TeamMember[]",
+       "values": [3, 7, 11, 15]
+      }
+     ]
+    },
+    {
+     "name": "RaidTeam4",
+     "size": "x3f1",
+     "type": "TeamMember[]",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "team",
+       "type": "TeamMember[]",
+       "values": [3, 7, 11, 15]
+      }
+     ]
+    },
+    {
+     "name": "RaidTeam5",
+     "size": "x3f1",
+     "type": "TeamMember[]",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "team",
+       "type": "TeamMember[]",
+       "values": [3, 7, 11, 15]
+      }
+     ]
+    },
+    {
+     "name": "RaidTeam6",
+     "size": "x3f1",
+     "type": "TeamMember[]",
+     "when": [
+      {
+       "criteria": "EqualsToAny",
+       "flag": "team",
+       "type": "TeamMember[]",
+       "values": [3, 7, 11, 15]
+      }
+     ]
+    },
+    {
+     "name": "UnknownIdentities",
+     "size": "x3f1",
+     "type": "Identity[]"
     },
     {
      "name": "Unknown12",
@@ -4770,20 +4872,20 @@
      "type": "Identity"
     },
     {
-     "name": "Unknown1",
-     "type": "uint"
-    },
-    {
-     "name": "Unknown2",
+     "name": "RaidTeam",
      "type": "int"
     },
     {
-     "name": "Unknown3",
+     "name": "Level",
      "type": "int"
+    },
+    {
+     "name": "Profession",
+     "type": "short"
     },
     {
      "name": "Name",
-     "size": "int16",
+     "size": "int32",
      "type": "string"
     }
    ]

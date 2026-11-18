@@ -104,6 +104,13 @@ inside `if (*(char *)(dynel + 0x21c) != 0)`, the NPC flag, so a player gets the 
   `Back`, `Left`, `Right`, `StrafeLeft`, `StrafeRight` and `Jump`. GUI.dll's input action names are
   `MOVEMENT_FORWARD/BACK/LEFT/RIGHT/STRAFELEFT/STRAFERIGHT/JUMP/AUTORUN/TOGGLEWALK` only: no fly, takeoff, up or down.
 
+**Correction (2026-11-18): the client runs a worn item's whole wear list itself.** The wear by the server's
+`TemplateAction` 6 goes FUN_1004d68c → FUN_1004bc13 → FUN_10080fc3 → `DummyItemBase_t` +0x2c → FUN_100026d0 with its filter
+at 0, which runs every spell of event 14, for one's own character and for any other; the server sends no list for it
+(a capture has another player putting a Yalmaha XL on: the message, then nothing but his moves). FUN_1009e84b, read
+below, has no direct caller and its class was not identified; what this paragraph and the next infer from it for a
+worn item does not hold. A program whose list has criteria is the case the server's spell list is for.
+
 **Who runs the spell.** The item's own wear function does not. FUN_1009e84b (item worn at a place below 0x30) walks
 event 14 and runs only spells with flag 0x80: `if ((*(uint *)(spell + 0x24) >> 7 & 1) != 0) FUN_100a5f4b(...)`. The
 spell constructor FUN_100a597f sets 0x80 only for 0xcf14, 0xcf26, 0xcf2f, 0xcf35, 0xcf93-0xcf95, 0xcf9e, 0xcfc0,

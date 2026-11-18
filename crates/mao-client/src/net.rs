@@ -280,9 +280,11 @@ struct World {
     riding: BTreeMap<u32, u32>,
     /// The vehicle program of each other character and when its buff was last announced.
     riding_until: BTreeMap<u32, (u32, Instant)>,
-    /// The craft a character has become, as (NPC template, body scale in percent): a worn Yalmaha's `ChangeMesh` without
-    /// criteria and its scale (`mao_formats::item::craft`), or the same of a running program. Only one's own is known: the
-    /// client is not told what another character wears.
+    /// The body a character has in place of its own, as (NPC template, body scale in percent). One's own: a worn
+    /// Yalmaha's `ChangeMesh` without criteria and its scale (`mao_formats::item::craft`), or the same of a running
+    /// program. Another player's (since 2026-11-18): the `MonsterData` and `Scale` of its full update, a craft or a
+    /// polymorph's creature, until it is announced without one or goes away; and a craft it puts on or takes off
+    /// while in view (`others_wear`).
     crafts: BTreeMap<u32, (u32, u32)>,
     /// The values one's own stats had before a list set them for a while (the original's map at the stat helper's +8,
     /// FUN_10064d77 / FUN_1006420f; `None`: the stat was not held). See [`World::temp_stat`].
@@ -346,8 +348,10 @@ struct World {
     /// The part of `own_flying` that comes from the running programs (the others are a worn item's and the server's
     /// spell list: the game loop joins them).
     nano_flying: bool,
-    /// The characters a spell list of the server's switched to fly mode (spell 0xcf92, `spelllist::Outcome::Fly`), until the
-    /// list ends, they leave or the playfield changes. The only way the client knows that another character flies.
+    /// The other characters in fly mode (7): announced so (the movement mode in a player's full update), switched to
+    /// it by a spell list of the server's (spell 0xcf92, `spelllist::Outcome::Fly`) or by the wear list of an item
+    /// they put on in view (`others_wear`), until the list ends, the item comes off, they are announced otherwise,
+    /// leave, or the playfield changes.
     flying: std::collections::BTreeSet<u32>,
     /// Each walked creature's last path (when it came, its start, its end) and its speed as the paths show it.
     path_seen: BTreeMap<u32, (Instant, [f32; 3], [f32; 3])>,
@@ -1508,15 +1512,57 @@ impl World {
         *crate::ui::TIMERS.lock().unwrap_or_else(|e| e.into_inner()) = self.timer_bars.shown(&self.timers);
     }
 
-    /// Another character's body scale in percent: the `Scale` stat its full update set (`EntityInfo::scale`: a
+    /// Another character's own body's scale in percent: the `Scale` stat its full update set (`EntityInfo::scale`: a
     /// player's too since 2026-11-18, before which every other player and humanoid NPC was drawn at 100), not below
     /// 20, which is where `SimpleChar_t`'s SetStat (FUN_1005a3b1) holds stat 360; 100 for one not announced. A player
-    /// with a monster body (`MonsterData`: a polymorph, a Yalmaha at 20) keeps 100 here: the scale is that body's,
-    /// which this client does not yet draw for others from the update, and a person a fifth the size would be worse
-    /// than one of the wrong shape. Not followed: a change of the stat after the update (a size nano's temporary
-    /// modifier, which the original applies at once, FUN_10064a0e).
+    /// with a monster body (`MonsterData`: a polymorph, a Yalmaha at 20) has that scale for that body (`crafts`), and
+    /// 100 here, for the person drawn where the body's template is not to be had. Not followed: a change of the stat
+    /// after the update (a size nano's temporary modifier, which the original applies at once, FUN_10064a0e).
     fn others_scale(&self, id: u32) -> f32 {
         self.infos.get(&id).filter(|i| i.monster.unwrap_or(0) == 0).and_then(|i| i.scale).map_or(100.0, |s| (s as f32).max(20.0))
+    }
+
+    /// Another character put an item on (`on`) or took it off: the server's `TemplateAction` 6 or 7 for it, which
+    /// the original answers by running the item's wear list on that character itself (`TemplateActionIIR_t`'s exec
+    /// FUN_1007aa44 → FUN_1004d68c → FUN_1004bc13 / FUN_1004bca8, with no test for one's own character; the server
+    /// sends no list and no stat for it: in the capture of a player putting a Yalmaha XL on in view there is this
+    /// message and then only his moves, climbing). Of the lists' spells the two the onlooker sees are taken: the body
+    /// (0xcf44 with its scale, `mao_formats::item::craft`: FUN_100a7aa2 begins only on a character that has no monster
+    /// body and ends only while the body is still this spell's) and the fly mode (0xcf92, `worn_grants_flight`:
+    /// begun, the character stands up and flies; ended, it does not). The item is the one of the pair whose quality
+    /// is nearer the message's (FUN_1007d26c). Taking a craft off is in no capture: that half is the code's alone.
+    fn others_wear(&mut self, id: u32, low: u32, high: u32, quality: u32, on: bool) {
+        let Some(db) = ITEM_DB.get() else { return };
+        let level = |template: u32| template_stat(template, 54).map_or(i64::MAX, |q| (q - quality as i64).abs());
+        let template = if level(high) < level(low) { high } else { low };
+        let Some(data) = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten() else { return };
+        let craft = mao_formats::item::craft(&data, mao_formats::item::WEAR_EVENT);
+        let flies = mao_formats::item::worn_grants_flight(&data);
+        if on {
+            if let Some(craft) = craft
+                && !self.crafts.contains_key(&id)
+            {
+                self.crafts.insert(id, craft);
+            }
+            if flies {
+                self.stand_up(id);
+                self.flying.insert(id);
+            }
+        } else {
+            if let Some(craft) = craft
+                && self.crafts.get(&id).is_some_and(|c| c.0 == craft.0)
+            {
+                self.crafts.remove(&id);
+                // (one announced on the craft is a person again, at the scale the update kept for it)
+                if let Some(info) = self.infos.get_mut(&id).filter(|i| i.monster.unwrap_or(0) != 0) {
+                    info.monster = Some(0);
+                    info.scale = Some(info.kept_scale.map_or(100, |k| k as u16));
+                }
+            }
+            if flies {
+                self.flying.remove(&id);
+            }
+        }
     }
 
     /// A stack of a bag of one's own split in the client's own list, as the original splits it before it tells the
@@ -2195,6 +2241,7 @@ impl World {
                 self.spell_queue.forget((crate::requirements::CHARACTER, id));
                 self.state_flags.remove(&id);
                 self.flying.remove(&id);
+                self.crafts.remove(&id);
                 self.entities.remove(&id);
                 self.paths.remove(&id);
                 self.fighting.remove(&id);
@@ -3138,13 +3185,14 @@ impl World {
                 crate::team::with(|t| t.invite = Some((who, name)));
                 crate::tips::trigger("OnInvitedToTeam", "");
             } else if action == 0x20 {
+                // (case 8, 0x1005d88f: the target leaves the list of the place the second parameter names, -1
+                // outside a raid; oneself, the team and the raid are gone)
+                let place = if m.data.len() >= 25 { word(21) as i32 } else { -1 };
+                // (the team's own character is told it here too: the game loop tells it once a frame, and a test has none)
+                let own = self.own;
                 crate::team::with(|t| {
-                    if who == self.own {
-                        t.members.clear();
-                        t.leader = None;
-                    } else {
-                        t.members.retain(|m| m.id != who);
-                    }
+                    t.own = own;
+                    t.left(who, place)
                 });
             } else if action == 0x1b {
                 // (case 6, 0x1005d7fc: interface message 0x10 with the target, whose instance is the team level)
@@ -3185,15 +3233,26 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let int = |f: &str| p.value.get(f).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
                 let who = p.value.get("Character").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                let own = self.own;
                 crate::team::with(|t| {
-                    let mate = t.member(who);
+                    t.own = own;
                     if m.kind == TEAM_MEMBER {
-                        if let Some(mao_net::schema::Value::Str(name)) = p.value.get("Name") {
-                            mate.name = name.clone();
-                        }
-                        (mate.level, mate.profession) = (int("Unknown2"), int("Unknown3"));
+                        // (`TeamMemberIIR_t`'s reader FUN_1007a4ea: the member, the team, the team's place in the raid
+                        // (-1 outside one), the level, the profession as a short and the name behind a 32-bit length.
+                        // Until 2026-11-18 the profession was read with the length's upper half, 0x40000 for a Fixer,
+                        // and the place not at all.)
+                        let name = match p.value.get("Name") {
+                            Some(mao_net::schema::Value::Str(name)) => name.clone(),
+                            _ => String::new(),
+                        };
+                        t.joined(who, int("RaidTeam") as i32, &name, int("Level"), int("Profession"));
                     } else {
-                        // (health, max health, max nano, nano: the capture's last one is a member at full, 227/227 and 248/248)
+                        // (health, max health, max nano, nano: the capture's last one is a member at full, 227/227 and 248/248.
+                        // A member of another of the raid's teams is not made one of the own team by it.)
+                        if t.known(who).is_none() {
+                            t.member(who);
+                        }
+                        let mate = t.known(who).unwrap();
                         mate.health = (int("Unknown2"), int("Unknown4"));
                         mate.nano = (int("Unknown8"), int("Unknown6"));
                     }
@@ -3205,6 +3264,14 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 self.read_stats(p.value.get("Skills"));
                 self.stats_changed = true;
+            }
+        }
+        // (another character's item put on, action 6, or taken off, 7, in a place that is no social one: `others_wear`.
+        // The message: the item's low and high template, its quality, a count, the action, and the place's identity.)
+        if m.kind == TEMPLATE_ACTION && m.identity.1 != self.own && m.data.len() >= 29 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            if matches!(word(17), 6 | 7) && word(25) < 0x30 {
+                self.others_wear(m.identity.1, word(1), word(5), word(9), word(17) == 6);
             }
         }
         if m.identity.1 == self.own && (m.kind == ADD_TEMPLATE || m.kind == TEMPLATE_ACTION) {
@@ -3710,7 +3777,11 @@ impl World {
         // for, said in the chat (FUN_100430c2 with the server's time now).
         if m.kind == n3::RAID_ANSWER && m.identity.1 == self.own {
             let lines = match n3::raid_answer(&m.data) {
-                Some(n3::RaidAnswer::Created) => vec![crate::feedback::plain("Feedback_RaidCreated")],
+                Some(n3::RaidAnswer::Created) => {
+                    // (FUN_100a40c0: the own team is the raid's first, place 0)
+                    crate::team::with(|t| t.set_place(Some(0)));
+                    vec![crate::feedback::plain("Feedback_RaidCreated")]
+                }
                 Some(n3::RaidAnswer::Locks(locks)) => crate::raidcommands::lock_lines(&locks, crate::gametime::server_now(), |id| PLAYFIELD_NAMES.get().and_then(|n| n.get(&id)).cloned()),
                 None => Vec::new(),
             };
@@ -3792,6 +3863,37 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 for list in ["Stats1", "Stats2", "Stats3", "Stats4"] {
                     self.read_stats(p.value.get(list));
+                }
+                // (the team, when the flags' bit 0 says there is one: the leader and the own team's members, or with
+                // bit 1, a raid, the own team's place and the six teams. `FullCharacterIIR_t`'s reader FUN_10073dca;
+                // without the bit the exec, FUN_10073f78, leaves the team as it is, and so does this. Until
+                // 2026-11-18 the flags were read as a count of identities, which put the perks after a team's list
+                // out of reach: zoning in a team left the perk list empty.)
+                let flags = p.value.get("TeamFlags").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
+                if flags & 1 != 0 {
+                    let mates = |name: &str| -> Vec<crate::team::Mate> {
+                        let Some(mao_net::schema::Value::List(list)) = p.value.get(name) else { return Vec::new() };
+                        list.iter()
+                            .map(|e| crate::team::Mate {
+                                id: e.get("Identity").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32,
+                                name: match e.get("Name") {
+                                    Some(mao_net::schema::Value::Str(name)) => name.clone(),
+                                    _ => String::new(),
+                                },
+                                level: e.get("Level").and_then(mao_net::schema::Value::as_int).unwrap_or(0),
+                                profession: e.get("Profession").and_then(mao_net::schema::Value::as_int).unwrap_or(0),
+                                ..Default::default()
+                            })
+                            .collect()
+                    };
+                    let leader = p.value.get("TeamLeader").and_then(|v| v.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
+                    let place = (flags & 2 != 0).then(|| p.value.get("RaidTeam").and_then(mao_net::schema::Value::as_int).unwrap_or(0)).filter(|k| (0..6).contains(k)).map(|k| k as usize);
+                    let lists = if flags & 2 != 0 { ["TeamMembers", "RaidTeam2", "RaidTeam3", "RaidTeam4", "RaidTeam5", "RaidTeam6"].iter().map(|n| mates(n)).collect() } else { vec![mates("TeamMembers")] };
+                    let own = self.own;
+                    crate::team::with(|t| {
+                        t.own = own;
+                        t.set_all(leader, place, lists)
+                    });
                 }
                 self.perks = perk_ids(p.value.get("Perks"));
                 crate::research::entered(perk_entries(p.value.get("Perks")));
@@ -3910,7 +4012,33 @@ impl World {
             if let Some((health, max)) = info.health {
                 self.health.insert(m.identity.1, (health as i64, max as i64));
             }
-            // (a creature announced on the ground, or no longer)
+            // (another player's body and movement as the update has them, which the original takes whole at the
+            // character's making: FUN_1007803b sets `MonsterData` and the `Scale` for a player too, and the vehicle
+            // reads the movement mode straight into its status, FUN_1006f587, with no transition. A craft or a
+            // polymorph's creature is its body from now, at its scale; mode 7 is flying, on a craft or on its own
+            // body. Until 2026-11-18 another player's craft was not known at all, and its flight only from a spell
+            // list. One's own update changes nothing, in the original either: its dynel is there already.)
+            if info.is_player() && m.identity.1 != self.own {
+                match info.monster.filter(|&template| template != 0) {
+                    Some(template) => {
+                        self.crafts.insert(m.identity.1, (template, info.scale.map_or(100, |s| (s as u32).max(20))));
+                    }
+                    None => {
+                        self.crafts.remove(&m.identity.1);
+                    }
+                }
+                match info.move_mode {
+                    Some(7) => {
+                        self.flying.insert(m.identity.1);
+                    }
+                    Some(_) => {
+                        self.flying.remove(&m.identity.1);
+                    }
+                    None => {}
+                }
+            }
+            // (a creature announced on the ground, or no longer; a player too, since its mode is read: one announced
+            // sitting sits, where it stood until 2026-11-18)
             match info.move_mode {
                 Some(8) => {
                     self.grounded.insert(m.identity.1);
@@ -7479,6 +7607,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // (and their movement starts in its plain mode: whether the server runs a flyer's list again in the new
                     // playfield was not seen; the running program or the worn item keeps one's own character flying)
                     state.flying.clear();
+                    state.crafts.retain(|id, _| *id == own);
                     // Zoned from a booth: that booth leads here.
                     if let Some((pf, booth, when)) = near_booth.take() {
                         if when.elapsed() < Duration::from_secs(20) && pf != playfield {
@@ -11974,8 +12103,8 @@ mod door_tests {
     fn the_raids_answers_are_said() {
         let mut w = World { own: 7, ..World::default() };
         let said = |w: &mut World| std::mem::take(&mut w.game_lines).len();
-        w.add(&Message { kind: n3::RAID_ANSWER, identity: (0xc350, 7), data: vec![0, 0, 0] }.frame(1));
-        assert_eq!(said(&mut w), 1);
+        // (the raid made, type 0, also gives the team its place: that is in `the_team_follows_the_server`, which
+        // has the team's state to itself)
         w.add(&Message { kind: n3::RAID_ANSWER, identity: (0xc350, 7), data: vec![0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0] }.frame(1));
         assert_eq!(said(&mut w), 1);
         w.add(&Message { kind: n3::RAID_ANSWER, identity: (0xc350, 9), data: vec![0, 0, 0] }.frame(1));
@@ -12019,6 +12148,62 @@ mod door_tests {
         w.worn.push(entry(0x48, 297044));
         w.add(&Message { kind: 0x52526858, identity: (0xc350, own), data: answer(0, 1, 3, 0x48) }.frame(1));
         assert!(has(&w));
+    }
+
+    /// The capture of a player who puts a Yalmaha XL on in view (`arete-20261031-0842`, his messages in order): he
+    /// is announced on foot; the server's `TemplateAction` 6 names the item, and the client runs its wear list
+    /// (`MAO_GAME`): the craft's body at 20, flying; he goes out of range and is announced again on the craft,
+    /// flying, with the scale he had kept. Taking it off (made up: no capture has it) makes him a person again at
+    /// that scale, on the ground. One flying on his own body has no craft; one announced sitting is on the ground.
+    #[test]
+    fn another_players_craft_and_flight_are_known() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        const ON_FOOT: &str = "003a00004ac80000028f4546e9cb420fa8f5445c0f25000000003f4af648000000003f1c05420000064909414141414141414100001812410001000100000eb400000000002d017901aa017401a7017b01897b095400000000000064007f010000002a00000000000000008000000003010001000100010001000000030000000000000000000000000000000000009d3a9f0000";
+        const ON_A_CRAFT: &str = "003a00806aca0000028f454894914268d19f44689747beacef5bbd42df88bc8c105a3f709b780000064909414141414141414100201812410001000100000eb400000000002d017901aa017401a7017b01897b0954000001848e0014007f010000002abf620ead40e6f300410b328807020101000100010001000000033f80000000000000000000000000000000009d3a01d9640000";
+        const FLYING: &str = "003a04006aca0000021c43faac204128f670440c117200000000bf7df8dd000000003e00a22c0000066908414141414141410020181241100001ff000046bc02a68eec0126040103ed045004c9045204d300001280000e4f4f4f4f4f4f4f4f4f4f4f4f4f4fdc105e0000000000006e0075000000002a80000000000000008000000007010001000100010001000000030000000000000000000000000000000000009cff06be0000";
+        let (own, rider, flyer) = (7, 0x21, 0x22);
+        let mut w = World { own, ..World::default() };
+        let announce = |w: &mut World, id: u32, bytes: &str| w.add(&Message { kind: n3::ENTITY_INFO, identity: (0xc350, id), data: hex(bytes) }.frame(1));
+        let state = |w: &World, id: u32| (w.crafts.get(&id).copied(), w.flies(id), w.others_scale(id));
+        announce(&mut w, rider, ON_FOOT);
+        assert_eq!(state(&w, rider), (None, false, 100.0));
+        // (announced on the craft: the body and its scale, flying; the person's own scale, where it is drawn, 100)
+        announce(&mut w, rider, ON_A_CRAFT);
+        assert_eq!(state(&w, rider), (Some((99470, 20)), true, 100.0));
+        // (gone, `Despawn`: nothing of it is kept)
+        w.add(&Message { kind: 0x36510078, identity: (0xc350, rider), data: vec![1] }.frame(1));
+        assert_eq!(state(&w, rider), (None, false, 100.0));
+        // (announced on foot again after having been on the craft: a person)
+        announce(&mut w, rider, ON_A_CRAFT);
+        announce(&mut w, rider, ON_FOOT);
+        assert_eq!(state(&w, rider), (None, false, 100.0));
+        // (flying on his own body, at his own scale; one's own update changes nothing of one's own)
+        announce(&mut w, flyer, FLYING);
+        assert_eq!(state(&w, flyer), (None, true, 110.0));
+        announce(&mut w, own, ON_A_CRAFT);
+        assert_eq!((w.crafts.get(&own), w.flying.contains(&own)), (None, false));
+        // (a zone: the others' bodies are forgotten with them; kept here is only what the game loop keeps)
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let _ = ITEM_DB.set(db);
+        // (the capture's own message: items 117322 / 96088 at quality 34, one, action 6, place (0x65, 1))
+        let worn = |action: u32, place: u32| Message { kind: TEMPLATE_ACTION, identity: (0xc350, rider), data: hex(&format!("000001ca4a00017758000000220000000100000{action:03x}00000065{place:08x}0000000000000000")) }.frame(1);
+        assert_eq!(worn(6, 1).body.len(), Message { kind: TEMPLATE_ACTION, identity: (0xc350, rider), data: hex("000001ca4a0001775800000022000000010000000600000065000000010000000000000000") }.frame(1).body.len());
+        w.add(&worn(6, 1));
+        assert_eq!(state(&w, rider), (Some((99470, 20)), true, 100.0));
+        // (a social place's item does nothing; another item taken off does nothing; the craft taken off ends both)
+        w.add(&worn(7, 0x31));
+        assert_eq!(state(&w, rider), (Some((99470, 20)), true, 100.0));
+        w.add(&worn(7, 1));
+        assert_eq!(state(&w, rider), (None, false, 100.0));
+        // (one announced on the craft who takes it off in view is a person at the scale the update kept)
+        announce(&mut w, rider, ON_A_CRAFT);
+        w.add(&worn(7, 1));
+        assert_eq!((state(&w, rider), w.infos[&rider].monster, w.infos[&rider].scale), ((None, false, 100.0), Some(0), Some(100)));
+        // (and one who has a body already, a polymorph's, keeps it when a craft is put on: FUN_100a7aa2)
+        w.crafts.insert(flyer, (17655, 90));
+        w.add(&Message { kind: TEMPLATE_ACTION, identity: (0xc350, flyer), data: hex("000001ca4a0001775800000022000000010000000600000065000000010000000000000000") }.frame(1));
+        assert_eq!(w.crafts.get(&flyer), Some(&(17655, 90)));
     }
 
     /// Another player is drawn at the scale its full update gives (the capture's own: 110, and one in a Yalmaha,
@@ -12292,6 +12477,8 @@ mod door_tests {
         w.add(&Message { kind: TEAM_MEMBER_INFO, identity: (0xc350, own), data: hex("000000c3507b1a0022000000c4000000d1000000e4000000d7") }.frame(1));
         let team = crate::team::with(|t| t.clone());
         assert_eq!(team.members.iter().map(|m| (m.name.as_str(), m.level)).collect::<Vec<_>>(), vec![("Wheresmyncu", 5), ("Nihiltech", 7)]);
+        // (the profession is the short after the level: a Fixer and an Engineer; the place in a raid is -1, none)
+        assert_eq!((team.members.iter().map(|m| m.profession).collect::<Vec<_>>(), team.raid), (vec![4, 3], None));
         assert_eq!((team.members[1].health, team.members[1].nano), ((196, 209), (215, 228)));
         // (0x23 names the leader, as the 15:05 capture's does after joining: the target and the team; the 16:55 capture's 0x1b
         // gives the team level 2 in the target's instance, told in the chat)
@@ -12304,6 +12491,50 @@ mod door_tests {
         // (leaving: the server's 0x20 naming oneself)
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000020000000000000c3507b1a002102a3b8ffffffffff0000") }.frame(1));
         assert!(crate::team::with(|t| t.members.is_empty() && t.leader.is_none()));
+        // A raid, which no capture has: all of it from the code.
+        // (a team again; the server's `RaidIIR_c` of type 0 for one's own character: the game's line, and the own
+        // team is the raid's place 0)
+        w.add(&Message { kind: TEAM_MEMBER, identity: (0xc350, own), data: hex("000000c3507b1a00210000dea902a3b8ffffffffff0000000500040000000b5768657265736d796e6375") }.frame(1));
+        w.game_lines.clear();
+        w.add(&Message { kind: n3::RAID_ANSWER, identity: (0xc350, own), data: vec![0, 0, 0] }.frame(1));
+        assert_eq!((w.game_lines.len(), crate::team::with(|t| (t.raid, t.in_raid()))), (1, (Some(0), true)));
+        // (the world-entry message with the team flags 3: the leader, the own place 2, six lists (a stranger in the
+        // first, the own two in the third), the two lists after them, and one perk, which is read behind the teams)
+        let mut data = vec![0u8];
+        let words = |data: &mut Vec<u8>, list: &[u32]| list.iter().for_each(|v| data.extend_from_slice(&v.to_be_bytes()));
+        let entry = |data: &mut Vec<u8>, id: u32, name: &str, level: u16, profession: u16| {
+            data.extend_from_slice(&[0, 0, 0xc3, 0x50]);
+            data.extend_from_slice(&id.to_be_bytes());
+            data.extend_from_slice(&(name.len() as u16).to_be_bytes());
+            data.extend_from_slice(name.as_bytes());
+            data.extend_from_slice(&[0, 0, 0, 0, 0]);
+            data.extend_from_slice(&level.to_be_bytes());
+            data.extend_from_slice(&profession.to_be_bytes());
+        };
+        words(&mut data, &[0x1a, 0x3f1, 0x3f1, 0x3f1, 0, 0, 0, 0, 0, 0, 0x3f1, 0x3f1, 0x3f1, 0x3f1, 0]);
+        words(&mut data, &[3, 0xc350, own, 2, 0x7e2]);
+        entry(&mut data, 0x50, "Far", 20, 6);
+        words(&mut data, &[0x3f1, 0xbd3]);
+        entry(&mut data, own, "Wheresmyncu", 6, 4);
+        entry(&mut data, 0x7b1a0022, "Nihiltech", 7, 3);
+        words(&mut data, &[0x3f1, 0x3f1, 0x3f1, 0x3f1, 0x3f1, 0x7e2, 0x1234, 0, 0, 0]);
+        w.add(&Message { kind: inventory::WORLD_ENTRY, identity: (0xc350, own), data }.frame(1));
+        let team = crate::team::with(|t| t.clone());
+        assert_eq!((team.raid, team.leader, team.leads()), (Some(2), Some(own), true));
+        assert_eq!(team.members.iter().map(|m| (m.name.as_str(), m.level, m.profession)).collect::<Vec<_>>(), [("Wheresmyncu", 6, 4), ("Nihiltech", 7, 3)]);
+        assert_eq!(team.raid_team(0).iter().map(|m| (m.id, m.name.as_str())).collect::<Vec<_>>(), [(0x50, "Far")]);
+        assert_eq!(w.perks, [0x1234]);
+        // (a member of the first team joins: `TeamMember` with the place 0; the bars of a member of another team do
+        // not make it one of the own; it leaves by 0x20 with its place)
+        w.add(&Message { kind: TEAM_MEMBER, identity: (0xc350, own), data: hex("000000c350000000510000dea902a3b8ff00000000000000090006000000034e6577") }.frame(1));
+        w.add(&Message { kind: TEAM_MEMBER_INFO, identity: (0xc350, own), data: hex("000000c35000000051000000c4000000d1000000e4000000d7") }.frame(1));
+        let team = crate::team::with(|t| t.clone());
+        assert_eq!((team.members.len(), team.raid_team(0).iter().map(|m| (m.name.as_str(), m.profession, m.health)).collect::<Vec<_>>()), (2, vec![("Far", 6, (0, 0)), ("New", 6, (196, 209))]));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000020000000000000c3500000005102a3b8ff000000000000") }.frame(1));
+        assert_eq!(crate::team::with(|t| (t.raid_team(0).len(), t.members.len())), (1, 2));
+        // (oneself leaving: the team and the raid are gone)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000020000000000000c3507b1a002102a3b8ffffffffff0000") }.frame(1));
+        assert!(crate::team::with(|t| t.members.is_empty() && t.raid.is_none() && t.others.iter().all(Vec::is_empty)));
     }
 
     /// The 16:55 capture's other players: Nihiltech (0x7b1a0022) sits and the server's 0x57 stands him up; he equips a weapon

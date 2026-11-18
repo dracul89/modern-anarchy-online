@@ -508,7 +508,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: another character flies only when a spell list of the server's said so (cleared at every zoning, not seen whether the server runs it again); the client is not told what others wear, so another player's Yalmaha or craft is not known; the Yalmaha size (template 99470 at 20 %) was not checked against a picture
 - A player notices: others on hoverbikes or crafts may be drawn walking, or not as a craft, until or unless a list arrives
 - Where: `crates/mao-client/src/net.rs:347`; `crates/mao-client/src/net.rs:283-285`; `crates/mao-client/src/net.rs:7130`; `docs/CLIENT_UI.md:3594`; `docs/CLIENT_UI.md:3992`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): another player's craft, polymorph body and flight are taken from its full update (`MonsterData`, `Scale`, the movement mode in the block behind them: 7 flies, 8 sits), and a craft or flight item put on or taken off in view from the server's `TemplateAction` 6 / 7, whose wear list the client runs as the original does (`World::others_wear`). The line above is wrong in part: flight comes from a server's spell list only for a program with criteria on one's own character. The mount rests on one capture, the dismount on the code alone. Not ported: a hoverbike program of another player started in view; and found beside it: `Buff` is a program's removal, which the client takes for its running (see CLIENT_UI.md).
 
 #### `MOV-021` Flight: entering effect and the ways flight ends missing
 
@@ -3728,7 +3729,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: shows own team as Team 1, others empty; the two buttons send nothing; the raid bars are not drawn
 - A player notices: raids cannot be made or seen
 - Where: `crates/mao-client/src/raid.rs:6`; `crates/mao-client/src/raid.rs:5`; `docs/GUI_DLL_PARITY.md:92`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the two buttons send the raid command (`N3Msg_CreateRaid` for a team's leader, `N3Msg_RequestRaidLocks`), "Convert To Raid" is enabled in a team that is no raid, and in a raid all six teams are shown from the server's lists (`team.rs`: the world-entry message's raid part, `TeamMember`'s place, 0x20's place, `RaidIIR_c` type 0); outside a raid the teams are empty, as the original's. Found and mended: zoning in a team emptied the perk list (the world-entry message's team flags were misread), and a team member's profession was read wrongly. No capture has a raid: its data is the code's alone. Not ported: a line's menu, dragging a member to another team, the raid bars.
 
 #### `CHT-050` Friends list: no flashing row for unread tells, no red folders, tell windows not under Chat Windows, no tell-window menu
 
@@ -7013,7 +7015,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only one's own craft is known; the client is not told what another character wears
 - A player notices: other players' crafts are not drawn
 - Where: `crates/mao-client/src/net.rs:285`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): other players' crafts are drawn: the body and scale of their full update (a Yalmaha XL is template 99470 at 20), or of the item they put on in view; put away when they are announced without it, take it off, or go. See MOV-020.
 
 #### `RND-136` Statel effects with their own colour or radius not drawn
 
