@@ -133,6 +133,7 @@ fn english(name: &str) -> &'static str {
         "Feedback_YouSuccededDisarmingMine" => "You succeeded disarming the mine!",
         "Feedback_YouSuccededDisarmingTrap" => "You succeded disarming the trap!.",
         "Feedback_YouHaveBeenDetected" => "You have been detected by %s!",
+        "Feedback_PerkAvailable" => "%s can be used again.",
         // (`/team`, Gamecode FUN_1003fe10: this client's words where the game's texts are not at hand)
         "Feedback_YouAreNotMemberOfTeam" => "You are not in a team.",
         "Feedback_AvailableTeamCommands" => "The team's commands:",
@@ -417,6 +418,28 @@ pub fn unable_to_perform(name: &str, seconds: f32) -> String {
     let left = seconds.max(0.0).ceil() as i64;
     let text = texts().and_then(|t| t.named(1000, "UnableToPerformActionSkill")).unwrap_or("%s: not ready for another %d h %d min %d s.");
     ldb::format(text, &[Arg::Text(name), Arg::Int(left / 3600), Arg::Int(left / 60 % 60), Arg::Int(left % 60)])
+}
+
+/// The wait line for a locked perk action (FUN_10064847 with a perk and no skill: `UnableToPerformActionPerk`, fed the
+/// perk's name and the hours, minutes and seconds).
+pub fn unable_to_perform_perk(name: &str, seconds: f32) -> String {
+    let left = seconds.max(0.0).ceil() as i64;
+    let text = texts().and_then(|t| t.named(1000, "UnableToPerformActionPerk")).unwrap_or("%s: not ready for another %d h %d min %d s.");
+    ldb::format(text, &[Arg::Text(name), Arg::Int(left / 3600), Arg::Int(left / 60 % 60), Arg::Int(left % 60)])
+}
+
+/// The wait line that names nothing (FUN_10064847 with neither a skill nor a perk: `UnableToPerformAction`, fed the
+/// hours, minutes and seconds): the daily rewards' claims held back by their lock.
+pub fn unable_to_perform_plain(seconds: f32) -> String {
+    let left = seconds.max(0.0).ceil() as i64;
+    let text = texts().and_then(|t| t.named(1000, "UnableToPerformAction")).unwrap_or("Not ready for another %d h %d min %d s.");
+    ldb::format(text, &[Arg::Int(left / 3600), Arg::Int(left / 60 % 60), Arg::Int(left % 60)])
+}
+
+/// A perk action is ready again (the server's `CharacterAction` 0xce, Gamecode FUN_1005d61f's case 88: the perk's
+/// name fed to `Feedback_PerkAvailable`).
+pub fn perk_available(name: &str) -> String {
+    line("Feedback_PerkAvailable", &[Arg::Text(name)])
 }
 
 /// A skill's short name (text category 2003), as the wait line names it.

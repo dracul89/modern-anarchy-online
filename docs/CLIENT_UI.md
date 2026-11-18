@@ -4994,3 +4994,42 @@ the shops' lists, the journal's active mission, and reading the original's own k
 One of the notes' open questions is answered by the way: the original does not count kept widths twice
 (`ORIGINAL_CODE_QUESTIONS.md` 4): the loop over the copy sees only the columns the store did not name.
 Tests: `the_lists_file_round_trips`, `a_list_keeps_its_widths_and_its_own_sort`.
+
+### Locks: a locked action's click, the rewards' claims, and two server messages (WIN-115, WIN-140, NET-011)
+
+Read anew in Gamecode's `CharacterAction` handler FUN_1005d61f (the message's two parameters are the words 17 and
+21 of its data, the target the words 9 and 13) and in `N3Msg_PerformSpecialAction`'s FUN_100427d6.
+
+- **A fault found by the reading and mended: perk locks were read from the wrong words.** `PerkUnavailable` (0xcf)
+  carries the lock's number and its seconds in the two parameters (the captures: `...000000c9 00000019`), and
+  `PerkAvailable` (0xce) the number in the second. The client read one word early, so every lock went under the
+  number 0 with the lock's number as its seconds: no perk action was ever shown locked.
+- **A click on a locked action says its wait line** (WIN-115). The original's click runs
+  `N3Msg_PerformSpecialAction` whatever the action's state; a locked one says the wait line of what locks it (text
+  category 1000: `UnableToPerformActionSkill` with the skill's name for a special attack,
+  `UnableToPerformActionPerk` with the perk's name for a perk, each with hours, minutes and seconds) and nothing is
+  sent. The client's action window dropped such a click without a word; now it goes on, and the network thread
+  says the line (`special_refusal` for the attacks, `World::perk_lock_left` for a perk). The server's own wait line
+  (0x84) uses the perk's text for a perk too, and `PerkAvailable` says the game's "ready again" line with the
+  perk's name (`Feedback_PerkAvailable`). The name is the perk action's own template's; the original takes it from
+  a perk table by the lock's number (FUN_10053bb2), which was not read.
+  "Action is not available." is another case: an action not in the list, or one whose lock has run out here while
+  the server has not yet freed it.
+- **The daily rewards' claims wait for their lock** (WIN-140; `N3Msg_RequestClaims` 0x1001db10,
+  `N3Msg_RequestClaimsDBCheck` 0x1001dbd8): the server locks stat 0x8c for 60 s at each claim and 120 s at each
+  check; while it runs the client says the wait line that names nothing (`UnableToPerformAction`) and sends
+  nothing (`World::claims_refusal`). The claims now name the character itself as their target, as the five in
+  the original's captures do (`n3::claims` left it zero).
+- **A lock's length** (found by the way): `SpecialUsed` (0xaa) does nothing for a skill that is locked already, and
+  the seconds are changed by the character's lock modifier, stat 382, for every skill but the special attacks' own
+  (FUN_10063de2; `actions::lock_seconds`). A capture's 60 s lock was freed after 48.3 s on a character with -20.
+- **0x14** makes a skill's lock longer (or starts it); **0xfc** takes every perk lock away and clears the time of
+  the last perk reset (stat 577); **0xb2** marks an action usable, a mark this client does not keep apart from the
+  locks (NET-011). None of the three is in a capture.
+
+Read and left: `CharacterAction` 0x6e (INV-072) is not "the end of an action's progress": it closes the open reclaim
+container (`0xdeae`; 0x6a the bank's), which this client does not have. The skills window's refusal of a
+"temporarily changed" skill (WIN-142) was read (`N3Msg_GetSkillMax` gives 0 for a stat a 0xcf76 spell holds, with
+`Feedback_CantChangeTemporarilyChangedSkill`) and not ported: rare, and the window is not handed the needed set.
+Tests: `a_special_is_refused_as_the_original_refuses_it` (the locks' messages), `a_lock_runs_by_the_lock_modifier`,
+`the_claims_are_as_the_original_sends_them`.

@@ -287,16 +287,20 @@ pub fn duel(character: u32, target: Option<u32>, what: u32, flag: u32) -> Frame 
 pub const DUEL: u32 = 0x106;
 
 /// `N3Msg_RequestClaims` (Gamecode 0x1001db10) and `N3Msg_RequestClaimsDBCheck` (0x1001dbd8): `CharacterAction` 0x107
-/// and 0x108, no target and no parameters (both through FUN_10072a88 as the duel's). The first asks the server to hand
+/// and 0x108, the character itself as the target and no parameters (both through FUN_10072a88). The first asks the server to hand
 /// over what the account has claimed (GUI.dll sends it when the daily rewards' window goes, `~BrowserWindow_c`
 /// 0x1010fcc1); the second to look for what is waiting (the menu's "Pending Rewards",
-/// `BrowserModule_c::SlotCheckRewardsActivated` 0x1010a9e1). Built from the decompile: no capture has one.
+/// `BrowserModule_c::SlotCheckRewardsActivated` 0x1010a9e1). The original client's captures have five of them, each
+/// with the character's own identity as the target (`0000000107 00000000 0000c350 7b1a0021 ...`); until 2026-11-18
+/// the target was left zero here ("no capture has one": they had not been looked for).
 pub const REQUEST_CLAIMS: u32 = 0x107;
 pub const REQUEST_CLAIMS_CHECK: u32 = 0x108;
 
 pub fn claims(character: u32, check: bool) -> Frame {
     let mut data = vec![0u8; 27];
     data[1..5].copy_from_slice(&(if check { REQUEST_CLAIMS_CHECK } else { REQUEST_CLAIMS }).to_be_bytes());
+    data[9..13].copy_from_slice(&CHARACTER.to_be_bytes());
+    data[13..17].copy_from_slice(&character.to_be_bytes());
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
@@ -1286,13 +1290,12 @@ pub fn market_send(character: u32, credits: i32, items: &[(u32, u32)]) -> Frame 
 #[cfg(test)]
 mod tests {
     #[test]
-    fn the_claims_are_character_actions_without_a_target() {
-        // (the same message as a pet duel's stop, which has no target or parameters either, but for the action)
-        let (asked, check, stop) = (claims(7, false), claims(7, true), pet_duel(7, None, 3));
-        assert_eq!(asked.body.len(), stop.body.len());
-        let differing = |a: &Frame, b: &Frame| a.body.iter().zip(&b.body).filter(|(x, y)| x != y).count();
-        assert_eq!((differing(&asked, &check), differing(&asked, &stop) <= 2), (1, true));
-        assert!(asked.body.windows(4).any(|w| w == 0x107u32.to_be_bytes()) && check.body.windows(4).any(|w| w == 0x108u32.to_be_bytes()));
+    fn the_claims_are_as_the_original_sends_them() {
+        // (the original client's capture of 2026-10-30, #252 and #778: the character itself is the target)
+        let hex = |h: &str| (0..h.len() / 2).map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (asked, check) = (claims(0x7b1a0021, false), claims(0x7b1a0021, true));
+        assert!(asked.body.ends_with(&hex("0000000107000000000000c3507b1a002100000000000000000000")));
+        assert!(check.body.ends_with(&hex("0000000108000000000000c3507b1a002100000000000000000000")));
     }
 
     #[test]

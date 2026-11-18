@@ -34,6 +34,12 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   behind where the server had it, and fought from there.
 - Creatures that hold no weapon (most of them) swing when they attack, and stand in their fight stance for as long
   as they fight; they used to stand still while they hit.
+- Perk actions show their lock: a used perk fades until it can be used again, and "... can be used again" is said
+  when it can. (The lock's message was read wrongly, so no perk ever looked locked.)
+- A click on a locked special attack or perk in the Actions window says how long it still takes, as the keys and
+  the hotbar do; it used to do nothing.
+- Lock times follow the character's lock modifier (a stim's wait on a character with -20 % is shown as 32 s, not
+  40 s).
 
 ### Windows
 

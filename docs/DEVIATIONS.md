@@ -2320,6 +2320,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No progress end on corpse/chest actions.
 - Where: `docs/CAPTURE_GAPS.md:288`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): the note is a misreading: 0x6e closes the open reclaim container (0xdeae; 0x6a the bank's), FUN_10046e7a; no timer ends. Nothing to port until there is a reclaim window.
 
 #### `INV-073` Shops: list configs not read
 
@@ -5032,7 +5033,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the click is ignored silently
 - A player notices: no text is shown when clicking a locked perk action
 - Where: `crates/mao-client/src/actions.rs:365`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): a locked action's click goes on and says its wait line (the perk's UnableToPerformActionPerk, the skill's UnableToPerformActionSkill; the catalog's Original line named the skill text for a perk); perk locks were being read from the wrong words of 0xcf / 0xce, mended with it.
 
 #### `WIN-116` Character info page leaves out several of the original's parts
 
@@ -5259,7 +5261,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: asks the server every time
 - A player notices: a claim can be requested while the original would refuse and say so
 - Where: `docs/ORIGINAL_AUDIT.md:34`; `crates/mao-client/src/net.rs:7384`; `docs/GUI_DLL_PARITY.md:106`; `docs/CLIENT_UI.md:1098`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): the claims wait while the lock of stat 0x8c runs and say UnableToPerformAction (World::claims_refusal); the claims also name the character as their target now, as the original's captures do.
 
 #### `WIN-141` Score bars have no maximum; attack rating is the client's own sum
 
@@ -5278,6 +5281,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A temporarily changed skill can be raised where the original refuses.
 - Where: `docs/GUI_DLL_PARITY.md:78`; `docs/ORIGINAL_AUDIT.md:88`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): read: N3Msg_GetSkillMax gives 0 for a stat a 0xcf76 spell holds, with Feedback_CantChangeTemporarilyChangedSkill; the client keeps the set (World::saved_stats) but the window is not handed it. Rare; left.
 
 #### `WIN-143` Slider has no gfxid_slider art choice and no steps
 
@@ -8758,7 +8762,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not handled; n3::special_attack hard-codes the character type 50000 (0xc350)
 - A player notices: some lock states not tracked; attackable items cannot be special targets
 - Where: `docs/SPECIALS_ORIGINAL.md:247`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): 0x14 lengthens or starts a skill's lock, 0xfc clears the perk locks and stat 577; 0xb2 has nothing to change here (no mark apart from the locks). None is in a capture. The attack's target type (an attackable item) is not done.
 
 ### Network and protocol: the client has it, the original does not (2)
 

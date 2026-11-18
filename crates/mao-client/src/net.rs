@@ -2618,19 +2618,50 @@ impl World {
         if m.kind == 0x5e477770 && m.identity.1 == self.own && m.data.len() >= 25 {
             let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
             match m.data[4] {
+                // (`SpecialUsed`, case 60: FUN_10064fb4 does nothing for a skill that is locked already, and the lock
+                // runs for the seconds FUN_10063de2 makes of the server's: `actions::lock_seconds`. Until 2026-11-18 a
+                // second telling started the lock anew and the seconds were taken as told.)
                 0xaa => {
-                    self.special_events.push((word(17), word(21) as f32));
-                    self.special_locks.insert(word(17), Instant::now() + Duration::from_secs(word(21) as u64));
+                    if self.skill_lock_left(word(17)).is_none() {
+                        let seconds = crate::actions::lock_seconds(word(17), word(21), crate::derived::judged_one(&self.stats, &self.item_mods, 382));
+                        self.special_events.push((word(17), seconds as f32));
+                        self.special_locks.insert(word(17), Instant::now() + Duration::from_secs(seconds as u64));
+                    }
+                }
+                // (0x14, case 2, FUN_10065b19: a skill's lock made longer by that many seconds, or begun as 0xaa
+                // begins it when the skill is not locked. No capture has one.)
+                0x14 => {
+                    let seconds = crate::actions::lock_seconds(word(17), word(21), crate::derived::judged_one(&self.stats, &self.item_mods, 382));
+                    let left = self.skill_lock_left(word(17)).unwrap_or(0.0) + seconds as f32;
+                    self.special_events.push((word(17), left));
+                    self.special_locks.insert(word(17), Instant::now() + Duration::from_secs_f32(left));
+                }
+                // (0xb2, case 66, FUN_1003f2cf: the action of that number is marked usable again, a mark each action
+                // of the original's list has apart from the locks. Here an action is usable when no lock runs: nothing
+                // to do. No capture has one.)
+                0xb2 => {}
+                // (0xfc, case 99, FUN_10053af2: every perk lock is taken away and the time of the last perk reset,
+                // stat 577, set to nothing. No capture has one.)
+                0xfc => {
+                    self.perk_locks.clear();
+                    self.stats.insert(577, 0);
+                    self.perk_actions_changed = true;
+                    self.stats_changed = true;
                 }
                 // (the server's own wait line, case 0x2a: a skill's stat and the seconds left, or a perk's number in the
                 // target's instance; the 16:55 capture's `...00000072 00000005`)
+                // (FUN_10064847 picks the text by what is locked: a skill's, a perk's, or the one that names nothing)
                 0x84 => {
-                    let name = if word(17) != 0 {
-                        crate::feedback::skill_name(word(17))
+                    let seconds = word(21) as f32;
+                    let text = if word(17) != 0 {
+                        crate::feedback::unable_to_perform(&crate::feedback::skill_name(word(17)), seconds)
+                    } else if word(13) != 0 {
+                        let name = crate::actions_data::ACTIONS.iter().find(|a| a.4 == word(13) && a.1 == crate::actions::Kind::Perk).map_or_else(|| "That action".to_string(), |a| a.2.to_string());
+                        crate::feedback::unable_to_perform_perk(&name, seconds)
                     } else {
-                        crate::actions_data::ACTIONS.iter().find(|a| a.4 == word(13) && a.1 == crate::actions::Kind::Perk).map_or_else(|| "That action".to_string(), |a| a.2.to_string())
+                        crate::feedback::unable_to_perform_plain(seconds)
                     };
-                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::unable_to_perform(&name, word(21) as f32)));
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
                 }
                 // `SetNanoDuration`: the nano `(0xcf1b, id)` is on the character (the first parameter) for that long (ms)
                 0x62 if word(9) == 0xcf1b && word(17) == self.own => self.nano_duration(word(13), word(21)),
@@ -2666,8 +2697,11 @@ impl World {
                 0xb5 if word(21) != 0 => self.backstab = true,
                 // `PerkUnavailable` (0xcf): a perk lock (the lock-skill spell's group) runs for that many seconds; `PerkAvailable`
                 // (0xce): it is over
+                // (the lock's number and its seconds are the two parameters, words 17 and 21, as case 89 reads them
+                // (FUN_10053b5d) and the captures have them: `...000000c9 00000019`. Until 2026-11-18 the words 13 and
+                // 17 were read, so every lock went under the number 0 and no perk action was ever shown locked.)
                 0xcf => {
-                    self.perk_locks.insert(word(13), (Instant::now() + Duration::from_secs(word(17) as u64), word(17) as f32));
+                    self.perk_locks.insert(word(17), (Instant::now() + Duration::from_secs(word(21) as u64), word(21) as f32));
                     self.perk_actions_changed = true;
                 }
                 // `QueuePerk` (0x50, case 19, 0x1005f12e: just after the client's perk use 0xb3): parameters `(2, delay)`, the delay in
@@ -2692,8 +2726,13 @@ impl World {
                         self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::gui("TimedLogoutAborted", &[])));
                     }
                 }
+                // (case 88: the lock's number is the second parameter; the game says the perk is ready again,
+                // `Feedback_PerkAvailable` with its name, before the lock goes)
                 0xce => {
-                    self.perk_locks.remove(&word(17));
+                    if let Some(name) = self.perk_of_lock(word(21)) {
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::perk_available(&name)));
+                    }
+                    self.perk_locks.remove(&word(21));
                     self.perk_actions_changed = true;
                 }
                 // `DeleteItem` from the server (0x70): an item used up (a combine's pieces): `(0x68, place)` leaves the backpack
@@ -3903,6 +3942,33 @@ impl World {
     /// nothing is said), which is not oneself, not dead, and the attacker not swimming (FUN_10069a9f).
     /// Not checked here, left to the server: the held weapon's "can" bit for the special (Brawl 0x2000000 and Dimach
     /// 0x4000000 among them), the special's range and the line of sight, the queue of specials not yet swung.
+    /// What is left of a skill's lock, in seconds; none when it is not locked (the character's lock list, Gamecode
+    /// FUN_1006414f).
+    fn skill_lock_left(&self, stat: u32) -> Option<f32> {
+        self.special_locks.get(&stat).map(|until| until.saturating_duration_since(Instant::now()).as_secs_f32()).filter(|left| *left > 0.0)
+    }
+
+    /// What is left of the lock a perk action's use started (`actions::perk_lock` names it), in seconds.
+    fn perk_lock_left(&self, template: u32) -> Option<f32> {
+        let lock = crate::actions::perk_lock(ITEM_DB.get()?, template)?;
+        self.perk_locks.get(&lock).map(|l| l.0.saturating_duration_since(Instant::now()).as_secs_f32()).filter(|left| *left > 0.0)
+    }
+
+    /// The name of the perk action a lock is of: the first of the character's whose lock spell names it. (The
+    /// original names the perk its perk table has for the lock's number, FUN_10053bb2; that table was not read.)
+    fn perk_of_lock(&self, lock: u32) -> Option<String> {
+        let db = ITEM_DB.get()?;
+        let template = self.perk_actions.iter().map(|p| p.0).find(|&t| crate::actions::perk_lock(db, t) == Some(lock))?;
+        template_name(template)
+    }
+
+    /// The daily rewards' claims are held back while the lock they start runs (`N3Msg_RequestClaims` 0x1001db10 and
+    /// `N3Msg_RequestClaimsDBCheck` 0x1001dbd8: the lock of stat 0x8c, which the server starts at each claim, 60 s,
+    /// and at each check, 120 s): the wait line that names nothing, and nothing is sent.
+    fn claims_refusal(&self) -> Option<String> {
+        self.skill_lock_left(0x8c).map(crate::feedback::unable_to_perform_plain)
+    }
+
     fn special_refusal(&self, number: u32, target: Option<u32>) -> Option<Option<String>> {
         if self.specials_told.as_ref().is_some_and(|s| !s.contains(&number)) && number != crate::actions::SEARCH {
             return Some(Some(crate::feedback::plain("Feedback_ActionIsNotAvailable")));
@@ -7463,8 +7529,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 eprintln!("[{:6.1}] skill reset {stat}", clock.elapsed().as_secs_f32());
                 let _ = connection.send(&n3::reset_skill(own, stat));
             }
-            // (the claims: asked for when the daily rewards' window goes, and by the menu's "Pending Rewards". The original
-            // holds either back while its lock 0x8c runs, FUN_1006414f, and says so; here the server is asked each time.)
+            // (the claims: asked for when the daily rewards' window goes, and by the menu's "Pending Rewards"; held
+            // back while the lock 0x8c runs, `World::claims_refusal`)
             // `/assist` (`N3Msg_AssistFight`, Gamecode 0x100274xx): the one meant has to be in a fight
             // (`Feedback_TargetIsNotInFight` else); its opponent is selected and attacked. A name is one of the
             // characters here (`N3Msg_NameToID`), else "Can't find target >name<."
@@ -7488,6 +7554,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             for check in std::mem::take(&mut *CLAIM_REQUESTS.lock().unwrap_or_else(|e| e.into_inner())) {
+                if let Some(text) = state.claims_refusal() {
+                    eprintln!("[{:6.1}] claims not asked for: their lock runs", clock.elapsed().as_secs_f32());
+                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
+                    continue;
+                }
                 eprintln!("[{:6.1}] claims asked for ({})", clock.elapsed().as_secs_f32(), if check { "the check for what is waiting" } else { "what was claimed" });
                 let _ = connection.send(&n3::claims(own, check));
             }
@@ -8291,9 +8362,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         None => pending_messages.push("No target (Tab selects one)".into()),
                     },
                     // (a perk action the server listed: `N3Msg_PerformSpecialAction`'s 0xc78e case, FUN_100427d6, a `UsePerk`)
+                    // (one whose lock runs is not used: FUN_100427d6 says the perk's wait line, FUN_10052fc4, and
+                    // sends nothing)
                     _ if state.perk_actions.iter().any(|p| p.0 == id) => {
                         let &(_, number, code) = state.perk_actions.iter().find(|p| p.0 == id).unwrap();
-                        let _ = connection.send(&n3::use_perk(own, number, code));
+                        match state.perk_lock_left(id) {
+                            Some(left) => {
+                                let name = template_name(id).unwrap_or_default();
+                                told(crate::feedback::unable_to_perform_perk(&name, left), &mut state.game_lines);
+                            }
+                            None => {
+                                let _ = connection.send(&n3::use_perk(own, number, code));
+                            }
+                        }
                     }
                     other => match crate::actions_data::ACTIONS.iter().find(|a| a.0 == id && a.1 == crate::actions::Kind::Perk && a.3.len() == 4) {
                         // A perk: its id and its four-letter hash name it (the server uses the current target).
@@ -12032,6 +12113,23 @@ mod door_tests {
         // (the user's log of 2026-11-15: `SpecialUsed`, stat 0x8c (140) for 0x3c seconds; then `SpecialAvailable`)
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000aa0000000000000000000000000000008c0000003c0000") }.frame(1));
         assert!(w.special_locks.contains_key(&140));
+        // (the claims wait for that lock; told again, it does not start anew; 0x14 makes it longer)
+        assert!(w.claims_refusal().is_some());
+        let until = w.special_locks[&140];
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000aa0000000000000000000000000000008c000000780000") }.frame(1));
+        assert_eq!(w.special_locks[&140], until);
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000140000000000000000000000000000008c0000000a0000") }.frame(1));
+        let left = w.skill_lock_left(140).unwrap();
+        assert!((69.0..=70.0).contains(&left), "{left}");
+        // (a perk's lock as the 2026-10-31 capture has it, #8206 and #8480: the number 0xc9 for 0x19 seconds, then free)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000cf000000000000000000000000000000c9000000190000") }.frame(1));
+        assert_eq!(w.perk_locks.get(&0xc9).map(|l| l.1), Some(25.0));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000ce00000000000000000000000000000000000000c90000") }.frame(1));
+        assert!(w.perk_locks.is_empty());
+        // (0xfc: every perk lock goes)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000cf000000000000000000000000000000c9000000190000") }.frame(1));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000fc00000000000000000000000000000000000000000000") }.frame(1));
+        assert!(w.perk_locks.is_empty() && w.stats.get(&577) == Some(&0));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000aa000000000000000000000000000000940000001e0000") }.frame(1));
         assert!(matches!(w.special_refusal(148, Some(9)), Some(Some(_))), "burst is locked");
         assert_eq!(w.special_refusal(142, Some(9)), None);

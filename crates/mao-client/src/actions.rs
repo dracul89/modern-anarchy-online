@@ -114,6 +114,26 @@ pub const SEARCH: u32 = 0x86;
 /// (`SpecialUsed` and `SpecialAvailable`, as the hotbar's slots follow them; the original's `N3Msg_GetActionProgress`).
 static LOCKS: std::sync::Mutex<Vec<(u32, std::time::Instant, f32)>> = std::sync::Mutex::new(Vec::new());
 
+/// How long a lock the server tells of runs (Gamecode FUN_10063de2, asked by `SpecialUsed` 0xaa and by 0x14): the
+/// seconds as told for the special attacks' own skills (142, 144, 146, 147, 148, 150, 151, 167, 579, 673); for any
+/// other skill changed by the character's lock modifier (stat 382, a percentage, no less than -50): seconds +
+/// modifier * seconds / 100, to the nearest whole. (The captures: a lock of stat 140 told as 60 s was freed after
+/// 48.3 s on one character and after 61.6 s on another.)
+pub fn lock_seconds(stat: u32, seconds: u32, modifier: i64) -> u32 {
+    if matches!(stat, 142 | 144 | 146 | 147 | 148 | 150 | 151 | 167 | 579 | 673) {
+        return seconds;
+    }
+    let m = modifier.max(-50) as f64;
+    (m * seconds as f64 / 100.0 + seconds as f64 + 0.5).max(0.0) as u32
+}
+
+/// The lock a perk action's use starts: the number its template's lock spell (0xcfc3) names, which the server's
+/// `PerkUnavailable` and `PerkAvailable` carry.
+pub fn perk_lock(db: &mao_formats::resource::ResourceDatabase, template: u32) -> Option<u32> {
+    let data = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten()?;
+    mao_formats::spell::lists(&data).into_iter().flat_map(|(_, s)| s).find(|s| s.kind == 0xcfc3).map(|s| s.stat(0) as u32)
+}
+
 /// The server locked a skill for `seconds` (0: it is ready again).
 pub fn set_lock(stat: u32, seconds: f32) {
     let mut locks = LOCKS.lock().unwrap_or_else(|e| e.into_inner());
@@ -362,8 +382,11 @@ impl ActionsWindow {
         for (_, event) in crate::gui::multilist::take_events(tree) {
             match event {
                 crate::gui::multilist::ItemEvent::Clicked(k, _) => {
-                    // (a locked perk: "Feedback_ActionIsNotAvailable" in the original; nothing is sent)
-                    if let Some((a, _, _, _, None)) = actions.get(k as usize) {
+                    // (a locked one is clicked like any other: `N3Msg_PerformSpecialAction`, FUN_100427d6, then says
+                    // the wait line of what locks it and sends nothing. The network thread says it: a perk's
+                    // `UnableToPerformActionPerk`, a skill's `UnableToPerformActionSkill`. Until 2026-11-18 the click
+                    // was dropped here without a word.)
+                    if let Some((a, ..)) = actions.get(k as usize) {
                         self.clicked = Some(a.clone());
                     }
                 }
@@ -396,6 +419,18 @@ impl ActionsWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_10063de2: a special attack's own lock runs as told; another skill's by the lock modifier, which takes no
+    /// more than half off.
+    #[test]
+    fn a_lock_runs_by_the_lock_modifier() {
+        assert_eq!(lock_seconds(148, 30, -20), 30);
+        assert_eq!(lock_seconds(140, 60, 0), 60);
+        assert_eq!(lock_seconds(140, 60, -20), 48);
+        assert_eq!(lock_seconds(123, 40, -80), 20);
+        assert_eq!(lock_seconds(123, 45, 10), 50);
+        assert_eq!(lock_seconds(123, 5, -10), 5);
+    }
 
     /// A skill the server locked is locked for anything that goes by it; the nano programs are busy for a cast's
     /// time. (`MAO_GAME`: the starter's Health and Nano Stim locks First Aid, 123, and is locked with it.)
