@@ -45,6 +45,15 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - The NCU, nano program and mission lists keep their column widths and the column they are sorted by between
   sessions.
+- The factions window starts with the standings' titles, as the game's does, and remembers the choice between
+  titles and numbers.
+
+### Missions
+
+- A terminal with no missions says so in the chat and empties the window's old offers.
+- A level-up says the experience that made it, and a new title when one comes with it.
+- For characters of level 200 to 220 a mission's page shows its pay in shadow knowledge when read in the
+  Shadowlands.
 
 ## 0.1.5 (2026-11-17)
 

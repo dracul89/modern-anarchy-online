@@ -23,6 +23,23 @@ pub fn name(object: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(&text[..end]).into_owned())
 }
 
+/// The five words a definition of version 9 or later has after its zone count (N3.dll `RDBPlayfield_t::ReadBlob`
+/// 0x1001c115 reads them into the record's +0x50 to +0x60; an older one has none and the record's are zero). Bit 2 of
+/// the first marks a Shadowlands playfield (`n3EngineClientAnarchy_t::CanReceiveSK`, Gamecode 0x1001827d: Nascense,
+/// Elysium, Penumbra and Jobe's platform have it, Rubi-Ka's playfields not); bit 0x80000 of the third one where
+/// flying is not allowed (the criteria evaluator's operator 112: Arete Landing and the ICC shuttleport have it).
+pub fn flag_words(object: &[u8]) -> Option<[u32; 5]> {
+    let u32_at = |o: usize| object.get(o..o + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()));
+    if u32_at(OBJECT_HEAD)? < 9 {
+        return Some([0; 5]);
+    }
+    let mut words = [0; 5];
+    for (k, w) in words.iter_mut().enumerate() {
+        *w = u32_at(OBJECT_HEAD + 52 + 4 * k)?;
+    }
+    Some(words)
+}
+
 /// A triangle of liquid from the playfield's water polygons (server coordinates: x, height, z).
 #[derive(Clone, Debug, PartialEq)]
 pub struct WaterTriangle {
@@ -215,6 +232,20 @@ pub fn all(db: &ResourceDatabase) -> Vec<Playfield> {
 
 #[cfg(test)]
 mod tests {
+    /// `MAO_GAME`: the flag words of real playfields: the Shadowlands' mark and the "no flying" bit.
+    #[test]
+    fn real_playfields_flag_words() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = crate::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let words = |playfield: u32| super::flag_words(&db.get(crate::resource::Id { kind: super::KIND, instance: playfield }).unwrap().unwrap()).unwrap();
+        // (Nascense Frontier, Central Elysium, Penumbra; Andromeda, Borealis)
+        assert!([4310, 4542, 4006].iter().all(|&p| words(p)[0] & 2 != 0));
+        assert!([655, 800].iter().all(|&p| words(p)[0] & 2 == 0));
+        // (Arete Landing and the ICC shuttleport; Borealis and Andromeda)
+        assert!([6553, 4582].iter().all(|&p| words(p)[2] & 0x80000 != 0));
+        assert!([800, 655].iter().all(|&p| words(p)[2] & 0x80000 == 0));
+    }
+
     use super::*;
 
     #[test]

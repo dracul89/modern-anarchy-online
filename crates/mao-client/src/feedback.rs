@@ -134,6 +134,7 @@ fn english(name: &str) -> &'static str {
         "Feedback_YouSuccededDisarmingTrap" => "You succeded disarming the trap!.",
         "Feedback_YouHaveBeenDetected" => "You have been detected by %s!",
         "Feedback_PerkAvailable" => "%s can be used again.",
+        "Feedback_CongratulationsReachedLevel" => "You have earned the title %s.",
         // (`/team`, Gamecode FUN_1003fe10: this client's words where the game's texts are not at hand)
         "Feedback_YouAreNotMemberOfTeam" => "You are not in a team.",
         "Feedback_AvailableTeamCommands" => "The team's commands:",
@@ -440,6 +441,11 @@ pub fn unable_to_perform_plain(seconds: f32) -> String {
 /// name fed to `Feedback_PerkAvailable`).
 pub fn perk_available(name: &str) -> String {
     line("Feedback_PerkAvailable", &[Arg::Text(name)])
+}
+
+/// A new title at a level-up (Gamecode FUN_10075f55: `Feedback_CongratulationsReachedLevel` fed the title's name).
+pub fn reached_title(title: &str) -> String {
+    line("Feedback_CongratulationsReachedLevel", &[Arg::Text(title)])
 }
 
 /// A skill's short name (text category 2003), as the wait line names it.

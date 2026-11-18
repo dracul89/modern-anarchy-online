@@ -191,6 +191,7 @@ fn info_text(name: &str) -> String {
         "Cash" => "Cash: ",
         "NumCredits" => "%d credits",
         "Experience" => "Experience: ",
+        "IT_QuestSKReward" => "%d shadow knowledge",
         "NumPoints" => "%d points",
         "ItemReward" => "Items: ",
         "NoReward" => "none",
@@ -322,11 +323,11 @@ impl MissionLog {
     /// pays: the credits, the experience (not for a reader of level 200 to 220, who is paid in shadow knowledge the
     /// original works out with `GetSKForXP`: not ported) and the reward items as links with their icons, or that there
     /// is none. `now` is the server's time, `level` the reader's.
-    pub fn page(&self, url: &str, now: u32, level: i64, db: &mao_formats::resource::ResourceDatabase) -> Option<String> {
+    pub fn page(&self, url: &str, now: u32, reader: Reader, db: &mao_formats::resource::ResourceDatabase) -> Option<String> {
         let (kind, instance) = crate::gui::iteminfo::parse_itemid(url)?;
         let m = self.missions.iter().find(|m| kind == MISSION_TYPE && m.id == (kind, instance))?;
         let item = |id: u32| db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: id }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map(|t| (t.icon(), t.name));
-        Some(page_of(m, now, level, &item))
+        Some(page_of(m, now, reader, &item))
     }
 
     /// The window: the `MissionListView_c` list of the missions (icon, name, time left), the active one selected; a click
@@ -451,8 +452,47 @@ impl MissionLog {
     }
 }
 
+/// How a mission's experience is told to the one who reads its page (FUN_100360d5, 0x1003645d on): in points; for
+/// a reader of level 200 to 220 in shadow knowledge, and that only where shadow knowledge can be had
+/// (`N3InterfaceModule_t::CanReceiveSK`: in a Shadowlands playfield), elsewhere not at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reader {
+    Points,
+    NoRow,
+    /// The reader's standing with its side's faction, which sets how much shadow knowledge an experience is.
+    ShadowKnowledge(i64),
+}
+
+impl Reader {
+    /// The reader by its stats and whether its playfield is a Shadowlands one (`playfield::flag_words`' bit 2). The
+    /// standing is the side's (Gamecode FUN_10062b37: side 1 the Redeemed's, stat 572; side 2 the Unredeemed's, 569;
+    /// any other the Guardians', 566).
+    pub fn of(stats: &std::collections::BTreeMap<u32, i64>, shadowlands: bool) -> Reader {
+        let stat = |s: u32| stats.get(&s).copied().unwrap_or(0);
+        if !(200..=220).contains(&stat(54)) {
+            return Reader::Points;
+        }
+        if !shadowlands {
+            return Reader::NoRow;
+        }
+        Reader::ShadowKnowledge(stat(match stat(33) {
+            1 => 572,
+            2 => 569,
+            _ => 566,
+        }))
+    }
+}
+
+/// `GetSKForXP` (Gamecode 0x10018255, FUN_10062b85): the shadow knowledge an experience is worth at a standing: the
+/// standing times 0.001 (a float's) over 50000, kept as a float, times the experience, cut to a whole number; none
+/// below 0. A standing of 50000 gives a thousandth of the experience.
+pub fn sk_for_xp(standing: i64, xp: i64) -> i64 {
+    let k = (standing as f64 * (0.001f32 as f64) / 50000.0) as f32;
+    i64::from(((k as f64 * xp as f64) as i32).max(0))
+}
+
 /// FUN_100360d5's markup for a mission; `item` finds a reward item's icon and name by its template.
-fn page_of(m: &Mission, now: u32, level: i64, item: &dyn Fn(u32) -> Option<(Option<u32>, String)>) -> String {
+fn page_of(m: &Mission, now: u32, reader: Reader, item: &dyn Fn(u32) -> Option<(Option<u32>, String)>) -> String {
     use crate::gui::iteminfo::section;
     use crate::gui::spells::printf_ints;
     let mut out = format!("<font color=CCItemUnknown>{}</font><br>", m.title);
@@ -473,9 +513,16 @@ fn page_of(m: &Mission, now: u32, level: i64, item: &dyn Fn(u32) -> Option<(Opti
         pays = true;
         out += &section(&info_text("Cash"), &printf_ints(&info_text("NumCredits"), &[m.credits as i32]), 0);
     }
-    if m.xp > 0 && !(200..=220).contains(&level) {
-        pays = true;
-        out += &section(&info_text("Experience"), &printf_ints(&info_text("NumPoints"), &[m.xp as i32]), 0);
+    if m.xp > 0 {
+        let row = match reader {
+            Reader::Points => Some(printf_ints(&info_text("NumPoints"), &[m.xp as i32])),
+            Reader::ShadowKnowledge(standing) => Some(printf_ints(&info_text("IT_QuestSKReward"), &[sk_for_xp(standing, m.xp as i64) as i32])),
+            Reader::NoRow => None,
+        };
+        if let Some(row) = row {
+            pays = true;
+            out += &section(&info_text("Experience"), &row, 0);
+        }
     }
     if !m.rewards.is_empty() {
         pays = true;
@@ -598,18 +645,25 @@ mod tests {
         m.xp = 111218;
         m.rewards = vec![Reward { low: 11, high: 12, quality: 118 }];
         let item = |id: u32| (id == 11).then(|| (Some(4242), "A \"thing\"".to_string()));
-        let page = page_of(&m, 1000, 60, &item);
+        let page = page_of(&m, 1000, Reader::Points, &item);
         assert!(page.starts_with("<font color=CCItemUnknown>A mission</font><br>"));
         assert!(page.contains("Go there<br>and back"));
         let at = |needle: &str| page.find(needle).unwrap_or_else(|| panic!("{needle} in {page}"));
         assert!(at("Go there") < at("41720") && at("41720") < at("111218") && at("111218") < at("itemref://11/12/118"));
         assert!(page.contains("<a href=itemref://11/12/118 title=\"A thing\"><img src=rdb://4242></a> "));
-        // (level 200 to 220: no experience row)
-        assert!(!page_of(&m, 1000, 205, &item).contains("111218"));
+        // (level 200 to 220: no experience row outside the Shadowlands; in them the shadow knowledge it is worth)
+        assert!(!page_of(&m, 1000, Reader::NoRow, &item).contains("111"));
+        let sk = page_of(&m, 1000, Reader::ShadowKnowledge(50000), &item);
+        assert!(sk.contains("111") && !sk.contains("111218"), "{sk}");
+        assert_eq!((sk_for_xp(50000, 111218), sk_for_xp(25000, 111218), sk_for_xp(0, 111218), sk_for_xp(-300, 111218)), (111, 55, 0, 0));
+        let stats = |level: i64, side: i64| -> std::collections::BTreeMap<u32, i64> { [(54, level), (33, side), (566, 1), (569, 2), (572, 3)].into() };
+        assert_eq!(Reader::of(&stats(199, 1), true), Reader::Points);
+        assert_eq!(Reader::of(&stats(210, 1), false), Reader::NoRow);
+        assert_eq!((Reader::of(&stats(200, 1), true), Reader::of(&stats(220, 2), true), Reader::of(&stats(210, 0), true)), (Reader::ShadowKnowledge(3), Reader::ShadowKnowledge(2), Reader::ShadowKnowledge(1)));
         // (no deadline ahead: no time row, so the page is shorter by it)
-        let later = page_of(&m, 1000 + 27 * 3600, 60, &item);
+        let later = page_of(&m, 1000 + 27 * 3600, Reader::Points, &item);
         assert!(later.len() < page.len());
-        let nothing = page_of(&mission(&[]), 1000, 60, &item);
+        let nothing = page_of(&mission(&[]), 1000, Reader::Points, &item);
         assert!(!nothing.contains("itemref://") && !nothing.contains("41720"));
     }
 
@@ -623,7 +677,7 @@ mod tests {
         m.flags = 0x100;
         m.credits = 41720;
         m.xp = 111218;
-        let page = page_of(&m, 1000, 60, &|_| None);
+        let page = page_of(&m, 1000, Reader::Points, &|_| None);
         if std::env::var_os("MAO_PRINT").is_some() {
             println!("{page}");
         }

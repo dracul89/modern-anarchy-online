@@ -5033,3 +5033,31 @@ container (`0xdeae`; 0x6a the bank's), which this client does not have. The skil
 `Feedback_CantChangeTemporarilyChangedSkill`) and not ported: rare, and the window is not handed the needed set.
 Tests: `a_special_is_refused_as_the_original_refuses_it` (the locks' messages), `a_lock_runs_by_the_lock_modifier`,
 `the_claims_are_as_the_original_sends_them`.
+
+### Missions, the level-up and the factions window (NPC-030, NPC-035 / WIN-133, OTH-012, WIN-125)
+
+- **No missions** (GUI.dll FUN_100d0e71, the mission window's slot for every change of the offers): the list is
+  emptied first, then for no offers a line is said in the chat (the system text's signal). The client kept the old
+  offers in the window and put its words in the window's status line; now the offers go and the line is a chat
+  line. The original's sentence is a literal of GUI.dll's, in no text file the client reads, so the wording stays
+  this client's own: say so if the original's words are wanted.
+- **The mission page's experience for a reader of level 200 to 220** (FUN_100360d5 at 0x1003645d): where shadow
+  knowledge can be had (`CanReceiveSK`, Gamecode 0x1001827d: bit 2 of the first flag word of the playfield's
+  record, set for the Shadowlands' playfields) the row is the game's `IT_QuestSKReward` with `GetSKForXP` of the
+  experience (0x10018255: by the standing with the side's faction, a thousandth of the experience at 50000);
+  elsewhere there is no row, which is what the client showed everywhere. `missionlog::Reader`, `sk_for_xp`,
+  `mao_formats::playfield::flag_words` (checked against real records). Not confirmable without such a character.
+- **The level-up's lines** (Gamecode FUN_10075f55): the experience that made the level is told first (the
+  message's last word; no other message tells of it, the capture's `Stat` after it names the same total), and a
+  new title is told with `Feedback_CongratulationsReachedLevel` and the title's name (text category 1060). The
+  title part is read from the code alone: the schema calls its word `IpResetPointsGained`, the code uses it as the
+  new title level, and no capture has a level-up across a title. It is only said for a level 1 to 7 whose text is
+  found. The notes' "reset points line" does not exist. Not done: the hints (`got_ip`, `got_perk`, `got_tech`),
+  which are the original's notice buttons for the skill, perk and research windows.
+- **The factions window** starts with the titles, as the original's does (the preference `IsFactionTitleShown`
+  has the default 1; the client's note said "unset"), and keeps the choice (`tabs.ini`).
+
+Read and left for now: the mission request window's kept sliders and its "advanced options" button (WIN-135: the
+config's eight values and the button that hides six sliders are read; it changes the window's layout, which wants
+a picture). Tests: `a_level_up_tells_the_experience_first`, `the_page_lists_the_time_and_the_pay`,
+`real_playfields_flag_words`.

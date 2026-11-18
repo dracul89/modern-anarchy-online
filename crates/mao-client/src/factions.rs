@@ -10,7 +10,10 @@
 //! with borders 6 and 2 on the left, 6 on the right): the faction's short name (`GetFactionStr(stat, false)`, Gamecode
 //! FUN_10035eaf's second table) and, in 0xffff88, the standing, or its band's title (`GetFactionTitle`: Gamecode's own
 //! table of the titles) when `IsFactionTitleShown` is set. A left click on a bar switches that for every bar
-//! (FUN_1005de3a); it starts unset (0x101249fc).
+//! (FUN_1005de3a). The value is a character preference whose default is 1 (`Preferences_t::SetDefaultCharPrefs`
+//! 0x10124951 hands `InitDefaultInt` the name, 1, 0, 1 at 0x101249f7): the window starts with the titles. Kept here in
+//! `tabs.ini` under its name. (Until 2026-11-18 this said "it starts unset" and the window began with the numbers,
+//! forgetting the choice at each start.)
 
 use crate::theme::Palette;
 
@@ -78,8 +81,8 @@ fn view_xml() -> String {
 #[derive(Default)]
 pub struct FactionWindow {
     pub open: bool,
-    /// `IsFactionTitleShown`.
-    titles: bool,
+    /// `IsFactionTitleShown`; not set until the kept choice is read.
+    titles: Option<bool>,
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id)>,
 }
 
@@ -107,11 +110,12 @@ impl FactionWindow {
                 self.views = Some((tree, root));
             }
         }
+        let titles = *self.titles.get_or_insert_with(|| crate::layout::tab("IsFactionTitleShown").is_none_or(|v| v != 0));
         let Some((tree, root)) = self.views.as_mut() else { return };
         let root = *root;
         for (k, &(stat, name)) in FACTIONS.iter().enumerate() {
             let standing = stats.get(&stat).copied().unwrap_or(0);
-            let right = if self.titles { band(standing).2 } else { standing.to_string() };
+            let right = if titles { band(standing).2 } else { standing.to_string() };
             set_text(tree, root, &format!("left{k}"), name);
             set_text(tree, root, &format!("right{k}"), &format!("<font color=#ffff88>{right}</font>"));
             if let Some(id) = tree.find(root, &format!("bar{k}"))
@@ -133,7 +137,8 @@ impl FactionWindow {
         });
         // (FUN_1005de3a: a left click on a bar shows the titles or the standings)
         if clicked {
-            self.titles = !self.titles;
+            self.titles = Some(!titles);
+            crate::layout::set_tab("IsFactionTitleShown", usize::from(!titles));
         }
         tree.signals.clear();
         self.open = open;

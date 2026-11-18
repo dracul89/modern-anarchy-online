@@ -2123,10 +2123,28 @@ impl World {
                     }
                 }
                 self.stats_changed = true;
+                // (the experience that made the level, the message's last word, the schema's `LastAwardedXp`: told
+                // here as any gain or loss is (FUN_10012c3e's event 0x24). The `Stat` message that follows names the
+                // experience the message has just set, so no other line tells of it.)
+                if let Some(line) = field("LastAwardedXp").filter(|x| *x != 0).and_then(|x| crate::feedback::own_stat(52, x)) {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                }
                 if let Some(level) = field("Level") {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::with_number("Feedback_NewLevel", level)));
                     if level < 4 {
                         self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_YouHaveReceivedIncreasePoints")));
+                    }
+                }
+                // (a new title: the word the schema calls `IpResetPointsGained` is, by the code's use of it, the new
+                // title level (0x100761de: above 0, `GetTitleStr(profession, it)`, text category 1060 at profession *
+                // 100 + it; stat 37 set to it; `Feedback_CongratulationsReachedLevel` fed the title). **No capture has
+                // such a level-up** (the word is 0 in the ten seen, levels 2 to 7): only said for a title level of 1
+                // to 7 whose text is found.)
+                if let Some(title) = field("IpResetPointsGained").filter(|t| (1..=7).contains(t)) {
+                    let profession = self.stats.get(&60).copied().unwrap_or(0);
+                    if let Some(name) = crate::feedback::texts().and_then(|t| t.get(1060, (profession * 100 + title) as i32)) {
+                        self.stats.insert(37, title);
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::reached_title(name)));
                     }
                 }
             }
@@ -7124,12 +7142,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             for offer in &mut offers {
                                 offer.playfield = names.get(&offer.destination.0).cloned().unwrap_or_default();
                             }
-                            if !offers.is_empty() {
-                                pending_missions = Some(offers);
-                            } else {
-                                // (GUI.dll FUN_100d0e71 says so in the window; in this client's words)
-                                pending_mission_status = Some("The terminal has no missions just now; try again later.".into());
+                            // (GUI.dll FUN_100d0e71, run at every change of the offers: the window's list is emptied
+                            // first, and for no offers a line is said in the chat. Its sentence is a literal of GUI.dll's,
+                            // in no text file: here in this client's words. Until 2026-11-18 the old offers stayed in the
+                            // window and the words stood in its status line.)
+                            if offers.is_empty() {
+                                state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, "The terminal has no missions just now; try again later."));
                             }
+                            pending_missions = Some(offers);
                         }
                     }
                     if let Some(m) = Message::parse(&frame).filter(|m| matches!(m.kind, 0x5c436609 | 0x465a4061 | 0x212c487a | 0x333b2867 | 0x36284f6e | 0x58362220 | 0x50544d19 | 0x206b4b73 | 0x5f4b442a)) {
@@ -12929,6 +12949,18 @@ mod movement_tests {
         w.add(&Message { kind: 0x7f544905, identity: (0xc75b, 0x1324d839), data: hex("000000000b0000c3507b0828a10020da15000f424f000000000040000023790000000080023203000000170003ca30000002bd00000001000002be0003ca30000002bf0003ca300000019c00000001000001f500000002000001f400000000000000000000000200000032000003f100000003") }.frame(1));
         assert_eq!(w.vendor_templates.get(&0x1324d839), Some(&0x3ca30));
         assert!(w.props.get(&0x1324d839).is_none() && w.objects.get(&0x1324d839).is_none() && w.vendors.get(&0x1324d839).is_none());
+    }
+
+    /// A level-up as the original's capture of 2026-10-30 has it (level 2, 145 experience): the experience's line
+    /// comes before the level's, and below level 4 the line about the points after it.
+    #[test]
+    fn a_level_up_tells_the_experience_first() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World { own: 7, ..World::default() };
+        w.add(&Message { kind: 0x7f405a16, identity: (0xc350, 7), data: hex("0000000002000011b2000005aa000005aa00000fd2000000000000000400000091") }.frame(1));
+        assert_eq!((w.stats.get(&54), w.stats.get(&53)), (Some(&2), Some(&0x11b2)));
+        let kinds: Vec<crate::chatwindow::Kind> = w.game_lines.iter().map(|l| l.kind).collect();
+        assert_eq!(kinds, [crate::chatwindow::Kind::Combat, crate::chatwindow::Kind::System, crate::chatwindow::Kind::System]);
     }
 
     #[test]

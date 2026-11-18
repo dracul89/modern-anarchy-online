@@ -1567,6 +1567,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: wording differs
 - Where: `crates/mao-client/src/net.rs:6982`; `crates/mao-client/src/mission.rs:322`; `docs/CLIENT_UI.md:1005`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): the line is a chat line now and the old offers are emptied, as FUN_100d0e71 does; the sentence is a literal of GUI.dll's (not in text.mdb), so the words are still the client's own.
 
 #### `NPC-031` CharacterAction 0x64 (NPC state) not decoded
 
@@ -1611,7 +1612,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: no experience row for those levels
 - A player notices: no experience reward line at levels 200-220
 - Where: `crates/mao-client/src/missionlog.rs:321`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): the row is IT_QuestSKReward with GetSKForXP in a Shadowlands playfield and absent elsewhere (missionlog::Reader, sk_for_xp).
 
 #### `NPC-036` Mission request sliders not kept; advanced options button not done
 
@@ -5125,7 +5127,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not kept
 - A player notices: faction title/standing view resets each run
 - Where: `docs/GUI_DLL_PARITY.md:99`; `crates/mao-client/src/factions.rs:12`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): kept in tabs.ini under its name; the default is 1 (titles), as the original's.
 
 #### `WIN-126` Friends window: chat-windows folder lists one window, no row menu, no flashing
 
@@ -5198,7 +5201,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The experience row is not adapted ("not ported").
 - A player notices: The reward row is wrong for high-level characters.
 - Where: `crates/mao-client/src/missionlog.rs:320`; `docs/CLIENT_UI.md:3120`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): the same port as NPC-035.
 
 #### `WIN-134` Mission offer: no right-click menu and no new-mission tip
 
@@ -5217,6 +5221,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Sliders reset each time; all seven always show.
 - Where: `crates/mao-client/src/mission.rs:315`; `docs/CLIENT_UI.md:4040`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): read (MissionSelectionViewConfig: show_advanced_options, difficulty, dim_good, dim_ctrl, dim_secret, dim_mystery, dim_stealth, dim_reward; the toggle hides sliders 1 to 6); changes the window's layout, so left for a time when it can be looked at.
 
 #### `WIN-136` Notification window: links, saved frame not ported
 
@@ -8902,6 +8907,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: missing chat lines/hints at level up
 - Where: `crates/mao-client/src/net.rs:2033`; `docs/CLIENT_UI.md:662`; `docs/ORIGINAL_AUDIT.md:21`; `crates/mao-client/src/net.rs:2032`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): the experience line and the title line are said (the title's from the code alone: no capture); there is no reset points line in the original; the hints are the notice buttons and are not done.
 
 #### `OTH-013` Looking for team: Search finds nobody
 

@@ -833,6 +833,10 @@ These were written before this list; some may have been seen working since witho
   says "Unable to perform action, ... perk is locked" with the time; when it is over the game's line says so.
   Click a special attack's tile while its skill is locked: the wait line. Open and close the daily rewards'
   window twice within a minute: the second close says the wait line and asks nothing.
+- [ ] Missions and level-up (2026-11-18): a terminal that has no missions: the line is in the chat and the six
+  boxes are empty. At a level-up the experience line comes before "You gained a new level"; at a title level (15,
+  50 ...) a line with the new title: **read from the code only, tell me what the game says there**. The factions
+  window opens with titles, a click shows numbers, and the choice is there after a restart.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

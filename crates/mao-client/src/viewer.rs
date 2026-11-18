@@ -3014,8 +3014,11 @@ impl ApplicationHandler for App {
                     // (the info view's item pages: N3's item descriptions, built here from the database; a mission's from the
                     // journal's list)
                     for url in ui.info.take_requests() {
-                        let level = self.hud.stats.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1);
-                        let mission = ui.mission_log.page(&url, crate::gametime::server_now(), level, self.textures.db());
+                        // (a mission's experience is told by who reads it and where: `missionlog::Reader`)
+                        let record = self.textures.db().get(mao_formats::resource::Id { kind: mao_formats::playfield::KIND, instance: self.hud.playfield }).ok().flatten();
+                        let shadowlands = record.as_deref().and_then(mao_formats::playfield::flag_words).is_some_and(|w| w[0] & 2 != 0);
+                        let reader = crate::missionlog::Reader::of(&self.hud.stats, shadowlands);
+                        let mission = ui.mission_log.page(&url, crate::gametime::server_now(), reader, self.textures.db());
                         if let Some(page) = mission.or_else(|| crate::gui::iteminfo::page(self.textures.db(), &url, &self.hud.stats)) {
                             ui.info.show_page(&url, &page);
                         }
