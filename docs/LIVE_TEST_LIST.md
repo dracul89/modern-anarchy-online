@@ -826,6 +826,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] The wounded lie (2026-11-16): Arete Landing's Wounded Dockworkers and Wounded Clan Protesters lie on the
   ground; the standing dockworkers and Flint Novak stand; a seated NPC (the ICC Secretary) sits.
 - [ ] Still open from the user's list of 2026-11-16: bounding boxes (which ones was not said).
+- [ ] Back from the dead (2026-11-17): after a death and the arrival at the reclaim terminal the health bar shows
+  the health the server gives and rises again, a heal can be used on oneself, and `/camp` logs off; the own
+  corpse lies where the character fell under its "Remains of" name.
 - [ ] Creatures' attacks (2026-11-17): a docker or a waste collector that attacks swings at each hit, stands in a
   fight stance between them (the docker crouched with its arms up), and stands up straight again when the fight
   is over; one that chases runs, not walks; a humanoid NPC fighting without a weapon swings something sensible.

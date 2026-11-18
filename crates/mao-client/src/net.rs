@@ -1675,9 +1675,16 @@ impl World {
             if std::env::var_os("MAO_COMBAT_LOG").is_some() && !self.instance_runs.is_empty() {
                 eprintln!("instance runs: {:x?}", self.instance_runs);
             }
-            // (set down where it comes back to life: the white of its death clears)
+            // (set down where it comes back to life: the white of its death clears, and nothing of the death is left on
+            // it: it is no dead body, and its health is what the server tells from here on)
             if std::mem::take(&mut self.own_dead) {
                 crate::whiteout::clear(true);
+                let own = self.own;
+                self.dead.remove(&own);
+                self.bodies.remove(&own);
+                self.corpses.remove(&own);
+                self.health.remove(&own);
+                self.last_hp.remove(&own);
             }
         }
         if let Some((seconds, period, day, server_time)) = m.game_time() {
@@ -1872,7 +1879,11 @@ impl World {
                 h.0 = 0;
             }
             self.last_hp.insert(m.identity.1, 0);
-            if let Some(e) = self.entities.get(&m.identity.1) {
+            // (the client's own character is never a corpse's body: it comes back to life somewhere else and its corpse
+            // stays behind. Until 2026-11-17 it was one, and when the server took the corpse away, as it does once the
+            // character is set down far from it, the character went out of the world with it: no health, nothing to use
+            // a heal on, no logging off, until the next login. The user's Maowild.)
+            if let Some(e) = self.entities.get(&m.identity.1).filter(|_| m.identity.1 != self.own) {
                 self.bodies.retain(|_, b| b.1.elapsed() < Duration::from_secs(120));
                 self.bodies.insert(m.identity.1, (e.0, Instant::now()));
             }
@@ -1902,7 +1913,8 @@ impl World {
             let id = m.identity.1;
             if m.identity.0 == OBJECT_TYPE {
                 self.objects.remove(&id);
-                let bodies: Vec<u32> = self.corpses.iter().filter(|(_, c)| **c == id).map(|(b, _)| *b).collect();
+                let own = self.own;
+                let bodies: Vec<u32> = self.corpses.iter().filter(|(b, c)| **c == id && **b != own).map(|(b, _)| *b).collect();
                 for body in bodies {
                     self.corpses.remove(&body);
                     self.bodies.remove(&body);
@@ -3304,7 +3316,7 @@ impl World {
             // the player, metres behind the server's place, never became its remains. The nearness stays for a corpse
             // that names nobody.)
             let named = mao_net::n3::corpse_of(&m.data);
-            let body = named.filter(|id| self.entities.contains_key(id) && !self.corpses.contains_key(id)).or_else(|| self.bodies.iter().filter(|(id, _)| !self.corpses.contains_key(id)).map(|(id, b)| (*id, b.0)).map(|(id, p)| (id, ((p[0] - at[0]).powi(2) + (p[2] - at[2]).powi(2)).sqrt())).filter(|(_, d)| *d < 4.0).min_by(|a, b| a.1.total_cmp(&b.1)).map(|b| b.0));
+            let body = named.filter(|id| *id != self.own && self.entities.contains_key(id) && !self.corpses.contains_key(id)).or_else(|| self.bodies.iter().filter(|(id, _)| !self.corpses.contains_key(id)).map(|(id, b)| (*id, b.0)).map(|(id, p)| (id, ((p[0] - at[0]).powi(2) + (p[2] - at[2]).powi(2)).sqrt())).filter(|(_, d)| *d < 4.0).min_by(|a, b| a.1.total_cmp(&b.1)).map(|b| b.0));
             if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                 eprintln!("combat: object {:#x} at {at:?}; names {named:x?}; bodies {:?} -> {body:?}; named {:?}", m.identity.1, self.bodies.iter().map(|(id, b)| (*id, b.0)).collect::<Vec<_>>(), corpse_name(&m.data));
             }
@@ -12531,7 +12543,9 @@ mod movement_tests {
     /// `MAO_CAPTURE=<a capture's dump.txt>`: the capture's server messages through the world. Every one the world has
     /// that a corpse names is that corpse's body, and none that died is left lying once its despawn has come and no
     /// corpse of its lies there. (The corpses that name one the world has not: the dead of before the arrival, and a
-    /// corpse announced again after its body went.)
+    /// corpse announced again after its body went.) The own character is never a corpse's body, and nothing but its
+    /// own leaving takes it out of the world: the arete-20261030-1655 capture has a death of it, the corpse and the
+    /// corpse's despawn after the character was set down elsewhere.
     #[test]
     fn a_captures_dead_become_their_remains() {
         let Some(path) = std::env::var_os("MAO_CAPTURE") else { return };
@@ -12540,6 +12554,7 @@ mod movement_tests {
         let mut w = World::default();
         let (mut died, mut gone) = (std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
         let (mut named, mut linked, mut strangers) = (0, 0, 0);
+        let mut lost: Vec<String> = Vec::new();
         for line in text.lines() {
             // (`#201 1793397525.597 S>C c3 kind 2b333d6e identity (c350,7b082893) 13 bytes: 0000...`)
             let mut words = line.split_whitespace();
@@ -12553,7 +12568,16 @@ mod movement_tests {
                 continue;
             }
             let m = Message { kind, identity: (kind_of, id), data };
+            let (had, own_corpse) = (w.entities.contains_key(&w.own), w.corpses.get(&w.own).copied());
             w.add(&m.frame(1));
+            // (the own character is in the world from its first announcement on, whatever comes and goes around it)
+            if had && !w.entities.contains_key(&w.own) && kind != 0x43197d22 {
+                lost.push(format!("{kind:08x} of ({kind_of:x},{id:x}), the own corpse {own_corpse:x?}"));
+            }
+            // (what the world entry tells of the character's health, and the health's own messages: `MAO_CAPTURE_HEALTH`)
+            if std::env::var_os("MAO_CAPTURE_HEALTH").is_some() && id == w.own && (kind == inventory::WORLD_ENTRY || kind == 0x5e477770 && m.data.len() >= 5 && m.data[1..5] == [0, 0, 0, 99]) {
+                eprintln!("{kind:08x} of the own character: health {:?} of {:?}, dead {}, a corpse's body {}", w.stats.get(&27), w.stats.get(&1), w.dead.contains_key(&w.own), w.corpses.contains_key(&w.own));
+            }
             if kind == 0x5e477770 && m.data.len() >= 5 && m.data[1..5] == [0, 0, 0, 99] && id != w.own {
                 died.insert(id);
             }
@@ -12562,6 +12586,8 @@ mod movement_tests {
             }
             if kind == 0x4f474e05 && kind_of == 0xc76a {
                 match mao_net::n3::corpse_of(&m.data) {
+                    // (the own character's corpse is nobody's body: the character lives on elsewhere)
+                    Some(dead) if dead == w.own => {}
                     Some(dead) if w.entities.contains_key(&dead) => {
                         named += 1;
                         linked += (w.corpses.get(&dead) == Some(&id)) as u32;
@@ -12573,8 +12599,10 @@ mod movement_tests {
         }
         let left: Vec<u32> = w.dead.keys().copied().filter(|d| gone.contains(d) && !w.corpses.get(d).is_some_and(|c| w.objects.contains_key(c))).collect();
         eprintln!("{} died; {named} corpses named one the world had, {linked} of those are its body; {strangers} named one it had not; {} left lying with no corpse after their despawn", died.len(), left.len());
-        assert!(named > 0 && linked == named, "{linked} of {named}");
+        assert!(linked == named, "{linked} of {named}");
         assert!(left.is_empty(), "{left:x?}");
+        assert!(lost.is_empty(), "the own character was taken out of the world by {lost:?}");
+        assert!(!w.corpses.contains_key(&w.own), "the own character is a corpse's body");
     }
 
     #[test]
@@ -12710,8 +12738,17 @@ mod prop_anim_tests {
         w.add(&super::Message { kind: 0x46002f16, identity: (0xc350, robot), data: hex(&hit) }.frame(own));
         assert_eq!(w.game_lines.iter().filter(|l| l.text == crate::feedback::death(4).unwrap()).count(), 1);
         // (the death: `CharacterAction` 99 from the own character with its animation)
+        w.entities.insert(own, ([3493.4, 5.1, 878.6], 0));
         w.add(&super::Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000006300000000000000000000000000000000000001f40000") }.frame(own));
         assert!(w.own_dead && w.dead_health == 0);
+        // (its corpse, which names it, where it fell: the character is not that corpse's body, and stays in the world
+        // when the server takes the corpse away, as it does once the character is set down far from it)
+        let corpse = format!("00000000080000000b0000000000000000455a567a40a38520445ba9990000000000{}0000019f0000c350000001a0{own:08x}0000002a0000170c", "00");
+        w.add(&super::Message { kind: 0x4f474e05, identity: (0xc76a, 0x103e821), data: hex(&corpse) }.frame(own));
+        assert!(!w.corpses.contains_key(&own) && w.objects.contains_key(&0x103e821));
+        assert!((w.entities[&own].0[0] - 3493.4).abs() < 0.01);
+        w.add(&super::Message { kind: 0x36510078, identity: (0xc76a, 0x103e821), data: hex("01") }.frame(own));
+        assert!(w.entities.contains_key(&own) && !w.objects.contains_key(&0x103e821));
         // (a hit on somebody else that kills tells the client nothing of a death)
         let mut w = super::World { own, ..Default::default() };
         let other = format!("0000000007ffffffff000000000000c350{robot:08x}000000040000000300000000");

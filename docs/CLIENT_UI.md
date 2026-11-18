@@ -4804,3 +4804,28 @@ and swings `unarmed-rswing` there too. Where the list of natural weapons comes f
 
 Seen offline: the docker standing, in its stance and after its push (`creature 44f1` with `MAO_HELD=407`, `40a`),
 and the test `a_creature_with_no_weapon_swings_and_takes_its_stance`. Not seen live.
+
+## Back from the dead with no health, no heals and no logging off (2026-11-17, the user's Maowild)
+
+The report: after a death the character came back with zero health and could neither be healed nor logged off.
+The log has the death, the word to the server eight seconds on, the corpse, the teleport and the playfield message
+that set the character down at the reclaim terminal 150 m away, and then the character walking: nothing wrong in
+what the server sent ("You were healed for 4 points" every half minute).
+
+The cause is the client's: at a death the dead character became a body for a corpse to be given to, the client's
+own character like any other, so its own corpse took it for its body. A corpse that goes takes its body out of the
+world. The server takes a corpse away when the character is set down far from it, and the client's own character
+went with it: not in the world any more, so no health to show, nothing for a heal to be used on, nothing to sit
+down and log off. The next login mended it.
+
+The arete-20261030-1655 capture (the original client) has the same sequence, a death of the capture's own
+character, and run through the world (`MAO_CAPTURE`, the test `a_captures_dead_become_their_remains`) it failed
+on exactly this: "the own character was taken out of the world by 36510078 of (c76a,103e803), the own corpse".
+
+Now the client's own character is never a corpse's body: not put among the bodies at its death, not taken by the
+corpse that names it, not taken out with a corpse. Its corpse is an object of its own, named by the corpse's name.
+And when the playfield message sets the character down, what the death left on it goes: it is not among the dead,
+and the health kept for its target line (nothing, since the death) is forgotten, so the server's is shown.
+
+The test asserts both from here on: the own character is no corpse's body, and nothing but a teleport takes it out
+of the world. Not seen live (it needs a death).

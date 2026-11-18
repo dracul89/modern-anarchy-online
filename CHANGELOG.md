@@ -8,6 +8,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### Fights
 
+- Back from a death the character is itself again. It used to come back with no health shown, could not be healed
+  and could not log off until the next login.
 - Every creature killed turns into its remains: one that died while running at the character kept its own name,
   could not be looted and lay there for good, as did one that left no corpse.
 - A creature sent running by the server runs at its own speed, with its run; it used to follow at a walk, metres
