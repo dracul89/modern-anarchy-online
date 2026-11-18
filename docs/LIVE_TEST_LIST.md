@@ -826,6 +826,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] The wounded lie (2026-11-16): Arete Landing's Wounded Dockworkers and Wounded Clan Protesters lie on the
   ground; the standing dockworkers and Flint Novak stand; a seated NPC (the ICC Secretary) sits.
 - [ ] Still open from the user's list of 2026-11-16: bounding boxes (which ones was not said).
+- [ ] Lists keep widths and sort (2026-11-18): in the NCU window's list mode drag a column wider and press a label
+  to sort; close the game and start it again: the width and the sort are as left, and the icon grid is still in
+  the order of the time left. The same for the nano programs' list and the mission journal.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

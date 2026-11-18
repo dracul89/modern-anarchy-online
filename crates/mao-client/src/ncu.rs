@@ -177,12 +177,13 @@ pub fn clock(ms: u32) -> String {
 /// kept as `listview_mode`): the eleven columns of [`COLUMNS`] under their header, a nano a row with its icon, sorted by
 /// the time left until a label is pressed, a hostile nano's row in red. Over a nano the menu also has this client's own
 /// entry that cancels it. Nanos whose flags have 0x1000000 are in neither (FUN_100458b0). Not ported: the menu's "Auto
-/// Arrange" sub-menu, the radius (`N3Msg_GetFormularRadius`, a field of Gamecode's nano object not traced to the
-/// record: `---`), and keeping the columns' widths and the sort (`listview_config`).
+/// Arrange" sub-menu and the radius (`N3Msg_GetFormularRadius`, a field of Gamecode's nano object not traced to the
+/// record: `---`). The columns' widths and the list's sort are kept (`listview_config`: `multilist::Keeper`).
 pub struct NcuWindow {
     pub open: bool,
     textures: HashMap<u32, egui::TextureHandle>,
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
+    keeper: crate::gui::multilist::Keeper,
     /// The info page asked for (for the info view).
     pub info_url: Option<String>,
     /// The program whose menu is up (none: the menu was opened beside the nanos), and the menu (`PopupMenu_c`'s look).
@@ -198,7 +199,7 @@ pub struct NcuWindow {
 
 impl Default for NcuWindow {
     fn default() -> NcuWindow {
-        NcuWindow { open: false, textures: HashMap::new(), views: None, info_url: None, menu: None, popup: None, list: None, target_preview: None, start: (egui::pos2(560.0, 90.0), egui::vec2(160.0, 160.0)) }
+        NcuWindow { open: false, textures: HashMap::new(), views: None, keeper: Default::default(), info_url: None, menu: None, popup: None, list: None, target_preview: None, start: (egui::pos2(560.0, 90.0), egui::vec2(160.0, 160.0)) }
     }
 }
 
@@ -233,6 +234,8 @@ impl NcuWindow {
         let (tree, root, list) = self.views.as_mut()?;
         let (root, list) = (*root, *list);
         crate::gui::multilist::set_list_mode(tree, list, in_list);
+        // (the kept widths and the list's kept sort; the grid by the time left, the original's `grid_sort_column` 0xc)
+        self.keeper.before("NCUWindowConfig", tree, list, (!in_list).then_some((12, 0)));
         // (the nanos by their time left, each icon faded past its share of time left; drawn again as the time runs)
         let mut order: Vec<&NanoInfo> = nanos.iter().filter(|n| !n.columns.hidden).collect();
         order.sort_by_key(|n| n.left(now));
@@ -265,6 +268,7 @@ impl NcuWindow {
                 self.info_url = Some(format!("itemid://{}/{}", crate::gui::iteminfo::NANO_IDENTITY, id));
             }
         }
+        self.keeper.after("NCUWindowConfig", tree, list, in_list);
         tree.signals.clear();
         // (the window's menu, FUN_100d758a: "List Mode" with its mark; over a nano, this client's own entry too)
         if let Some(at) = over
@@ -365,6 +369,7 @@ pub struct TargetNcu {
     pub fight: bool,
     textures: HashMap<u32, egui::TextureHandle>,
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
+    keeper: crate::gui::multilist::Keeper,
     pub info_url: Option<String>,
     menu: Option<egui::Pos2>,
     popup: Option<crate::gui::popup::PopupMenu>,
@@ -375,7 +380,7 @@ pub struct TargetNcu {
 
 impl TargetNcu {
     pub fn new(fight: bool) -> TargetNcu {
-        TargetNcu { fight, textures: HashMap::new(), views: None, info_url: None, menu: None, popup: None, list: None, hostile_only: None }
+        TargetNcu { fight, textures: HashMap::new(), views: None, keeper: Default::default(), info_url: None, menu: None, popup: None, list: None, hostile_only: None }
     }
 
     /// The window's name here and its title, and the name its choices are kept under (the original's config).
@@ -415,6 +420,7 @@ impl TargetNcu {
         let Some((tree, root, list)) = self.views.as_mut() else { return true };
         let (root, list) = (*root, *list);
         crate::gui::multilist::set_list_mode(tree, list, in_list);
+        self.keeper.before(config, tree, list, (!in_list).then_some((12, 0)));
         let mut order: Vec<&NanoInfo> = nanos.unwrap_or_default().iter().filter(|n| Self::listed(n, hostile_only)).collect();
         order.sort_by_key(|n| n.left(now));
         let rows = nano_rows(ctx, textures, &order, now);
@@ -444,6 +450,7 @@ impl TargetNcu {
                 self.info_url = Some(format!("itemid://{}/{}", crate::gui::iteminfo::NANO_IDENTITY, id));
             }
         }
+        self.keeper.after(config, tree, list, in_list);
         tree.signals.clear();
         if let Some(at) = over
             && ctx.input(|i| i.pointer.secondary_clicked())

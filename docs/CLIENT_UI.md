@@ -4967,3 +4967,30 @@ window shows the same numbers, so a refusal can be checked against it.
 Tests: `a_failed_list_tells_what_failed`, `a_belt_is_judged_by_its_wield_requirement_before_a_swap` (`MAO_GAME`).
 Not seen live. Not ported from the two checks: the refusal while fighting (asked only with a page number the use
 does not pass) and the wear bit of the "can" flags.
+
+## The "missing" parts brought in overnight (2026-11-18)
+
+The user: "bring in all the \"missing\" parts of the deviation report that should [be] easy and not
+affect too much while I sleep." Each part below was read anew in the original before it was ported (the catalog's
+"Original" lines are the notes' words); the catalog entry is marked in place. None of it was seen in the live game.
+
+### Lists keep their column widths and their sort (SET-036, WIN-130, WIN-119, NAN-039, NAN-040 in part)
+
+The original keeps each list's columns and sort in its window's config as `listview_config`
+(`MultiListView_c::StoreColumnInfo` 0x10133655: `col_id`, `col_flags`, `col_width` in the columns' order;
+`ItemListViewBase_c`'s FUN_100411b8 adds `list_sort_column` / `list_sort_order` and the grid's own pair), written
+when the window goes and read when it is made (`LoadColumnInfo` 0x10136a6d: from the store come the width, the
+hidden bit and the order; a column the store does not name keeps what it was built with).
+
+Here: `layout::ListConfig` (the sort and the widths) in a new file `lists.ini` beside `layout.ini`, a line a list
+under the original's config name, written with the windows' places soon after a change (one set for all
+characters, like `tabs.ini`). `multilist::Keeper` holds it for a window: the NCU window (`NCUWindowConfig`), the two
+target NCU windows, the nano programs (`NanoViewConfig`, one for this client's one list where the original has one
+a school) and the mission journal (`MissionViewConfig`). The kept sort is the list mode's; a grid stays in its own
+order (the NCU's by the time left, the programs' by the chosen "Order"), as the original keeps the two apart.
+
+Left out: hidden columns (the header's right-button menu), swapping columns by dragging a label, the mail's and
+the shops' lists, the journal's active mission, and reading the original's own kept widths as a first value.
+One of the notes' open questions is answered by the way: the original does not count kept widths twice
+(`ORIGINAL_CODE_QUESTIONS.md` 4): the loop over the copy sees only the columns the store did not name.
+Tests: `the_lists_file_round_trips`, `a_list_keeps_its_widths_and_its_own_sort`.

@@ -35,6 +35,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Creatures that hold no weapon (most of them) swing when they attack, and stand in their fight stance for as long
   as they fight; they used to stand still while they hit.
 
+### Windows
+
+- The NCU, nano program and mission lists keep their column widths and the column they are sorted by between
+  sessions.
+
 ## 0.1.5 (2026-11-17)
 
 ### The launcher

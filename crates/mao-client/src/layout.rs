@@ -56,9 +56,12 @@ struct Layout {
     written: Option<Instant>,
     /// `tabs.ini`, once read.
     tabs: Option<BTreeMap<String, usize>>,
+    /// `lists.ini`, once read, and whether it changed since it was written.
+    lists: Option<BTreeMap<String, ListConfig>>,
+    lists_dirty: bool,
 }
 
-static LAYOUT: Mutex<Layout> = Mutex::new(Layout { spots: BTreeMap::new(), sizes: BTreeMap::new(), sizable: BTreeSet::new(), sizes_dirty: false, original: None, character: None, screen: [0.0; 2], auto: BTreeSet::new(), relocate: BTreeSet::new(), pending: BTreeSet::new(), shown: BTreeSet::new(), loaded: false, dirty: false, written: None, tabs: None });
+static LAYOUT: Mutex<Layout> = Mutex::new(Layout { spots: BTreeMap::new(), sizes: BTreeMap::new(), sizable: BTreeSet::new(), sizes_dirty: false, original: None, character: None, screen: [0.0; 2], auto: BTreeSet::new(), relocate: BTreeSet::new(), pending: BTreeSet::new(), shown: BTreeSet::new(), loaded: false, dirty: false, written: None, tabs: None, lists: None, lists_dirty: false });
 
 fn path() -> std::path::PathBuf {
     crate::settings::Settings::path().with_file_name("layout.ini")
@@ -284,6 +287,70 @@ pub fn set_tab(config: &str, tab: usize) {
     });
 }
 
+/// What a list view keeps between sessions: its sort (column and order) and its columns' widths, in the columns'
+/// order. The original keeps them in each window's config as `listview_config` (GUI.dll `MultiListView_c::StoreColumnInfo`
+/// 0x10133655: `col_id`, `col_flags`, `col_width`; `ItemListViewBase_c`'s FUN_100411b8 adds `list_sort_column` and
+/// `list_sort_order`), written when the window goes and read when it is made (`LoadColumnInfo` 0x10136a6d,
+/// FUN_10041352). Here: a line of `lists.ini` beside `layout.ini`, one set for all characters like `tabs.ini`, written
+/// with the windows' places soon after a change. Not kept: the hidden flag and the columns' order as something the
+/// player can change (this client's headers have neither the menu nor the dragging), the grid's own sort and the
+/// list mode (kept in `tabs.ini` where a window has them).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListConfig {
+    pub sort: (i32, i32),
+    pub columns: Vec<(i32, f32)>,
+}
+
+/// The lines of `lists.ini`: `name sort-column sort-order id:width id:width ...`. A width that is no number, or
+/// not between 5 and 2000, drops its column (the list keeps the width it was built with).
+pub fn parse_lists(text: &str) -> BTreeMap<String, ListConfig> {
+    text.lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            let name = words.next()?;
+            let sort = (words.next()?.parse().ok()?, words.next()?.parse().ok()?);
+            let columns = words
+                .filter_map(|w| {
+                    let mut parts = w.split(':');
+                    let id = parts.next()?.parse().ok()?;
+                    let width: f32 = parts.next()?.parse().ok()?;
+                    (width.is_finite() && (5.0..=2000.0).contains(&width)).then_some((id, width))
+                })
+                .collect();
+            Some((name.to_string(), ListConfig { sort, columns }))
+        })
+        .collect()
+}
+
+pub fn render_lists(lists: &BTreeMap<String, ListConfig>) -> String {
+    lists.iter().map(|(name, l)| format!("{name} {} {}{}\n", l.sort.0, l.sort.1, l.columns.iter().map(|(id, w)| format!(" {id}:{w}")).collect::<String>())).collect()
+}
+
+fn lists_of(layout: &mut Layout) -> &mut BTreeMap<String, ListConfig> {
+    layout.lists.get_or_insert_with(|| std::fs::read_to_string(path().with_file_name("lists.ini")).map(|t| parse_lists(&t)).unwrap_or_default())
+}
+
+/// What a list kept (by its window's config name: `NCUWindowConfig`, `MissionViewConfig` ...).
+pub fn list(config: &str) -> Option<ListConfig> {
+    if disabled() {
+        return None;
+    }
+    lists_of(&mut LAYOUT.lock().unwrap()).get(config).cloned()
+}
+
+/// Keeps a list's widths and sort; the file is written with the windows' places ([`remember`], [`flush`]), not at
+/// once: a width being dragged changes every frame.
+pub fn set_list(config: &str, list: &ListConfig) {
+    if disabled() {
+        return;
+    }
+    let mut layout = LAYOUT.lock().unwrap();
+    if lists_of(&mut layout).get(config) != Some(list) {
+        lists_of(&mut layout).insert(config.to_string(), list.clone());
+        layout.lists_dirty = true;
+    }
+}
+
 /// Notes where the windows are now (call once a frame); the file is written when something moved, at most every two seconds.
 pub fn remember(ctx: &egui::Context) {
     if disabled() {
@@ -320,7 +387,7 @@ pub fn remember(ctx: &egui::Context) {
             }
         }
     }
-    if (layout.dirty || layout.sizes_dirty) && layout.written.is_none_or(|t| t.elapsed() > Duration::from_secs(2)) {
+    if (layout.dirty || layout.sizes_dirty || layout.lists_dirty) && layout.written.is_none_or(|t| t.elapsed() > Duration::from_secs(2)) {
         layout.written = Some(Instant::now());
         write(&mut layout);
     }
@@ -336,6 +403,12 @@ fn write(layout: &mut Layout) {
         layout.sizes_dirty = false;
         let _ = std::fs::write(path().with_file_name("sizes.ini"), render(&layout.sizes));
     }
+    if layout.lists_dirty {
+        layout.lists_dirty = false;
+        if let Some(lists) = &layout.lists {
+            let _ = std::fs::write(path().with_file_name("lists.ini"), render_lists(lists));
+        }
+    }
 }
 
 /// Writes the windows' places now if any moved since the last write (the game closing: a logout, `/quit`, the window shut).
@@ -344,7 +417,7 @@ pub fn flush() {
         return;
     }
     let mut layout = LAYOUT.lock().unwrap();
-    if layout.dirty || layout.sizes_dirty {
+    if layout.dirty || layout.sizes_dirty || layout.lists_dirty {
         layout.written = Some(Instant::now());
         write(&mut layout);
     }
@@ -369,6 +442,20 @@ pub fn save_open(names: &[&str]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `lists.ini` comes back as it was written; a line with a bad width loses that column alone, a line without its
+    /// sort is dropped.
+    #[test]
+    fn the_lists_file_round_trips() {
+        let mut lists = BTreeMap::new();
+        lists.insert("NCUWindowConfig".to_string(), ListConfig { sort: (12, 1), columns: vec![(0, 16.0), (1, 212.5), (12, 55.0)] });
+        lists.insert("MissionViewConfig".to_string(), ListConfig { sort: (0, 0), columns: vec![] });
+        let text = render_lists(&lists);
+        assert_eq!(parse_lists(&text), lists);
+        let odd = parse_lists("A 1 0 0:16 1:nan 2:3 3:99999 4:80 5\nB 1\nC x 0 1:20\n");
+        assert_eq!(odd.len(), 1);
+        assert_eq!(odd["A"], ListConfig { sort: (1, 0), columns: vec![(0, 16.0), (4, 80.0)] });
+    }
 
     #[test]
     fn the_file_round_trips() {

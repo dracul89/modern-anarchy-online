@@ -2310,6 +2310,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No requirement feedback lines come from the evaluator.
 - Where: `crates/mao-client/src/requirements.rs:28`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): the evaluator's feedback lines are ported for below, above and the equalities of breed, side, sex and profession (requirements::evaluate_told, commit c9ff224), used by the wear and wield checks; the other operators' lines and the two flag arguments (level compare, pass-most) are not, and no ported caller sets those flags.
 
 #### `INV-072` Server CharacterAction 0x6e (end of an action's progress) not handled
 
@@ -2792,6 +2793,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Programs cannot be arranged by hand; list layout resets each session.
 - Where: `crates/mao-client/src/nanoprograms.rs:166`; `crates/mao-client/src/nanoprograms.rs:71`; `docs/CLIENT_UI.md:452`; `docs/GUI_DLL_PARITY.md:81`; `docs/ORIGINAL_AUDIT.md:103`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): widths and the list's sort are kept in lists.ini for the NCU windows, the nano programs and the mission journal (layout::ListConfig, multilist::Keeper); hand placing and the radius not done.
 
 #### `NAN-040` NCU list: no Auto Arrange submenu, radius value or kept widths and sort
 
@@ -2801,6 +2803,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No Auto Arrange choice in the NCU window, radius never shown, columns reset each session.
 - Where: `crates/mao-client/src/ncu.rs:179`; `crates/mao-client/src/ncu.rs:181`; `docs/CLIENT_UI.md:412`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): widths and the list's sort are kept in lists.ini for the NCU windows, the nano programs and the mission journal (layout::ListConfig, multilist::Keeper); the Auto Arrange sub-menu and the radius not done.
 
 #### `NAN-041` Cast refusal "NCUErrorNanoprogramCantReplaceOther" not ported
 
@@ -5066,6 +5069,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The journal forgets column layout, sort and the active mission after a restart; no Update Team Members.
 - Where: `crates/mao-client/src/missionlog.rs:29`; `crates/mao-client/src/missionlog.rs:408`; `docs/CLIENT_UI.md:3118`; `docs/GUI_DLL_PARITY.md:87`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): the journal's widths and the list's sort are kept in lists.ini for the NCU windows, the nano programs and the mission journal (layout::ListConfig, multilist::Keeper); the active mission and Update Team Members not done.
 
 #### `WIN-120` Playfield map: shadow textures absent, no second patch texture, no rooms' pictures
 
@@ -5165,6 +5169,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Columns cannot be reordered and list layouts reset each session.
 - Where: `crates/mao-client/src/gui/multilist.rs:11`; `crates/mao-client/src/ncu.rs:181`; `crates/mao-client/src/nanoprograms.rs:168`; `docs/GUI_DLL_PARITY.md:47`; `docs/ORIGINAL_CODE_QUESTIONS.md:50`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): widths and the list's sort are kept in lists.ini for the NCU windows, the nano programs and the mission journal (layout::ListConfig, multilist::Keeper); column swapping, hidden columns not done.
 
 #### `WIN-131` Mail: column widths and sort not remembered
 
@@ -8479,7 +8484,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not done (mission log, nano programs, NCU lists)
 - A player notices: columns reset each session
 - Where: `docs/CLIENT_UI.md:3136`; `crates/mao-client/src/missionlog.rs:29`; `crates/mao-client/src/nanoprograms.rs:168`; `crates/mao-client/src/ncu.rs:181`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): widths and the list's sort are kept in lists.ini for the NCU windows, the nano programs and the mission journal (layout::ListConfig, multilist::Keeper).
 
 #### `SET-037` Texture quality, compressed textures and colour depth settings dropped
 

@@ -233,6 +233,8 @@ pub struct MissionLog {
     confirm: Option<(u32, u32)>,
     textures: std::collections::HashMap<u32, egui::TextureHandle>,
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
+    /// The columns' widths and the sort, kept (`MissionViewConfig`'s `listview_config`).
+    keeper: crate::gui::multilist::Keeper,
     /// The mission whose menu is open with its entries' names, and the menu (`PopupMenu_c`).
     menu: Option<((u32, u32), Vec<&'static str>)>,
     popup: Option<crate::gui::popup::PopupMenu>,
@@ -369,6 +371,7 @@ impl MissionLog {
         let active = self.active.and_then(|a| self.missions.iter().position(|m| m.id == a)).map(|k| k as i64);
         let Some((tree, root, list)) = self.views.as_mut() else { return shown };
         let (root, list) = (*root, *list);
+        self.keeper.before("MissionViewConfig", tree, list, None);
         {
             // (compared whatever the list's order: a sorted list keeps its rows until one changes)
             let mut had: Vec<&crate::gui::multilist::Item> = crate::gui::multilist::items(tree, list).iter().collect();
@@ -392,7 +395,9 @@ impl MissionLog {
                 hovered = crate::gui::multilist::item_at(tree, list, response.rect.min, at).map(|k| (k as usize, at));
             }
         });
-        for (_, event) in crate::gui::multilist::take_events(tree) {
+        let events = crate::gui::multilist::take_events(tree);
+        self.keeper.after("MissionViewConfig", tree, list, true);
+        for (_, event) in events {
             if let crate::gui::multilist::ItemEvent::Clicked(k, _) = event
                 && let Some(m) = self.missions.get(k as usize)
             {

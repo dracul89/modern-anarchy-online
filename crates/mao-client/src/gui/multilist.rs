@@ -856,6 +856,60 @@ pub fn sort_state(tree: &Tree, id: Id) -> (i32, i32) {
     tree.control::<MultiList>(id).map_or((-1, 0), |l| (l.sort_column, l.sort_order))
 }
 
+/// The list's widths and sort as they are now (`StoreColumnInfo` and the sort FUN_100411b8 adds).
+pub fn config(tree: &Tree, id: Id) -> crate::layout::ListConfig {
+    crate::layout::ListConfig { sort: sort_state(tree, id), columns: columns(tree, id).iter().map(|c| (c.id, c.width)).collect() }
+}
+
+/// A list's kept widths and sort (`layout::ListConfig`, by the window's config name), held by the window that owns
+/// the list. [`Keeper::before`] is called each frame before the list is shown and [`Keeper::after`] once its events
+/// were taken.
+///
+/// The original has two sorts, the list's and the grid's (`list_sort_*`, `grid_sort_*`), where this list view has
+/// one field for both modes: the kept sort is the list's, a grid is held to the sort the window gives.
+#[derive(Default)]
+pub struct Keeper(Option<crate::layout::ListConfig>);
+
+impl Keeper {
+    /// The first time: the kept widths are set (`LoadColumnInfo`: a column the store does not name keeps the width it
+    /// was built with, one the list does not have is passed over) and the kept sort taken when its column can be
+    /// sorted by (`SetListSortColumn` refuses another). Each time: the list is held to its mode's sort, `grid` in a
+    /// grid, the kept one in a list.
+    pub fn before(&mut self, name: &str, tree: &mut Tree, id: Id, grid: Option<(i32, i32)>) {
+        let kept = self.0.get_or_insert_with(|| {
+            let built = config(tree, id);
+            let Some(stored) = crate::layout::list(name) else { return built };
+            for &(column, width) in &stored.columns {
+                if built.columns.iter().any(|c| c.0 == column) {
+                    set_column_width(tree, id, column, width);
+                }
+            }
+            let sortable = columns(tree, id).iter().any(|c| c.id == stored.sort.0 && c.flags & SORTABLE != 0) && matches!(stored.sort.1, 0 | 1);
+            crate::layout::ListConfig { sort: if sortable { stored.sort } else { built.sort }, columns: config(tree, id).columns }
+        });
+        let want = grid.unwrap_or(kept.sort);
+        if sort_state(tree, id) != want {
+            set_sort(tree, id, want.0, want.1);
+        }
+    }
+
+    /// What the player changed is kept: the widths in either mode, the sort in list mode.
+    pub fn after(&mut self, name: &str, tree: &Tree, id: Id, in_list: bool) {
+        let Some(kept) = self.0.as_mut() else { return };
+        let now = config(tree, id);
+        let new = crate::layout::ListConfig { sort: if in_list { now.sort } else { kept.sort }, columns: now.columns };
+        if new != *kept {
+            crate::layout::set_list(name, &new);
+            *kept = new;
+        }
+    }
+
+    /// The sort kept for the list mode.
+    pub fn list_sort(&self) -> Option<(i32, i32)> {
+        self.0.as_ref().map(|k| k.sort)
+    }
+}
+
 /// `Sort`: by the sort column's keys, descending when the order is 1.
 fn sort(tree: &mut Tree, id: Id) {
     let Some((_, _, rows)) = parts(tree, id) else { return };
@@ -964,6 +1018,34 @@ pub fn take_events(tree: &mut Tree) -> Vec<(Id, ItemEvent)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A list's keeper: the list's sort and a dragged width are kept; a grid is held to its own sort and does not
+    /// change the list's; back in the list the kept sort is set again.
+    #[test]
+    fn a_list_keeps_its_widths_and_its_own_sort() {
+        let mut tree = Tree::default();
+        let id = create(&mut tree, "list");
+        add_column(&mut tree, id, 0, "Icon", 16.0, SORTABLE);
+        add_column(&mut tree, id, 1, "Name", 200.0, RESIZABLE | SORTABLE);
+        add_column(&mut tree, id, 12, "Left", 55.0, RESIZABLE | SORTABLE);
+        set_sort(&mut tree, id, 12, 0);
+        let mut keeper = Keeper::default();
+        keeper.before("Test", &mut tree, id, None);
+        assert_eq!(keeper.list_sort(), Some((12, 0)));
+        // (the header pressed and a width dragged, as `take_events` acts on them)
+        set_sort(&mut tree, id, 1, 1);
+        set_column_width(&mut tree, id, 1, 150.0);
+        keeper.after("Test", &tree, id, true);
+        assert_eq!(keeper.0, Some(crate::layout::ListConfig { sort: (1, 1), columns: vec![(0, 16.0), (1, 150.0), (12, 55.0)] }));
+        // (the grid: its own sort, and what it is sorted by is not taken for the list's)
+        keeper.before("Test", &mut tree, id, Some((12, 0)));
+        assert_eq!(sort_state(&tree, id), (12, 0));
+        keeper.after("Test", &tree, id, false);
+        assert_eq!(keeper.list_sort(), Some((1, 1)));
+        // (the list again)
+        keeper.before("Test", &mut tree, id, None);
+        assert_eq!(sort_state(&tree, id), (1, 1));
+    }
 
     #[test]
     fn grown_grid_cells_are_whole_pixels() {

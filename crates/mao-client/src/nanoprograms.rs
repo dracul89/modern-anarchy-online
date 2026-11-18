@@ -174,6 +174,9 @@ pub struct ProgramsWindow {
     pub infos: Vec<String>,
     school: Option<usize>,
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id, Vec<(crate::gui::view::Id, usize)>)>,
+    /// The columns' widths and the list's sort, kept (`listview_config`; one for this client's one list, where the
+    /// original has one for each school's).
+    keeper: crate::gui::multilist::Keeper,
     /// The school selector and the row views made for the docked layout; whether the docked layout is in force.
     selector: Option<crate::gui::view::Id>,
     rows: Vec<crate::gui::view::Id>,
@@ -303,10 +306,8 @@ impl ProgramsWindow {
             }
         }
         crate::gui::multilist::set_list_mode(tree, list, in_list);
-        // (the grid in its own order; the list in the one its header was last pressed for)
-        if !in_list && crate::gui::multilist::sort_state(tree, list) != grid_sort {
-            crate::gui::multilist::set_sort(tree, list, grid_sort.0, grid_sort.1);
-        }
+        // (the grid in its own order; the list in the one its header was last pressed for, kept with the widths)
+        self.keeper.before("NanoViewConfig", tree, list, (!in_list).then_some(grid_sort));
         let rows: Vec<crate::gui::multilist::Item> = programs
             .iter()
             .filter(|p| shown(p, school, &hidden))
@@ -360,7 +361,9 @@ impl ProgramsWindow {
         });
         let program = |id: i64| programs.iter().find(|p| p.id as i64 == id);
         let action = |p: &Program| hotbar::Action::Nano { id: p.id, name: p.name.clone(), icon: p.icon.as_ref().map(|i| i.id) };
-        for (_, event) in crate::gui::multilist::take_events(tree) {
+        let events = crate::gui::multilist::take_events(tree);
+        self.keeper.after("NanoViewConfig", tree, list, in_list);
+        for (_, event) in events {
             match event {
                 crate::gui::multilist::ItemEvent::Clicked(id, clicks) => {
                     // (a click casts: the list is not selectable, so FUN_1004141b's left click is the use signal -> FUN_100d44cd)
