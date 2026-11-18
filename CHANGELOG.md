@@ -31,6 +31,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   where they are.
 - A corpse's or chest's items are shown sorted by name, as in the game.
 - The wear window's menu (right click on an empty slot) has **Labels On Top**.
+- Pictures inside text are drawn: the bullets before an NPC's answers, and the item icons of a mission's rewards in
+  its description.
 
 ## 0.1.6 (2026-11-18)
 

@@ -528,9 +528,14 @@ fn page_of(m: &Mission, now: u32, reader: Reader, item: &dyn Fn(u32) -> Option<(
         pays = true;
         out += &info_text("ItemReward");
         for r in &m.rewards {
-            let Some((Some(icon), name)) = item(r.low).or_else(|| item(r.high)) else { continue };
+            let Some((icon, name)) = item(r.low).or_else(|| item(r.high)) else { continue };
             let name: String = name.chars().filter(|c| !"<>&\n\"".contains(*c)).collect();
-            out += &format!("<a href=itemref://{}/{}/{} title=\"{name}\"><img src=rdb://{icon}></a> ", r.low, r.high, r.quality);
+            // (FUN_1003f534: an item with no icon of its own shows the skin's picture 0xb9, the default icon)
+            let picture = match icon.filter(|i| ![0, u32::MAX, 0x499602d2].contains(i)) {
+                Some(icon) => format!("<img src=rdb://{icon}>"),
+                None => "<img src=tdb://185>".to_string(),
+            };
+            out += &format!("<a href=itemref://{}/{}/{} title=\"{name}\">{picture}</a> ", r.low, r.high, r.quality);
         }
     }
     if !pays {

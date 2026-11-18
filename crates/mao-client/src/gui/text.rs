@@ -291,7 +291,8 @@ pub fn parse(text: &str, named: &dyn Fn(&str) -> Option<u32>) -> Vec<Item> {
                         flush(&mut text_buf, &mut out, &style, title);
                         style.underline = unders.pop().unwrap_or(false);
                     }
-                    "img" => match get("src").filter(|s| s.len() > 6) {
+                    // (FUN_1015efd3: a source that names no picture leaves the tag as text)
+                    "img" => match get("src").filter(|s| super::pictures::source(s).is_some()) {
                         None => known = false,
                         Some(src) => {
                             flush(&mut text_buf, &mut out, &style, title);

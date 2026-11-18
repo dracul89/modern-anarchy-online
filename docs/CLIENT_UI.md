@@ -5916,3 +5916,44 @@ Looked at beside the original's screenshot: the same three bodies by the same ro
 on the capture cut just after they come). **A guess in it: the pose**; the original's may be another of the
 creature's deaths. Not done: the skin by breed and sex and the head mesh for a humanoid's corpse (the creature
 templates' own are used). Test: `a_corpse_says_how_it_looks` (a captured announcement).
+
+## Pictures in text, item locks, the frame menu, locked doors, Notum Wars windows (2026-11-18)
+
+The user: "OTH-010, ZON-017, WIN-117, WIN-109". Four readers on a smaller model read the original, each told to
+name the file of every rule; what a port rests on was checked here against the decompile, the drop-in ports and
+the captures before it was written. None of it was seen in the live game.
+
+### Pictures in the text (WIN-117)
+
+The markup's `<img src=...>` was read into an item of its own, but the words were measured with no picture sizes, so
+it never took room and nothing drew it. The original (GUI.dll; `gui/pictures.rs`, `gui/text.rs`, `gui/controls.rs`):
+
+- **The source** (FUN_1015efd3): `rdb://` or `tdb://`, either case, and after it an expression that gives a number
+  (`ExpressionParser_c::ParseExpression`, then `Variant::AsInt32`). `rdb://<n>` is the icon `n` of the resource
+  database: `GuiResourceManager_t::GetRDBTexture` (Interfaces.dll 0x1000b6ff, disassembled) asks for type 0xf6958
+  and names it `e_RDB_Res_Icon`. `tdb://<n>` is the skin's picture number `n` (`GetGuiTexture`), numbered by
+  AFCM.dll's table of the pictures' names; `id:<NAME>` is the expression for a name's number, so
+  `tdb://id:GFX_GUI_NPCCHAT_BULLET` is that picture. A number of 0 is the skin's picture 0xb9
+  (`GFX_GUI_DEFAULT_ICON48`) whichever the prefix. A source with neither prefix, with nothing after it or with no
+  number to be had leaves the tag as text. The tag's only other attribute read is `title`.
+- **Its room** (`_UpdateWordSizes` 0x1015dab9, `_UpdateWordSize` 0x1015c7a9): the picture's own width and height,
+  never scaled; the width is added to the word it stands in and the word is as high as the highest thing in it. A
+  line is as high as its highest word (`_ReWrap`).
+- **Where it is drawn** (`_RenderLine` 0x101613f0): copied whole at the pen, which is at the line's top
+  (`LineDesc_c` +0x10 less the scroll), with pure green as the see-through colour and no tint
+  (`SpriteInfo_t::Copy` with 0xff00, as the DisplaySystem drop-in ports it); the pen moves on by its width. A link
+  round it is the picture's too (`_UpdateInheritedData` hands the link to what follows it).
+- **Text beside it hangs from the line's top too.** `SpriteInfo_t::RenderGlyph` (the drop-in's port) draws a
+  glyph's rows down from the pen, and the underline is at the pen plus the glyph's height less 2. This client stood
+  the words of a line on its bottom, which only shows where a line holds two heights; it is the top now.
+
+Here: the skin is read by name, and AFCM's table is not carried, so of bare `tdb://` numbers only the four the
+original's own markup writes are known (FUN_1003f534: 0xb7, 0xb8, 0xb9, 0xe3); any other draws nothing. An icon the
+database has not takes no room (the original logs it; what it shows then was not read).
+Seen offscreen: the NPC answers' bullets, which the client's own markup has written all along
+(`MAO_UI_PREVIEW=npcchat`; beside the original's screenshot of an NPC's answers: the same orange bullet at the
+line's top), and icons, the default icon and a bullet in an info page (`MAO_UI_PREVIEW=infopage` with a `text://`
+page). The mission page's rewards are the other place: an item with no icon of its own shows the default icon now
+(`<img src=tdb://185>`, FUN_1003f534) where it was left out. No captured chat line, NPC text or info page has an
+`<img>`: the server sends none in what was captured.
+Tests: `a_source_is_a_prefix_and_a_number`, `what_is_no_picture_stays_text`.

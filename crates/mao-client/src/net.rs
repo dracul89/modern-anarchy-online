@@ -6768,6 +6768,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     }
     let heading = state.rotations.get(&own).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
     let (gear_db, gear_textures) = (db.clone(), crate::Textures::new(db.clone()));
+    {
+        // (the icons of the text markup's pictures)
+        let icons = gear_textures.clone_handle();
+        crate::gui::pictures::set_icons(move |id| icons.get(mao_formats::item::ICON_TYPE, id).map(|t| (t.width as usize, t.height as usize, t.rgba)));
+    }
     // The chat server (once per run, kept across zonings): its lines go to the chat window (and the on-screen log), and what the
     // window sends goes out through `send_chat`.
     if std::env::var_os("MAO_NO_CHAT").is_none() && !CHAT_STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {

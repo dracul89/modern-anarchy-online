@@ -25,6 +25,7 @@ pub mod layout;
 pub mod menu;
 pub mod multilist;
 pub mod options;
+pub mod pictures;
 pub mod spells;
 pub mod stat_names;
 pub mod text;

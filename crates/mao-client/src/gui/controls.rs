@@ -564,7 +564,9 @@ impl TextView {
     /// The words of `text` as this view lays them out (plain when editable).
     fn words_of(&self, text: &str, m: &Measure, named: &dyn Fn(&str) -> Option<u32>) -> Vec<super::text::Word> {
         let items = if self.editable() { vec![super::text::Item::Text(text.to_string(), super::text::Style::default())] } else { super::text::parse(text, named) };
-        super::text::words(&items, m, self.font, self.feature, &|_| None)
+        // (`_UpdateWordSizes`: a picture is as wide and as high as it is)
+        let picture = |src: &str| m.ctx.as_ref().and_then(|ctx| super::pictures::picture(ctx, src)).map(|(_, size)| (size.x, size.y));
+        super::text::words(&items, m, self.font, self.feature, &picture)
     }
 
     /// Where the text up to `at` ends when laid out `width` wide: its x, the top of its line and the line's height
@@ -790,11 +792,24 @@ impl Control for TextView {
                     let colour = if s.link_look { LINK_COLOUR & 0xff_ffff } else if s.colour == DEFAULT_COLOUR { u32::from(view_colour.r()) << 16 | u32::from(view_colour.g()) << 8 | u32::from(view_colour.b()) } else { s.colour };
                     let c = egui::Color32::from_rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8);
                     let h = m.height(s.font.unwrap_or(self.font));
-                    let y = top + line.height - h;
+                    let y = top;
                     clip.rect_filled(egui::Rect::from_min_max(egui::pos2(x, y + h - 2.0), egui::pos2(x + space, y + h - 1.0)), 0.0, c);
                 }
                 x += space;
                 for piece in &w.pieces {
+                    // (`_RenderLine`: a picture is copied whole at the pen, which is at the line's top; no colour of
+                    // the text's touches it, and it has no underline)
+                    if let Some(src) = &piece.image {
+                        if let Some((texture, size)) = super::pictures::picture(clip.ctx(), src) {
+                            let at = egui::Rect::from_min_size(egui::pos2(x.round(), top.round()), size);
+                            clip.image(texture, at, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+                            if let Some(link) = &piece.style.link {
+                                links.push((at.translate(-p.rect.min.to_vec2()), link.clone()));
+                            }
+                        }
+                        x += piece.width;
+                        continue;
+                    }
                     let font = piece.style.font.unwrap_or(self.font);
                     let colour = if piece.style.link_look {
                         LINK_COLOUR & 0xff_ffff
@@ -804,9 +819,11 @@ impl Control for TextView {
                         piece.style.colour
                     };
                     let c = egui::Color32::from_rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8);
-                    // (the words of a line stand on its bottom: a smaller font lower)
+                    // (the words of a line hang from its top: `_RenderLine`'s pen is at the line's top and
+                    // `SpriteInfo_t::RenderGlyph` draws a glyph's rows down from the pen, so beside a taller picture or
+                    // a larger font the smaller text is at the top)
                     let h = m.height(font);
-                    let y = top + line.height - h;
+                    let y = top;
                     text(&sub, font, egui::pos2(x, y), &piece.text, c);
                     if piece.style.underline || piece.style.link_look {
                         // (`_RenderString`: a line a pixel high two above the glyphs' bottom)

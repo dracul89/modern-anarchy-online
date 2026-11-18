@@ -5094,7 +5094,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the markup is parsed into an image item, but words are measured with no image sizes so it is not shown
 - A player notices: pictures in info pages, chat and NPC text do not appear
 - Where: `crates/mao-client/src/gui/controls.rs:567`; `crates/mao-client/src/gui/text.rs:399`; `docs/GUI_DLL_PARITY.md:46`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): Done: an img in the text takes its picture's own room and is drawn at the line's top, as the original's (rdb:// an icon of the database, tdb://id:NAME a picture of the skin, a number of 0 the default icon); text beside a taller picture hangs from the line's top too. The NPC answers' bullets and a mission's reward icons show. Of bare tdb:// numbers only the four the original's own markup writes are known. Looked at offscreen and beside the original's screenshot of an NPC's answers; not in the live game.
 
 #### `WIN-118` Land control Build and War buttons and placement circle not ported
 

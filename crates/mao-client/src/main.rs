@@ -1726,6 +1726,10 @@ fn run(args: &[String]) -> Result<(), String> {
                 model.parts.extend(shell.parts);
             }
             let textures = Textures::new(db.clone());
+            {
+                let icons = textures.clone_handle();
+                gui::pictures::set_icons(move |id| icons.get(mao_formats::item::ICON_TYPE, id).map(|t| (t.width as usize, t.height as usize, t.rgba)));
+            }
             // MAO_UI_PREVIEW=1 (or `options`) paints the interface over the image.
             let preview = std::env::var("MAO_UI_PREVIEW").ok();
             // (`MAO_LOCKS=<skill stat>:<seconds>,...` and `MAO_NANO_LOCK=<seconds>`: what the game has locked, for a
