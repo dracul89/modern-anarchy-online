@@ -109,6 +109,8 @@ enum Route {
 /// How fast the walked creatures go (m/s) until their own paths show otherwise (wandering creatures, live: a steady 1.5),
 /// and how near a chased one stops.
 const PATH_SPEED: f32 = 1.5;
+/// A running creature's speed when neither its `RunSpeed` nor its paths tell it: the rule's speed at a RunSpeed of nothing.
+const RUN_SPEED: f32 = 5.0;
 const CHASE_NEAR: f32 = 1.5;
 
 /// The name a `CorpseFullUpdate` carries ("Remains of Leet"): a big-endian length, then that many bytes, the last a zero.
@@ -346,6 +348,9 @@ struct World {
     /// Each walked creature's last path (when it came, its start, its end) and its speed as the paths show it.
     path_seen: BTreeMap<u32, (Instant, [f32; 3], [f32; 3])>,
     path_speeds: BTreeMap<u32, f32>,
+    /// The creatures the server last sent running along their path or after their target (`FollowTarget`'s mode 0x19);
+    /// the others walk.
+    path_runs: std::collections::BTreeSet<u32>,
     /// Whom each character is fighting (the `Attack` message from it, its full update's `FightingTarget`; `StopFight` ends it):
     /// a fighting character has its weapon drawn (`WeaponHolder_t` +0x44 at 2, FUN_1006a1b1; 1 again at FUN_100690c8).
     fighting: BTreeMap<u32, u32>,
@@ -1888,9 +1893,11 @@ impl World {
             }
             self.died.push(m.identity.1);
         }
-        // A `Despawn`: a dynel leaves. A body that died stays lying where it fell (the server despawns it just before it
-        // announces the corpse there, and the corpse is what the original draws dead) until its corpse goes; anyone else
-        // leaves the world.
+        // A `Despawn`: a dynel leaves. The captures' order at a death: the death's action, the corpse's announcement
+        // 0.1 to 0.9 s on (it names the one that died), and the dead character's despawn some ten seconds after the
+        // death. A body whose corpse lies there stays as that corpse's body until the corpse goes; one with no corpse (a
+        // sixth of the captures' deaths have none) leaves the world with its despawn, as anyone else does. (Until
+        // 2026-11-17 every dead body stayed, and one with no corpse lay there for good under its own name.)
         if m.kind == 0x36510078 && m.identity.1 != self.own {
             let id = m.identity.1;
             if m.identity.0 == OBJECT_TYPE {
@@ -1910,7 +1917,11 @@ impl World {
                 self.prop_textures.remove(&id);
                 self.objects.remove(&id);
                 self.terminals.remove(&id);
-            } else if !self.dead.contains_key(&id) {
+            } else if !(self.dead.contains_key(&id) && self.corpses.get(&id).is_some_and(|c| self.objects.contains_key(c))) {
+                self.dead.remove(&id);
+                self.bodies.remove(&id);
+                self.corpses.remove(&id);
+                self.grounded.remove(&id);
                 self.spell_effects.remove(&id);
                 self.spell_queue.forget((crate::requirements::CHARACTER, id));
                 self.state_flags.remove(&id);
@@ -3162,6 +3173,12 @@ impl World {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let kind = p.value.get("Type").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
                 let info = p.value.get("Info");
+                // (the byte after the kind: whether it walks or runs there)
+                if p.value.get("Unknown1").and_then(mao_net::schema::Value::as_int) == Some(mao_net::n3::PATH_RUN as i64) {
+                    self.path_runs.insert(m.identity.1);
+                } else {
+                    self.path_runs.remove(&m.identity.1);
+                }
                 let vector = |v: &mao_net::schema::Value| -> Option<[f32; 3]> {
                     let f = |n: &str| match v.get(n) {
                         Some(mao_net::schema::Value::Float(x)) => Some(*x as f32),
@@ -3282,10 +3299,14 @@ impl World {
             let f = |at: usize| f32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
             let at = [f(17), f(21), f(25)];
             self.objects.insert(m.identity.1, at);
-            // (a corpse: announced on a body that died, within a few metres of it)
-            let body = self.bodies.iter().filter(|(id, _)| !self.corpses.contains_key(id)).map(|(id, b)| (*id, b.0)).map(|(id, p)| (id, ((p[0] - at[0]).powi(2) + (p[2] - at[2]).powi(2)).sqrt())).filter(|(_, d)| *d < 4.0).min_by(|a, b| a.1.total_cmp(&b.1)).map(|b| b.0);
+            // (a corpse names the one that died, `corpse_of`: that body is its own, wherever this client had walked it.
+            // Until 2026-11-17 only the nearest dead body within 4 m was taken, and a creature that died on its way to
+            // the player, metres behind the server's place, never became its remains. The nearness stays for a corpse
+            // that names nobody.)
+            let named = mao_net::n3::corpse_of(&m.data);
+            let body = named.filter(|id| self.entities.contains_key(id) && !self.corpses.contains_key(id)).or_else(|| self.bodies.iter().filter(|(id, _)| !self.corpses.contains_key(id)).map(|(id, b)| (*id, b.0)).map(|(id, p)| (id, ((p[0] - at[0]).powi(2) + (p[2] - at[2]).powi(2)).sqrt())).filter(|(_, d)| *d < 4.0).min_by(|a, b| a.1.total_cmp(&b.1)).map(|b| b.0));
             if std::env::var_os("MAO_COMBAT_LOG").is_some() {
-                eprintln!("combat: object {:#x} at {at:?}; bodies {:?} -> {body:?}; named {:?}", m.identity.1, self.bodies.iter().map(|(id, b)| (*id, b.0)).collect::<Vec<_>>(), corpse_name(&m.data));
+                eprintln!("combat: object {:#x} at {at:?}; names {named:x?}; bodies {:?} -> {body:?}; named {:?}", m.identity.1, self.bodies.iter().map(|(id, b)| (*id, b.0)).collect::<Vec<_>>(), corpse_name(&m.data));
             }
             match body {
                 Some(body) => {
@@ -3305,8 +3326,10 @@ impl World {
                     self.names.insert(m.identity.1, (name.clone(), false));
                     self.names.insert(body, (name, false));
                 }
+                // (a corpse of one this client never had, lying there before it came: by the corpse's own name)
                 None => {
-                    self.names.entry(m.identity.1).or_insert_with(|| (format!("Object {:x}", m.identity.1 & 0xffff), false));
+                    let name = named.and_then(|_| corpse_name(&m.data)).unwrap_or_else(|| format!("Object {:x}", m.identity.1 & 0xffff));
+                    self.names.entry(m.identity.1).or_insert_with(|| (name, false));
                 }
             }
         }
@@ -3662,7 +3685,15 @@ impl World {
                 }
                 continue;
             }
-            let speed = self.path_speeds.get(&id).copied().unwrap_or(PATH_SPEED);
+            // (a walk is 1.5 a second. A run is the creature's own run speed by the characters' rule, FUN_1006f9eb:
+            // `RunSpeed / 275 + 5` within 1.5 and 13; where its RunSpeed is not known, the speed its paths in a row
+            // showed, and 5 with neither. Until 2026-11-17 a creature chasing went at the walk's 1.5 until two paths in a
+            // row had shown its speed, and came up to eight metres behind the server's: it fought and died from afar.)
+            let speed = if self.path_runs.contains(&id) {
+                self.infos.get(&id).and_then(|i| i.run_speed).map(|r| (r as f32 / 275.0 + 5.0).clamp(1.5, 13.0)).or_else(|| self.path_speeds.get(&id).copied()).unwrap_or(RUN_SPEED)
+            } else {
+                PATH_SPEED
+            };
             let step = (speed * dt).min(left - near);
             let to = [at[0] + dx / left * step, at[1] + (goal[1] - at[1]) * (step / left), at[2] + dz / left * step];
             if let Some(e) = self.entities.get_mut(&id) {
@@ -11951,13 +11982,29 @@ mod door_tests {
         w.entities.insert(0x7b017c2a, ([277.1, 8.1, 278.3], 0));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x7b017c2a), data: hex("000000006300000000000000000000000000000000000001f40000") }.frame(1));
         assert_eq!(w.dead.get(&0x7b017c2a).map(|d| d.0), Some(500));
-        w.add(&Message { kind: 0x36510078, identity: (0xc350, 0x7b017c2a), data: hex("00") }.frame(1));
-        assert!(w.dead.contains_key(&0x7b017c2a) && w.entities.contains_key(&0x7b017c2a));
         w.add(&Message { kind: 0x4f474e05, identity: (0xc76a, 0x103b002), data: hex("00000000080000000b0000000000000000438a90bd410228f6438b24b000000000") }.frame(1));
         assert_eq!(w.corpses.get(&0x7b017c2a), Some(&0x103b002));
+        w.add(&Message { kind: 0x36510078, identity: (0xc350, 0x7b017c2a), data: hex("00") }.frame(1));
+        assert!(w.dead.contains_key(&0x7b017c2a) && w.entities.contains_key(&0x7b017c2a));
         assert_eq!(w.used(0xc350, 0x7b017c2a), (0xc76a, 0x103b002));
         w.add(&Message { kind: 0x36510078, identity: (0xc76a, 0x103b002), data: hex("00") }.frame(1));
         assert!(!w.dead.contains_key(&0x7b017c2a) && !w.entities.contains_key(&0x7b017c2a));
+        // (one that died twelve metres from where its corpse comes, as a creature running at the player was: the corpse
+        // names it in its stats 415 and 416, and it is that corpse's body, put where the corpse is)
+        let die = "000000006300000000000000000000000000000000000001f70000";
+        w.entities.insert(0x7b577b58, ([265.0, 8.1, 278.3], 0));
+        w.names.insert(0x7b577b58, ("32-V Docker".into(), false));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x7b577b58), data: hex(die) }.frame(1));
+        let corpse = "00000000080000000b0000000000000000438a90bd410228f6438b24b0000000000000019f0000c350000001a07b577b580000002a0000170c";
+        w.add(&Message { kind: 0x4f474e05, identity: (0xc76a, 0x103e829), data: hex(corpse) }.frame(1));
+        assert_eq!(w.corpses.get(&0x7b577b58), Some(&0x103e829));
+        assert!((w.entities[&0x7b577b58].0[0] - 277.13).abs() < 0.01);
+        assert_eq!(w.names[&0x7b577b58].0, "Remains of 32-V Docker");
+        // (one that dies and leaves no corpse goes with its despawn; it lay there for good)
+        w.entities.insert(0x7b577bdd, ([200.0, 8.1, 200.0], 0));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x7b577bdd), data: hex(die) }.frame(1));
+        w.add(&Message { kind: 0x36510078, identity: (0xc350, 0x7b577bdd), data: hex("00") }.frame(1));
+        assert!(!w.dead.contains_key(&0x7b577bdd) && !w.entities.contains_key(&0x7b577bdd));
         // (a living one despawned leaves)
         w.entities.insert(9, ([0.0; 3], 0));
         w.add(&Message { kind: 0x36510078, identity: (0xc350, 9), data: hex("00") }.frame(1));
@@ -12394,6 +12441,55 @@ mod movement_tests {
         assert_eq!(corpse_name(&[0, 0, 0, 2, b'x', 0]), None);
     }
 
+    /// `MAO_CAPTURE=<a capture's dump.txt>`: the capture's server messages through the world. Every one the world has
+    /// that a corpse names is that corpse's body, and none that died is left lying once its despawn has come and no
+    /// corpse of its lies there. (The corpses that name one the world has not: the dead of before the arrival, and a
+    /// corpse announced again after its body went.)
+    #[test]
+    fn a_captures_dead_become_their_remains() {
+        let Some(path) = std::env::var_os("MAO_CAPTURE") else { return };
+        let text = String::from_utf8_lossy(&std::fs::read(path).unwrap()).into_owned();
+        let hex = |s: &str| (0..s.len() / 2).filter_map(|i| u8::from_str_radix(s.get(2 * i..2 * i + 2)?, 16).ok()).collect::<Vec<u8>>();
+        let mut w = World::default();
+        let (mut died, mut gone) = (std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
+        let (mut named, mut linked, mut strangers) = (0, 0, 0);
+        for line in text.lines() {
+            // (`#201 1793397525.597 S>C c3 kind 2b333d6e identity (c350,7b082893) 13 bytes: 0000...`)
+            let mut words = line.split_whitespace();
+            let (Some(_), Some(_), Some(way), Some(_), Some("kind"), Some(kind), Some("identity"), Some(identity)) = (words.next(), words.next(), words.next(), words.next(), words.next(), words.next(), words.next(), words.next()) else { continue };
+            let Some((kind, (kind_of, id))) = u32::from_str_radix(kind, 16).ok().zip(identity.trim_matches(|c| c == '(' || c == ')').split_once(',').and_then(|(a, b)| Some((u32::from_str_radix(a, 16).ok()?, u32::from_str_radix(b, 16).ok()?)))) else { continue };
+            let data = hex(line.rsplit_once("bytes: ").map_or("", |p| p.1).trim());
+            if way == "C>S" {
+                if w.own == 0 && kind_of == 0xc350 {
+                    w.own = id;
+                }
+                continue;
+            }
+            let m = Message { kind, identity: (kind_of, id), data };
+            w.add(&m.frame(1));
+            if kind == 0x5e477770 && m.data.len() >= 5 && m.data[1..5] == [0, 0, 0, 99] && id != w.own {
+                died.insert(id);
+            }
+            if kind == 0x36510078 && kind_of == 0xc350 {
+                gone.insert(id);
+            }
+            if kind == 0x4f474e05 && kind_of == 0xc76a {
+                match mao_net::n3::corpse_of(&m.data) {
+                    Some(dead) if w.entities.contains_key(&dead) => {
+                        named += 1;
+                        linked += (w.corpses.get(&dead) == Some(&id)) as u32;
+                    }
+                    Some(_) => strangers += 1,
+                    None => {}
+                }
+            }
+        }
+        let left: Vec<u32> = w.dead.keys().copied().filter(|d| gone.contains(d) && !w.corpses.get(d).is_some_and(|c| w.objects.contains_key(c))).collect();
+        eprintln!("{} died; {named} corpses named one the world had, {linked} of those are its body; {strangers} named one it had not; {} left lying with no corpse after their despawn", died.len(), left.len());
+        assert!(named > 0 && linked == named, "{linked} of {named}");
+        assert!(left.is_empty(), "{left:x?}");
+    }
+
     #[test]
     fn creatures_walk_their_paths() {
         // a path's speed: 3 m along a 5 m path in 2 s is 1.5 m/s; a path walked to its end tells nothing
@@ -12417,6 +12513,21 @@ mod movement_tests {
             w.walk_paths(1.0, [0.0, 0.0, 20.0]);
         }
         assert!((w.entities[&7].0[2] - 18.5).abs() < 1e-3);
+        // sent running (the path message's mode 0x19): 5 a second with nothing known of it, and its own run speed
+        // (a captured announcement's RunSpeed of 30: 30 / 275 + 5) once it is announced; sent walking again, 1.5
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let path = |mode: &str| Message { kind: 0x260f3671, identity: (0xc350, 7), data: hex(&format!("0001{mode}02000000000000000000000000000000000000000042c80000")) }.frame(1);
+        w.add(&path("19"));
+        w.walk_paths(1.0, [50.0, 0.0, 0.0]);
+        assert!((w.entities[&7].0[2] - 5.0).abs() < 1e-3, "{:?}", w.entities[&7].0);
+        let info = Message { kind: 0x271b3a6b, identity: (0xc350, 7), data: hex("003a0a224acb0020da15455ffedf4223dc28444ff918000000003f35f9ab000000003f340eef0000058813576f756e64656420446f636b776f726b657200108c120100000000890bb80000000100201400048448005a001f000000001c0000000000000000800000000801000100010001000100000002000000009cc21e000003f1000017a600000000000482830000000000000001000482810000000000000002000482820000000000000003000482800000000000000004000482840000000000000bd3000003213600000000020000009cc200000000040000000000") }.entity_info().unwrap();
+        assert_eq!(info.run_speed, Some(30));
+        w.infos.insert(7, info);
+        w.walk_paths(1.0, [50.0, 0.0, 0.0]);
+        assert!((w.entities[&7].0[2] - (10.0 + 30.0 / 275.0)).abs() < 1e-3);
+        w.add(&path("18"));
+        w.walk_paths(1.0, [50.0, 0.0, 0.0]);
+        assert!((w.entities[&7].0[2] - 1.5).abs() < 1e-3);
     }
 
     #[test]

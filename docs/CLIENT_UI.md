@@ -4728,3 +4728,48 @@ To see them: `MAO_GPU_FAIL=<1-3>` (the first n devices fail), `MAO_LAUNCH_PANIC=
 `MAO_ERROR_BOX=1` for the box. Seen in a test window on this machine only (Windows, an AMD card and the software
 device). Not seen: the box on macOS, the hidden start on Linux and macOS, another machine's fault, whatever it was.
 Not done: the login's window still shows before its first frame; minimizing and restoring showed no fault.
+
+## The dead that did not become remains, and creatures that ran at a walk (2026-11-17, the user's report)
+
+The report: "some of the mobs didn't turn into remains of <mob>", and the attack animation "seemed off". One
+screenshot was in the folder (Arete Landing, 21:24: dead dockers lying under their own names beside one "Remains
+of"), and its notes listed dockers twice and three times at the same spawn places. The game's log and the captures
+gave the rest.
+
+**What the server does at a death** (the captures, 288 deaths): the death's action (`CharacterAction` 99), then the
+corpse's announcement 0.1 to 0.9 s later, then the dead character's `Despawn` about ten seconds after the death. A
+sixth of the deaths have no corpse at all.
+
+**What the client did**: a corpse was given to the nearest dead body within 4 m of it, and a dead body never left
+on its own despawn (it was to stay as its corpse's body). So a creature that died further than 4 m from where the
+corpse came kept its name, was not its remains, could not be looted through its body, and lay there for good; so
+did every one that died without a corpse. In the user's log two of their own kills were 8.6 m and 7.2 m off.
+
+**Now** (`net.rs`, `mao_net::n3::corpse_of`):
+
+- A corpse names the one that died: its stats 415 and 416 are that character's type and number (all 371 captured
+  corpses have them). That body is the corpse's, wherever this client had it, and is put where the corpse is. The
+  4 m rule stays for a corpse that names nobody.
+- A dead body whose corpse lies there stays as that corpse's body when its own despawn comes, as before; a dead
+  body with no corpse leaves with its despawn.
+- A corpse of one the client has not (the dead of before one's arrival) is named by its own name, not "Object".
+
+`MAO_CAPTURE=<dump.txt>` with the test `a_captures_dead_become_their_remains` runs a capture's server messages
+through the world: 223 of 223, 29 of 29 and 5 of 5 corpses that named one the world had are its body, and none that
+died is left after its despawn.
+
+**Why the bodies were so far off: creatures ran at a walk.** The server sends a creature along a path or after a
+target with `FollowTarget`, whose byte after the kind (the schema's `Unknown1`) is 0x18 for a walk and 0x19 for a
+run (17,000 captured: walked paths are gone along at 1.5 a second, median 1.45; run ones at up to 13). The client
+went at 1.5 whatever the byte, until two paths in a row had shown a speed. A creature's own `RunSpeed` is in its
+announcement: after the 28-byte block and the head's mesh (flag 0x80) comes a byte, or two with flag 0x2000
+(`EntityInfo::run_speed`). The fastest tenth of each kind's runs agree with the characters' own rule,
+`RunSpeed / 275 + 5` within 13 (FUN_1006f9eb): 5.0 for Arete's creatures of RunSpeed 13 to 50, 12.8 for those of
+2,300. A creature sent running now goes at that; one whose RunSpeed is not known at what its paths showed, or 5.
+
+A creature that fought from eight metres off, hitting the air, is likely what looked wrong in the attacks; the
+report did not say more, and nothing else of the attack animations was changed.
+
+Not done: a corpse whose body the client has not got (one walked away from and come back to, or made before the
+arrival) is not drawn, only named; the original draws a corpse from its own data. The run speed's fall below 15%
+health is not applied to creatures. Not seen live.

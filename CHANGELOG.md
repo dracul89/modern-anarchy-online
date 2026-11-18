@@ -4,6 +4,15 @@ What each release changed, as a player meets it. The commits have the detail, an
 thing was read from the original client. The release workflow puts a version's section at the top of that release's
 notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Releases page only.
 
+## Unreleased
+
+### Fights
+
+- Every creature killed turns into its remains: one that died while running at the character kept its own name,
+  could not be looted and lay there for good, as did one that left no corpse.
+- A creature sent running by the server runs at its own speed; it used to follow at a walk, metres behind where the
+  server had it, and fought from there.
+
 ## 0.1.5 (2026-11-17)
 
 ### The launcher

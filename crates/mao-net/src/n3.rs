@@ -1682,7 +1682,27 @@ pub struct EntityInfo {
     /// the walking and running ones, and 8, sitting on the ground, for the wounded dockworkers and protesters of
     /// Arete Landing and a few seated NPCs.
     pub move_mode: Option<u8>,
+    /// A creature's `RunSpeed` as it is announced: after the block comes the head's mesh (4 bytes, when flag 0x80 is
+    /// set) and then this, a byte, or two when flag 0x2000 is set. Measured over the captures' 5,600 creature
+    /// announcements (the bytes up to the nano list's count are these and, with flag 0x400, the one fought); and a
+    /// creature's fastest runs along the server's paths are `RunSpeed / 275 + 5` within 13, the characters' own rule.
+    pub run_speed: Option<u16>,
 }
+
+/// The dead character a corpse's announcement (`4f474e05` of an object 0xc76a) names: its stats 415 and 416 are that
+/// character's type and number. All of the captures' 371 corpses have them, and each one that follows a death seen
+/// names the one that died (245 of 245).
+pub fn corpse_of(data: &[u8]) -> Option<u32> {
+    const KEY: [u8; 12] = [0, 0, 0x01, 0x9f, 0, 0, 0xc3, 0x50, 0, 0, 0x01, 0xa0];
+    let at = data.windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
+    Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?))
+}
+
+/// The way a creature is sent along a path or after a target (`FollowTarget`, `260f3671`): the byte after the kind
+/// is 0x18 for walking and 0x19 for running (the captures: walked paths are gone along at 1.5 a second, run ones at
+/// up to the creature's run speed).
+pub const PATH_WALK: u8 = 0x18;
+pub const PATH_RUN: u8 = 0x19;
 
 /// Where the template id sits after the flags: a few bytes after the second
 /// flags word and always before a level (`00 level 00 1f`), at a position
@@ -1713,6 +1733,16 @@ fn npc_template_place(post: &[u8]) -> Option<usize> {
 
 /// A creature's movement mode ([`EntityInfo::move_mode`]): after the template (4 bytes), the scale (2), a word (2)
 /// and a byte comes the block's length, 28, and the mode is the block's byte 12.
+/// A creature's run speed ([`EntityInfo::run_speed`]): after the 28-byte block, and the head's mesh when there is one.
+fn npc_run_speed(post: &[u8], flags: u32) -> Option<u16> {
+    let p = npc_template_place(post)?;
+    if post.get(p + 9..p + 13)? != [0, 0, 0, 0x1c] {
+        return None;
+    }
+    let at = p + 41 + if flags & 0x80 != 0 { 4 } else { 0 };
+    if flags & 0x2000 != 0 { Some(u16::from_be_bytes(post.get(at..at + 2)?.try_into().ok()?)) } else { post.get(at).map(|b| *b as u16) }
+}
+
 fn npc_move_mode(post: &[u8]) -> Option<u8> {
     let p = npc_template_place(post)?;
     (post.get(p + 9..p + 13)? == [0, 0, 0, 0x1c]).then(|| post.get(p + 25).copied()).flatten()
@@ -2187,11 +2217,12 @@ impl Message {
             None => (None, None),
         };
         let move_mode = d.get(at - 8..).and_then(npc_move_mode).filter(|_| flags & 1 != 0);
+        let run_speed = d.get(at - 8..).and_then(|post| npc_run_speed(post, flags)).filter(|_| flags & 1 != 0);
         let (family, health) = match creature_fields(d, at, flags) {
             Some((family, health)) if flags & 1 != 0 => (Some(family), Some(health)),
             _ => (None, None),
         };
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, health, family, move_mode })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, health, family, move_mode, run_speed })
     }
 }
 
@@ -2328,6 +2359,11 @@ mod entity_tests {
         assert_eq!(wounded.meshes, vec![(HEAD_REPLACED, 0x32136, 0), (FACE_DONOR, 0x9cc2, 0)]);
         let rex = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x7b082888), data: hex("003a0a224acb0020da1545628236424efae14444e52c00000000bf35a481000000003f3464d8000006280c526578204c617273736f6e00108c120100000000890bb80000000f01ff00000065da0061001f000000001c8000000000000000800000000101000100010001000100000002000000009ef334000003f1000017a600000000000482830000000000000001000482810000000000000002000482820000000000000003000482800000000000000004000482840000000000000bd3000003214000000000020000009ef300000000040000000000") }.entity_info().unwrap();
         assert_eq!((rex.name.as_str(), rex.move_mode), ("Rex Larsson", Some(1)));
+        // (the run speed is the byte after the head's mesh: 30 and 52)
+        assert_eq!((wounded.run_speed, rex.run_speed), (Some(30), Some(52)));
+        // (a corpse names the one that died in its stats 415 and 416)
+        let corpse = hex("0000019c000000010000019f0000c350000001a07b1a64330000002a0000170c");
+        assert_eq!((corpse_of(&corpse), corpse_of(&corpse[..20])), (Some(0x7b1a6433), None));
     }
 
     /// The 2026-10-31 15:05 capture's pets (#290 and the drone): their health and maximum, as their info packets give them.
