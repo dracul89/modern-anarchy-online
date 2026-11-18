@@ -221,8 +221,9 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::ActionsWindow, "actions_window", "Ctrl+2"),
     (Action::MissionWindow, "mission_window", "Ctrl+4"),
     (Action::PlanetMapWindow, "planet_map", "P, Ctrl+6"),
-    // (this client's own, without a key since 2026-11-18: it had O, which is the original's aimed shot)
-    (Action::MapOverlay, "map_overlay", ""),
+    // (this client's own: it had O, which is the original's aimed shot, until 2026-11-18; Ctrl+P is the user's word
+    // "for now", a key the original has nothing on)
+    (Action::MapOverlay, "map_overlay", "Ctrl+P"),
     (Action::FriendsWindow, "friends_window", "Ctrl+7"),
     (Action::ProgramsWindow, "programs_window", "Ctrl+8"),
     (Action::StatsWindow, "stats_window", "Ctrl+9"),
@@ -293,11 +294,11 @@ pub const KEYMAP_VERSION: u32 = 3;
 
 /// The default keys that changed from version 2 of the key table to version 3 (2026-11-18, the user's "match the
 /// original": the shipped `CharPrefs.xml`'s keys for walk/run and four special attacks, and the map overlay off O,
-/// which is the aimed shot's there): the action, its keys in version 2 and its keys now. A version 2 file's action
+/// which is the aimed shot's there, onto Ctrl+P): the action, its keys in version 2 and its keys now. A version 2 file's action
 /// that still has its old default gets the new one, when no other action of the file has that key; a key the player
 /// chose stays.
 pub const MOVED_DEFAULTS: &[(Action, &str, &str)] = &[
-    (Action::MapOverlay, "O", ""),
+    (Action::MapOverlay, "O", "Ctrl+P"),
     (Action::ToggleWalk, "NumpadDivide", "Backspace"),
     (Action::Quick(8), "", "J"),
     (Action::Quick(9), "", "N"),
@@ -1080,7 +1081,9 @@ log_messages = on
     #[test]
     fn the_older_key_table_is_brought_up_to_date() {
         let k = Keymap::default();
-        assert_eq!((k.keys(Action::ToggleWalk), k.keys(Action::MapOverlay)), ("Backspace".to_string(), String::new()));
+        assert_eq!((k.keys(Action::ToggleWalk), k.keys(Action::MapOverlay)), ("Backspace".to_string(), "Ctrl+P".to_string()));
+        assert_eq!(k.action(KeyCode::KeyP, ModifiersState::CONTROL), Some(Action::MapOverlay));
+        assert_eq!(k.action(KeyCode::KeyP, ModifiersState::empty()), Some(Action::PlanetMapWindow));
         assert_eq!((k.keys(Action::Quick(8)), k.keys(Action::Quick(9)), k.keys(Action::Quick(10)), k.keys(Action::Quick(11))), ("J".to_string(), "N".to_string(), "O".to_string(), "Period".to_string()));
         for &(action, _, new) in MOVED_DEFAULTS {
             assert_eq!(k.keys(action), new);

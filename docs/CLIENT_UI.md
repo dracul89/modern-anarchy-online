@@ -5337,12 +5337,13 @@ Tests: `keybindings::tests` (six), `a_characters_own_keys_lie_over_the_clients`,
 Asked whether the five differing defaults should follow the shipped `CharPrefs.xml`, the user said "Match the
 original". So, since version 3 of the key table (`settings::KEYMAP_VERSION`): walk/run is Backspace (was Numpad /),
 sneak attack J, fast attack N, aimed shot O and the bow's special attack Period (they had no key), and the map
-overlay, this client's own, has no key (it had O; it can be given one in the options' Keys list).
+overlay, this client's own, is on Ctrl+P (it had O; left without a key at first, then the user: "you can map it to
+ctrl+p for now").
 
 A settings file written before is not thrown away for it (another version's keys used to be replaced by the
 defaults in whole): a version 2 file is read as it is and brought up to date (`settings::MOVED_DEFAULTS`): each of
 the six actions that still has its old default gets the new one, unless another action of the file has that key; a
-key the player chose stays. So someone who never touched these keys gets the original's, the overlay off O
-included, and someone who put the overlay on O and F6, or J on the jump, keeps that and the action that wanted
+key the player chose stays. So someone who never touched these keys gets the original's, the overlay moved from O
+to Ctrl+P included, and someone who put the overlay on O and F6, or J on the jump, keeps that and the action that wanted
 the key stays without one. The file is written as version 3 at the next save.
 Test: `the_older_key_table_is_brought_up_to_date`.

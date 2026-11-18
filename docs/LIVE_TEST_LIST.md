@@ -870,7 +870,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Keys from the original (2026-11-18): rebind a key in the original client for a character, log that
   character in here: the Keys list shows it and the log has a "keys:" line.
 - [ ] The five default keys (2026-11-18): Backspace switches walk and run; in Options, Keys: Sneak Attack J, Fast
-  Attack N, Aimed Shot O, Bow Special Attack Period, the map overlay without a key, and any key you had changed
+  Attack N, Aimed Shot O, Bow Special Attack Period, the map overlay on Ctrl+P, and any key you had changed
   yourself as you left it.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
