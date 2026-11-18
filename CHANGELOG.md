@@ -15,6 +15,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   Andromeda and elsewhere) have their halos, in their colours.
 - Mission buildings and shop interiors have their smoke, fire and lamp effects; missions had none, and a shop's
   were drawn somewhere far off.
+- Corpses that were already lying when you arrived (or that you walked away from and back to) are drawn. They
+  were only a name floating over empty ground.
 
 ### Windows
 

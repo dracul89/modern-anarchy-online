@@ -1870,6 +1870,88 @@ pub fn corpse_of(data: &[u8]) -> Option<u32> {
     Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?))
 }
 
+/// How a corpse looks by its own announcement (`CorpseFullUpdateIIR_t`, Gamecode's reader FUN_1009fa4c): the corpse is
+/// an item with a CAT mesh of its own, the dead one's (its stat 0x2a, `CATMesh`), at the body's scale (stat 0x168,
+/// a percentage), turned as the message says, with the dead one's clothes and texture overrides (the two lists after
+/// the dead one's identity, which the corpse keeps and puts on its mesh: FUN_1009f967, FUN_1007ed2c). The original
+/// shows that mesh whenever the dead character itself is not there to be seen (FUN_1007eaf0): a corpse found lying
+/// when one arrives.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct CorpseLook {
+    /// The CAT mesh's instance (type 0xf6952).
+    pub mesh: u32,
+    /// The body's scale in percent (100 when the corpse has none).
+    pub scale: u32,
+    /// The corpse's turn, a quaternion (x, y, z, w).
+    pub rotation: [f32; 4],
+    /// Body part and texture, as a character's clothes.
+    pub clothes: Vec<(String, u32)>,
+    /// Material name and texture, as a character's texture overrides.
+    pub textures: Vec<(String, u32)>,
+}
+
+pub fn corpse_look(data: &[u8]) -> Option<CorpseLook> {
+    const KEY: [u8; 12] = [0, 0, 0x01, 0x9f, 0, 0, 0xc3, 0x50, 0, 0, 0x01, 0xa0];
+    let key = data.windows(KEY.len()).position(|w| w == KEY)?;
+    let word = |at: usize| data.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+    let float = |at: usize| data.get(at..at + 4).map(|b| f32::from_be_bytes(b.try_into().unwrap()));
+    // (the stats are pairs of words, the dead one's two among them: those before and after, the nearer first)
+    let mut stats = std::collections::BTreeMap::new();
+    let mut at = key;
+    for _ in 0..24 {
+        if at < 8 {
+            break;
+        }
+        at -= 8;
+        let (Some(stat), Some(value)) = (word(at), word(at + 4)) else { break };
+        if stat == 0 || stat > 0x1000 {
+            break;
+        }
+        stats.entry(stat).or_insert(value);
+    }
+    let mut at = key + 16;
+    for _ in 0..24 {
+        let (Some(stat), Some(value)) = (word(at), word(at + 4)) else { break };
+        if stat == 0 || stat > 0x1000 {
+            break;
+        }
+        stats.entry(stat).or_insert(value);
+        at += 8;
+    }
+    let mesh = stats.get(&0x2a).copied().filter(|m| *m != 0)?;
+    let mut look = CorpseLook { mesh, scale: stats.get(&0x168).copied().filter(|s| *s != 0).unwrap_or(100), rotation: [float(29)?, float(33)?, float(37)?, float(41)?], ..CorpseLook::default() };
+    // (after the name and the spell list the dead one's identity comes again, then its clothes, twelve bytes each and
+    // eight more for one whose part word has a high half, and, when the word after them is not 0, its textures: a
+    // name of 32 bytes and three words)
+    let dead = data.get(key + 8..key + 16)?;
+    let Some(mut at) = data.get(key + 16..)?.windows(8).position(|w| w[..4] == [0, 0, 0xc3, 0x50] && w[4..] == dead[4..]).map(|p| key + 16 + p + 8) else { return Some(look) };
+    let counted = |at: usize| word(at).filter(|m| *m != 0 && m % 0x3f1 == 0 && m / 0x3f1 <= 17).map(|m| (m / 0x3f1 - 1) as usize);
+    let Some(count) = counted(at) else { return Some(look) };
+    at += 4;
+    for slot in 0..count {
+        let (Some(packed), Some(texture)) = (word(at), word(at + 4)) else { return Some(look) };
+        at += if packed >> 16 > 0 { 20 } else { 12 };
+        if let (Some(part), true) = (CLOTH_PARTS.get(slot), texture != 0) {
+            look.clothes.push((part.to_string(), texture));
+        }
+    }
+    if word(at).is_some_and(|w| w != 0)
+        && let Some(count) = counted(at + 4)
+    {
+        at += 8;
+        for _ in 0..count {
+            let Some(entry) = data.get(at..at + 44) else { break };
+            let end = entry[..32].iter().position(|&c| c == 0).unwrap_or(32);
+            let texture = u32::from_be_bytes(entry[32..36].try_into().unwrap());
+            if end > 0 && entry[..end].iter().all(|c| (0x20..0x7f).contains(c)) && texture != 0 {
+                look.textures.push((String::from_utf8_lossy(&entry[..end]).into_owned(), texture));
+            }
+            at += 44;
+        }
+    }
+    Some(look)
+}
+
 /// The way a creature is sent along a path or after a target (`FollowTarget`, `260f3671`): the byte after the kind
 /// is 0x18 for walking and 0x19 for running (the captures: walked paths are gone along at 1.5 a second, run ones at
 /// up to the creature's run speed).
@@ -2469,6 +2551,24 @@ impl Message {
 #[cfg(test)]
 mod entity_tests {
     use super::*;
+    /// A corpse's own look, from a captured announcement (a creature's remains): its CAT mesh, the body's scale, its
+    /// turn, and the texture overrides after the dead one's second identity; its five clothes are all empty.
+    #[test]
+    fn a_corpse_says_how_it_looks() {
+        let hex = "00000000080000000b0000000000000000454239a3419d72484459df08000000003f03c9c6000000003f5b78c90000028f0000000000000000006f000046f200000000001818050000001700000000000002bd00000000000002be00000000000002bf000000000000019c000000010000016800000088000000df000000000000003b00000000000000040000000600000059000000010000019f0000c350000001a07b1d0e000000002a000259fa0000003d00000161000000080002bf20000000220000003c0000001e52656d61696e73206f6620556e636c652050756d706b696e2d48656164000000000200000032000003f100000003000007e20000cf273a4e92a90000000400000000000000010000000000000000000000000000000000000000000001f5000000010000000400025a18000000000000c3507b1d0e00000017a60000000000000000000000000000000100000000000000000000000200000000000000000000000300000000000000000000000400000000000000000000000100000fc439202d2044656661756c74000000000000000000000000000000000000000000000454cf000000000000000031202d2044656661756c74320000000000000000000000000000000000000000000454cf000259fd0000000039202d2044656661756c74666666000000000000000000000000000000000000000259fe0000000000000000";
+        let data: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
+        assert_eq!(corpse_of(&data), Some(0x7b1d0e00));
+        let look = corpse_look(&data).unwrap();
+        assert_eq!((look.mesh, look.scale), (0x259fa, 136));
+        assert!((look.rotation[1] - 0.5148).abs() < 1e-3 && (look.rotation[3] - 0.8573).abs() < 1e-3 && look.rotation[0] == 0.0);
+        assert!(look.clothes.is_empty());
+        assert_eq!(look.textures, [("9 - Default".to_string(), 0x454cf), ("1 - Default2".to_string(), 0x454cf), ("9 - Defaultfff".to_string(), 0x259fe)]);
+        // (a message with no corpse stats has no look; one cut off after the stats still has its mesh)
+        assert_eq!(corpse_look(&data[..100]), None);
+        let cut = corpse_look(&data[..300]).unwrap();
+        assert_eq!((cut.mesh, cut.textures.len()), (0x259fa, 0));
+    }
+
 
     #[test]
     fn a_duel_is_a_character_action_of_its_own_number() {

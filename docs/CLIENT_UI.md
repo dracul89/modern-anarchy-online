@@ -5883,3 +5883,36 @@ of the mesh's own; "space" a draw with other states; "clear" a clearing of the v
 client has no draw of its own per mesh; which statels carry these names was not looked for. The templates
 12200, 12570 and 96003 are named by `eff_universal_<n>` connectors and are not in `gfxtweak.bin`; where the
 original has them was not found.
+
+### A corpse this client has no body for (DTH-013)
+
+The reader could not find where the original draws such a corpse and took the corpse for an invisible chest. It
+is not. Traced here:
+
+- **A corpse has a CAT mesh of its own.** `Corpse_t` (a `Chest_t`, constructor Gamecode FUN_1007eb9c) is made
+  with its visibility off. The announcement (`CorpseFullUpdateIIR_t`, reader FUN_1009fa4c) carries the corpse's
+  stats, among them `CATMesh` (0x2a), the dead one's own mesh, and the body's scale (0x168); after the name and a
+  spell list the dead one's identity again, its clothes and its texture overrides. The message's set-up of the
+  new corpse (FUN_1009f967) hands the clothes to the corpse (FUN_1007efee, kept at +0x1e4) and the textures to its
+  visual (`SetTextureDataList`), and the corpse's own virtual function FUN_1007ed2c puts them on its CAT mesh
+  (`SetCATTexture` for each part, the skin by breed and sex, a head mesh when it has one, `SetBodyScale` of stat
+  0x168 over 100).
+- **It is shown when the dead character is not.** FUN_1007eaf0: with a mesh, the corpse turns its own visibility
+  on unless the dead character exists and is visible. So a creature that dies in view lies there itself and the
+  corpse stays hidden; a corpse found on arriving, or one whose creature this client never had, shows by its own
+  mesh.
+- **How it lies.** The corpse's stats could name a pose (0x1a1, `CorpseAnimKey`), but none of the 371 captured
+  corpses has it, and how the original poses the mesh without it was not read. Its own screenshots answer for
+  the look: the capture of 2026-10-31 15:05 arrives at six Hiathlin corpses it never saw alive, and they lie on
+  the ground.
+
+Here (`mao_net::n3::corpse_look`, `World::remains`, `overlay_model`): a corpse with no body is drawn from its
+announcement: its mesh at its scale, turned as the message says, in its clothes and textures, lying at the end of
+a death of that mesh's creature (the first creature template that names the mesh gives the animations,
+`Characters::template_of_mesh`; `die-knees` and along the original's fallbacks, held at its end from the first
+frame). It goes when the server takes the corpse away. 30 of the captures' corpses are of this kind (their
+creature was never announced).
+Looked at beside the original's screenshot: the same three bodies by the same rock (`net <game> gear-preview`
+on the capture cut just after they come). **A guess in it: the pose**; the original's may be another of the
+creature's deaths. Not done: the skin by breed and sex and the head mesh for a humanoid's corpse (the creature
+templates' own are used). Test: `a_corpse_says_how_it_looks` (a captured announcement).

@@ -919,6 +919,8 @@ These were written before this list; some may have been seen working since witho
   slot: Labels On Top.
 - [ ] Lamp halos (2026-11-18): in Jobe Research (and Andromeda) the lamps have a glow, white or coloured, at dusk
   and at night. In a mission building, vents smoke and lamps glow inside the rooms.
+- [ ] Corpses found lying (2026-11-18): walk up to corpses somebody else left (or leave your own kill out of sight
+  and come back): a body lies there, lootable as before. Tell me if one stands upright or floats.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

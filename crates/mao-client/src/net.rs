@@ -328,6 +328,10 @@ struct World {
     /// The corpse (its 0xc76a instance, from `CorpseFullUpdate`) left by each dead character: the one announced where the
     /// body lies. Using the body uses the corpse, as clicking a body does in the original (the corpse is what the server opens).
     corpses: BTreeMap<u32, u32>,
+    /// The corpses this client has no body for (one that lay there before the character came, or whose creature it
+    /// never had): where each lies and how it looks by its own announcement (`mao_net::n3::corpse_look`). The
+    /// original draws such a corpse by its own mesh, FUN_1007eaf0.
+    remains: BTreeMap<u32, ([f32; 3], mao_net::n3::CorpseLook)>,
     /// The characters that died lately and where (kept past their `Despawn`, which the server sends just before the corpse).
     bodies: BTreeMap<u32, ([f32; 3], Instant)>,
     /// How the server moves the creatures (`FollowTarget`, `260f3671`, Gamecode's `FollowTargetIIR_c`, up to 30 places):
@@ -2351,6 +2355,7 @@ impl World {
             let id = m.identity.1;
             if m.identity.0 == OBJECT_TYPE {
                 self.objects.remove(&id);
+                self.remains.remove(&id);
                 let own = self.own;
                 let bodies: Vec<u32> = self.corpses.iter().filter(|(b, c)| **c == id && **b != own).map(|(b, _)| *b).collect();
                 for body in bodies {
@@ -3934,10 +3939,14 @@ impl World {
                     self.names.insert(m.identity.1, (name.clone(), false));
                     self.names.insert(body, (name, false));
                 }
-                // (a corpse of one this client never had, lying there before it came: by the corpse's own name)
+                // (a corpse of one this client never had, lying there before it came: by the corpse's own name, and
+                // drawn by its own mesh, as the original draws a corpse whose character is not there)
                 None => {
                     let name = named.and_then(|_| corpse_name(&m.data)).unwrap_or_else(|| format!("Object {:x}", m.identity.1 & 0xffff));
                     self.names.entry(m.identity.1).or_insert_with(|| (name, false));
+                    if let Some(look) = named.and_then(|_| mao_net::n3::corpse_look(&m.data)) {
+                        self.remains.insert(m.identity.1, (at, look));
+                    }
                 }
             }
         }
@@ -4690,6 +4699,11 @@ struct Characters {
     bodies: std::collections::HashMap<(u8, u8), Option<(mao_formats::catmesh::CatMesh, Model, Option<mao_formats::catmesh::Attractor>)>>,
     /// Creatures by NPC template: the template and its CAT mesh.
     creatures: std::collections::HashMap<u32, Option<(mao_formats::npc::Template, mao_formats::catmesh::CatMesh, Option<Model>)>>,
+    /// The ones whose death is held at its end from the first frame: remains found lying, which nobody saw fall.
+    lying: std::collections::HashSet<u32>,
+    /// A creature template for each CAT mesh (the first that names it), made when first asked for: a corpse names its
+    /// mesh, and the animations a body of that mesh dies by are its template's.
+    mesh_templates: Option<std::collections::HashMap<u32, u32>>,
     /// Creature animations by instance.
     creature_anims: std::collections::HashMap<u32, Option<(mao_formats::catanim::CatAnim, f32)>>,
     /// Where each character is in its movement animation (start, loop, stop).
@@ -5094,7 +5108,7 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, build: 1, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default() })
+        Ok(Characters { head_meshes, build: 1, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -5121,6 +5135,26 @@ impl Characters {
         let handle = *self.movement_handles.get(&id)?;
         let (stack, _) = self.stacks.get(&id)?;
         Some(stack.entries.iter().find(|e| e.handle == handle).is_none_or(|e| e.elapsed >= (e.end - e.start).abs()))
+    }
+
+    /// A creature template whose body is this CAT mesh (the lowest numbered of them).
+    fn template_of_mesh(&mut self, mesh: u32) -> Option<u32> {
+        let db = self.db.clone();
+        self.mesh_templates
+            .get_or_insert_with(|| {
+                let mut by_mesh = std::collections::HashMap::new();
+                let mut ids: Vec<u32> = db.ids().map(|ids| ids.filter_map(Result::ok).filter(|i| i.kind == mao_formats::npc::TEMPLATE).map(|i| i.instance).collect()).unwrap_or_default();
+                ids.sort_unstable();
+                for id in ids {
+                    let record = db.get(mao_formats::resource::Id { kind: mao_formats::npc::TEMPLATE, instance: id }).ok().flatten().and_then(|d| mao_formats::npc::Template::parse(&d));
+                    if let Some(mesh) = record.and_then(|r| r.mesh) {
+                        by_mesh.entry(mesh).or_insert(id);
+                    }
+                }
+                by_mesh
+            })
+            .get(&mesh)
+            .copied()
     }
 
     /// The parts of a creature or NPC from its template (the CAT mesh and
@@ -5270,7 +5304,9 @@ impl Characters {
         if self.movement_keys.get(&id) != Some(&stack_key) {
             // (a death is held at its end: direction 3 plays it once and keeps the last frame)
             let handle = stack.set_animation(anim_id, 0, -1, 2, if death.is_some() { 3 } else { 0 }, 1.0, length);
-            stack.set_time(handle, 0.0, if hold { 0.0 } else { length });
+            // (remains found lying are at the death's end from the first)
+            let from = if death.is_some() && self.lying.contains(&id) { length } else { 0.0 };
+            stack.set_time(handle, from, if hold { 0.0 } else { length });
             // (the standing animation waits for the start or the stop to play out, as a player's does)
             if let Some(played) = flourish {
                 stack.set_delay(handle, (played - 300.0).max(0.0));
@@ -5956,6 +5992,10 @@ fn is_grid(areas: &[mao_formats::areas::Area]) -> bool {
 
 /// The entities' markers alone (own character red, the others blue): two
 /// parts and an instance per entity, placed Z-up.
+/// The death remains found lying are posed by: `die-knees`, and along the original's fallbacks from there
+/// (`creature_parts`) for a body that has none of it.
+const REMAINS_DEATH: u32 = 0x1f4;
+
 fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>, characters: &mut Option<Characters>, include: &dyn Fn(u32) -> bool, statels: bool) -> (Model, Vec<crate::blobshadow::Caster>, Vec<(u32, std::ops::Range<usize>)>) {
     let mut model = Model { parts: vec![marker([0.9, 0.1, 0.1]), marker([0.2, 0.4, 0.95]), nose(), marker([0.2, 0.8, 0.3])], instances: Vec::new(), water: None, lod_groups: Vec::new() };
     // (the characters' meshes throw the original's blob shadows: each is noted as a caster)
@@ -5977,6 +6017,19 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         ranges.push((id, base..model.parts.len()));
     }
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    // (the corpses this client has no body for: the corpse's own mesh at its scale, turned as its announcement says,
+    // in its clothes and textures, lying as a body of that mesh lies at its death's end. The original poses the
+    // corpse's mesh by a way that was not read; its screenshots show such corpses lying.)
+    for (&id, (position, look)) in &world.remains {
+        let Some(chars) = characters.as_mut().filter(|_| include(id) && !world.grid) else { continue };
+        let Some(template) = chars.template_of_mesh(look.mesh) else { continue };
+        chars.lying.insert(id);
+        if let Some(parts) = chars.creature_parts(id, template, mao_formats::appearance::Action::Idle, 0.0, 1.0, &look.textures, &look.clothes, None, Some(REMAINS_DEATH), None, &[]) {
+            let k = look.scale as f32 / 100.0;
+            let place = model::multiply(&[k, 0.0, 0.0, 0.0, 0.0, k, 0.0, 0.0, 0.0, 0.0, k, 0.0, 0.0, 0.0, 0.0, 1.0], &model::multiply(&model::trs_matrix(*position, look.rotation, [1.0; 3]), &swap));
+            push_character(&mut model, &mut casters, &mut ranges, id, parts, place, false, chars.frames.get(&id));
+        }
+    }
     for (&id, &(position, _)) in &world.entities {
         if !include(id) {
             continue;

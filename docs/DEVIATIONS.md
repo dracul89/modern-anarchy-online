@@ -1285,7 +1285,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a corpse whose body the client has not got (e.g. present before arrival, or after walking away and back) is named, not drawn; some dead entities carry impossible places
 - A player notices: some corpses invisible
 - Where: `docs/CLIENT_UI.md:1193`; `docs/CLIENT_UI.md:4773`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): The original's corpse has a CAT mesh of its own (the dead one's mesh, scale, clothes and textures are in its announcement) and shows it whenever the dead character is not there (Gamecode FUN_1007eaf0, FUN_1007ed2c). The client reads that (n3::corpse_look) and draws a corpse it has no body for, lying. The pose is a guess (the end of a death of that mesh's creature): no captured corpse names one. Checked beside the original's screenshot of corpses it arrived at. Not done: a humanoid corpse's skin and head from the corpse's own stats.
 
 #### `DTH-014` Own death: reasons, death music, resurrection line and windows' signal not ported
 
