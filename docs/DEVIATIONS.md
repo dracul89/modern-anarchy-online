@@ -1591,6 +1591,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: guards do not react as the original's
 - Where: `docs/ARETE_CAPTURE.md:153`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): a misreading: the 2049527c messages on 0xc749 identities in the capture are bags' and chests' open (0x64) and close (0x66) actions, not guards.
 
 #### `NPC-033` Journal "Update Team Members" disabled
 
@@ -2218,6 +2219,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No refusal text for a bank item dropped elsewhere.
 - Where: `crates/mao-client/src/loot.rs:382`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): read (GUI FUN_100cc855: text 10003 ItemsDraggedFromBankCanOnlyBeDroppedToBank as a System chat line, on a bag, chest or corpse window or a wear cell); not ported, it wants a drag to try.
 
 #### `INV-061` City map: waiting building item not locked in the inventory
 
@@ -2236,6 +2238,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The server may still think the bag is open.
 - Where: `crates/mao-client/src/loot.rs:20`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): confirmed (GUI FUN_100ca891 uses the container again; the server answers with the container's close action, 2049527c 0x66, and every use flips open and closed); a faithful port has to follow the server's open and close actions and wants a live session.
 
 #### `INV-063` Inventory item not shown at the cell it was dropped on in a bag window
 
@@ -2263,6 +2266,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: stat values on a page at a quality between the templates may be the low template's.
 - Where: `crates/mao-client/src/gui/iteminfo.rs:41`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): read (FUN_100cc5a1, FUN_100cbfc8, FUN_100cb909: 27 stats interpolated, the price by a curve, the high template whole at its level); the page is unchanged. The rounding fault it showed in the client's effects and requirements is mended (derived::between).
 
 #### `INV-066` Locks not done: item-own wait, nano points, locked-special lines
 
@@ -2308,6 +2312,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Points vendors show a bare number.
 - Where: `docs/CLIENT_UI.md:4387`; `docs/LIVE_TEST_LIST.md:268`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): nothing to port: the original's shop shows the same Credits label at a points shop (TradeGUI.xml's ShopBuy view); the notes that said otherwise are wrong.
 
 #### `INV-071` Requirement evaluator's flag arguments and feedback lines not ported
 
@@ -2346,6 +2351,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No local refusal message for these cases.
 - Where: `crates/mao-client/src/net.rs:1095`; `crates/mao-client/src/net.rs:1097`; `crates/mao-client/src/net.rs:1099`; `crates/mao-client/src/net.rs:1101`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): the deck places rule is ported (a unit on places 9 to 14 needs that many deck places, Feedback_ThisItemRequiresComputerDeck), and with it the belt's (Feedback_DeckMustBeEmptyBeforeUnequipped); the implant's surgery bit, social armour and an item not one's own are still the server's.
 
 #### `INV-075` Wear check leaves out per-tab locks, implant rule, deck places, social armour
 
@@ -2355,6 +2361,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: wear refusals come from the server after a round trip; a single wear tab cannot be locked
 - Where: `crates/mao-client/src/net.rs:1014`; `crates/mao-client/src/net.rs:1085`; `docs/CLIENT_UI.md:4315`; `docs/CLIENT_UI.md:1573`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): the deck places rule is ported (a unit on places 9 to 14 needs that many deck places, Feedback_ThisItemRequiresComputerDeck), and with it the belt's (Feedback_DeckMustBeEmptyBeforeUnequipped); the implant's surgery bit, social armour and an item not one's own are still the server's. The wear window's single tab locks are not done.
 
 #### `INV-076` Wielded weapon: mirrored left-hand side and social places not ported
 
@@ -3168,6 +3175,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: signals for another city may be applied
 - Where: `crates/mao-client/src/net.rs:3162`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): the compare is in city.dll (CityClientInterface_c::SlotOpenGUISession, code 5 only) and a mismatch only leaves the session deaf; no capture has a city signal, so the id's place on the wire is not proven.
 
 #### `ZON-019` City signals with unknown codes are dropped
 

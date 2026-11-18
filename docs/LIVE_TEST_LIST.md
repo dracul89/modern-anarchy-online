@@ -841,6 +841,9 @@ These were written before this list; some may have been seen working since witho
   is not available." and nothing changes; `/camp` says you must be sitting. Sit down and switch a flight item on:
   the character stands and flies. At Arete Landing a right click on the jetpack says flying must be allowed on
   the playfield and nothing moves; in Borealis or Andromeda it is worn. Sneak: the steps are much quieter.
+- [ ] The belt's deck (2026-11-18): with two deck places, a third NCU unit is refused with "This item requires a
+  computer deck" (the game's line) and nothing moves; a right click on the belt, or on another belt, with units
+  in the deck says the deck must be empty and nothing moves. **Tell me if a unit is refused that the game takes.**
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

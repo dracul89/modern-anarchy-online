@@ -13,6 +13,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   is required to be at least 76!"). A swap is also judged without what the item coming off adds.
 - Requirements are judged on the values the skill window shows (with what worn items, perks, nanos and the
   attributes add), not on the trained values alone.
+- An NCU unit is refused when the belt has no deck place for it, and a belt is not taken off or changed while
+  units are in it, each with the game's line; both used to be tried and refused by the server.
+- A worn item's penalties at a quality between its two templates are rounded as the game rounds them (off by one
+  at times).
 
 ### Shops
 

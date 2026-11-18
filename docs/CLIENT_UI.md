@@ -5096,3 +5096,31 @@ Noticed and not changed: the original stands up from sitting with `CharacterActi
 this client's X key sends.
 Tests: `a_flyer_cannot_sit_sneak_crawl_or_change_its_pace`, `a_flight_item_asks_whether_one_flies_and_may_fly`,
 `real_playfields_flag_words`.
+
+### The belt's deck: a unit needs a place, and the belt stays while units are in it (INV-074 / INV-075 in part)
+
+- **A unit needs a deck place** (Gamecode FUN_10047ece, the last thing the inventory item's wear check FUN_100498ed
+  asks, and FUN_10046f26): an item of the weapons' page going to one of the places 9 to 14 passes when the place
+  less 9 is below the character's deck places, stat 45 as the windows show it; else
+  `Feedback_ThisItemRequiresComputerDeck`. The server stores no such stat: the worn belt's effect gives it (2 for
+  the starter's belt), so the client's own sum is the number. `World::wear_refusal`.
+- **The belt and its units** (found by the reader in the move's own check, FUN_1004bd28 at 0x1004c354 and
+  0x1004cc08, and read again here): the belt does not come off place 7, and nothing goes onto place 7, while one
+  of the places 9 to 14 holds something: `Feedback_DeckMustBeEmptyBeforeUnequipped`. So a belt is not swapped with
+  units in it, by a right click or by a drag (`World::unwear_refusal`, `deck_holds_something`).
+- **A rounding fault mended** (found while the item pages' interpolation was read, INV-065): the original takes a
+  value between two templates to the nearest whole number, a half upward, whichever way it runs (FUN_100cb909).
+  The client cut a falling value (a penalty that grows with the quality) toward the low template's: -21 where the
+  original has -22. `derived::between`, for the worn items' effects and the requirements. The shown stats of
+  three checked characters still match (`docs/STAT_ENGINE.md`'s tests).
+
+Still left to the server from that check: an implant's surgery bit, social armour against other armour, an item
+that is not one's own. Read and left: the item page's own stats between two templates (INV-065: which 27 stats
+are interpolated, the price by a curve, and the high template taken whole at its own level are read; the page
+still shows the low template's); a bank item let go on a bag (INV-060: text 10003
+`ItemsDraggedFromBankCanOnlyBeDroppedToBank` as a chat line; needs a drag to try); a bag window's close told to
+the server (INV-062: the server keeps each bag open or closed and every use flips it, so this client's local
+toggle would have to follow the server's open and close actions: a live matter); the city signal's id (ZON-018:
+the compare is in city.dll and no capture has such a signal). Nothing to port: a points shop's cost (INV-070) has
+the same "Credits:" label in the original.
+Test: `a_belt_is_judged_by_its_wield_requirement_before_a_swap` (the deck's part), `a_value_between_two_templates_is_the_nearest_whole`.

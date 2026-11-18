@@ -40,11 +40,20 @@ pub fn effects(db: &ResourceDatabase, entry: &Entry, level: i64) -> Vec<(u32, i6
         .map(|(i, &(stat, a))| {
             let a = a as i64;
             match high_mods.get(i) {
-                Some(&(s, b)) if s == stat => (stat, a + ((b as i64 - a) * fraction * 2 + span) / (2 * span)),
+                // (to the nearest whole, a half upward, whichever way the amounts run: `between`)
+                Some(&(s, b)) if s == stat => (stat, between(a, b as i64, fraction, span)),
                 _ => (stat, a),
             }
         })
         .collect()
+}
+
+/// A value between a low and a high template's at `fraction` of the `span` between their quality levels: Gamecode
+/// FUN_100cb909, the exact line's value to the nearest whole number, a half upward (it counts from the smaller of the
+/// two and cuts `x + 0.5`). Until 2026-11-18 a value that falls with the quality (a penalty: -10 to -50) was cut toward
+/// the low template's by the division of a negative number: -21 where the original has -22.
+pub fn between(low: i64, high: i64, fraction: i64, span: i64) -> i64 {
+    low + ((high - low) * fraction * 2 + span).div_euclid(2 * span)
 }
 
 /// An item's actions (use, wear, wield) with their criteria at the item's quality: like the effects, the values of the lowest and
@@ -71,7 +80,7 @@ pub fn actions(db: &ResourceDatabase, entry: &Entry) -> Vec<item::Action> {
                     // only the comparisons of a stat are interpolated (the operators and ids are the same on both sides)
                     if c.0 == hc.0 && c.2 == hc.2 && matches!(c.2, 0..=2) {
                         let (lo, hi) = (c.1 as i64, hc.1 as i64);
-                        c.1 = (lo + ((hi - lo) * fraction * 2 + span) / (2 * span)) as i32;
+                        c.1 = between(lo, hi, fraction, span) as i32;
                     }
                 }
             }
@@ -276,6 +285,18 @@ pub fn modifiers_without(db: &ResourceDatabase, modifiers: &BTreeMap<u32, i64>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_100cb909's rounding: rising and falling amounts alike to the nearest whole, a half upward.
+    #[test]
+    fn a_value_between_two_templates_is_the_nearest_whole() {
+        // (levels 1 and 100, quality 30: 29 of 99)
+        assert_eq!(between(-10, -50, 29, 99), -22);
+        assert_eq!(between(10, 50, 29, 99), 22);
+        assert_eq!(between(30, 120, 10, 20), 75);
+        // (a half goes up: -10.5 is -10, 10.5 is 11)
+        assert_eq!((between(-10, -11, 1, 2), between(10, 11, 1, 2)), (-10, 11));
+        assert_eq!((between(5, 9, 0, 7), between(5, 9, 7, 7)), (5, 9));
+    }
 
     /// One stat's shown value is what the whole table has for it: a trained skill, an untrained one with and without a
     /// bonus, an attribute and a stat that is neither.

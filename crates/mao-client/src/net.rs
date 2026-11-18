@@ -1170,9 +1170,7 @@ impl World {
     /// check wants first (a move the server will not have comes back as it was).
     /// Not here, read on 2026-11-16 and left to the server, since each needs something of the character the client
     /// does not keep and a wrong no would stop the player: an implant needs bit 0x10 of the character's stat 224
-    /// (FUN_10044dd8, else `Feedback_AccessingImplants`; the bit is raised by a spell the client does not run); a
-    /// weapon on the places 9 to 14 needs that many deck places, stat 45 (FUN_10046f26, else
-    /// `Feedback_ThisItemRequiresComputerDeck`); social armour against other armour (FUN_10081d5f's
+    /// (FUN_10044dd8, else `Feedback_AccessingImplants`; the bit is raised by a spell the client does not run); social armour against other armour (FUN_10081d5f's
     /// `Feedback_SocialArmorAndOtherArmor`, by a flag of the character's at +0x138, and FUN_10080aff's
     /// `Feedback_SocialArmorNoOtherArmor`, by the item's flag 0x100 and the worn pieces' stat 702); an item that is
     /// not one's own (`Feedback_ItemNotOwnedByYou`).
@@ -1190,24 +1188,48 @@ impl World {
         }
         let wield = stat(76) == 1;
         let actions = crate::derived::actions(db, entry);
-        let action = actions.iter().find(|a| a.kind == if wield { 8 } else { 6 })?;
         let own = (crate::requirements::CHARACTER, self.own);
-        let (met, told) = match off {
-            Some(off) => {
-                let level = self.stats.get(&0x36).copied().unwrap_or(1);
-                let stripped = Stripped { world: self, modifiers: crate::derived::modifiers_without(db, &self.item_mods, off, level) };
-                crate::requirements::evaluate_told(&action.criteria, own, &stripped)
+        let level = self.stats.get(&0x36).copied().unwrap_or(1);
+        let without = off.map(|off| crate::derived::modifiers_without(db, &self.item_mods, off, level));
+        if let Some(action) = actions.iter().find(|a| a.kind == if wield { 8 } else { 6 }) {
+            let (met, told) = match &without {
+                Some(modifiers) => crate::requirements::evaluate_told(&action.criteria, own, &Stripped { world: self, modifiers: modifiers.clone() }),
+                None => crate::requirements::evaluate_told(&action.criteria, own, self),
+            };
+            if met == Ok(false) {
+                let mut says: Vec<Say> = told.into_iter().map(Say::Told).collect();
+                if !wield {
+                    says.push(Say::Named("Feedback_UnableToWear"));
+                }
+                return Some(says);
             }
-            None => crate::requirements::evaluate_told(&action.criteria, own, self),
-        };
-        if met != Ok(false) {
-            return None;
         }
-        let mut says: Vec<Say> = told.into_iter().map(Say::Told).collect();
-        if !wield {
-            says.push(Say::Named("Feedback_UnableToWear"));
+        // (the last thing FUN_100498ed asks, FUN_10047ece: an item of the weapons' page on one of the deck's six
+        // places, 9 to 14, needs that many deck places, stat 45 as the windows show it (FUN_10046f26: the place less 9
+        // has to be below it). The server stores none; the belt's effect gives them.)
+        if wield && to < 0x30 && (9..=14).contains(&slot) {
+            let places = crate::derived::judged_one(&self.stats, without.as_ref().unwrap_or(&self.item_mods), 45);
+            if i64::from(slot - 9) >= places {
+                return Some(vec![Say::Named("Feedback_ThisItemRequiresComputerDeck")]);
+            }
         }
-        Some(says)
+        // (the move's own check, FUN_1004bd28 at 0x1004cc08: nothing goes onto the belt's place, 7, while one of
+        // the deck's places holds something)
+        if wield && to == 7 && self.deck_holds_something() {
+            return Some(vec![Say::Named("Feedback_DeckMustBeEmptyBeforeUnequipped")]);
+        }
+        None
+    }
+
+    /// Something is worn on one of the deck's places, 9 to 14 of the weapons' page (the belt's units).
+    fn deck_holds_something(&self) -> bool {
+        self.worn.iter().any(|w| (9..=14).contains(&w.slot))
+    }
+
+    /// Why what is worn at `from` cannot come off: the belt, place 7, while the deck holds something (FUN_1004bd28 at
+    /// 0x1004c354, for any move of it: `Feedback_DeckMustBeEmptyBeforeUnequipped`).
+    fn unwear_refusal(&self, from: u32, to: u32) -> Option<Vec<Say>> {
+        (from == 7 && to != 7 && self.deck_holds_something()).then(|| vec![Say::Named("Feedback_DeckMustBeEmptyBeforeUnequipped")])
     }
 
     /// The numbers of the special actions the character has (`None` until the server has listed its special attacks):
@@ -8749,7 +8771,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let refusal = if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), from, to) {
                     Some(vec![Say::Named("Feedback_EquipmentLocked")])
                 } else {
-                    state.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| state.wear_refusal(e, to, &gear_db, None))
+                    state.unwear_refusal(from, to).or_else(|| state.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| state.wear_refusal(e, to, &gear_db, None)))
                 };
                 for say in refusal.iter().flatten() {
                     state.game_lines.push(say.line());
@@ -8840,7 +8862,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             return Some(vec![Say::Named("Feedback_EquipmentLocked")]);
                         }
                         let off = state.worn.iter().find(|w| w.slot == to);
-                        if wearing { state.wear_refusal(&e, to, &gear_db, off) } else { None }
+                        if wearing { state.wear_refusal(&e, to, &gear_db, off) } else { state.unwear_refusal(e.slot, to) }
                     });
                     for say in refusal.iter().flatten() {
                         state.game_lines.push(say.line());
@@ -11629,6 +11651,21 @@ mod door_tests {
         }
         assert!(crate::derived::judged_one(&w.stats, &w.item_mods, 161) > 75);
         assert_eq!(w.wear_refusal(&new, 7, &db, Some(&old)), None);
+        // (the deck: the worn belt gives two places, so a unit goes onto the first two and not the third; and the
+        // belt neither comes off nor is changed while a unit is on)
+        let unit = entry(80, 36779, 36779, 1);
+        w.worn.push(unit.clone());
+        w.item_mods = crate::derived::worn_modifiers(&db, &w.worn, 1);
+        assert_eq!(w.item_mods.get(&45), Some(&2));
+        assert_eq!((w.wear_refusal(&unit, 9, &db, None), w.wear_refusal(&unit, 10, &db, None)), (None, None));
+        assert_eq!(w.wear_refusal(&unit, 11, &db, None), Some(vec![Say::Named("Feedback_ThisItemRequiresComputerDeck")]));
+        assert_eq!((w.unwear_refusal(7, 81), w.wear_refusal(&new, 7, &db, Some(&old))), (None, None));
+        w.worn.iter_mut().find(|e| e.slot == 80).unwrap().slot = 9;
+        let full = Some(vec![Say::Named("Feedback_DeckMustBeEmptyBeforeUnequipped")]);
+        assert_eq!((w.unwear_refusal(7, 81), w.wear_refusal(&new, 7, &db, Some(&old))), (full.clone(), full));
+        assert_eq!(w.unwear_refusal(9, 81), None);
+        w.worn.retain(|e| e.slot != 9);
+        w.item_mods.clear();
         // (what the worn belt gives goes with it: its deck places and NCU are not there to be counted on)
         let level = 1;
         w.item_mods = crate::derived::worn_modifiers(&db, &w.worn, level);
