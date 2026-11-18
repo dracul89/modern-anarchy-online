@@ -55,6 +55,14 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - For characters of level 200 to 220 a mission's page shows its pay in shadow knowledge when read in the
   Shadowlands.
 
+### Flight
+
+- In the air the sit key, the walk/run key and the sit, pace, sneak and crawl tiles say "Action is not available."
+  and do nothing, as in the game; `/camp` asks you to sit. A seated character gets up when it starts to fly.
+- A flight item is refused where flying is not allowed (Arete Landing among them), with the game's line, instead
+  of being tried and refused by the server.
+- Steps are quiet while sneaking.
+
 ## 0.1.5 (2026-11-17)
 
 ### The launcher

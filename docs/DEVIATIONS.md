@@ -518,6 +518,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no flash on take-off; flight may not end where the original ends it
 - Where: `docs/FLIGHT_ORIGINAL.md:227`; `docs/CLIENT_UI.md:3596`; `crates/mao-client/src/net.rs:8688-8745`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18, overnight): CharacterAction 0xac ends a flight a spell list began; one's own flight from a worn item ending by it, the other ways out and the entering effect 2000 are not done.
 
 #### `MOV-022` Flight: sit, sneak and crawl are not refused
 
@@ -526,7 +527,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the sit key and the sneak command check no flight (sneak only refuses a vehicle)
 - A player notices: a flying character may be able to sit or sneak
 - Where: `docs/FLIGHT_ORIGINAL.md:256`; `crates/mao-client/src/net.rs:7765`; `crates/mao-client/src/net.rs:8184`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): the sit key, the walk/run key and the Sit/Stand, Walk/Run, Sneak and Crawl tiles say Feedback_ActionIsNotAvailable in fly mode and do nothing (actions::fly_refuses: the eight actions FUN_1006e4f8 marks); /camp says Feedback_YouMustBeSitting.
 
 #### `MOV-023` Fly spell does not make a seated character get up first
 
@@ -535,7 +537,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not ported
 - A player notices: a seated or crawling character switched to fly mode may not stand first
 - Where: `crates/mao-client/src/spelllist.rs:36`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): a character a fly spell switches gets up first; one's own at each switch of its fly mode. Nothing is told the server, as in the original. Crawling is not kept by this client.
 
 #### `MOV-024` Mouse steering: turn limit missing and small message differences
 
@@ -553,7 +556,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: neither is in requirements.rs, so they fall to "unknown"
 - A player notices: a flight item's wear check cannot be fully evaluated
 - Where: `docs/FLIGHT_ORIGINAL.md:253`; `crates/mao-client/src/requirements.rs:160-167`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): operators 70 and 112 are judged (requirements.rs; the playfield's flag from playfield::flag_words). A jetpack is now refused by the client where flying is not allowed (Arete Landing among them), with the game's line.
 
 #### `MOV-026` Room surface transforms and vehicle turn not ported
 
@@ -953,6 +957,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no explanation when casting the program on a non-character
 - Where: `crates/mao-client/src/spelllist.rs:223`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-18, overnight): no path was found on which the line can be said (a target that is neither a character nor a world item is an inventory entry, and such spells carry no caster): nothing to port.
 
 #### `CMB-036` Weapon draw: busy count and idle-stand once not done
 
@@ -7666,7 +7671,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the client keeps no such mode, so no flying step sound
 - A player notices: no quarter-volume flight step sound
 - Where: `crates/mao-client/src/sounds.rs:101`; `docs/CLIENT_UI.md:2438`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): the entry was misnamed: the quarter volume is for sneaking (movement mode 6), which is ported; a flyer makes no step sound in the original either.
 
 #### `SND-016` Item-hit sound and "Sneak Attack!" texts not done
 

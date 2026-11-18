@@ -837,6 +837,10 @@ These were written before this list; some may have been seen working since witho
   boxes are empty. At a level-up the experience line comes before "You gained a new level"; at a title level (15,
   50 ...) a line with the new title: **read from the code only, tell me what the game says there**. The factions
   window opens with titles, a click shows numbers, and the choice is there after a restart.
+- [ ] Flight (2026-11-18): flying, press the sit key, the walk/run key, and click the Sneak tile: each says "Action
+  is not available." and nothing changes; `/camp` says you must be sitting. Sit down and switch a flight item on:
+  the character stands and flies. At Arete Landing a right click on the jetpack says flying must be allowed on
+  the playfield and nothing moves; in Borealis or Andromeda it is worn. Sneak: the steps are much quieter.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

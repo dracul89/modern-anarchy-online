@@ -49,6 +49,8 @@ pub struct Note<'a> {
     pub set: Option<(&'a mao_formats::npc::Template, u32)>,
     /// Its vehicle is falling (`Vehicle_t` +0x52): no steps.
     pub falling: bool,
+    /// It sneaks (movement mode 6): its steps at a quarter of the volume.
+    pub sneaking: bool,
     /// The material under it ([`ground_material`], then [`liquid_material`]).
     pub material: i32,
     /// How deep under a liquid's surface it is (`Vehicle_t` +0x10c, [`liquid_depth`]): 0 or less out of one.
@@ -98,8 +100,10 @@ pub fn note(generic: &Generic, n: &Note) -> Option<Play> {
             if has_set {
                 return set_sound(event).map(|id| Play { id, volume: 1.0, material: n.material });
             }
-            // (FUN_100452d3 plays a fly-mode, movement mode 6, step at 0.25: the client keeps no such mode)
-            let volume = 1.0f32;
+            // (FUN_100452d3: a step in movement mode 6 at 0.25 (0x101584f8). Mode 6 is sneaking, FUN_1006cb58; the
+            // note here took it for fly mode until 2026-11-18. A flyer makes no step at all: its hover animations
+            // carry no notes.)
+            let volume = if n.sneaking { 0.25f32 } else { 1.0 };
             let id = match event {
                 0x26 => generic.walk,
                 0x36 => generic.run,
@@ -607,13 +611,13 @@ mod tests {
     #[test]
     fn steps_swishes_and_sets() {
         let g = Generic::default();
-        let at = |event: i32| Note { event, position: [0.0; 3], set: None, falling: false, material: 3, liquid: -9999.0 };
+        let at = |event: i32| Note { event, position: [0.0; 3], set: None, falling: false, sneaking: false, material: 3, liquid: -9999.0 };
         assert_eq!(note(&g, &at(0x26)), Some(Play { id: g.walk, volume: 1.0, material: 3 }));
         assert_eq!(note(&g, &at(0x85)), Some(Play { id: g.land, volume: 1.0, material: 3 }));
         assert_eq!(note(&g, &at(0x74)), Some(Play { id: g.kick, volume: 1.0, material: 0 }));
         // (no idle sound without a set; a falling step is silent; a hashed note is not an event here)
         assert_eq!(note(&g, &at(0xf)), None);
-        assert_eq!(note(&g, &Note { falling: true, ..at(0x26) }), None);
+        assert_eq!(note(&g, &Note { falling: true, sneaking: false, ..at(0x26) }), None);
         assert_eq!(note(&g, &at(sound_id("SM_Sandy_Swish_punch") as i32)), None);
         let mut set = mao_formats::npc::Template::default();
         set.sounds = vec![(0x26, 10), (0x26, 11), (0xf, 12)];
@@ -711,7 +715,7 @@ mod tests {
         assert_eq!(liquid_depth(None, [210.0, 19.5, 160.0]).0, -9999.0);
         // (a landing in it is silent; a step in it sounds)
         let g = Generic::default();
-        let n = |event: i32| Note { event, position: [0.0; 3], set: None, falling: false, material: 9, liquid: 0.5 };
+        let n = |event: i32| Note { event, position: [0.0; 3], set: None, falling: false, sneaking: false, material: 9, liquid: 0.5 };
         assert_eq!(note(&g, &n(0x85)), None);
         assert_eq!(note(&g, &n(0x26)), Some(Play { id: g.walk, volume: 1.0, material: 9 }));
     }

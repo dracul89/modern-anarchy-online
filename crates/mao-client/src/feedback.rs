@@ -472,6 +472,7 @@ pub fn requirement(told: &crate::requirements::Told) -> String {
         Told::Side(v) => one("Feedback_TargetSideMustBe", text(2005, v), v),
         Told::Sex(v) => one("Feedback_TargetSexMustBe", text(1005, v + 100), v),
         Told::Profession(v) => one("Feedback_ThisEffectCanOnlyBeUtilitizedBy", text(2004, v), v),
+        Told::NoFlying => texts().and_then(|t| t.named(100, "FlyingMustMeAllowedOnThePlayfield")).unwrap_or("Flying is not allowed here.").to_string(),
     }
 }
 

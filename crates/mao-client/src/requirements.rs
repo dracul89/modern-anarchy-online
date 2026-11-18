@@ -66,6 +66,17 @@ pub trait Context {
     fn caster(&self) -> Option<Holder> {
         None
     }
+    /// The character is in fly mode (its movement mode 7: operator 0x46).
+    fn flying(&self, character: Holder) -> Option<bool> {
+        let _ = character;
+        None
+    }
+    /// The character's playfield does not allow flying (bit 0x80000 of the playfield record's third flag word:
+    /// operator 0x70).
+    fn flying_forbidden(&self, character: Holder) -> Option<bool> {
+        let _ = character;
+        None
+    }
     /// FUN_100051d8: the character has the perk (operators 0x5d and 0x67).
     fn has_perk(&self, character: Holder, perk: u32) -> Option<bool> {
         let _ = (character, perk);
@@ -90,6 +101,8 @@ pub enum Told {
     Sex(i64),
     /// `Feedback_ThisEffectCanOnlyBeUtilitizedBy` (stats 0x3c and 0x170: the profession's name, category 2004).
     Profession(i64),
+    /// Text category 100's `FlyingMustMeAllowedOnThePlayfield` (operator 0x70 in a playfield without flying).
+    NoFlying,
 }
 
 /// FUN_100065d8 on `criteria`, the stats read from `holder`. `Err` when an operator needs what the context does not know.
@@ -209,6 +222,30 @@ fn judge(criteria: &[Criterion], holder: Holder, ctx: &dyn Context, told: &mut V
                 let a = v.abs();
                 let nibble = (ctx.stat(holder, 0xfb).ok_or(unknown)? >> ((a / 1000 & 7) * 4)) & 0xf;
                 if v >= 0 { nibble < a % 1000 } else { nibble >= a % 1000 }
+            }
+            // (0x10007bdd) is flying: the dynel the picker the VALUE names finds is a character in movement mode 7
+            // (FUN_10070a2f). The Ganimedes jetpack asks it of picker 2, the user, with a "not" after it. A character's
+            // own user is itself (its `Beholder_t` +0x3c names it: inferred from the three places that set it), so
+            // where the context cannot pick, 1 and 2 on a character are the character.
+            0x46 => {
+                let picked = match ctx.pick(holder, value) {
+                    Some(p) => p,
+                    None if matches!(value, 1 | 2) && character.is_some() => Some(holder),
+                    None => return Err(unknown),
+                };
+                match picked.filter(|h| h.0 == CHARACTER) {
+                    Some(h) => ctx.flying(h).ok_or(unknown)?,
+                    None => false,
+                }
+            }
+            // (0x1000754c) the character's playfield allows flying (its record's flag word lacks 0x80000); the stat
+            // and the value are not read. With the feedback flag it says a line of its own.
+            0x70 => {
+                let allowed = !ctx.flying_forbidden(character.ok_or(unknown)?).ok_or(unknown)?;
+                if !allowed {
+                    told.push(Told::NoFlying);
+                }
+                allowed
             }
             // (0x10008750) has the perk: needs a character; (0x100087c6) has not: passes without one
             0x5d => match character {
@@ -331,6 +368,36 @@ mod tests {
             }
         }
         assert_eq!(evaluate_told(&[(60, 3, 0)], (CHARACTER, 9), &Other), (Ok(false), vec![]));
+    }
+
+    /// The Ganimedes jetpack's wield requirements (its real list): not flying already, and flying allowed where
+    /// the character stands, with the line of its own when it is not.
+    #[test]
+    fn a_flight_item_asks_whether_one_flies_and_may_fly() {
+        struct Flyer<'a>(Own<'a>, bool, bool);
+        impl Context for Flyer<'_> {
+            fn stat(&self, holder: Holder, stat: u32) -> Option<i64> {
+                self.0.stat(holder, stat)
+            }
+            fn is_own(&self, holder: Holder) -> bool {
+                self.0.is_own(holder)
+            }
+            fn flying(&self, _: Holder) -> Option<bool> {
+                Some(self.1)
+            }
+            fn flying_forbidden(&self, _: Holder) -> Option<bool> {
+                Some(self.2)
+            }
+        }
+        let jetpack = [(0, 2, 70), (0, 0, 42), (438, 1, 107), (0, 0, 4), (139, 80, 2), (0, 0, 4), (410, 0, 0), (0, 0, 4), (359, 0, 0), (0, 0, 4), (389, 1, 22), (0, 0, 4), (531, 0, 0), (0, 0, 4), (0, 0, 112), (0, 0, 4)];
+        let stats: BTreeMap<u32, i64> = [(139, 81), (389, 1)].into_iter().collect();
+        let perks = HashSet::new();
+        let at = |flying: bool, forbidden: bool| evaluate_told(&jetpack, ME, &Flyer(own(&stats, &perks), flying, forbidden));
+        assert_eq!(at(false, false), (Ok(true), vec![]));
+        assert_eq!(at(true, false), (Ok(false), vec![]));
+        assert_eq!(at(false, true), (Ok(false), vec![Told::NoFlying]));
+        // (a context that does not know of flight leaves the list unjudged, as before)
+        assert_eq!(evaluate(&jetpack, ME, &own(&stats, &perks)), Err(Unknown { operator: 70 }));
     }
 
     #[test]

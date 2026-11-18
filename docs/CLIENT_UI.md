@@ -5061,3 +5061,38 @@ Read and left for now: the mission request window's kept sliders and its "advanc
 config's eight values and the button that hides six sliders are read; it changes the window's layout, which wants
 a picture). Tests: `a_level_up_tells_the_experience_first`, `the_page_lists_the_time_and_the_pay`,
 `real_playfields_flag_words`.
+
+### Flight: what a flyer cannot do, getting up to fly, the flight item's two questions (MOV-022, MOV-023, MOV-025, SND-015, MOV-021 in part)
+
+- **A flyer cannot sit, sneak, crawl or change its pace** (MOV-022). When the client's own character goes into fly
+  mode the original marks eight of its actions unusable (`SwitchToFlyModeTransitionAction_t`, Gamecode FUN_1006e4f8:
+  stand, sit, walk, run, sneak, leave sneak, crawl, leave crawl) and takes the marks away on landing. A key or a
+  tile for one of them says `Feedback_ActionIsNotAvailable` and does nothing (`N3Msg_PerformSpecialAction`'s
+  FUN_100427d6). Here: the sit key, the walk/run key and the Sit/Stand, Walk/Run, Sneak and Crawl tiles
+  (`actions::fly_refuses`). `/camp` in the air says `Feedback_YouMustBeSitting` and starts no logout
+  (`N3Msg_StartCamping` asks whether the character may sit). The catalog's "FUN_1006c6f4 case 7" is the second,
+  silent layer under this one (the mode's own rule), which lets the walk/run switch through.
+- **Getting up to fly** (MOV-023). The fly spell (0xcf92, FUN_100a8107) first has one who sits, sleeps or lounges
+  get up, beginning or ending, and tells the server nothing. Here for every character a spell list switches
+  (`World::spell_outcomes`) and for one's own at each switch of its fly mode. It goes in with the point above:
+  a seated flyer could otherwise no longer stand.
+- **A flight item's two questions** (MOV-025), in the criteria evaluator FUN_100065d8: operator 70 (0x10007bdd)
+  asks whether the dynel its value's picker finds is a character in fly mode (the Ganimedes jetpack: "the user is
+  not flying"); operator 112 (0x1000754c) whether the character's playfield allows flying, which it does unless
+  the third flag word of its record has bit 0x80000 (`mao_formats::playfield::flag_words`), and says text category
+  100's `FlyingMustMeAllowedOnThePlayfield` when it is asked to tell. Both gave "unknown" and the jetpack's whole
+  list went unjudged, to the server. **Arete Landing, the ICC shuttleport, Sunrise Station and Jobe Research
+  have the bit**: a jetpack is refused there by the client now, with that line, as the original refuses it.
+- **Sneaking steps are quiet** (SND-015, which was misnamed): the step sounds' quarter volume is for movement mode
+  6, which is sneaking, not flight (FUN_100452d3; a landing at half). A flyer makes no step at all (the hover
+  animations have no notes), which was so already.
+- **CharacterAction 0xac** (MOV-021, the small part): a character in fly mode leaves it (FUN_10045020). It ends a
+  flight a spell list of the server's began. No capture has one. Not done: one's own flight from a worn item
+  ending by it (the client works that out anew each pass), the other ways out, and the entering effect 2000.
+
+Read and left: the stun's "select a target" line (CMB-035) cannot be reached by any path found (a target that is
+neither a character nor a world item is an inventory entry, and those spells carry no caster): nothing to port.
+Noticed and not changed: the original stands up from sitting with `CharacterAction` 0x57, not the movement 0x25
+this client's X key sends.
+Tests: `a_flyer_cannot_sit_sneak_crawl_or_change_its_pace`, `a_flight_item_asks_whether_one_flies_and_may_fly`,
+`real_playfields_flag_words`.

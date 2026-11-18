@@ -87,6 +87,14 @@ pub const TEMPLATES: &[(u32, u32)] = &[
     (0x6e, 0x3bd0b),
 ];
 
+/// The actions a flying character cannot do: while its character is in fly mode the original marks these eight
+/// unusable (`SwitchToFlyModeTransitionAction_t`, Gamecode FUN_1006e4f8, for the client's own character: stand, sit,
+/// walk, run, sneak, leave sneak, crawl, leave crawl), and takes the marks away when it lands (FUN_1006e65e). A key
+/// or a tile for one of them then says `Feedback_ActionIsNotAvailable` and does nothing (FUN_100427d6).
+pub fn fly_refuses(number: u32) -> bool {
+    matches!(number, 0x4d | 0x4c | 0x11 | 0x12 | 0x13 | 0x4f | 0x14 | 0x8d)
+}
+
 /// The action's item template for a number, and the number for a template.
 pub fn template_of(number: u32) -> Option<u32> {
     TEMPLATES.iter().find(|t| t.0 == number).map(|t| t.1)
@@ -419,6 +427,19 @@ impl ActionsWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Sit/Stand, Walk/Run, Sneak and Crawl tiles are among what a flyer cannot do; the fights' and Use are not.
+    #[test]
+    fn a_flyer_cannot_sit_sneak_crawl_or_change_its_pace() {
+        for name in ["Stand", "Walk", "Sneak", "Crawl"] {
+            let id = crate::actions_data::ACTIONS.iter().find(|a| a.2 == name).unwrap().0;
+            assert!(number_of(id).is_some_and(fly_refuses), "{name}");
+        }
+        for name in ["Start Combat", "Use", "Reload", "Search"] {
+            let id = crate::actions_data::ACTIONS.iter().find(|a| a.2 == name).unwrap().0;
+            assert!(!number_of(id).is_some_and(fly_refuses), "{name}");
+        }
+    }
 
     /// FUN_10063de2: a special attack's own lock runs as told; another skill's by the lock modifier, which takes no
     /// more than half off.

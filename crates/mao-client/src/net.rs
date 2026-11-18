@@ -341,6 +341,8 @@ struct World {
     /// client's own reading where no list came, a running program or a worn item has the spell
     /// (`mao_formats::item::grants_flight`).
     own_flying: bool,
+    /// The playfield does not allow flying (`playfield_forbids_flying`), which a flight item's requirements ask.
+    no_flying: bool,
     /// The part of `own_flying` that comes from the running programs (the others are a worn item's and the server's
     /// spell list: the game loop joins them).
     nano_flying: bool,
@@ -1062,6 +1064,18 @@ impl crate::requirements::Context for World {
     fn has_perk(&self, character: crate::requirements::Holder, perk: u32) -> Option<bool> {
         self.is_own(character).then(|| self.perks.contains(&perk))
     }
+    fn flying(&self, character: crate::requirements::Holder) -> Option<bool> {
+        Some(if character.1 == self.own { self.own_flying } else { self.flying.contains(&character.1) })
+    }
+    fn flying_forbidden(&self, _: crate::requirements::Holder) -> Option<bool> {
+        Some(self.no_flying)
+    }
+}
+
+/// Whether a playfield's record says flying is not allowed there (`playfield::flag_words`).
+fn playfield_forbids_flying(db: &ResourceDatabase, playfield: u32) -> bool {
+    let record = db.get(mao_formats::resource::Id { kind: mao_formats::playfield::KIND, instance: playfield }).ok().flatten();
+    record.as_deref().and_then(mao_formats::playfield::flag_words).is_some_and(|w| w[2] & 0x80000 != 0)
 }
 
 /// The world judged with another modifier map: the character as it will be with a worn item taken off
@@ -1080,6 +1094,12 @@ impl crate::requirements::Context for Stripped<'_> {
     }
     fn has_perk(&self, character: crate::requirements::Holder, perk: u32) -> Option<bool> {
         self.world.has_perk(character, perk)
+    }
+    fn flying(&self, character: crate::requirements::Holder) -> Option<bool> {
+        self.world.flying(character)
+    }
+    fn flying_forbidden(&self, character: crate::requirements::Holder) -> Option<bool> {
+        self.world.flying_forbidden(character)
     }
 }
 
@@ -1278,6 +1298,10 @@ impl World {
             match outcome {
                 // (FUN_100a8107: the movement's 0x1d or 0x27; the game loop does the rest for one's own character)
                 crate::spelllist::Outcome::Fly { begin } => {
+                    // (before anything else the spell has one who sits, sleeps or lounges get up: the movement's
+                    // 0x25 after 0x29 / 0x2a, by the mode read once; nothing is told the server. A crawler's 0x28: no
+                    // crawling is kept here.)
+                    self.stand_up(on.1);
                     if begin {
                         self.flying.insert(on.1);
                     } else {
@@ -2616,6 +2640,12 @@ impl World {
                     if kind == 0x6b && self.bags.values().any(|b| b.handle == instance >> 16) {
                         self.bags_changed = true;
                     }
+                }
+                // (0xac, FUN_1005d61f's case 0x3e, FUN_10045020: a character in fly mode leaves it. No capture has one.
+                // Here it ends a flight a spell list of the server's began; one's own from a worn item or a program is
+                // worked out anew each pass and stays.)
+                0xac => {
+                    self.flying.remove(&m.identity.1);
                 }
                 _ => {}
             }
@@ -6082,6 +6112,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     crate::layout::set_character(state.own);
     crate::damage::set_own(state.own);
     crate::theme::set_game_dir(game);
+    if let Some(db) = ITEM_DB.get() {
+        state.no_flying = playfield_forbids_flying(db, playfield);
+    }
     // The sound module (made and started once) and the game's sources, as `PlayfieldInit` (0x10016e94) asks with
     // `ActivateGameZone`.
     crate::audio::start(Path::new(game));
@@ -7882,6 +7915,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 camp_seen = keys.camp;
                 if state.fighting.iter().any(|(&who, &whom)| whom == own && who != own) {
                     pending_messages.push(crate::feedback::plain("Feedback_CantLogOutInAFight"));
+                } else if state.own_flying && !sitting {
+                    // (one who does not sit is asked whether it may: a flyer may not, and no logout starts)
+                    pending_messages.push(crate::feedback::plain("Feedback_YouMustBeSitting"));
                 } else if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
                     if state.fighting.contains_key(&own) {
                         let _ = connection.send(&n3::stop_fight(own));
@@ -7933,6 +7969,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                         None => pending_messages.push("Nothing targeted to use (Tab selects)".into()),
                     }
+                    continue;
+                }
+                // (a flyer cannot sit: the Sit/Stand action is among those fly mode marks unusable, `actions::fly_refuses`)
+                if slot == 5 && state.own_flying {
+                    pending_messages.push(crate::feedback::plain("Feedback_ActionIsNotAvailable"));
                     continue;
                 }
                 if slot == 5 {
@@ -8358,8 +8399,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                     }
                 }
+                // (the Sit/Stand, Walk/Run, Sneak and Crawl tiles do nothing in fly mode but say so)
+                let grounded_only = state.own_flying && number.is_some_and(crate::actions::fly_refuses);
+                if grounded_only {
+                    told(crate::feedback::plain("Feedback_ActionIsNotAvailable"), &mut state.game_lines);
+                }
                 match name {
-                    _ if numbered.is_some() => {}
+                    _ if numbered.is_some() || grounded_only => {}
                     "Stand" => {
                         let _ = connection.send(&n3::action(own, n3::STAND));
                     }
@@ -8877,7 +8923,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             let walk = keys.forward as i8 - keys.back as i8;
             // The walk/run toggle (`MOVEMENT_TOGGLEWALK`): the mode changes and the server hears the switch (0x18, 0x19).
             if keys.walk_toggle != walk_toggle_seen || !mode_told {
-                if keys.walk_toggle != walk_toggle_seen {
+                // (walk and run are among the actions fly mode marks unusable: the key says so and changes nothing)
+                if keys.walk_toggle != walk_toggle_seen && state.own_flying {
+                    pending_messages.push(crate::feedback::plain("Feedback_ActionIsNotAvailable"));
+                } else if keys.walk_toggle != walk_toggle_seen {
                     state.own_walking = !state.own_walking;
                 }
                 walk_toggle_seen = keys.walk_toggle;
@@ -8947,6 +8996,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // The switch to fly mode (FUN_1006e4f8): falling off and the body lifted half a metre as it starts (`SetRelPos` by
             // 0x1015e0e4); the vehicle faces its motion (`Vehicle_t`'s orientation mode 4, FUN_1000c616), so going forward
             // follows the elevation the right button gave it.
+            // (whoever sits when its fly mode is switched gets up first, as the fly spell has it, FUN_100a8107; the
+            // server is told nothing by the original either)
+            if flying != was_flying && sitting {
+                sitting = false;
+                state.stand_up(own);
+            }
             if flying != was_flying {
                 was_flying = flying;
                 if flying {
@@ -9643,7 +9698,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                         let (liquid, kind) = crate::sounds::liquid_depth(crate::liquid::current().as_deref(), at);
                         let material = crate::sounds::liquid_material(crate::sounds::ground_material(terrain.as_deref(), &tile_materials, at), liquid, kind);
-                        let note = crate::sounds::Note { event, position: at, set, falling: id == own && airborne, material, liquid };
+                        let note = crate::sounds::Note { event, position: at, set, falling: id == own && airborne, sneaking: state.sneaking.contains(&id), material, liquid };
                         if let Some(p) = crate::sounds::note(&generic, &note) {
                             crate::audio::with(|m| m.play_game_sound(p.id, at, 0.0, p.volume, p.material, 0.0, 100, 1, 0, [0.0; 3]));
                             // (FUN_100452d3: a landing played without a set starts the environment's effect 0x2c there)
