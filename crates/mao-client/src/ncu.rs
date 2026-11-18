@@ -326,7 +326,7 @@ impl NcuWindow {
 
 /// The nanos as the list view's items: the icon (fading from the right as the time runs out), and the cells and sort
 /// keys of every column of [`COLUMNS`].
-fn nano_rows(ctx: &egui::Context, textures: &mut HashMap<u32, egui::TextureHandle>, order: &[&NanoInfo], now: Instant) -> Vec<crate::gui::multilist::Item> {
+pub(crate) fn nano_rows(ctx: &egui::Context, textures: &mut HashMap<u32, egui::TextureHandle>, order: &[&NanoInfo], now: Instant) -> Vec<crate::gui::multilist::Item> {
     let rows: Vec<crate::gui::multilist::Item> = order
         .iter()
         .map(|n| {

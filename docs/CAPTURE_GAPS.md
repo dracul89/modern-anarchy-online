@@ -139,7 +139,7 @@ empty in the playfield, full away). **Ported**: the name flashes red ten times o
 
 The window's icon menu (FUN_1007e75e) is a menu button in the window: "Show buttons" (the window's +0x78) and "Fixed Pet
 Buttons" (`EnableFixedPetButtons`: the pets held in rows by their kind, the family standing in for `PetType` since the entity
-message gives the family and not stat 512), both kept in `mao.ini`. Left: "Remember Pet Names" (`AutoPetRenaming`: the
+message gives the family and not stat 512), both kept in `mao.ini`. (Both done 2026-11-18, from the code: see CLIENT_UI.md, "The pet window: the programs on a pet, its place, its kept name"; the family no longer stands in for the type.) Was left: "Remember Pet Names" (`AutoPetRenaming`: the
 client's `/pet rename` carries no name, so there is nothing to remember yet) and the nano icons under each pet.
 
 ### 5. Research — ported

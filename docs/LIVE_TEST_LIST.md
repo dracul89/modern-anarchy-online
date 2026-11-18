@@ -882,6 +882,15 @@ These were written before this list; some may have been seen working since witho
   minutes) and it is still there, with its bonus in the stats, half an hour later. Have another player (your
   other character) buff you: it appears in the NCU window. Watch somebody's polymorph or hoverbike end: the form
   goes at once.
+- [ ] The container item menu (2026-11-18): hold the right button on an item in a backpack: the three entries;
+  Look at Item shows it; Delete Item on a **junk** item asks, and on Yes the item goes (a capture has this one).
+  The bank's and a corpse's delete and the corpse's Looter entries (in a team) were never on the wire: try the
+  Looter one with your second character and send me the log.
+- [ ] Death reasons (2026-11-18): die to a nano program or a damage shield: the line says so.
+- [ ] The pet window (2026-11-18): with a pet out and buffed, its programs are a row of small icons under its
+  bar, fading as they run out; none when it has none. `/pet rename Rex` with the pet targeted: the name changes
+  in the window (if not, the server's name message is not what the code says: send me the log). Call the pet
+  again: it is named Rex by itself, and the log has the "pet ...: command 15" line.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

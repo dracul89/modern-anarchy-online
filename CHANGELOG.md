@@ -22,6 +22,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Stacks can be joined and split inside a backpack: drop a stack on a like one to join them, Ctrl+click a stack
   to split some off into an empty cell.
 - An item's timer bar starts when the server allows the use, not at the click.
+- Bag, bank, corpse, chest and overflow windows have the item menu: hold the right button on an item for Look at
+  Item, Create Reference and Delete Item; on a corpse, in a team, also who may loot it.
+- A tradeskill piece used up inside a backpack now leaves the backpack's window.
 
 ### Shops
 
@@ -58,6 +61,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A program another player casts on you now appears in your NCU window.
 - Other players' polymorphs, vehicles and auras end when the program ends instead of lingering for thirty seconds,
   and a target's NCU window shows the programs' real times.
+- Your death by a nano program, a damage shield or a special attack now says what you died of (only a weapon's
+  hit did).
 
 ### Windows
 
@@ -67,6 +72,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   titles and numbers.
 - The raid window's "Convert To Raid" and "Raid Locks" buttons work, and in a raid it shows all six teams. Outside
   a raid its teams are empty, as in the game.
+- The pet window shows the programs running on each pet as a row of icons under its bar; click one for its page.
+- "Remember Pet Names" in the pet window's menu: a pet you renamed gets that name again when you call one of its
+  kind. `/pet rename <name>` now sends the name.
 
 ### Missions
 

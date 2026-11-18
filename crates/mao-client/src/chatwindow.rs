@@ -149,6 +149,8 @@ pub enum Out {
     Perf,
     /// A command to the pets (`/pet`): its `PetCommand` number.
     Pet(u32),
+    /// `/pet ... rename <name>`: the pets named (none: the selected target; `all`: every pet) and the name.
+    PetRename { pets: Vec<String>, name: String },
     /// A command the server carries out (`/stuck` and the like): its text.
     Server(String),
     /// `/fxscript`: the line for the effect scripts' engine.
@@ -1146,6 +1148,7 @@ impl ChatWindow {
             Parsed::Camp => Some(Out::Camp),
             Parsed::Sit => Some(Out::Sit),
             Parsed::Pet { command } => Some(Out::Pet(command)),
+            Parsed::PetRename { pets, name } => Some(Out::PetRename { pets, name: self.expand(&name) }),
             Parsed::Perf => Some(Out::Perf),
             // (FUN_100b285d: its `%` arguments put in)
             Parsed::Server { text } => Some(Out::Server(self.expand(&text))),

@@ -622,6 +622,9 @@ pub struct Settings {
     /// pet's bar, and the pets held in fixed rows by their kind rather than the order they came.
     pub pet_buttons: bool,
     pub fixed_pet_buttons: bool,
+    /// The pet window's "Remember Pet Names" (`AutoPetRenaming`, on in the game's `CharPrefs.xml`): a pet that comes
+    /// is given the name last kept for its kind.
+    pub remember_pet_names: bool,
     pub keymap: Keymap,
 }
 
@@ -631,7 +634,7 @@ pub const DEFAULT_SHADOWLANDS_MAP: &str = "SLmap/SLmap.txt";
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, texture_compression: true, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, log_messages: false, original_font: true, camera_mode: "trail".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, texture_compression: true, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, log_messages: false, original_font: true, camera_mode: "trail".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, remember_pet_names: true, keymap: Keymap::default() }
     }
 }
 
@@ -728,7 +731,7 @@ impl Settings {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
         out += &format!("mode = {}\nwidth = {}\nheight = {}\n; the graphics device (empty: the system's choice; the launcher's settings list them)\nadapter = {}\nvsync = {}\n; the most frames a second (0: no limit), and while the window is not in front (0: the same)\nfps_limit = {}\nbackground_fps = {}\n; off | low | medium | high\nshadows = {}\n; the textures block-compressed on the graphics card (a quarter of the video memory, a little longer to load)\ntexture_compression = {}\n; the monitor a borderless or full-screen window covers (0: the window's own)\nmonitor = {}\nrender_scale = {}\nsharpness = {}\nantialiasing = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, self.adapter, if self.vsync { "on" } else { "off" }, self.fps_limit, self.background_fps, self.shadows.name(), if self.texture_compression { "on" } else { "off" }, self.monitor, self.render_scale, self.sharpness, self.antialiasing.name(), self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
         out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the frame rate, processor, memory and graphics card over the game (/perf)\nperf_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n; the planet maps: an index file under a maps' folder (the client's PlanetMap folder, then the game's textures/PlanetMap)\nplanet_map = {}\nshadowlands_map = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.perf_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode, self.planet_map, self.shadowlands_map);
-        out += &format!("; the pet window: the buttons beside each pet's bar, and the pets in fixed rows by their kind\npet_buttons = {}\nfixed_pet_buttons = {}\n\n", if self.pet_buttons { "on" } else { "off" }, if self.fixed_pet_buttons { "on" } else { "off" });
+        out += &format!("; the pet window: the buttons beside each pet's bar, and the pets in fixed rows by their kind\npet_buttons = {}\nfixed_pet_buttons = {}\n; a pet that comes is given the name last kept for its kind\nremember_pet_names = {}\n\n", if self.pet_buttons { "on" } else { "off" }, if self.fixed_pet_buttons { "on" } else { "off" }, if self.remember_pet_names { "on" } else { "off" });
         out += &format!("[game]\n; the original game's folder (the one with cd_image in it); the launcher's settings set it\ndir = {}\n\n", self.game_dir);
         out += &crate::helpwindow::settings_text();
         out += &format!("[debug]\n; on: game-log.txt (beside this file) also gets the server's messages as they come\nlog_messages = {}\n\n", if self.log_messages { "on" } else { "off" });
@@ -794,6 +797,7 @@ impl Settings {
                 ("interface", "debug_overlay") => settings.debug_overlay = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("interface", "pet_buttons") => settings.pet_buttons = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("interface", "fixed_pet_buttons") => settings.fixed_pet_buttons = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
+                ("interface", "remember_pet_names") => settings.remember_pet_names = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("game", "dir") => settings.game_dir = value.to_string(),
                 // (the help assistant's own section: `helpwindow.rs` keeps it)
                 ("help", name) if crate::helpwindow::configure(name, value) => {}

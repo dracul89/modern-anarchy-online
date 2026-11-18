@@ -5465,3 +5465,105 @@ Not changed: a hoverbike program of another player is still drawn from the progr
 own way; in the original that list has criteria and would come as a spell list, which no capture shows for an
 onlooker). The ending run's criteria gate (FUN_10050b90) was not read.
 Tests: `a_program_runs_from_its_start_to_its_buff`, `the_active_nanos_are_found` (the times).
+
+## The container item menu, own death, the pet window (2026-11-18)
+
+The user: "port INV-050, DTH-014 and NPC-029". Read anew in the original by three readers; the claims the ports
+rest on were checked against the code and the captures. None of it was seen in the live game.
+
+### An item's menu in the container windows (INV-050)
+
+GUI.dll FUN_100caf07 is connected for every item view (`InventoryViewBase_c`'s FUN_100ccde7), so a backpack, the
+bank, a corpse, a chest and the overflow have the inventory's menu: the right button **held** on an item for
+`MouseButtonHoldDelay` (0.3 s; the list's FUN_10041aa4 starts a timer at the press and FUN_100420fd raises the menu
+for the item the button went down on). `loot.rs`:
+
+- **Look at Item** (the info window, as Shift+click), **Create Reference**, **Delete Item**: in every view that is
+  not read-only or a wear page, so on a corpse and another's chest too (the catalog's "not on read-only" was short
+  of that). Not on the organization's contract here (its items' identities were not read).
+- **Delete** asks first (10001's `Warning`, `ReallyDeleteItemX` with the name, Yes / No), then `N3Msg_DeleteItem`
+  (0x1001c864): `CharacterAction` 0x70 with the item's own identity, `(0x6b, handle << 16 | place)` in a bag, chest
+  or corpse, `(0x69, place)` in the bank, `(0x6e, place)` in the overflow, and the low and high template. Nothing
+  is taken out here: the server's answer, the same action with zero parameters, does it (FUN_1004a5e9). A capture
+  has exactly this for a backpack. The identity is made when the message goes out, and only while that container
+  still has that item at that place: a delete cannot be taken back, a backpack opened again has another handle,
+  and the one shared window goes from container to container.
+- **Looter**, on a corpse for one in a team: free for all, a random looter, or a member of the team (enabled while
+  the client knows that character); in a raid the teams first. `N3Msg_SetLootAccess`: the raid command 5 with the
+  corpse, the item's place and whether to roll, and the looter. The submenus replace the menu (the popup here has
+  none of its own); their labels are this client's words (the original's are literals in its program).
+
+**A fault mended with it**: the server's own 0x70 for an item inside a bag (a combine's piece used up there) was
+ignored, since only the inventory's was read; the piece stayed in the bag's window.
+
+What rests on what: the delete inside a backpack on a capture, both ways; the bank's, the overflow's, a corpse's
+and a chest's deletes and every loot access on the code alone. Found and not changed:
+
+- **Create Reference** puts the link into the chat's line here, as the inventory's menu does. In the original it
+  puts the item on the reference board (the Knowledge window: `RefMan_t::AddItemRef`), and a chat link is made
+  only of what is dropped on the chat's line.
+- **A plain right click** takes the item here. That is the original's for the bank, a chest and the overflow; on
+  an item of **one's own backpack** the original uses or wears it straight out of the bag (`N3Msg_UseItem` with
+  the bag identity), and on a **corpse** it does nothing (list flag 0x400).
+Tests: `an_items_menu_follows_its_container`, `a_containers_item_is_deleted_by_the_servers_word`,
+`an_item_is_deleted_by_its_own_identity`.
+
+### One's own death: what was missing, and what was never there (DTH-014)
+
+The entry listed five things as not ported. Read:
+
+- **The reason in the other messages: ported.** Gamecode FUN_1005b3d8 (health to nothing, and the reason's line
+  for one's own character) is called by five handlers, not one: `AttackInfo` (done before), `SpecialAttackInfo`
+  (its last word, for its target), `HealthDamage` (its fourth word), `ShieldAttack` and `ReflectAttack` (their
+  last word, which the schema calls a stat), and `CharacterAction` 0x99. In the captures the reasons are there:
+  4 on 237 weapon hits and 48 specials, 5 on 8 health damages, 3 on a shield hit. **The capture's own death came
+  by a nano program, `HealthDamage` with 5: this client told nothing for it.** `World::died_of`.
+- **`CharacterAction` 0x99: ported.** Its case is `FUN_1005b3d8(Parameter2)` and nothing else: "this character
+  died of this reason". No capture of the original has one; this client's logs have it a minute after a death
+  the client had not answered, just before the server moved the character.
+- **The death music mode: there is nothing to port.** `SandyInterface_t::SetDeathMusicMode` is an empty function
+  (`ret 4`), as is `SetCombatMusicMode`; the drop-in agrees and is difftested. What sounds at a death is the death
+  sample, which the client has.
+- **The windows' reaction to the dead signal: the notes were wrong.** GUI.dll's `DeadMessage` and `AliveMessage`
+  are not death and life: they are "the client's character object is gone" and "is in play" (every zoning, login,
+  logout), and the dead signal has no listener that was found. What the original does at one's own death is stop
+  all input (`CharDie_t` → `DisableUserInputMessage`: no keys, no mouse, no typing, the pointer off) until the
+  character is in play again, about eight seconds in the capture. **Not ported, on purpose**: this client's
+  deaths have at times lasted a minute or stuck until a relog, and a frozen interface would leave no chat and no
+  way out. The moving, attacking and using are stopped already.
+- **The resurrection (FUN_1003ec1f): the message is read, its shock is not.** It runs only from `ResurrectIIR_t`
+  (`445f2a0b`: health and nano), which is in no capture or log; the ordinary return after a death is a teleport
+  and a new announcement. The handler sets the health and nano, lets the character stand, and from level 15
+  tells `Feedback_ResurrectionShockFillsYourBody`. Not ported: the shock itself (stat 247 at 5000, counted down,
+  lowering the skills and refusing vehicles meanwhile, `Feedback_YouFeelOkAgain` at its end).
+
+Found beside it and not changed: the original sends `CharacterAction` 0x98 **with the target** while its fight
+target is a dying creature (`CharFight_t`'s frame; three of them after each kill in the captures); this client
+sends 0x98 only for its own death. And the original sets a dead character's health to 1, not 0, once its death
+has played out.
+Test: `a_death_is_told_by_the_message_that_carries_its_reason`.
+
+### The pet window: the programs on a pet, its place, its kept name (NPC-029)
+
+- **The programs under each pet.** `PetView_c` (FUN_1007d817) puts an `NCUListView_c` under the bar row, the
+  list the NCU and target windows are: a grid in the smallest icon size (19 by 11), spacing 7, borders 6, sorted
+  by the time left, filled from the pet's own list of running programs, which is what `World::nanos_on` gives
+  since the same day's `Buff` fix. No programs: no room taken; any: one row (FUN_1007d0fa). A pet that is away has
+  none. A click on an icon shows the program's page (the original: Shift+click, or the held button's "look at"
+  entry; a pet's programs cannot be cancelled from here). Not done: the flash of an icon in its last ten seconds,
+  the icons' tooltip.
+- **`PetType` is in the entity message after all** (the notes said it was not): the third of the three creature
+  fields the client already stepped over (the capture's Ravening M-60 has 12, the Widowmaker Battle Drone 10).
+  With it the window's places are the original's (`PetTypeToLocation`: 10 → 1, 12 → 2, 11 → 3, 15 → 6), and
+  "Fixed Pet Buttons" holds pets by that place instead of by their family.
+- **Remember Pet Names** (`AutoPetRenaming`, on at first, a third entry of the window's menu): when a pet of
+  one's own is renamed (the server's `SetNameIIR_t`, `734e5a7b`, now read: any character's name changes with it)
+  the name is kept for the pet's place, and a pet of that kind that comes with another name is renamed
+  (`PetCommandIIR_c` with command 15 and the name). **Neither message is in any capture**: both are read from the
+  code. Nothing is sent by itself until a name change has come from the server and been understood, so a wrong
+  reading of it keeps the whole thing quiet.
+- **`/pet rename <name>` carries its name now** (it sent the bare command): the pets named before the word, `all`
+  for every pet, and with none named the selected target (FUN_100542ad). The original re-checks every pet's name
+  on each pet's going and after zoning; here only when a pet comes.
+Tests: `a_pet_has_its_place_and_its_kept_name`, `a_pets_name_is_kept_and_given_back`,
+`a_pet_command_carries_its_pets_and_its_text`.

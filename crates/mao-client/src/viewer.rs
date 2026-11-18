@@ -77,6 +77,9 @@ pub struct Input {
     /// the count.
     pub bag_join: (u8, u32, u32, u32),
     pub bag_split: (u8, u32, u32, u32),
+    /// An item of a container window to destroy: a counter, the container's handle, the item's place, and its low
+    /// and high template as the question showed it.
+    pub bag_delete: (u8, u32, u32, u32, u32),
     /// Follow the target (a counter that steps with each `/follow`).
     pub follow: u8,
     /// Say what is known of the target (a counter that steps with each `/inspect`).
@@ -2795,6 +2798,7 @@ impl ApplicationHandler for App {
                             crate::chatwindow::Out::Camp => self.keys.camp = self.keys.camp.wrapping_add(1),
                             crate::chatwindow::Out::Sit => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
                             crate::chatwindow::Out::Pet(command) => self.keys.pet = (self.keys.pet.0.wrapping_add(1), command),
+                            crate::chatwindow::Out::PetRename { pets, name } => crate::net::pet_rename(pets, name),
                             crate::chatwindow::Out::Duel(what) => {
                                 self.keys.duel = (self.keys.duel.0.wrapping_add(1), what);
                                 // (an answer, typed or pressed, takes the challenge's box down)
@@ -3001,6 +3005,9 @@ impl ApplicationHandler for App {
                             }
                             crate::loot::Take::Split { handle, place, count } => {
                                 self.keys.bag_split = (self.keys.bag_split.0.wrapping_add(1), handle, place, count);
+                            }
+                            crate::loot::Take::Delete { handle, place, low, high } => {
+                                self.keys.bag_delete = (self.keys.bag_delete.0.wrapping_add(1), handle, place, low, high);
                             }
                             crate::loot::Take::All { handle } => {
                                 self.keys.take = (self.keys.take.0.wrapping_add(1), handle, u32::MAX);

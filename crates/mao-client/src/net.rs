@@ -1008,6 +1008,14 @@ pub fn text_command(action: u8, value: u32) {
 /// the text.
 static ORG_COMMANDS: std::sync::Mutex<Vec<(u8, crate::orgboxes::At, String, bool)>> = std::sync::Mutex::new(Vec::new());
 
+/// The renames asked for by `/pet ... rename <name>`: the pets' names as typed and the new name, for the game loop
+/// (which knows the pets and the target).
+static PET_RENAMES: std::sync::Mutex<Vec<(Vec<String>, String)>> = std::sync::Mutex::new(Vec::new());
+
+pub fn pet_rename(pets: Vec<String>, name: String) {
+    PET_RENAMES.lock().unwrap_or_else(|e| e.into_inner()).push((pets, name));
+}
+
 /// The raid's commands asked for by `/raid` (`n3::raid_command`), sent by the game loop.
 static RAID_COMMANDS: std::sync::Mutex<Vec<(u32, [(u32, u32); 3])>> = std::sync::Mutex::new(Vec::new());
 
@@ -1370,6 +1378,87 @@ impl World {
         if body.is_some() && self.crafts.get(&on).map(|c| c.0) == body {
             self.person_again(on);
         }
+    }
+
+    /// The identity `N3Msg_DeleteItem` names an item of a container window by, when the container of that handle
+    /// still has the item of these templates at that place: `(0x6b, handle << 16 | place)` in an own backpack, a
+    /// chest or a corpse (`Chest_t`'s FUN_1007e3e3), `(0x69, place)` in the bank, `(0x6e, place)` in the overflow.
+    /// None for the organization's contract (its items' identities were not read) and for an item that is gone or
+    /// another by now: a delete cannot be taken back, and a backpack opened again has another handle.
+    fn delete_target(&self, handle: u32, place: u32, low: u32, high: u32) -> Option<(u32, u32)> {
+        let there = |entries: &[inventory::Entry]| entries.iter().any(|e| e.slot == place && e.low_id == low && e.high_id == high);
+        if self.bags.values().any(|b| b.handle == handle && there(&b.entries)) {
+            return Some((0x6b, handle << 16 | (place & 0xffff)));
+        }
+        let loot = self.loot.as_ref().filter(|l| l.handle == handle && there(&l.entries))?;
+        match loot.identity.0 {
+            crate::loot::ORGANIZATION => None,
+            crate::loot::BANK => Some((0x69, place)),
+            crate::loot::OVERFLOW => Some((0x6e, place)),
+            _ => Some((0x6b, handle << 16 | (place & 0xffff))),
+        }
+    }
+
+    /// The server's `DeleteItem` (`CharacterAction` 0x70) for an item of a container (FUN_1005d61f's case 33 →
+    /// FUN_1004a5e9: the bag by the identity's high word, the place its low one; the container is signalled as
+    /// changed): the answer to one's own delete, and an item of a bag used up by a combine. The whole item goes (the
+    /// first parameter is zero in every one the captures have; with one, the original takes one off a stack). Until
+    /// 2026-11-18 only the inventory's was read, and a piece used up inside a backpack stayed in its window.
+    fn container_item_gone(&mut self, item: (u32, u32)) {
+        match item.0 {
+            0x6b => {
+                let (handle, place) = (item.1 >> 16, item.1 & 0xffff);
+                if let Some(bag) = self.bags.values_mut().find(|b| b.handle == handle) {
+                    let before = bag.entries.len();
+                    bag.entries.retain(|e| e.slot != place);
+                    self.bags_changed |= bag.entries.len() != before;
+                }
+                if let Some(loot) = self.loot.as_mut().filter(|l| l.handle == handle && !matches!(l.identity.0, crate::loot::BANK | crate::loot::OVERFLOW)) {
+                    let before = loot.entries.len();
+                    loot.entries.retain(|e| e.slot != place);
+                    self.loot_changed |= loot.entries.len() != before;
+                }
+            }
+            kind => {
+                let of = if kind == 0x69 { crate::loot::BANK } else { crate::loot::OVERFLOW };
+                if let Some(loot) = self.loot.as_mut().filter(|l| l.identity.0 == of) {
+                    let before = loot.entries.len();
+                    loot.entries.retain(|e| e.slot != item.1);
+                    self.loot_changed |= loot.entries.len() != before;
+                }
+            }
+        }
+    }
+
+    /// The place a pet has by its kind (`pets::place`: `PetTypeToLocation`), 0 for none or for one not announced.
+    fn pet_place(&self, pet: u32) -> u32 {
+        self.infos.get(&pet).map_or(0, |i| crate::pets::place(i.family, i.pet_type))
+    }
+
+    /// A pet came (`PetWindowModule_c::AddPet` 0x1007f0f9): with "Remember Pet Names" on, a place, a name kept for
+    /// that place and another name of its own, it is renamed to the kept one (`N3Msg_SendPetCommand(0, pet, 15, 0,
+    /// name)`, sent by the game loop).
+    fn rename_remembered(&self, pet: (u32, u32)) {
+        let place = self.pet_place(pet.1);
+        if place == 0 || !crate::pets::remembering() {
+            return;
+        }
+        let Some(name) = crate::pets::remembered(self.own, place).filter(|n| !n.is_empty()) else { return };
+        if self.names.get(&pet.1).is_none_or(|n| n.0 != name) {
+            crate::pets::send_rename(pet, name);
+        }
+    }
+
+    /// The pets a `/pet ... rename` is for: each name's pet (without regard to case), `all` none at all (the
+    /// server takes every pet), and with none named the selected target. Nothing when a name is no pet's.
+    fn pets_named(&self, named: &[String], target: Option<u32>) -> Option<Vec<(u32, u32)>> {
+        if named.is_empty() {
+            return Some(target.map(|t| (self.types.get(&t).copied().unwrap_or(n3::CHARACTER), t)).into_iter().collect());
+        }
+        if named.iter().any(|n| n.eq_ignore_ascii_case("all")) {
+            return Some(Vec::new());
+        }
+        named.iter().map(|n| self.pets.values().copied().find(|p| self.names.get(&p.1).is_some_and(|name| name.0.eq_ignore_ascii_case(n)))).collect()
     }
 
     /// Another character's body in place of its own is put away (a craft taken off, a polymorph ended): one that had
@@ -2211,6 +2300,13 @@ impl World {
                 }
             }
         }
+        // `CharacterAction` 0x99 for a character: it died of the reason in the second parameter (FUN_1005d61f's case
+        // at 0x1005dda8: `FUN_1005b3d8(Parameter2)` and nothing else). No capture of the original has one; this
+        // client's logs do, a minute after a death the client had not answered (reason 4), just before the server
+        // moved the character: it is what the server sends when it lets a dead character go by its own time.
+        if m.kind == 0x5e477770 && m.data.len() >= 25 && u32::from_be_bytes(m.data[1..5].try_into().unwrap()) == 0x99 {
+            self.died_of(m.identity.1, u32::from_be_bytes(m.data[21..25].try_into().unwrap()) as i64);
+        }
         // A character dies (`CharacterAction` 99 from it, the death's action in `Parameter2`: `CharDie_t`, FUN_1007b803, has the
         // controller play it, its +0x14, FUN_1003cc42) and goes (`Despawn`).
         if m.kind == 0x5e477770 && m.data.len() >= 25 && u32::from_be_bytes(m.data[1..5].try_into().unwrap()) == 99 {
@@ -2488,6 +2584,11 @@ impl World {
                 }
             }
         }
+        // (the special attack that killed: its last word is the reason, for its target: FUN_1006af0e)
+        if m.kind == 0x754f1115 && m.data.len() >= 29 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            self.died_of(word(17), word(25) as i64);
+        }
         // `CharSecSpecAttack` (`51492120`) from the server, always just before the attacker's `SpecialAttackInfo`: a byte, the
         // target, the special's stat (0x94, 0x96). `CharSecSpecAttackIIR_t` (read FUN_10072cbc, apply FUN_10072d11) hands it to
         // the character's attack part (+0x1d4), FUN_10068cd9: with nothing queued (+0x9c) and the special not in the list at
@@ -2639,6 +2740,11 @@ impl World {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
             }
+        }
+        // (the shield's or the reflected hit that killed: the last word, which the schema calls a stat, is the reason,
+        // for the message's character: FUN_100a134d, FUN_100a11c2)
+        if (m.kind == 0x25192476 || m.kind == 0x1c3a4f77) && m.data.len() >= 17 {
+            self.died_of(m.identity.1, u32::from_be_bytes(m.data[13..17].try_into().unwrap()) as i64);
         }
         // `AreaFormula` (`3129233b`): an area nano landing on the characters listed. `AreaFormulaIIR_t` reads (FUN_100721dc) a
         // byte, the characters (an `x3f1` list of identities), the nano (`0xcf1b` id: 0x3e380, 0x18762) and its source; the
@@ -2975,6 +3081,8 @@ impl World {
                     self.perk_locks.remove(&word(21));
                     self.perk_actions_changed = true;
                 }
+                // (the same for an item of a container: `container_item_gone`)
+                0x70 if matches!(word(9), 0x69 | 0x6b | 0x6e) => self.container_item_gone((word(9), word(13))),
                 // `DeleteItem` from the server (0x70): an item used up (a combine's pieces): `(0x68, place)` leaves the backpack
                 0x70 if word(9) == 0x68 => {
                     let place = word(13);
@@ -3144,6 +3252,36 @@ impl World {
                 }
             }
         }
+        // (the health damage that killed: its fourth word is the reason, for the message's character: FUN_100a0611)
+        if m.kind == 0x3710256c && m.data.len() >= 17 {
+            self.died_of(m.identity.1, u32::from_be_bytes(m.data[13..17].try_into().unwrap()) as i64);
+        }
+        // `ResurrectIIR_t` (`445f2a0b`, the name's `MapToKey`; reader FUN_10076eb3: health and nano; apply FUN_10076f06 →
+        // FUN_1003ec1f): the character is brought back where it lies: its health and nano are the message's, it
+        // stands again (every animation dropped for its stance's own; one's own input is given back, the death's
+        // effect ends), and one's own from level 15 is told the resurrection shock's line. No capture or log has
+        // the message: the ordinary return after a death is a teleport and a new announcement. From the code alone.
+        // Not ported: the shock itself (stat 247 set to 5000 and counted down, lowering the skills meanwhile and
+        // refusing vehicles; its end's line `Feedback_YouFeelOkAgain`), and the wait for the death to play out.
+        if m.kind == 0x445f2a0b && m.data.len() >= 9 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap()) as i32 as i64;
+            let (id, health, nano) = (m.identity.1, word(1), word(5));
+            self.last_hp.insert(id, health);
+            if let Some(h) = self.health.get_mut(&id) {
+                h.0 = health;
+            }
+            self.dead.remove(&id);
+            self.bodies.remove(&id);
+            if id == self.own {
+                // (alive again: the game loop sees the health above the dead character's)
+                self.stats.insert(27, health);
+                self.stats.insert(214, nano);
+                self.stats_changed = true;
+                if self.stats.get(&54).copied().unwrap_or(0) >= 15 {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_ResurrectionShockFillsYourBody")));
+                }
+            }
+        }
         // A container the character used lists its contents; the server moves an item out with a `ContainerAddItem`; a corpse that
         // despawns closes the window.
         if m.kind == INVENTORY_UPDATE && m.identity.1 == self.own {
@@ -3260,12 +3398,29 @@ impl World {
                 _ => {}
             }
         }
+        // `SetNameIIR_t`: the character has a new name (`n3::set_name`; the name setter FUN_1005bb92 turns a `/` of
+        // a kind 3 name into X). A pet of one's own with a place has the name kept for that place (the pet
+        // window's `PetRenamed`, on the setter's signal: old and new differ and neither is empty).
+        if let Some((kind, name)) = mao_net::n3::set_name(&m) {
+            let id = m.identity.1;
+            let name = if kind == 3 { name.replace('/', "X") } else { name };
+            let (old, player) = self.names.get(&id).map_or((String::new(), false), |n| (n.0.clone(), n.1));
+            self.names.insert(id, (name.clone(), player));
+            if let Some(info) = self.infos.get_mut(&id) {
+                info.name = name.clone();
+            }
+            let place = self.pet_place(id);
+            if old != name && !old.is_empty() && !name.is_empty() && place != 0 && self.pets.values().any(|p| p.1 == id) {
+                crate::pets::remember(self.own, place, &name);
+            }
+        }
         if let Some((added, pet)) = mao_net::n3::pet_change(&m) {
             if !added {
                 self.pets.retain(|_, p| *p != pet);
             } else if !self.pets.values().any(|p| *p == pet) {
                 let slot = (1..).find(|k| !self.pets.contains_key(k)).unwrap_or(1);
                 self.pets.insert(slot, pet);
+                self.rename_remembered(pet);
                 // (the damage meter counts a pet's damage with its owner's)
                 crate::damage::pet(pet.1, self.own, self.names.get(&self.own).map_or("You", |n| n.0.as_str()));
             }
@@ -4376,6 +4531,26 @@ impl World {
         entry.slot = free;
         self.worn.push(entry);
         self.inventory = Some(self.worn.clone());
+    }
+
+    /// A character died of `reason`, as a message of the hit that killed it says, or the server's `CharacterAction`
+    /// 0x99 for it (Gamecode FUN_1005b3d8, called by each of those messages' handlers after the hit's own line and
+    /// health: the health of whoever it is goes to nothing, and one's own character is told the reason's line). The
+    /// carriers: `AttackInfo` (done before), `SpecialAttackInfo`'s last word for its target, `HealthDamage`'s fourth
+    /// word, `ShieldAttack`'s and `ReflectAttack`'s last word, each for the message's own character, and action
+    /// 0x99's second parameter. Until 2026-11-18 only `AttackInfo`'s was read: the capture's own death, by a nano
+    /// program (`HealthDamage` with 5), was told nothing. No reason, 0: nothing.
+    fn died_of(&mut self, id: u32, reason: i64) {
+        if reason == 0 {
+            return;
+        }
+        if let Some(h) = self.health.get_mut(&id) {
+            h.0 = 0;
+        }
+        self.last_hp.insert(id, 0);
+        if id == self.own {
+            self.own_died_of(reason);
+        }
     }
 
     /// The client's own character died of `reason` (Gamecode FUN_1005b3d8): the game's line for it, once for a death,
@@ -6857,7 +7032,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::RaidCommand { .. } | Out::RolePlay | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::PetRename { .. } | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::RaidCommand { .. } | Out::RolePlay | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -7152,6 +7327,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut aura_cache: std::collections::HashMap<u32, Option<mao_formats::gfx::Visual>> = std::collections::HashMap::new();
         // (the target NCU windows: whose nanos were told last, and the nanos' whole times)
         let mut target_nanos_told: [Option<(u32, Vec<u32>)>; 2] = [None, None];
+        let mut pet_nanos_told: Vec<(u32, Vec<u32>)> = Vec::new();
         let mut duration_cache: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
         // (the effect templates: what a running nano program looks like)
         let gfx = mao_formats::files::read(Path::new(&game_dir).join("Setupf").join("gfxtweak.bin")).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
@@ -7165,6 +7341,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut split_seen = 0u8;
         let mut bag_join_seen = 0u8;
         let mut bag_split_seen = 0u8;
+        let mut bag_delete_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut grid_seen = 0u8;
         let mut city_seen = 0u8;
@@ -7800,6 +7977,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             // Vicinity speech: a text message to the server, at the current target (a character's; none for an object or nobody).
             // The pet window: the pets as they are now, and its buttons' commands to one pet (`N3Msg_SendPetCommand`).
+            // (the team's and the raid's members that are here, for the corpse's Looter menu)
+            crate::team::set_present(crate::team::with(|t| t.members.iter().chain(t.others.iter().flatten()).map(|m| m.id).filter(|id| *id == own || state.entities.contains_key(id)).collect()));
             crate::pets::set(state.pets.values().map(|&pet| crate::pets::Pet {
                 id: pet,
                 name: state.names.get(&pet.1).map(|n| n.0.clone()).unwrap_or_default(),
@@ -7807,6 +7986,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 in_play: state.entities.contains_key(&pet.1),
                 selected: target == Some(pet.1),
                 family: state.infos.get(&pet.1).and_then(|i| i.family),
+                pet_type: state.infos.get(&pet.1).and_then(|i| i.pet_type),
                 flash: state.pet_flashes.get(&pet.1).map_or(-1, |&(count, since)| crate::pets::flash_value(count, since.elapsed())),
             }).collect());
             // The tradeskill window's source, target and Build (`CharacterAction` 0xdc, 0xdd, 0xde).
@@ -7825,8 +8005,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     crate::tradeskill::Command::Build(ql) => connection.send(&n3::tradeskill(own, 0xde, (0, ql.max(0) as u32), (0, 0))),
                 };
             }
-            for (pet, command) in crate::pets::take_commands() {
-                let _ = connection.send(&n3::pet_command_to(own, command, pet));
+            for (pet, command, text) in crate::pets::take_commands() {
+                if !text.is_empty() {
+                    eprintln!("[{:6.1}] pet {:x}: command {command} {text:?}", clock.elapsed().as_secs_f32(), pet.1);
+                }
+                let _ = connection.send(&n3::pet_command_text(own, 0, command, &[pet], &text));
+            }
+            // (`/pet ... rename <name>`, FUN_100542ad: the pets named, by their names without regard to case; `all`
+            // the empty list, which is every pet; none named, the selected target; a name that is no pet's: nothing)
+            for (named, name) in std::mem::take(&mut *PET_RENAMES.lock().unwrap_or_else(|e| e.into_inner())) {
+                if let Some(pets) = state.pets_named(&named, target) {
+                    eprintln!("[{:6.1}] pet rename of {pets:x?} to {name:?}", clock.elapsed().as_secs_f32());
+                    let _ = connection.send(&n3::pet_command_text(own, 1, 15, &pets, &name));
+                }
             }
             // The team window's answers.
             // (the server tells the other members' health and nano, `TeamMemberInfo`; none came for oneself in the live
@@ -9028,6 +9219,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let _ = connection.send(&n3::split_item(own, (0x6b, handle << 16 | (place & 0xffff)), count));
                 }
             }
+            // (an item of a container window destroyed, after its question: `N3Msg_DeleteItem` with the item's own
+            // identity, when it is still that item there; nothing is taken out here: the server's answer does it)
+            if keys.bag_delete.0 != bag_delete_seen {
+                bag_delete_seen = keys.bag_delete.0;
+                let (_, handle, place, low, high) = keys.bag_delete;
+                match state.delete_target(handle, place, low, high) {
+                    Some(item) => {
+                        eprintln!("[{:6.1}] deleting the item {:x}:{:x} ({low}/{high})", clock.elapsed().as_secs_f32(), item.0, item.1);
+                        let _ = connection.send(&n3::delete_item_at(own, item, low, high));
+                    }
+                    None => eprintln!("[{:6.1}] not deleting place {place} of the container {handle:#x}: it is no longer the item {low}/{high}", clock.elapsed().as_secs_f32()),
+                }
+            }
             // An item destroyed: asked of the server and taken out of the inventory window at once.
             if keys.delete.0 != delete_seen {
                 delete_seen = keys.delete.0;
@@ -10156,6 +10360,25 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         buddies.1.iter().map(|(&id, (name, online, recent))| crate::friends::Friend { id, name: name.clone(), online: *online, recent: *recent }).collect::<Vec<_>>()
                     })
                 };
+                // (each pet's running programs, for the pet window's list under it: worked out anew when a pet's set of
+                // programs changes; a pet that is not in the playfield has none, as the original's list is cleared)
+                {
+                    let lists: Vec<(u32, Vec<(u32, Option<u32>, Instant)>)> = state.pets.values().map(|p| (p.1, if state.entities.contains_key(&p.1) { state.nanos_on(p.1) } else { Vec::new() })).collect();
+                    let key: Vec<(u32, Vec<u32>)> = lists.iter().map(|(pet, list)| (*pet, list.iter().map(|n| n.0).collect())).collect();
+                    if key != pet_nanos_told {
+                        pet_nanos_told = key;
+                        let (level, now) = (state.stats.get(&0x36).copied().unwrap_or(1), Instant::now());
+                        crate::pets::set_nanos(
+                            lists
+                                .into_iter()
+                                .map(|(pet, list)| {
+                                    let running: Vec<(u32, u32)> = list.iter().map(|&(nano, left, since)| (nano, left.unwrap_or(0).saturating_sub(since.elapsed().as_millis().min(u128::from(u32::MAX)) as u32))).collect();
+                                    (pet, Arc::new(crate::ncu::describe(&gear_db, &gear_textures, &running, level, now)))
+                                })
+                                .collect(),
+                        );
+                    }
+                }
                 // The target NCU windows' lists: the selected target's nanos and the fight target's, told when either's
                 // target or set of nanos changes.
                 let target_nanos = {
@@ -12190,6 +12413,126 @@ mod door_tests {
         w.worn.push(entry(0x48, 297044));
         w.add(&Message { kind: 0x52526858, identity: (0xc350, own), data: answer(0, 1, 3, 0x48) }.frame(1));
         assert!(has(&w));
+    }
+
+    /// An item of a container is named for its delete by its own identity, only while it is still that item there;
+    /// and it goes when the server answers (the Arete capture's own answer for a backpack of handle 0x82: place 9).
+    #[test]
+    fn a_containers_item_is_deleted_by_the_servers_word() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x4bc82;
+        let entry = |slot: u32, low_id: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id, high_id: low_id, quality: 1, extra: 0 };
+        let mut w = World { own, ..World::default() };
+        let bag = (crate::loot::BAG, 0x4d);
+        w.bags.insert(bag, Loot { identity: bag, handle: 0x82, entries: vec![entry(9, 0x35488), entry(2, 7)] });
+        assert_eq!(w.delete_target(0x82, 9, 0x35488, 0x35488), Some((0x6b, 0x82 << 16 | 9)));
+        // (another item there by now, another handle, a place that is empty: nothing)
+        assert_eq!((w.delete_target(0x82, 9, 7, 7), w.delete_target(0x83, 9, 0x35488, 0x35488), w.delete_target(0x82, 5, 7, 7)), (None, None, None));
+        // (the bank's, the overflow's, a corpse's; not the organization's contract)
+        for (kind, handle, wanted) in [(crate::loot::BANK, 0, Some((0x69, 3))), (crate::loot::OVERFLOW, crate::loot::OVERFLOW, Some((0x6e, 3))), (crate::loot::CORPSE, 0x70, Some((0x6b, 0x70 << 16 | 3))), (crate::loot::ORGANIZATION, 0x71, None)] {
+            w.loot = Some(Loot { identity: (kind, 5), handle, entries: vec![entry(3, 11)] });
+            assert_eq!(w.delete_target(handle, 3, 11, 11), wanted, "{kind:#x}");
+        }
+        // (nothing is taken out until the server says so: its answer, the same action and target)
+        w.loot = Some(Loot { identity: (crate::loot::CORPSE, 5), handle: 0x70, entries: vec![entry(9, 1)] });
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000070000000000000006b0082000900000000000000000000") }.frame(1));
+        assert_eq!(w.bags[&bag].entries.iter().map(|e| e.slot).collect::<Vec<_>>(), [2]);
+        assert!(w.bags_changed && !w.loot_changed && w.loot.as_ref().is_some_and(|l| l.entries.len() == 1));
+        // (a corpse's item by its handle; the bank's by its place)
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000070000000000000006b0070000900000000000000000000") }.frame(1));
+        assert!(w.loot_changed && w.loot.as_ref().is_some_and(|l| l.entries.is_empty()));
+        w.loot = Some(Loot { identity: (crate::loot::BANK, 5), handle: 0, entries: vec![entry(3, 11), entry(4, 12)] });
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000007000000000000000690000000300000000000000000000") }.frame(1));
+        assert_eq!(w.loot.as_ref().map(|l| l.entries.iter().map(|e| e.slot).collect::<Vec<_>>()), Some(vec![4]));
+    }
+
+    /// A pet's name: the server's name change renames it here and, for a pet of one's own with a place, keeps the
+    /// name for that place; a pet of that kind that comes later with another name is asked to take the kept one
+    /// (the capture's Ravening M-60 as announced: `PetType` 12, place 2). A pet without a place is never renamed,
+    /// nor one that has the name already, nor any with the setting off. The pets a typed rename is for.
+    #[test]
+    fn a_pets_name_is_kept_and_given_back() {
+        let own = 0x77bb01;
+        let mut w = World { own, ..World::default() };
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let base = Message { kind: n3::ENTITY_INFO, identity: (0xc350, 1), data: hex("003a04206aca0000021c43f5f0c7410028f643dc31c6000000003f38bec4000000003f31371600000741094d6f7068696e673400001812410001000100000f7e00000000") }.entity_info().unwrap();
+        let info = |name: &str, pet_type: u16| n3::EntityInfo { name: name.to_string(), family: Some(0x5f), pet_type: Some(pet_type), ..base.clone() };
+        let (first, second, plain) = ((0xc350, 0x501), (0xc350, 0x502), (0xc350, 0x503));
+        for (pet, name, kind) in [(first, "Ravening M-60", 12), (second, "Ravening M-60", 12), (plain, "A thing", 0)] {
+            w.infos.insert(pet.1, info(name, kind));
+            w.names.insert(pet.1, (name.to_string(), false));
+        }
+        w.pets.insert(1, first);
+        let rename = |id: u32, name: &str| {
+            let mut data = vec![0u8, 0, 0, 0, 3, 1];
+            data.extend_from_slice(&(name.len() as u32).to_be_bytes());
+            data.extend_from_slice(name.as_bytes());
+            data.extend_from_slice(&[0; 12]);
+            Message { kind: 0x734e5a7b, identity: (0xc350, id), data }.frame(1)
+        };
+        // (another's creature renamed: the name changes, nothing is kept)
+        w.add(&rename(plain.1, "A/thing"));
+        assert_eq!((w.names[&plain.1].0.as_str(), crate::pets::remembered(own, 0)), ("AXthing", None));
+        // (one's own pet renamed: kept for its place)
+        w.add(&rename(first.1, "Rex"));
+        assert_eq!((w.names[&first.1].0.as_str(), w.infos[&first.1].name.as_str(), crate::pets::remembered(own, 2).as_deref()), ("Rex", "Rex", Some("Rex")));
+        // (a pet of that kind comes with its own name: the kept one is asked for; the one that has it: nothing)
+        let _ = crate::pets::take_commands();
+        w.rename_remembered(second);
+        w.rename_remembered(first);
+        w.rename_remembered(plain);
+        assert_eq!(crate::pets::take_commands().into_iter().filter(|c| [first, second, plain].contains(&c.0)).collect::<Vec<_>>(), [(second, 15, "Rex".to_string())]);
+        // (the pets a typed rename is for)
+        w.types.insert(0x999, 0xc350);
+        assert_eq!(w.pets_named(&[], Some(0x999)), Some(vec![(0xc350, 0x999)]));
+        assert_eq!(w.pets_named(&[], None), Some(vec![]));
+        assert_eq!(w.pets_named(&["ALL".to_string()], Some(0x999)), Some(vec![]));
+        assert_eq!(w.pets_named(&["rex".to_string()], None), Some(vec![first]));
+        assert_eq!(w.pets_named(&["rex".to_string(), "nobody".to_string()], None), None);
+    }
+
+    /// One's own death is told by whichever message carries its reason. The Arete capture's own death came by a
+    /// nano program: `HealthDamage` with the reason 5 (the capture's bytes), which was told nothing until
+    /// 2026-11-18. A shield's hit with 3, a special attack's with 4 for its target, and the server's action 0x99
+    /// (this client's log: reason 4) tell theirs; a hit with no reason tells none, and another character's death
+    /// only empties its health.
+    #[test]
+    fn a_death_is_told_by_the_message_that_carries_its_reason() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (own, other) = (0x7b1a0021u32, 0x7b1abb35u32);
+        let mut w = World { own, ..World::default() };
+        w.stats.insert(27, 80);
+        w.health.insert(other, (50, 100));
+        let told = |w: &mut World, reason: i64| {
+            let line = crate::feedback::death(reason).unwrap();
+            let told = std::mem::take(&mut w.game_lines).iter().filter(|l| l.text == line).count();
+            (told, w.stats[&27])
+        };
+        // (the capture's `HealthDamage`: health 0, reason 5, from the tutorial's creature)
+        w.add(&Message { kind: 0x3710256c, identity: (0xc350, own), data: hex("0000000000fffeac760000005b000000050000c3507b0828a000000000") }.frame(1));
+        assert_eq!(told(&mut w, 5), (1, 0));
+        // (a shield's hit with the reason 3, on one's own)
+        (w.death_told, w.stats) = (None, [(27, 80)].into_iter().collect());
+        w.add(&Message { kind: 0x25192476, identity: (0xc350, own), data: hex("00000000ad0000c3507b0828a000000003") }.frame(1));
+        assert_eq!(told(&mut w, 3), (1, 0));
+        // (a special attack's with 4, for its target: another character's health goes, nothing is told; one's own is told)
+        (w.death_told, w.stats) = (None, [(27, 80)].into_iter().collect());
+        w.add(&Message { kind: 0x754f1115, identity: (0xc350, own), data: hex("000000000600000040ffffffff0000c3507b1abb350000009400000004") }.frame(1));
+        assert_eq!((told(&mut w, 4), w.health[&other].0, w.last_hp[&other]), ((0, 80), 0, 0));
+        w.add(&Message { kind: 0x754f1115, identity: (0xc350, other), data: hex("000000000600000040ffffffff0000c3507b1a00210000009400000004") }.frame(1));
+        assert_eq!(told(&mut w, 4), (1, 0));
+        // (the server's 0x99 with the reason 4, as this client's log has it; and hits with no reason, which tell none)
+        (w.death_told, w.stats) = (None, [(27, 80)].into_iter().collect());
+        w.add(&Message { kind: 0x25192476, identity: (0xc350, own), data: hex("00000000050000c3507b0828a000000000") }.frame(1));
+        assert_eq!(told(&mut w, 3), (0, 75));
+        w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000009900000000000000000000000000000000000000040000") }.frame(1));
+        assert_eq!(told(&mut w, 4), (1, 0));
+        // (`ResurrectIIR_t`, which no capture has: health and nano; from level 15 the shock's line)
+        w.stats.insert(54, 20);
+        w.dead.insert(other, (500, Instant::now()));
+        w.add(&Message { kind: 0x445f2a0b, identity: (0xc350, own), data: hex("00000000350000000c") }.frame(1));
+        w.add(&Message { kind: 0x445f2a0b, identity: (0xc350, other), data: hex("00000000280000000a") }.frame(1));
+        assert_eq!((w.stats[&27], w.stats[&214], w.game_lines.len(), w.health[&other].0, w.dead.contains_key(&other)), (0x35, 0xc, 1, 0x28, false));
     }
 
     /// A program runs on a character from the server's `CharacterAction` 0x62 for it to its `Buff` (the captures'

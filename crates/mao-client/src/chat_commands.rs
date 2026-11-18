@@ -167,6 +167,9 @@ pub enum Parsed {
     Perf,
     /// `/pet <command>`: a command to the pets (its `PetCommand` number).
     Pet { command: u32 },
+    /// `/pet [<pet> ...|all] rename <name>` (Gamecode FUN_100542ad): the pets named before the word (none: the
+    /// selected target; `all`: every pet) and the new name.
+    PetRename { pets: Vec<String>, name: String },
     /// `/stuck`, `/anon`, `/list` and `/shop`: commands the server carries out (GUI.dll's `CCFanatic_c` list, FUN_100b4001, each
     /// sent as its text by FUN_100b36da: the line without its slash).
     Server { text: String },
@@ -254,6 +257,24 @@ pub fn suggest_with(input: &str, scripts: &[String]) -> Vec<String> {
 pub const EXTRA: &[&str] = &["befriend", "sit", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk", "crafting", "craft"];
 
 /// `/pet <command>`'s words and the `PetCommand` numbers they send (Gamecode FUN_100542ad's table).
+/// A `/pet` line that renames: its words (one in double quotes may hold spaces), the last one the name, the one
+/// before it `rename`, and those before that the pets it is for (FUN_100542ad: the last token is the argument of
+/// the word before it, looked up among the commands that take one). The pets' names and the new name.
+pub fn pet_rename(text: &str) -> Option<(Vec<String>, String)> {
+    let mut words: Vec<String> = Vec::new();
+    let mut rest = text.trim_start();
+    while !rest.is_empty() {
+        let (word, after) = match rest.strip_prefix('"') {
+            Some(quoted) => quoted.split_once('"').unwrap_or((quoted, "")),
+            None => rest.split_once(char::is_whitespace).unwrap_or((rest, "")),
+        };
+        words.push(word.to_string());
+        rest = after.trim_start();
+    }
+    let name = words.pop()?;
+    (words.pop()?.eq_ignore_ascii_case("rename") && !name.is_empty()).then_some((words, name))
+}
+
 pub const PET_COMMANDS: &[(&str, u32)] = &[
     ("follow", 1), ("behind", 2), ("survive", 3), ("wait", 4), ("cycle", 5), ("guard", 6), ("attack", 7), ("social", 9), ("terminate", 10),
     ("free", 11), ("heal", 12), ("report", 14), ("rename", 15), ("chat", 16), ("script", 17),
@@ -369,9 +390,12 @@ pub fn parse(line: &str) -> Parsed {
         "crafting" | "craft" => Parsed::Window { name: format!("crafting {text}").trim().to_string(), open: true },
         // (`/find <part of a name>`: the item finder with that to look for; alone, the window)
         "find" => Parsed::Window { name: format!("find {text}").trim().to_string(), open: true },
-        "pet" => match text.split_whitespace().next().and_then(|w| PET_COMMANDS.iter().find(|c| c.0.eq_ignore_ascii_case(w))) {
-            Some(&(_, command)) => Parsed::Pet { command },
-            None => Parsed::Usage("/pet follow|behind|wait|guard|attack|heal|report|terminate|..."),
+        "pet" => match pet_rename(text) {
+            Some((pets, name)) => Parsed::PetRename { pets, name },
+            None => match text.split_whitespace().next().and_then(|w| PET_COMMANDS.iter().find(|c| c.0.eq_ignore_ascii_case(w))) {
+                Some(&(_, command)) => Parsed::Pet { command },
+                None => Parsed::Usage("/pet follow|behind|wait|guard|attack|heal|report|terminate|rename <name>|..."),
+            },
         },
         "voice" => match text.split_whitespace().next() {
             Some(line) => Parsed::Voice { line: line.to_string() },
@@ -667,6 +691,11 @@ mod tests {
         assert_eq!(parse("/ignore"), Parsed::Ignore { name: String::new() });
         assert_eq!(parse("/camp"), Parsed::Camp);
         assert_eq!(parse("/pet attack"), Parsed::Pet { command: 7 });
+        // (a rename carries its name, and the pets named before the word; without a name it is the bare command)
+        assert_eq!(parse("/pet rename Rex"), Parsed::PetRename { pets: vec![], name: "Rex".into() });
+        assert_eq!(parse("/pet \"My Bot\" rename \"New Name\""), Parsed::PetRename { pets: vec!["My Bot".into()], name: "New Name".into() });
+        assert_eq!(parse("/pet all Rename X"), Parsed::PetRename { pets: vec!["all".into()], name: "X".into() });
+        assert_eq!(parse("/pet rename"), Parsed::Pet { command: 15 });
         assert_eq!(parse("/stuck"), Parsed::Server { text: "stuck".into() });
         assert_eq!(parse("/list doctor"), Parsed::Server { text: "list doctor".into() });
         assert_eq!(parse("/pet Terminate"), Parsed::Pet { command: 10 });

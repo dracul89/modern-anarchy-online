@@ -139,6 +139,7 @@ fn english(name: &str) -> &'static str {
         "Feedback_YouAreNotMemberOfTeam" => "You are not in a team.",
         "Feedback_AvailableTeamCommands" => "The team's commands:",
         "Feedback_RaidCreated" => "Your team is now a raid.",
+        "Feedback_ResurrectionShockFillsYourBody" => "You feel the shock of the resurrection.",
         "Feedback_TeamLoot" => "/team loot",
         "Feedback_TeamLootAll" => "/team loot [all/leader/alpha]",
         "Feedback_OnlyTeamLeaderCanChangeLootOrder" => "Only the team's leader can change the loot order.",

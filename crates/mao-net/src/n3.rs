@@ -729,10 +729,18 @@ pub fn cancel_nano(character: u32, nano: u32) -> Frame {
 /// `CharacterAction` (`5e477770`) action `0x70` (`DeleteItem`): destroys the item in an inventory place. The target is `(0x68, place)`
 /// and both parameters are the item's id (low and high: the same for a plain item), as in the captured delete.
 pub fn delete_item(character: u32, place: u32, low: u32, high: u32) -> Frame {
+    delete_item_at(character, (0x68, place), low, high)
+}
+
+/// The same for an item by its own identity (Gamecode `N3Msg_DeleteItem` 0x1001c864 sends the identity the item
+/// has in its view, unchanged): `(0x6b, handle << 16 | place)` in a bag, chest or corpse, `(0x69, place)` in the
+/// bank, `(0x6e, place)` in the overflow. A capture has one inside a backpack, with the server's answer: the same
+/// action and target, its parameters zero.
+pub fn delete_item_at(character: u32, item: (u32, u32), low: u32, high: u32) -> Frame {
     let mut data = vec![0u8; 5];
     data[4] = 0x70;
     data.extend_from_slice(&[0; 4]);
-    for word in [0x68, place, low, high] {
+    for word in [item.0, item.1, low, high] {
         data.extend_from_slice(&word.to_be_bytes());
     }
     data.extend_from_slice(&[0; 2]);
@@ -756,11 +764,40 @@ pub fn use_perk(character: u32, perk: u32, hash: [u8; 4]) -> Frame {
 /// `PetCommand` (`6b333303`, `PetCommandIIR_c`): a command to the character's pets: a zero byte, 1, the command, 0, the pets (an
 /// empty list: all of them; the server takes the target it knows) and two zeros, as the 2026-10-31 capture's `/pet attack`.
 pub fn pet_command(character: u32, command: u32) -> Frame {
+    pet_command_text(character, 1, command, &[], "")
+}
+
+/// `PetCommandIIR_c` whole, as its writer packs it (Gamecode FUN_10076600; the reader FUN_100766ec agrees): a word
+/// that is 1 for a typed `/pet` command and 0 for one the interface makes, the command, a value (0), the pets
+/// counted `(n + 1) * 0x3f1` (none: all of them), whether the pets are towers (0), and a text behind its length,
+/// which is the name of command 15, rename. The capture's eleven `/pet attack` confirm the part without pets or
+/// text; a command with a text was never captured.
+pub fn pet_command_text(character: u32, first: u32, command: u32, pets: &[(u32, u32)], text: &str) -> Frame {
     let mut data = vec![0u8];
-    for word in [1, command, 0, 0x3f1, 0, 0] {
+    for word in [first, command, 0, (pets.len() as u32 + 1) * 0x3f1] {
         data.extend_from_slice(&word.to_be_bytes());
     }
+    for pet in pets {
+        data.extend_from_slice(&pet.0.to_be_bytes());
+        data.extend_from_slice(&pet.1.to_be_bytes());
+    }
+    data.extend_from_slice(&[0; 4]);
+    data.extend_from_slice(&(text.len() as u32).to_be_bytes());
+    data.extend_from_slice(text.as_bytes());
     Message { kind: 0x6b333303, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `SetNameIIR_t` (`734e5a7b`, the name's `MapToKey`): the message's character has a new name. Its reader
+/// (Gamecode FUN_10077090): a word for the kind of name, a byte, the name behind a word's length (1 to 31), an
+/// identity and a word; the apply (FUN_10077207) hands kind and name to the character's name setter, FUN_1005bb92.
+/// The kind and the name. In no capture: from the code alone.
+pub fn set_name(m: &Message) -> Option<(u32, String)> {
+    if m.kind != 0x734e5a7b {
+        return None;
+    }
+    let word = |at: usize| m.data.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+    let length = word(6).filter(|n| (1..0x20).contains(n))? as usize;
+    Some((word(1)?, String::from_utf8_lossy(m.data.get(10..10 + length)?).into_owned()))
 }
 
 /// `PetCommand` to one pet, as the pet window's buttons send it: `N3Msg_SendPetCommand` (Gamecode 0x1001b2ea) puts the pet in the
@@ -768,11 +805,7 @@ pub fn pet_command(character: u32, command: u32) -> Frame {
 /// passes 1), the command, 0, the pets counted `(n + 1) * 0x3f1`, whether the pet is a tower (0) and an empty text.
 /// Not captured: the 2026-10-31 capture's commands were all `/pet` ones.
 pub fn pet_command_to(character: u32, command: u32, pet: (u32, u32)) -> Frame {
-    let mut data = vec![0u8];
-    for word in [0, command, 0, 2 * 0x3f1, pet.0, pet.1, 0, 0] {
-        data.extend_from_slice(&word.to_be_bytes());
-    }
-    Message { kind: 0x6b333303, identity: (CHARACTER, character), data }.frame(character)
+    pet_command_text(character, 0, command, &[pet], "")
 }
 
 /// `AddPet` (`194e4f76`) and `RemovePet` (`58742a0f`), to the character: the pet's identity after a header byte (the 2026-10-31
@@ -1435,6 +1468,32 @@ mod tests {
         assert_eq!(raid_answer(&locks), Some(RaidAnswer::Locks(Vec::new())));
     }
 
+    /// A pet command as `PetCommandIIR_c` packs it: the capture's `/pet attack` (no pets, no text), the pet
+    /// window's button for one pet, and a rename with its name; and a name change read.
+    #[test]
+    fn a_pet_command_carries_its_pets_and_its_text() {
+        let hex = |f: Frame| Message::parse(&f).unwrap().data.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        assert_eq!(hex(pet_command(7, 7)), "000000000100000007000000000000" .to_string() + "03f10000000000000000");
+        assert_eq!(hex(pet_command_to(7, 4, (0xc350, 0x1234))), "000000000000000004000000000000" .to_string() + "07e20000c350000012340000000000000000");
+        assert_eq!(hex(pet_command_text(7, 0, 15, &[(0xc350, 0x1234)], "Rex")), "00000000000000000f000000000000" .to_string() + "07e20000c350000012340000000000000003526578");
+        assert_eq!(crate::grid::map_to_key("SetNameIIR_t"), 0x734e5a7b);
+        let mut data = vec![0u8, 0, 0, 0, 3, 1, 0, 0, 0, 3];
+        data.extend_from_slice(b"Rex");
+        data.extend_from_slice(&[0; 12]);
+        assert_eq!(set_name(&Message { kind: 0x734e5a7b, identity: (CHARACTER, 9), data: data.clone() }), Some((3, "Rex".to_string())));
+        data[9] = 0;
+        assert_eq!(set_name(&Message { kind: 0x734e5a7b, identity: (CHARACTER, 9), data }), None);
+    }
+
+    /// The Arete capture's delete of an item inside a backpack (handle 0x82, place 9, item 0x35488), and an
+    /// inventory one's.
+    #[test]
+    fn an_item_is_deleted_by_its_own_identity() {
+        let hex = |f: Frame| Message::parse(&f).unwrap().data.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        assert_eq!(hex(delete_item_at(0x4bc82, (0x6b, 0x82 << 16 | 9), 0x35488, 0x35488)), "0000000070000000000000006b0082000900035488000354880000");
+        assert_eq!(hex(delete_item(0x4bc82, 0x41, 0x284bf, 0x284c0)), "000000007000000000000000680000004100" .to_string() + "0284bf000284c00000");
+    }
+
     #[test]
     fn stacks_join_and_split_as_gamecode_builds_them() {
         // (the held stack at place 0x45 let go on the one at 0x41: the target stays, the parameters' goes into it)
@@ -1784,6 +1843,11 @@ pub struct EntityInfo {
     /// A creature's family (its first field after the second flags word and the `i32`, `+0xb2`), what the pet window asks as
     /// stat 455 `NPCFamily` (FUN_1007d29c: 0x60 is a healing pet; the capture's attack pets are 0x5f).
     pub family: Option<u16>,
+    /// A creature's `PetType` (stat 512): the third of the three fields `family` is the first of (the reader
+    /// FUN_1007916d's `+0xb6`, which the exec FUN_1007835c sets as stat 0x200). 10, 11, 12 and 15 are the kinds of
+    /// pets the pet window gives a place of their own (`PetTypeToLocation`); the capture's two attack pets are 12
+    /// and 10.
+    pub pet_type: Option<u16>,
     /// The movement mode a creature is announced in: after its template, scale and two more fields the update has a
     /// counted block (28 bytes, which Gamecode's reader FUN_1007916d copies out whole with FUN_10067b62), whose
     /// byte 12 it is. In the captures: 1 for the NPCs that never move (shopkeepers, terminals, turrets), 2 and 3 for
@@ -1917,16 +1981,16 @@ fn npc_move_mode(post: &[u8]) -> Option<u8> {
 
 /// A creature's family, and its health and maximum, from its entity message, `at` just past the second flags word and the
 /// `i32` after it (see [`EntityInfo::health`], Gamecode FUN_1007916d's creature branch).
-fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<(u16, (u32, u32))> {
+fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<(u16, u16, (u32, u32))> {
     let mut take = |n: usize| -> Option<u32> {
         let b = d.get(at..at + n)?;
         at += n;
         Some(b.iter().fold(0u32, |v, &x| v << 8 | x as u32))
     };
-    let mut first = None;
-    for bit in [17, 19, 25] {
-        let v = take(if flags >> bit & 1 != 0 { 1 } else { 2 })?;
-        first.get_or_insert(v as u16);
+    // (three fields, each a byte with its flag bit, else a short: the family, stat 466, the pet's type)
+    let mut three = [0u16; 3];
+    for (k, bit) in [17, 19, 25].into_iter().enumerate() {
+        three[k] = take(if flags >> bit & 1 != 0 { 1 } else { 2 })? as u16;
     }
     if take(2)? as i16 > 0 {
         take(1)?;
@@ -1934,7 +1998,7 @@ fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<(u16, (u32, u3
     take(if flags & 0x1000 != 0 { 2 } else { 1 })?;
     let max = take(if flags & 0x800 != 0 { 2 } else { 4 })?;
     let health = if flags & 0x4000 != 0 { max.saturating_sub(take(1)?) } else { take(if flags & 0x800 != 0 { 2 } else { 4 })? };
-    Some((first?, (health, max)))
+    Some((three[0], three[2], (health, max)))
 }
 
 /// Where a monster's entity message keeps what the server changes (see [`set_monster`]): the playfield, the position, the name
@@ -2394,11 +2458,11 @@ impl Message {
         };
         let move_mode = d.get(at - 8..).and_then(npc_move_mode).filter(|_| flags & 1 != 0).or(player_mode);
         let run_speed = d.get(at - 8..).and_then(|post| npc_run_speed(post, flags)).filter(|_| flags & 1 != 0);
-        let (family, health) = match creature_fields(d, at, flags) {
-            Some((family, health)) if flags & 1 != 0 => (Some(family), Some(health)),
-            _ => (None, None),
+        let (family, pet_type, health) = match creature_fields(d, at, flags) {
+            Some((family, pet_type, health)) if flags & 1 != 0 => (Some(family), Some(pet_type), Some(health)),
+            _ => (None, None, None),
         };
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, health, family, move_mode, run_speed })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, health, family, pet_type, move_mode, run_speed })
     }
 }
 

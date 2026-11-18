@@ -1295,6 +1295,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no death music, no resurrection text
 - Where: `docs/ORIGINAL_AUDIT.md:51`; `docs/CLIENT_UI.md:733`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18): ported: the death's reason from the four other messages that carry it (`SpecialAttackInfo`, `HealthDamage`, `ShieldAttack`, `ReflectAttack`: the capture's own death, by a nano program, was told nothing) and from `CharacterAction` 0x99, which is that and nothing else; and the resurrection message (`ResurrectIIR_t`, in no capture): health, nano, the shock's line from level 15. Nothing to port: the death music mode is an empty function in the original. Left on purpose: the windows' reaction, which is not what the line above says (`DeadMessage` is the character object going at every zoning; what the original does at a death is stop all input for some eight seconds, which here could leave a stuck death with no way out). Not ported: the resurrection shock itself (stat 247).
 
 ## NPCs and creatures
 
@@ -1568,7 +1569,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: left out; the client does not know a pet's programs' times
 - A player notices: no pet nano list and no automatic pet renaming
 - Where: `crates/mao-client/src/pets.rs:22`; `docs/CAPTURE_GAPS.md:142`; `crates/mao-client/src/pets.rs:41`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): under each pet a row of its running programs' icons (the `NCUListView_c` the original puts there: smallest icons, by the time left, none when the pet has none or is away), read from the per-character program lists of the same day's Buff fix. `PetType` is in the entity message after all, so the pets' places are the original's. Remember Pet Names is in the menu: a pet's new name (the server's `SetNameIIR_t`) is kept for its place and given back to a pet of that kind that comes; `/pet rename <name>` now sends its name. Neither the rename nor the name change is in any capture: both are the code's alone, and nothing is sent by itself until a name change has come and been understood.
 
 #### `NPC-030` "No missions available" line in the client's own words
 
@@ -2136,7 +2138,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Bag, bank, corpse and chest windows have a tip and Shift+click info only; no menu, no Looter, no Set Loot Access.
 - A player notices: No Create Reference, Delete or loot-rights choice from a container window.
 - Where: `crates/mao-client/src/loot.rs:333`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the container windows have the item's menu by the held right button: Look at Item, Create Reference, Delete Item (in every view that is not read-only or a wear page, a corpse too: more than the line above says; not on the organization's contract here), and on a corpse for one in a team the Looter submenu (`N3Msg_SetLootAccess`). Delete sends the item's own identity and the server's answer takes it out; a capture has that for a backpack. The bank's, the overflow's and a corpse's deletes and every loot access are the code's alone. Create Reference makes a chat link as the inventory's menu does (the original puts the item on the reference board), and a plain right click still takes the item (the original uses a backpack's item and does nothing on a corpse): both left as they were.
 
 #### `INV-051` Client does not send bank use (0x6a), corpse slot action (0x8e), pet command (0x80)
 

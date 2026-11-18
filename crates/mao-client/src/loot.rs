@@ -25,6 +25,27 @@
 //! and Auto Arrange, closing by Escape (`esc_backpacks`), and telling the server that a bag was closed (the
 //! original's message was not identified). The bank, corpses and chests are arranged as they were, in their places'
 //! order (the bank's stacks are not joined or split by hand here: its window has no placing by hand).
+//!
+//! **An item's menu** (GUI.dll FUN_100caf07, connected for every item view by `InventoryViewBase_c`'s FUN_100ccde7):
+//! the right button held on an item for `MouseButtonHoldDelay`, 0.3 s (the list's FUN_10041aa4 starts a timer at
+//! the button's going down, FUN_100420fd raises the menu signal for the item it went down on; let go before that it
+//! is a click). Its entries ([`item_entries`]): Look at Item (the info window, as Shift+click), Create Reference,
+//! Delete Item in every view that is not read-only or a wear page, a corpse or another's chest among them, and on a
+//! corpse, for one in a team, a Looter submenu ([`looter_entries`]: free for all, a random looter, or one of the
+//! team's members; in a raid the teams first). Delete asks first (`ReallyDeleteItemX`), then `N3Msg_DeleteItem`
+//! sends `CharacterAction` 0x70 with the item's own identity, `(0x6b, handle << 16 | place)` in a bag, chest or
+//! corpse, `(0x69, place)` in the bank, `(0x6e, place)` in the overflow, and the item's low and high template; the
+//! item goes when the server answers with the same action ([`Take::Delete`]). A looter is `N3Msg_SetLootAccess`:
+//! the raid command 5 with the corpse, the item's place with whether to roll, and the looter. One capture has a
+//! delete inside a backpack, with the server's answer; the bank's, the overflow's, a corpse's and every loot access
+//! are the code's alone.
+//!
+//! Here Create Reference puts the item's link into the chat's line, as the inventory window's menu does (the
+//! original puts the item on the reference board, the Knowledge window, and makes a chat link only of what is
+//! dropped on the chat's line). The organization's contract has the first two entries only. The submenus replace
+//! the menu (the popup here has none of its own). A plain right click is left as it was: it takes the item, which
+//! is the original's for the bank, a chest and the overflow, where the original uses an item of one's own backpack
+//! out of the bag and does nothing on a corpse.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -132,6 +153,108 @@ pub enum Take {
     Join { handle: u32, onto: u32, held: u32 },
     /// `count` taken off the stack at `place` of one's own backpack as a stack of its own (`N3Msg_SplitItem`).
     Split { handle: u32, place: u32, count: u32 },
+    /// The item at `place` of the container destroyed (`N3Msg_DeleteItem`), after the question: it has to be the item
+    /// of these templates still when the message goes out.
+    Delete { handle: u32, place: u32, low: u32, high: u32 },
+}
+
+/// An entry of an item's menu in a container window, or of its Looter submenus.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Entry {
+    LookAt,
+    Reference,
+    Delete,
+    /// The submenu of who may loot the item.
+    Looters,
+    FreeForAll,
+    RandomLooter,
+    /// A member of the team: its id, its name, and whether the client knows the character (in the playfield).
+    Member(u32, String, bool),
+    /// In a raid: the submenu of the team at that place.
+    Team(usize),
+}
+
+impl Entry {
+    /// The entry's label and whether it can be chosen. The first three are the game's texts (10000's `LookAtItem`,
+    /// `CreateReference`, `DeleteItem`); the looters' labels are literals in the original's program, here in this
+    /// client's words.
+    pub fn label(&self) -> (String, bool) {
+        let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
+        match self {
+            Entry::LookAt => (text("LookAtItem", "Look at Item"), true),
+            Entry::Reference => (text("CreateReference", "Create Reference"), true),
+            Entry::Delete => (text("DeleteItem", "Delete Item"), true),
+            Entry::Looters => ("Looter".to_string(), true),
+            Entry::FreeForAll => ("Free for all".to_string(), true),
+            Entry::RandomLooter => ("Random looter".to_string(), true),
+            Entry::Member(_, name, known) => (name.clone(), *known),
+            Entry::Team(place) => (format!("Team {}", place + 1), true),
+        }
+    }
+}
+
+/// The entries of an item's menu in a container of this kind (FUN_100caf07): look at it, make a reference to it,
+/// delete it (not in the organization's contract here, whose items' identities were not read), and on a corpse, for
+/// one in a team, the looters.
+pub fn item_entries(kind: u32, in_team: bool) -> Vec<Entry> {
+    let mut entries = vec![Entry::LookAt, Entry::Reference];
+    if kind != ORGANIZATION {
+        entries.push(Entry::Delete);
+    }
+    if kind == CORPSE && in_team {
+        entries.push(Entry::Looters);
+    }
+    entries
+}
+
+/// The Looter submenu (built at 0x100cb1ae): free for all, a random looter, then the team's members, each enabled
+/// while the client knows its character (`N3Msg_isDynelInTree`); in a raid the teams that have members instead,
+/// each a submenu of its members (`place`: that team's submenu).
+pub fn looter_entries(team: &crate::team::Team, place: Option<usize>, known: &dyn Fn(u32) -> bool) -> Vec<Entry> {
+    let members = |list: &[crate::team::Mate]| list.iter().map(|m| Entry::Member(m.id, m.name.clone(), known(m.id))).collect::<Vec<_>>();
+    match place {
+        Some(place) => members(team.raid_team(place)),
+        None => {
+            let mut entries = vec![Entry::FreeForAll, Entry::RandomLooter];
+            if team.in_raid() {
+                entries.extend((0..6).filter(|k| !team.raid_team(*k).is_empty()).map(Entry::Team));
+            } else {
+                entries.extend(members(&team.members));
+            }
+            entries
+        }
+    }
+}
+
+/// What a looter entry asks of the server: `N3Msg_SetLootAccess`'s raid command 5 (0x100184cf), its three
+/// identities: the corpse, the item's place in it with whether to roll for it, and the looter (none for the first
+/// two entries). Nothing for an entry that is no looter.
+pub fn loot_access(entry: &Entry, corpse: (u32, u32), place: u32) -> Option<[(u32, u32); 3]> {
+    let (roll, looter) = match entry {
+        Entry::FreeForAll => (0, (0, 0)),
+        Entry::RandomLooter => (1, (0, 0)),
+        Entry::Member(id, _, _) => (0, (0xc350, *id)),
+        _ => return None,
+    };
+    Some([corpse, (place & 0xffff, roll), looter])
+}
+
+/// The item a menu or a question is about: the container it was opened in and the item as it was then.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Chosen {
+    container: (u32, u32),
+    handle: u32,
+    place: u32,
+    low: u32,
+    high: u32,
+}
+
+impl Chosen {
+    /// Whether the window still shows that container with that item at that place (the shared window goes from one
+    /// container to the next, and a backpack opened again has another handle).
+    fn still(&self, view: &LootView) -> bool {
+        view.identity == self.container && view.handle == self.handle && view.items.iter().any(|i| i.slot == self.place && i.item_id == self.low && i.high_id == self.high)
+    }
 }
 
 /// The split asked for by Ctrl+click on a stack of a backpack: the backpack, the stack's place and the count being
@@ -168,6 +291,15 @@ pub struct LootWindow {
     awaited: Option<(u32, usize, std::time::Instant)>,
     /// Feedback lines to be said, by their names (a stack that may not be split, stacks of another level).
     pub feedback: Vec<&'static str>,
+    /// The item the right button went down on, and when: its menu comes 0.3 s later.
+    right_held: Option<(u32, std::time::Instant)>,
+    /// The item menu that is up: the item, where it was opened, and its entries now (the menu, or a submenu).
+    item_menu: Option<(Chosen, egui::Pos2, Vec<Entry>)>,
+    item_popup: Option<crate::gui::popup::PopupMenu>,
+    /// The item whose deleting is being asked about.
+    confirm: Option<Chosen>,
+    /// Links for the chat's line (the menu's Create Reference).
+    pub references: Vec<String>,
 }
 
 /// The most items a container's grid shows slots for (`ItemContainerView_c` FUN_100ce55d: `SetMaxItemCount` 102 for the bank,
@@ -269,6 +401,15 @@ impl LootWindow {
             self.shown = now;
         }
         let mut hovered_cell: Option<usize> = None;
+        let mut hovered_item: Option<u32> = None;
+        // (a menu or a question about an item of another container, or of an item no longer there, goes)
+        if self.item_menu.as_ref().is_some_and(|m| !m.0.still(view)) {
+            (self.item_menu, self.item_popup) = (None, None);
+        }
+        if self.confirm.as_ref().is_some_and(|c| !c.still(view)) {
+            self.confirm = None;
+        }
+        let menu_up = self.item_menu.is_some();
         let skin = crate::skin::skin(ctx);
         let cols = columns(view.identity.0);
         // (room for the columns and the scroll bar, and up to six rows: the bank's, or as many as the items fill)
@@ -336,10 +477,13 @@ impl LootWindow {
                 let hovered = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::item_at(tree, list, response.rect.min, at));
                 // (the cell under the pointer, with an item or not: where an item of the backpack is put by hand)
                 hovered_cell = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::cell_at(tree, list, response.rect.min, at)).map(|(x, y)| y * grid_columns + x).filter(|c| *c < BAG_PLACES);
+                hovered_item = hovered.map(|slot| slot as u32);
                 // (a right click takes the item: the list's use signal, FUN_1004141b's button 2; not with an inventory
-                // item in hand, whose right click is a use of it on another)
+                // item in hand, whose right click is a use of it on another; and not the letting go that ends the
+                // held button's menu)
                 if let Some(slot) = hovered
                     && crate::gear::held().is_none()
+                    && !menu_up
                     && ui.input(|i| i.pointer.secondary_clicked())
                 {
                     take = Some(Take::One { handle: view.handle, place: slot as u32 });
@@ -482,6 +626,77 @@ impl LootWindow {
             let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
             if dragged != u32::MAX && !matches!(view.identity.0, CORPSE | OVERFLOW) && crate::gear::letting_go(ctx) && shown.response.contains_pointer() {
                 take = Some(Take::Put { identity: view.identity, from: dragged });
+            }
+        }
+        // (an item's menu: the right button held on it for 0.3 s, for the item it went down on wherever the pointer is
+        // by then, FUN_10041aa4 / FUN_100420fd; not with something in hand)
+        if ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+            self.right_held = hovered_item.map(|place| (place, std::time::Instant::now()));
+        }
+        if !ctx.input(|i| i.pointer.secondary_down()) && !ctx.input(|i| i.pointer.button_released(egui::PointerButton::Secondary)) {
+            self.right_held = None;
+        }
+        if let Some((place, since)) = self.right_held {
+            ctx.request_repaint();
+            if since.elapsed() >= std::time::Duration::from_millis(300)
+                && self.item_menu.is_none()
+                && self.dragging.is_none()
+                && crate::gear::held().is_none()
+                && let Some(at) = ctx.input(|i| i.pointer.interact_pos())
+                && let Some(item) = view.items.iter().find(|i| i.slot == place)
+            {
+                if crate::gear::traced() {
+                    eprintln!("items: the menu of the container's place {place} opened by the held right button");
+                }
+                let chosen = Chosen { container: view.identity, handle: view.handle, place, low: item.item_id, high: item.high_id };
+                let entries = item_entries(view.identity.0, crate::team::with(|t| !t.members.is_empty()));
+                self.item_popup = Some(crate::chrome::menu_at(ctx, at, &entries.iter().map(Entry::label).collect::<Vec<_>>()));
+                self.item_menu = Some((chosen, at, entries));
+                self.confirm = None;
+                self.right_held = None;
+            }
+        }
+        if let Some(k) = crate::chrome::menu(ctx, palette, "container-item-menu", &mut self.item_popup)
+            && let Some((chosen, at, entries)) = self.item_menu.clone()
+            && let (Some(entry), Some(item)) = (entries.get(k), view.items.iter().find(|i| i.slot == chosen.place))
+        {
+            if crate::gear::traced() {
+                eprintln!("items: the container's place {}: the menu's {entry:?}", chosen.place);
+            }
+            match entry {
+                Entry::LookAt => self.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
+                Entry::Reference => self.references.push(crate::invwindows::reference(item)),
+                Entry::Delete => self.confirm = Some(chosen.clone()),
+                // (a submenu: its entries take the menu's place)
+                Entry::Looters | Entry::Team(_) => {
+                    let place = match entry {
+                        Entry::Team(place) => Some(*place),
+                        _ => None,
+                    };
+                    let next = crate::team::with(|t| looter_entries(t, place, &crate::team::present));
+                    self.item_popup = Some(crate::chrome::menu_at(ctx, at, &next.iter().map(Entry::label).collect::<Vec<_>>()));
+                    self.item_menu = Some((chosen.clone(), at, next));
+                }
+                looter => {
+                    if let Some(ids) = loot_access(looter, chosen.container, chosen.place) {
+                        crate::net::raid_command(5, ids);
+                    }
+                }
+            }
+        }
+        if self.item_popup.is_none() {
+            self.item_menu = None;
+        }
+        // (deleting asks first: `DialogBox_c` titled 10001's "Warning" with `ReallyDeleteItemX` fed the item's name, Yes
+        // and No; FUN_100ca997, then FUN_100ca649)
+        if let Some(chosen) = self.confirm.clone() {
+            let name = view.items.iter().find(|i| i.slot == chosen.place).map_or("", |i| i.name.as_str());
+            let text = crate::feedback::texts().and_then(|t| t.named(10000, "ReallyDeleteItemX")).map_or_else(|| format!("Destroy <font color=yellow>{name}</font>? It cannot be brought back."), |t| mao_formats::ldb::format(t, &[mao_formats::ldb::Arg::Text(name)]));
+            if let Some(yes) = crate::chrome::question(ctx, palette, "delete-container-item", &crate::gui::xml::ldb_named(10001, "Warning", "Warning"), &text) {
+                if yes {
+                    take = Some(Take::Delete { handle: chosen.handle, place: chosen.place, low: chosen.low, high: chosen.high });
+                }
+                self.confirm = None;
             }
         }
         // a backpack's menu and its rename box ("Enter backpack name.", FUN_100cb852: OK, back to its own name, or not)
@@ -631,6 +846,36 @@ mod tests {
         assert_eq!(container_click(false, false, true, true, true), ContainerClick::Nothing);
         assert_eq!(container_click(true, false, true, false, true), ContainerClick::Nothing);
         assert_eq!(container_click(true, true, true, true, true), ContainerClick::Info);
+    }
+
+    /// An item's menu by its container: look at, reference and delete everywhere but the organization's contract
+    /// (no delete there); the looters on a corpse for one in a team. The looters: free for all, random, the team's
+    /// members (one the client does not know cannot be chosen), in a raid the teams that have members. What each
+    /// looter asks: the corpse, the place with the roll, the looter.
+    #[test]
+    fn an_items_menu_follows_its_container() {
+        use Entry::*;
+        assert_eq!(item_entries(BAG, false), [LookAt, Reference, Delete]);
+        assert_eq!(item_entries(BANK, true), [LookAt, Reference, Delete]);
+        assert_eq!(item_entries(OVERFLOW, false), [LookAt, Reference, Delete]);
+        assert_eq!(item_entries(ORGANIZATION, true), [LookAt, Reference]);
+        assert_eq!(item_entries(CORPSE, false), [LookAt, Reference, Delete]);
+        assert_eq!(item_entries(CORPSE, true), [LookAt, Reference, Delete, Looters]);
+        let mate = |id: u32, name: &str| crate::team::Mate { id, name: name.to_string(), ..Default::default() };
+        let mut team = crate::team::Team { own: 1, members: vec![mate(1, "Own"), mate(2, "Mate")], ..Default::default() };
+        let known = |id: u32| id == 1;
+        assert_eq!(looter_entries(&team, None, &known), [FreeForAll, RandomLooter, Member(1, "Own".into(), true), Member(2, "Mate".into(), false)]);
+        assert_eq!(Member(2, "Mate".into(), false).label(), ("Mate".to_string(), false));
+        team.set_place(Some(1));
+        team.others[4] = vec![mate(9, "Far")];
+        assert_eq!(looter_entries(&team, None, &known), [FreeForAll, RandomLooter, Team(1), Team(4)]);
+        assert_eq!(looter_entries(&team, Some(4), &known), [Member(9, "Far".into(), false)]);
+        assert_eq!(Team(4).label().0, "Team 5");
+        let corpse = (CORPSE, 0x77);
+        assert_eq!(loot_access(&FreeForAll, corpse, 0x10003), Some([corpse, (3, 0), (0, 0)]));
+        assert_eq!(loot_access(&RandomLooter, corpse, 3), Some([corpse, (3, 1), (0, 0)]));
+        assert_eq!(loot_access(&Member(2, "Mate".into(), true), corpse, 3), Some([corpse, (3, 0), (0xc350, 2)]));
+        assert_eq!((loot_access(&Delete, corpse, 3), loot_access(&Team(1), corpse, 3)), (None, None));
     }
 
     #[test]

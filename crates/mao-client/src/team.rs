@@ -238,6 +238,17 @@ pub enum Command {
 
 static TEAM: Mutex<Team> = Mutex::new(Team { members: Vec::new(), invite: None, leader: None, level: None, own: 0, raid: None, others: [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()] });
 static COMMANDS: Mutex<Vec<Command>> = Mutex::new(Vec::new());
+/// The team's and the raid's members whose characters the client knows now (they are in the playfield:
+/// `N3Msg_isDynelInTree`), as the connection last told: the corpse's Looter menu enables only those.
+static PRESENT: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+pub fn set_present(ids: Vec<u32>) {
+    *PRESENT.lock().unwrap_or_else(|e| e.into_inner()) = ids;
+}
+
+pub fn present(id: u32) -> bool {
+    PRESENT.lock().unwrap_or_else(|e| e.into_inner()).contains(&id)
+}
 
 /// The team as the connection last heard it.
 pub fn with<R>(f: impl FnOnce(&mut Team) -> R) -> R {

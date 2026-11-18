@@ -1147,6 +1147,9 @@ impl Ui {
                     info_view.show_url(&url);
                 }
                 requests.feedback.append(&mut loot_window.feedback);
+                for link in loot_window.references.drain(..) {
+                    chat_window.add_text(&link);
+                }
                 if let (Some(place), Some(at)) = (loot_window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
                     requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
@@ -1170,6 +1173,9 @@ impl Ui {
                     info_view.show_url(&url);
                 }
                 requests.feedback.append(&mut window.feedback);
+                for link in window.references.drain(..) {
+                    chat_window.add_text(&link);
+                }
                 if let (Some(place), Some(at)) = (window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
                     requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
@@ -1283,9 +1289,13 @@ impl Ui {
             }
             team_window.show(&ctx, palette);
             pet_window.show_buttons = settings.pet_buttons;
-            if pet_window.show(&ctx, &crate::pets::get(), palette, &mut settings.fixed_pet_buttons) {
+            crate::pets::set_remembering(settings.remember_pet_names);
+            if pet_window.show(&ctx, &crate::pets::get(), palette, &mut settings.fixed_pet_buttons, &mut settings.remember_pet_names) {
                 settings.pet_buttons = pet_window.show_buttons;
                 requests.save = true;
+            }
+            if let Some(url) = pet_window.info_url.take() {
+                info_view.show_url(&url);
             }
             faction_window.show(&ctx, &hud.stats, palette);
             for url in extras.show(&ctx, palette) {
@@ -1593,9 +1603,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     // (MAO_UI_PREVIEW=pets: the pet window on the 2026-10-31 capture's two pets, one selected, and a healer away)
     let mut preview_pets = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("pets")).then(|| { let mut w = crate::pets::PetWindow::default(); w.open = true; w });
     let pet_sample = [
-        crate::pets::Pet { id: (0xc350, 0x7b1e6d64), name: "Ravening M-60".into(), health: (17402, 23203), in_play: true, selected: true, family: Some(0x5f), flash: -1 },
-        crate::pets::Pet { id: (0xc350, 0x7b1e6d65), name: "Widowmaker Battle Drone".into(), health: (69609, 69609), in_play: true, selected: false, family: Some(0x5f), flash: -1 },
-        crate::pets::Pet { id: (0xc350, 0x7b1e6d66), name: "Healing pet".into(), health: (0, 0), in_play: false, selected: false, family: Some(0x60), flash: -1 },
+        crate::pets::Pet { id: (0xc350, 0x7b1e6d64), name: "Ravening M-60".into(), health: (17402, 23203), in_play: true, selected: true, family: Some(0x5f), pet_type: Some(12), flash: -1 },
+        crate::pets::Pet { id: (0xc350, 0x7b1e6d65), name: "Widowmaker Battle Drone".into(), health: (69609, 69609), in_play: true, selected: false, family: Some(0x5f), pet_type: Some(10), flash: -1 },
+        crate::pets::Pet { id: (0xc350, 0x7b1e6d66), name: "Healing pet".into(), health: (0, 0), in_play: false, selected: false, family: Some(0x60), pet_type: Some(15), flash: -1 },
     ];
     // (MAO_UI_PREVIEW=tip: the tip window on the tips triggered)
     let mut preview_tips = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("tip")).then(crate::tips::Tips::default);
@@ -1752,8 +1762,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 team.show(&ctx, &palette);
             }
             if let Some(window) = preview_pets.as_mut() {
-                let mut fixed = false;
-                window.show(&ctx, &pet_sample, &palette, &mut fixed);
+                let (mut fixed, mut remember) = (false, true);
+                window.show(&ctx, &pet_sample, &palette, &mut fixed, &mut remember);
             }
             if let Some(window) = preview_factions.as_mut() {
                 window.show(&ctx, &faction_sample, &palette);
