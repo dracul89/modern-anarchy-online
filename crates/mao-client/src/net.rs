@@ -1039,10 +1039,18 @@ pub static LOCK_EQUIPMENT: std::sync::atomic::AtomicBool = std::sync::atomic::At
 /// Whether a move between the places `from` and `to` is stopped by the equipment's lock, the first thing Gamecode's
 /// `N3Msg_IsItemPossibleToWear` (0x10026c57) and `N3Msg_IsItemPossibleToUnWear` (0x100268df) ask (FUN_100266c9): a
 /// move onto a wear place or off one while `LockEquipment` is on. The original then says
-/// `Feedback_EquipmentLocked` and sends nothing. (Its other lock, the list of single locked tabs `EquipmentLocks`
-/// that the wear window's tabs set, is not here: this client's wear window has no such locks.)
-fn equipment_locked(locked: bool, from: u32, to: u32) -> bool {
-    locked && (from < inventory::BACKPACK_FIRST || to < inventory::BACKPACK_FIRST)
+/// `Feedback_EquipmentLocked` and sends nothing. Its other lock is the list of single places `EquipmentLocks`, which
+/// a worn item's menu fills (`gear::equipment_locked`, here `place`): the place an item is to be worn on is asked,
+/// and the place an item is taken off.
+fn equipment_locked(locked: bool, place: &dyn Fn(u32) -> bool, from: u32, to: u32) -> bool {
+    let wear = |p: u32| p < inventory::BACKPACK_FIRST;
+    (locked && (wear(from) || wear(to))) || (wear(to) && place(to)) || (wear(from) && place(from))
+}
+
+/// A stat of an item's template (None when the template has none or the database is not set).
+pub(crate) fn item_template_stat(template: u32, stat: u32) -> Option<u32> {
+    let db = ITEM_DB.get()?;
+    db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).and_then(|t| t.stat(stat))
 }
 
 /// `/rp` typed, how many times: the game loop turns the mark over for each (`n3::ROLE_PLAY`).
@@ -9392,7 +9400,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if let Some((from, to)) = wanted_move {
                 // (to a wear place only what may be worn there: the original asks itself before it asks the server; and
                 // nothing on or off while the equipment is locked)
-                let refusal = if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), from, to) {
+                let refusal = if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), &crate::gear::equipment_locked, from, to) {
                     Some(vec![Say::Named("Feedback_EquipmentLocked")])
                 } else {
                     state.unwear_refusal(from, to).or_else(|| state.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| state.wear_refusal(e, to, &gear_db, None)))
@@ -9482,7 +9490,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // the place is given to the check, which judges the character without it: `World::wear_refusal`.)
                     let wearing = e.slot >= inventory::BACKPACK_FIRST;
                     let refusal = to.and_then(|to| {
-                        if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), e.slot, to) {
+                        if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), &crate::gear::equipment_locked, e.slot, to) {
                             return Some(vec![Say::Named("Feedback_EquipmentLocked")]);
                         }
                         let off = state.worn.iter().find(|w| w.slot == to);
@@ -13869,9 +13877,15 @@ mod movement_tests {
     #[test]
     fn the_locked_equipment_stays_as_it_is() {
         let pack = inventory::BACKPACK_FIRST;
-        assert!(equipment_locked(true, pack + 3, 6) && equipment_locked(true, 6, pack + 3) && equipment_locked(true, 6, 8));
-        assert!(!equipment_locked(true, pack + 3, pack + 9));
-        assert!(!equipment_locked(false, pack + 3, 6) && !equipment_locked(false, 6, pack + 3));
+        let none = |_: u32| false;
+        assert!(equipment_locked(true, &none, pack + 3, 6) && equipment_locked(true, &none, 6, pack + 3) && equipment_locked(true, &none, 6, 8));
+        assert!(!equipment_locked(true, &none, pack + 3, pack + 9));
+        assert!(!equipment_locked(false, &none, pack + 3, 6) && !equipment_locked(false, &none, 6, pack + 3));
+        // (one place locked by its item's menu: nothing worn on it, nothing taken off it; the other places as ever, and
+        // a backpack place of the same number is no wear place)
+        let six = |p: u32| p == 6 || p == pack + 3;
+        assert!(equipment_locked(false, &six, pack + 3, 6) && equipment_locked(false, &six, 6, pack + 9) && equipment_locked(false, &six, 6, 8));
+        assert!(!equipment_locked(false, &six, pack + 3, 7) && !equipment_locked(false, &six, 7, pack + 3) && !equipment_locked(false, &six, pack + 3, pack + 9));
     }
 
     /// A numbered line of the chat server's: its fill-ins go in in their order, a number as a number, a text's

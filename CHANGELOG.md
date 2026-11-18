@@ -33,6 +33,18 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The wear window's menu (right click on an empty slot) has **Labels On Top**.
 - Pictures inside text are drawn: the bullets before an NPC's answers, and the item icons of a mission's rewards in
   its description.
+- Every window has the small menu button at the left of its title, as in the original: it shows the window's own
+  menu (list mode and ordering for the inventory and containers, the labels for the wear and inspect windows) and
+  Close Window.
+- The inspect window has its own "Labels On Top".
+
+### Items
+
+- A worn item can be locked to its place: hold the right button on it and choose Lock Item. It then cannot be taken
+  off, swapped or have another item put in its place by mistake, and shows a small lock. Unlock Item, or Unlock All
+  Items in the wear window's menu, frees it. "Delete" is no longer offered for an item you are wearing.
+- The bank's items can be placed by hand: its menu has "Don't Auto Arrange", and it starts that way. Each item stays
+  in the cell you put it in.
 
 ## 0.1.6 (2026-11-18)
 

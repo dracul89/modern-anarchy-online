@@ -5957,3 +5957,62 @@ page). The mission page's rewards are the other place: an item with no icon of i
 (`<img src=tdb://185>`, FUN_1003f534) where it was left out. No captured chat line, NPC text or info page has an
 `<img>`: the server sends none in what was captured.
 Tests: `a_source_is_a_prefix_and_a_number`, `what_is_no_picture_stays_text`.
+
+### What was left of the item windows' menus (WIN-109)
+
+**A worn item locked to its place.** The original (GUI.dll FUN_100caf07, FUN_100ca3ae; Gamecode FUN_100266c9):
+
+- A worn item's menu is Look At, Create Reference and then "Lock Item" or "Unlock Item" (text names `LockItem`,
+  `UnlockItem`); "Delete" is only in the menu of an item that is not worn. The lock's entry is left out for an item
+  whose stat 8 (`TimeExist`) is above 0.
+- Choosing it puts the place's identity (0x65 to 0x67 and 0x73 with the place's number) into
+  `InventoryItemLocker_c`, the same set that holds the items waiting on the city map, and into the character's
+  kept `EquipmentLocks`. The item shows the lock's picture at the bottom right of its cell (FUN_10040bda).
+- A locked item is not taken up (FUN_100cc6e8), not used, worn or traded by the mouse (FUN_100cae1b), and an item
+  let go on it is refused with `DroppedItemWasLocked`. Gamecode asks the kept list itself: nothing is worn on a
+  locked place (`N3Msg_IsItemPossibleToWear` asks for the place the item is to go to) and nothing is taken off one
+  (`N3Msg_IsItemPossibleToUnWear`), each with `Feedback_EquipmentLocked`.
+- The wear window's "Unlock All Items" (FUN_100e1f9b) takes the lock off all 64 wear places and empties what is
+  kept. It is never greyed, and only the character's own window has it.
+
+Here (`gear::equipment_locked`, `set_equipment_lock`, `unlock_all_equipment`, `gear::locked`; `invwindows.rs`;
+`net.rs` `equipment_locked`): the same, with a bit for each wear place kept per character among the windows' kept
+numbers (`EquipmentLocks<character>` in `tabs.ini`; the original keeps a list in the character's preferences).
+Departures: the item's stat 8 is the template's (an item's own stats are not kept here); the lock does not go
+with an item that the server moves (the original's set follows such a move, its kept list does not); the inspect
+window has no lock entry (the original's code would offer it there, on the viewer's own set by the look of it;
+not read to the end, so not done). **Changed with it: "Delete" is no longer in a worn item's menu**, as in the
+original.
+
+**The bank placed by hand.** The bank has the original's "own" flag (FUN_100ce55d sets `+0x14c` for it), so its
+menu offers "Don't Auto Arrange" and it starts not arranged. The places are the client's own matter there too: each
+item view keeps `item_id` / `item_pos` pairs in its own file (FUN_100cdfbb), nothing of it is sent, and an item
+let go on a bank cell from elsewhere is sent with `N3Msg_ContainerAddItem` naming no cell, the view keeping the
+cell for the item that comes (the first free one when the cell is taken). Here: `LootView::placed`, 102 cells in
+`places.ini`, an item moved to an empty cell or changing cells with another by the mouse, and an inventory item
+let go on an empty bank cell stands there when it comes (`awaited_cell`: the next item that has no cell yet).
+**Not done: joining two stacks inside the bank by the mouse** (how that goes on the wire for the bank is not
+known here; an item let go on a stack it could join stays where it was). The bank was ordered as the server sends
+it before; whoever had it so finds it "not arranged" in that same order.
+
+**The inspect window's own Labels On Top.** The inspect window is the wear view made for another character; its
+menu has the one entry, kept apart (`InspectViewConfig`; here `InspectLabelsOnTop`). Read with it: when the window
+is made, a kept "labels under the items" is set on three pages only, before the social page exists (FUN_100e24b8
+calls `SetGridLabelsOnTop` three times), while the menu's entry sets all four (FUN_100e1c7b). Ported so for both
+windows: after a restart the social page's labels are over its items again until the entry is chosen.
+
+**The frame's menu button.** The original's window frame has a button at the left end of its title
+(`WndBorder`, FUN_1015ae85: `GFX_GUI_WINDOW_ICON_I`), which shows the window's menu under itself, five below its
+bottom (FUN_1015aa2f): the view's own entries, then "Autofade Window" and "Close Window" (FUN_1015b34f). Here
+(`chrome::window`, `chrome::frame_menu`, `chrome::close_entry`): every framed window has the button, the title
+moved right by it. The inventory, the wear window, the inspect window and the containers show their menus by it
+(the same ones the right button beside the items shows) with "Close Window" after their entries; any other window
+shows the one entry. **Not there: "Autofade Window"** (this client's windows do not fade; its pin keeps a window
+open at Escape, which is another thing), the button's pressed look, and the button on a window docked at the
+screen's edge.
+
+Seen offscreen: the wear window with two locked places (`MAO_EQUIPMENT_LOCKS=6,8`), the bank not arranged with its
+menu (`MAO_LOOT_BANK=1 MAO_LOOT_MENU=1`), the frame's menu on the inventory, the inspect window and the mission
+window (`MAO_FRAME_MENU=<window's name>` shows the frame's own). **Not tried: every mouse path** (locking by the
+menu, a refused move, items moved in the bank, an item put into the bank on a cell).
+Tests: `the_locked_equipment_stays_as_it_is`, `the_arrange_menu_follows_the_container`.

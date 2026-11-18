@@ -84,6 +84,11 @@ pub fn arrange(key: Key, items: &[u32], room: usize, awaited: Option<(u32, usize
     })
 }
 
+/// The cells remembered for a container, as they are.
+pub fn remembered(key: Key) -> Cells {
+    with(|places| places.get(&key).cloned().unwrap_or_default())
+}
+
 /// Puts the item of a place into a cell ([`move_to`]).
 pub fn put(key: Key, place: u32, cell: usize) {
     change(key, |cells| move_to(cells, place, cell));

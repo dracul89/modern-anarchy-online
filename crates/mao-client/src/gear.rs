@@ -69,6 +69,69 @@ pub fn set_city_locks(places: Vec<u32>) {
 pub fn city_locked(place: u32) -> bool {
     CITY_LOCKS.lock().unwrap_or_else(|e| e.into_inner()).contains(&place)
 }
+
+/// The wear places locked one by one: a worn item's menu has "Lock Item" / "Unlock Item" (GUI.dll FUN_100caf07,
+/// FUN_100ca3ae), which puts the place's identity into the same `InventoryItemLocker_c` and into the character's
+/// kept `EquipmentLocks` (a list of identities: 0x65 to 0x67 and 0x73 with the place's number). Gamecode reads the
+/// kept list (FUN_100266c9): nothing is worn on a locked place and nothing taken off it
+/// (`N3Msg_IsItemPossibleToWear`, `N3Msg_IsItemPossibleToUnWear`). The wear window's "Unlock All Items" empties it
+/// (FUN_100e1f9b).
+///
+/// Here: a bit for each of the 64 wear places, kept for the character with the windows' kept numbers (the original
+/// keeps it in the character's preferences).
+struct EquipmentLocks {
+    /// The character the bits were read for (`None` inside: none known yet).
+    read_for: Option<Option<u32>>,
+    bits: u64,
+}
+
+static EQUIPMENT_LOCKS: std::sync::Mutex<EquipmentLocks> = std::sync::Mutex::new(EquipmentLocks { read_for: None, bits: 0 });
+
+/// The wear places: below the backpack's first.
+const WEAR_PLACES: u32 = 64;
+
+fn with_equipment_locks<R>(f: impl FnOnce(&mut u64) -> R) -> R {
+    let character = crate::layout::character();
+    let key = |c: u32| format!("EquipmentLocks{c}");
+    let mut locks = EQUIPMENT_LOCKS.lock().unwrap_or_else(|e| e.into_inner());
+    if locks.read_for != Some(character) {
+        // (`MAO_EQUIPMENT_LOCKS=<place>,<place>`: locked places for a picture of the interface)
+        let forced = std::env::var("MAO_EQUIPMENT_LOCKS").ok().map(|t| t.split(',').filter_map(|p| p.trim().parse::<u32>().ok()).filter(|p| *p < WEAR_PLACES).fold(0u64, |bits, p| bits | 1 << p));
+        locks.bits = forced.or_else(|| character.and_then(|c| crate::layout::tab(&key(c))).map(|bits| bits as u64)).unwrap_or(0);
+        locks.read_for = Some(character);
+    }
+    let before = locks.bits;
+    let out = f(&mut locks.bits);
+    if locks.bits != before
+        && let Some(c) = character
+    {
+        crate::layout::set_tab(&key(c), locks.bits as usize);
+    }
+    out
+}
+
+/// Whether a wear place is locked by its item's menu.
+pub fn equipment_locked(place: u32) -> bool {
+    place < WEAR_PLACES && with_equipment_locks(|bits| *bits >> place & 1 == 1)
+}
+
+/// "Lock Item" / "Unlock Item" on a worn item.
+pub fn set_equipment_lock(place: u32, on: bool) {
+    if place < WEAR_PLACES {
+        with_equipment_locks(|bits| *bits = if on { *bits | 1 << place } else { *bits & !(1 << place) });
+    }
+}
+
+/// "Unlock All Items".
+pub fn unlock_all_equipment() {
+    with_equipment_locks(|bits| *bits = 0);
+}
+
+/// Whether the item at a place of the character's own is locked, either way: it shows the lock's picture and is not
+/// taken up, used, traded or dropped on.
+pub fn locked(place: u32) -> bool {
+    city_locked(place) || equipment_locked(place)
+}
 /// The item in hand was taken up this frame: the click that takes it up does not also put it down. (A flag the
 /// interface clears when the frame is over, not the frame's number: what follows the frame's drawing, the use of an
 /// item on the world, already counts the next one.)

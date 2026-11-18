@@ -923,6 +923,15 @@ These were written before this list; some may have been seen working since witho
   and come back): a body lies there, lootable as before. Tell me if one stands upright or floats.
 - [ ] Pictures in text (2026-11-18): talk to an NPC: each answer has a small orange bullet before it. Open a mission
   with item rewards in the mission window: the rewards show as icons you can click for the item's page.
+- [ ] Locking worn items (2026-11-18): hold the right button on a worn item, choose Lock Item: a small lock shows on
+  it. Try to take it off, to right-click it, to wear something else in its place: nothing happens or "Equipment
+  tabs are locked." Unlock Item frees it; Unlock All Items is in the wear window's menu (the i button at the left
+  of its title). Relog: the lock is still there.
+- [ ] The bank by hand (2026-11-18): open the bank: items stay where they are, and one can be moved to an empty cell
+  or change cells with another. Put an inventory item on an empty bank cell: it should stand there. Tell me if an
+  item jumps elsewhere or two end up on one cell.
+- [ ] The frame's menu button (2026-11-18): the small "i" at the left of a window's title: the menu under it, Close
+  Window closes the window. Tell me of any window whose title is cut or overlapped by it.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

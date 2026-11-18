@@ -35,9 +35,49 @@ pub fn close_soon(name: &str) {
     CLOSING.lock().unwrap().push(name.to_string());
 }
 
-/// The end of a frame: Escape's requests not taken (the windows not shown) are dropped.
+/// The frame's menu button pressed: the window's name, where its menu goes, and the frame it was pressed in (none:
+/// to be shown by the frame itself at once).
+///
+/// The original's window frame has a button at the left end of its title (`WndBorder`, GUI.dll FUN_1015ae85: a
+/// `BorderButton_c` of `GFX_GUI_WINDOW_ICON_I` in the border's first place), which shows the window's menu under
+/// itself, five below its bottom (FUN_1015aa2f): the entries the window's view puts in, then "Autofade Window"
+/// and "Close Window" (FUN_1015b34f). Here a window that has entries of its own takes the press ([`frame_menu`])
+/// and shows them with [`close_entry`] after them; for any other the frame shows the one entry itself. "Autofade
+/// Window" is not there: this client's windows do not fade.
+static FRAME_ASKED: Mutex<Option<(String, egui::Pos2, Option<u64>)>> = Mutex::new(None);
+
+thread_local! {
+    /// The frame's own menu while it is up, and whose it is.
+    static FRAME_POPUP: std::cell::RefCell<Option<(String, crate::gui::popup::PopupMenu)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Where the menu of the window `name` is to be shown, when its frame's button was pressed: a window with a menu of
+/// its own asks after it has been drawn.
+pub fn frame_menu(name: &str) -> Option<egui::Pos2> {
+    let mut asked = FRAME_ASKED.lock().unwrap();
+    let at = asked.as_ref().filter(|(n, _, _)| n == name).map(|(_, at, _)| *at)?;
+    *asked = None;
+    Some(at)
+}
+
+/// The frame menu's last entry, "Close Window".
+pub fn close_entry() -> String {
+    crate::gui::xml::ldb_named(10000, "CloseWindow", "Close")
+}
+
+/// The windows a menu's "Close Window" closes: asked after the window was drawn, so kept for the next frame.
+static CLOSING_NEXT: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Closes a window the next time it is shown, asked from its own menu (after it was drawn this frame).
+pub fn close_next(name: &str) {
+    CLOSING_NEXT.lock().unwrap().push(name.to_string());
+}
+
+/// The end of a frame: Escape's requests not taken (the windows not shown) are dropped, and the menus' requests of
+/// this frame wait for the next.
 pub fn end_frame() {
-    CLOSING.lock().unwrap().clear();
+    let next = std::mem::take(&mut *CLOSING_NEXT.lock().unwrap());
+    *CLOSING.lock().unwrap() = next;
 }
 
 pub(crate) fn take_closing(name: &str) -> bool {
@@ -357,13 +397,46 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         let content = ui.min_rect();
         let outer = ctx.memory(|m| m.area_rect(id)).filter(|r| r.is_finite() && r.width() > 20.0).unwrap_or_else(|| egui::Rect::from_min_max(content.min - egui::vec2(LEFT as f32, TOP as f32), content.max + egui::vec2(RIGHT as f32, BOTTOM as f32)));
         painter.set(under, frame_shape(&skin, outer, panel, accent));
+        // (the frame's menu button at the title's left end, which moves the title right: `AddBorderView` in the
+        // border's first place)
+        let mut title_left = outer.left() + 9.0;
+        if let Some(icon) = skin.get("GFX_GUI_WINDOW_ICON_I") {
+            let rect = egui::Rect::from_min_size(egui::pos2(outer.left() + 7.0, outer.top() + 5.0 + ((15.0 - icon.size.y) * 0.5).floor()), icon.size);
+            let response = ui.interact(rect.expand(1.0), id.with("frame-menu"), egui::Sense::click());
+            let up = FRAME_POPUP.with(|p| p.borrow().as_ref().is_some_and(|(n, _)| *n == name));
+            let tint = if response.hovered() { hover } else if up { rgb(palette.text_selected) } else { accent };
+            painter.image(icon.texture.id(), rect, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), tint);
+            // (`MAO_FRAME_MENU=<window>`: the frame's own menu up, for a picture; as if pressed the frame before, so
+            // that no window's own menu takes its place)
+            static PICTURED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            let pictured = std::env::var("MAO_FRAME_MENU").is_ok_and(|n| n == name) && !PICTURED.swap(true, std::sync::atomic::Ordering::Relaxed);
+            if response.clicked() || pictured {
+                *FRAME_ASKED.lock().unwrap() = Some((name.clone(), egui::pos2(rect.left(), rect.bottom() + 5.0), (!pictured).then(|| ctx.cumulative_frame_nr())));
+            }
+            title_left = rect.right() + 4.0;
+        }
+        // (a press no window took for a menu of its own: the frame's, which has the one entry)
+        let stale = FRAME_ASKED.lock().unwrap().as_ref().filter(|(n, _, frame)| *n == name && frame.is_none_or(|f| f < ctx.cumulative_frame_nr())).map(|(_, at, _)| *at);
+        if let Some(at) = stale {
+            *FRAME_ASKED.lock().unwrap() = None;
+            FRAME_POPUP.with(|p| *p.borrow_mut() = Some((name.clone(), menu_at(ctx, at, &[(close_entry(), true)]))));
+        }
+        let mut own = FRAME_POPUP.with(|p| p.borrow_mut().take_if(|(n, _)| *n == name)).map(|(_, popup)| popup);
+        if own.is_some() {
+            if menu(ctx, palette, "frame-menu", &mut own) == Some(0) {
+                close = true;
+            }
+            if let Some(popup) = own {
+                FRAME_POPUP.with(|p| *p.borrow_mut() = Some((name.clone(), popup)));
+            }
+        }
         // the title row (the title cut where the buttons begin: a narrow window's long title does not run under them)
         let mut x = outer.right() - RIGHT as f32 - 15.0;
         // (a dockable window has a third button: into the rollup area down the right edge, `rollup.rs`)
         let dockable = crate::rollup::DOCKABLE.contains(&name.as_str());
         let buttons_left = x - 17.0 * if dockable { 2.0 } else { 1.0 } - 3.0;
         let title_room = egui::Rect::from_min_max(outer.min, egui::pos2(buttons_left.max(outer.left()), outer.bottom()));
-        crate::font::text(ctx, &painter.with_clip_rect(title_room.intersect(painter.clip_rect())), egui::pos2(outer.left() + 9.0, outer.top() + 5.0), &title, 15.0, accent);
+        crate::font::text(ctx, &painter.with_clip_rect(title_room.intersect(painter.clip_rect())), egui::pos2(title_left, outer.top() + 5.0), &title, 15.0, accent);
         for (button, what) in [("CLOSE_X", "close"), ("PIN", "pin"), ("ROLLUP_COLLAPSE", "dock")] {
             if what == "dock" && !dockable {
                 break;
