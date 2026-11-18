@@ -7164,6 +7164,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     if std::mem::take(&mut fresh) && connection.send(&n3::action(own, n3::STAND)).is_err() {
                         break;
                     }
+                } else {
+                    // (set down in the playfield it was in: after a death, at the reclaim terminal. The original says it is
+                    // ready after every playfield message, 52 of the captures' 52, the one after its own death in the same
+                    // playfield among them; until it does the server takes no move of the character, sends none of its
+                    // stats and lets it do nothing. This client said so only for another playfield, and a character back
+                    // from its death in the playfield it died in stood there for the server until the next login: no
+                    // health told, no heal, no logging off. The user's Maowild, 2026-11-17, twice.)
+                    eprintln!("set down in the same playfield: ready");
+                    mode_told = false;
+                    if connection.send(&n3::ready(own)).is_err() {
+                        break;
+                    }
                 }
             }
             // (Bounded: the newest state is what counts, and a flood of them must not starve the connection.)

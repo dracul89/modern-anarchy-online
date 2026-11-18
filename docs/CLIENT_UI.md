@@ -4829,3 +4829,16 @@ and the health kept for its target line (nothing, since the death) is forgotten,
 
 The test asserts both from here on: the own character is no corpse's body, and nothing but a teleport takes it out
 of the world. Not seen live (it needs a death).
+
+**That was not all of it** (the same evening: "that still doesn't work", with a picture of the character's name
+standing ten metres from the character). The log of the second death shows it: after the character was set down
+the client sent 32 moves and the server answered none, where it answers every one. The original says it is ready
+(`570c2039`) after every playfield message: 52 of the captures' 52, among them the one after its own death, which
+is in the playfield it died in. This client said so only when the playfield message named another playfield. So
+after a death in Arete Landing, whose reclaim terminal is in Arete Landing, the server went on waiting: it took no
+move (the name stood where the server had the character), told none of the stats (no health), and let the
+character neither be healed nor log off. Now the ready goes out after a playfield message for the same playfield
+too, and the walk or run mode is told again as on any arrival. Not seen live.
+
+How it was missed the first time: the replay runs the server's messages through the world and cannot see what the
+client fails to send. A fault after an arrival wants the log's count of moves sent and moves answered first.
