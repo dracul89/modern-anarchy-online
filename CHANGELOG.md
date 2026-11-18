@@ -53,6 +53,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   what their keys do); most of them only said their message was not known.
 - Brawl and Dimach say "Special attack is unavailable" when only ranged weapons are held, as in the game, instead
   of being sent and refused.
+- Nano programs show their real time in the NCU window (it showed a tenth), and your own programs no longer drop
+  off the client's list, with their bonuses, after a tenth of their time.
+- A program another player casts on you now appears in your NCU window.
+- Other players' polymorphs, vehicles and auras end when the program ends instead of lingering for thirty seconds,
+  and a target's NCU window shows the programs' real times.
 
 ### Windows
 

@@ -12,7 +12,8 @@ use mao_formats::resource::{Id, ResourceDatabase};
 use crate::gear::Icon;
 use crate::theme::Palette;
 
-/// The database type of nano programs; the item `stat` of a nano's duration in milliseconds.
+/// The database type of nano programs; the item `stat` of a nano's duration, in hundredths of a second (1440000 for
+/// a four-hour program; taken for milliseconds until 2026-11-18, which showed a tenth of every time).
 const NANO: u32 = 0xfde85;
 const DURATION: u32 = 8;
 
@@ -146,7 +147,7 @@ pub fn describe(db: &ResourceDatabase, textures: &crate::Textures, running: &[(u
                 description: template.as_ref().map(|t| t.description.clone()).unwrap_or_default(),
                 icon,
                 remaining_ms,
-                total_ms: template.as_ref().and_then(|t| t.stat(DURATION)).unwrap_or(0),
+                total_ms: template.as_ref().and_then(|t| t.stat(DURATION)).unwrap_or(0).saturating_mul(10),
                 at,
                 effects,
                 cost: template.as_ref().and_then(|t| t.stat(54)).filter(|&c| c < 999).unwrap_or(0),

@@ -264,22 +264,21 @@ struct World {
     strafing: BTreeMap<u32, i8>,
     /// Whether a character is moving backwards (its own: the back key; the others: the move against their facing).
     backing: BTreeMap<u32, bool>,
-    /// `Buff` messages not yet looked at: (character, nano program). The server repeats a character's buffs every twenty seconds or so.
-    buffs_seen: Vec<(u32, u32)>,
-    /// The programs other characters run, with when their buff was last announced (the server repeats them about every twenty seconds).
-    active_buffs: BTreeMap<u32, BTreeMap<u32, Instant>>,
-    /// When each of those was first announced (character, nano): the buff message has no time, so a target's NCU
-    /// window counts its time left from here.
-    buff_first: BTreeMap<(u32, u32), Instant>,
-    /// The nanos another character's full update listed, with the time each had left then.
-    other_nano_times: BTreeMap<u32, (Vec<(u32, u32)>, Instant)>,
-    /// The polymorph of each other character: the creature and when its program was last announced.
-    morphed_until: BTreeMap<u32, (u32, Instant)>,
+    /// The programs running on the other characters, each with the time it had left (milliseconds) when that was
+    /// told, and when: those a character's full update lists, those the server starts on it while it is in view
+    /// (`CharacterAction` 0x62 for the character: `program_started`), until the server takes one off (`Buff`:
+    /// `program_ended`), its time is up, or the character goes. A target's NCU window, the auras, another's
+    /// polymorph body and its vehicle are read from here.
+    ///
+    /// Until 2026-11-18 `Buff` was taken for "this program is running", repeated by the server every twenty seconds
+    /// or so, and a program counted as running for thirty seconds after each. It is the opposite: `BuffIIR_c`'s exec
+    /// (FUN_100726e5 → FUN_10051041) ends the program, and in the captures it comes when a program's time is up
+    /// (five seconds after a five-second one's start, hundreds of times), when it is cancelled, and just before the
+    /// 0x62 of a program cast again, which is what looked like a repeat.
+    others_nanos: BTreeMap<u32, BTreeMap<u32, (u32, Instant)>>,
     /// The vehicle program (a Phasefront hoverboard or hoverbike) each character runs: its `ChangeMesh` spells, keyed on the
     /// body, give the vehicle body the character is drawn as (`Characters::vehicle`).
     riding: BTreeMap<u32, u32>,
-    /// The vehicle program of each other character and when its buff was last announced.
-    riding_until: BTreeMap<u32, (u32, Instant)>,
     /// The body a character has in place of its own, as (NPC template, body scale in percent). One's own: a worn
     /// Yalmaha's `ChangeMesh` without criteria and its scale (`mao_formats::item::craft`), or the same of a running
     /// program. Another player's (since 2026-11-18): the `MonsterData` and `Scale` of its full update, a craft or a
@@ -1321,24 +1320,69 @@ impl World {
     }
 
     /// The nanos known to run on a character, for its NCU window: the nano, the time it had left (milliseconds) when
-    /// that was told, and since when. The own character's are its list; another's are those its full update listed
-    /// (while their time lasts) and those the server announces (no time: counted from the first announcement).
+    /// that was told, and since when. The own character's are its list; another's are `others_nanos` (while their
+    /// time lasts).
     fn nanos_on(&self, id: u32) -> Vec<(u32, Option<u32>, Instant)> {
         if id == self.own {
             let at = self.nano_times_at.unwrap_or_else(Instant::now);
             return self.nano_times.iter().map(|&(nano, ms)| (nano, Some(ms), at)).collect();
         }
-        let mut out: Vec<(u32, Option<u32>, Instant)> = Vec::new();
-        if let Some((times, at)) = self.other_nano_times.get(&id) {
-            let elapsed = at.elapsed().as_millis();
-            out.extend(times.iter().filter(|t| elapsed < u128::from(t.1)).map(|&(nano, ms)| (nano, Some(ms), *at)));
+        self.others_nanos.get(&id).into_iter().flatten().filter(|(_, (ms, at))| at.elapsed().as_millis() < u128::from(*ms)).map(|(&nano, &(ms, at))| (nano, Some(ms), at)).collect()
+    }
+
+    /// A program starts on a character, or is given a new time: the server's `CharacterAction` 0x62 for that
+    /// character, naming the nano as its target, the caster in its first parameter and the time in the second
+    /// (FUN_1005d61f's case at 0x1005dd25: `FUN_100517f3(nano, time, 1, 1, (0xc350, parameter 1), ...)` on the
+    /// message's character). The time is in hundredths of a second (the captures: 500 is taken off 4.95 s later,
+    /// 1500 after 15.07 s). Until 2026-11-18 the client read this for its own character only, and only when its own
+    /// character was the caster (it took the first parameter for the character the nano is on), so a program
+    /// another player cast on it never joined its list; and it took the time for milliseconds.
+    fn program_started(&mut self, on: u32, nano: u32, hundredths: u32) {
+        let ms = hundredths.saturating_mul(10);
+        if on == self.own {
+            self.nano_duration(nano, ms);
+        } else {
+            self.others_nanos.entry(on).or_default().insert(nano, (ms, Instant::now()));
         }
-        for &nano in self.active_buffs.get(&id).into_iter().flat_map(|buffs| buffs.keys()) {
-            if !out.iter().any(|o| o.0 == nano) {
-                out.push((nano, None, self.buff_first.get(&(id, nano)).copied().unwrap_or_else(Instant::now)));
+    }
+
+    /// The server takes a program off a character: `Buff` (see `others_nanos`). One's own leaves the running list
+    /// (and what it added to the stats); another's leaves that character's. A polymorph's body goes with its
+    /// program, when the body is still that program's (FUN_100a7aa2 ending: only while `MonsterData` is the spell's
+    /// template).
+    fn program_ended(&mut self, on: u32, nano: u32) {
+        if on == self.own {
+            if self.nanos.contains(&nano) {
+                self.nano_times.retain(|t| t.0 != nano);
+                self.nanos.retain(|n| *n != nano);
+                self.nano_list_changed = true;
+                self.mods_dirty = true;
+            }
+            return;
+        }
+        if let Some(nanos) = self.others_nanos.get_mut(&on) {
+            nanos.remove(&nano);
+            if nanos.is_empty() {
+                self.others_nanos.remove(&on);
             }
         }
-        out
+        let body = ITEM_DB.get().and_then(|db| db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()).and_then(|data| mao_formats::item::polymorph_template(&data));
+        if body.is_some() && self.crafts.get(&on).map(|c| c.0) == body {
+            self.person_again(on);
+        }
+    }
+
+    /// Another character's body in place of its own is put away (a craft taken off, a polymorph ended): one that had
+    /// been announced with it is a person again, at the scale its update kept for it where it kept one (a craft's
+    /// temporary set; a polymorph sets none, and the scale was the person's all along).
+    fn person_again(&mut self, id: u32) {
+        self.crafts.remove(&id);
+        if let Some(info) = self.infos.get_mut(&id).filter(|i| i.monster.unwrap_or(0) != 0) {
+            info.monster = Some(0);
+            if let Some(kept) = info.kept_scale {
+                info.scale = Some(kept as u16);
+            }
+        }
     }
 
     /// The spell runner's clock: seconds since its first use.
@@ -1552,12 +1596,7 @@ impl World {
             if let Some(craft) = craft
                 && self.crafts.get(&id).is_some_and(|c| c.0 == craft.0)
             {
-                self.crafts.remove(&id);
-                // (one announced on the craft is a person again, at the scale the update kept for it)
-                if let Some(info) = self.infos.get_mut(&id).filter(|i| i.monster.unwrap_or(0) != 0) {
-                    info.monster = Some(0);
-                    info.scale = Some(info.kept_scale.map_or(100, |k| k as u16));
-                }
+                self.person_again(id);
             }
             if flies {
                 self.flying.remove(&id);
@@ -2242,6 +2281,7 @@ impl World {
                 self.state_flags.remove(&id);
                 self.flying.remove(&id);
                 self.crafts.remove(&id);
+                self.others_nanos.remove(&id);
                 self.entities.remove(&id);
                 self.paths.remove(&id);
                 self.fighting.remove(&id);
@@ -2521,14 +2561,17 @@ impl World {
                 }
             }
         }
-        if m.kind == 0x39343c68 {
-            if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
-                let nano = p.value.get("Buff").and_then(|b| b.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
-                if nano != 0 && m.identity.1 != self.own {
-                    self.buffs_seen.push((m.identity.1, nano));
-                    self.active_buffs.entry(m.identity.1).or_default().insert(nano, Instant::now());
-                    self.buff_first.entry((m.identity.1, nano)).or_insert_with(Instant::now);
-                }
+        // `Buff` (`BuffIIR_c`, reader FUN_10072684: a short, and when it is 0 an identity whose instance is the nano
+        // and whose type word is who took it off): the program is taken off the message's character, `program_ended`.
+        if m.kind == 0x39343c68 && m.data.len() >= 11 && m.data[1..3] == [0, 0] {
+            let nano = u32::from_be_bytes(m.data[7..11].try_into().unwrap());
+            self.program_ended(m.identity.1, nano);
+        }
+        // (and its start: `CharacterAction` 0x62 for the character, `program_started`)
+        if m.kind == 0x5e477770 && m.data.len() >= 25 {
+            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
+            if word(1) == 0x62 && word(9) == 0xcf1b {
+                self.program_started(m.identity.1, word(13), word(21));
             }
         }
         if m.kind == 0x2e2a4a6b {
@@ -2862,8 +2905,6 @@ impl World {
                     };
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
                 }
-                // `SetNanoDuration`: the nano `(0xcf1b, id)` is on the character (the first parameter) for that long (ms)
-                0x62 if word(9) == 0xcf1b && word(17) == self.own => self.nano_duration(word(13), word(21)),
                 0xa4 => {
                     self.special_events.push((word(21), 0.0));
                     self.special_locks.remove(&word(21));
@@ -3829,9 +3870,13 @@ impl World {
             }
         }
         if m.kind == mao_net::n3::ENTITY_INFO && m.identity.1 != self.own {
+            // (the programs its update lists are the ones running on it: FUN_10051c0c installs them at its making)
             let times = m.active_nano_times();
-            if !times.is_empty() {
-                self.other_nano_times.insert(m.identity.1, (times, Instant::now()));
+            if times.is_empty() {
+                self.others_nanos.remove(&m.identity.1);
+            } else {
+                let now = Instant::now();
+                self.others_nanos.insert(m.identity.1, times.into_iter().map(|(nano, ms)| (nano, (ms, now))).collect());
             }
         }
         if m.kind == mao_net::n3::ENTITY_INFO && m.identity.1 == self.own {
@@ -5798,7 +5843,9 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         // sets `MonsterData` as a polymorph's does, FUN_100a7aa2, and its 0xcf76 the `Scale` stat the body is drawn at,
         // `SetBodyScale`; flying, the craft plays its template's animation for the fly action, which for want of one is its
         // walk, FUN_10010b3c's fallback of 0xb3, `Template::animation_candidates`)
-        let craft = world.crafts.get(&id).copied().filter(|_| !world.grid && !world.morphs.contains_key(&id));
+        // (a body known both ways, from the update's `MonsterData` and from the polymorph program running, is one
+        // body, at the update's scale)
+        let craft = world.crafts.get(&id).copied().filter(|c| !world.grid && world.morphs.get(&id).is_none_or(|m| *m == c.0));
         let creature = if world.grid { Some(GRID_TEMPLATE) } else { world.morphs.get(&id).copied().or(craft.map(|c| c.0)) };
         if let (Some(creature), Some(chars)) = (creature, characters.as_mut()) {
             let moving = if id == world.own { world.own_moving } else { world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(700)) };
@@ -7608,6 +7655,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // playfield was not seen; the running program or the worn item keeps one's own character flying)
                     state.flying.clear();
                     state.crafts.retain(|id, _| *id == own);
+                    state.others_nanos.clear();
                     // Zoned from a booth: that booth leads here.
                     if let Some((pf, booth, when)) = near_booth.take() {
                         if when.elapsed() < Duration::from_secs(20) && pf != playfield {
@@ -9865,33 +9913,32 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // (characters farther than the setting are not drawn; 0 draws all)
                 let reach = keys.char_distance;
                 let near = |id: u32| reach <= 0.0 || state.entities.get(&id).is_none_or(|e| ((e.0[0] - position[0]).powi(2) + (e.0[2] - position[2]).powi(2)).sqrt() <= reach);
-                // Other characters under a polymorph program: the server repeats their buffs, so one seen lately is still running.
-                for (who, nano) in std::mem::take(&mut state.buffs_seen) {
-                    let creature = *polymorph_cache.entry(nano).or_insert_with(|| {
-                        let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
-                        mao_formats::item::Item::parse(&data).filter(|t| t.stat(75) == Some(mao_formats::item::POLYMORPH_STRAIN))?;
-                        let creature = mao_formats::item::polymorph_template(&data)?;
-                        gear_db.get(mao_formats::resource::Id { kind: 0xfde97, instance: creature }).ok().flatten().map(|_| creature)
-                    });
-                    if let Some(creature) = creature {
-                        state.morphed_until.insert(who, (creature, Instant::now()));
+                // Other characters under a polymorph or a vehicle program: the programs running on them (`others_nanos`),
+                // less those whose time is up (a few seconds' grace: the server's `Buff` is what ends one in view).
+                state.others_nanos.retain(|_, nanos| {
+                    nanos.retain(|_, (ms, at)| at.elapsed().as_millis() < u128::from(*ms) + 3000);
+                    !nanos.is_empty()
+                });
+                state.morphs.retain(|who, _| *who == own);
+                state.riding.retain(|who, _| *who == own);
+                for (&who, nanos) in &state.others_nanos {
+                    for &nano in nanos.keys() {
+                        let creature = *polymorph_cache.entry(nano).or_insert_with(|| {
+                            let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
+                            mao_formats::item::Item::parse(&data).filter(|t| t.stat(75) == Some(mao_formats::item::POLYMORPH_STRAIN))?;
+                            let creature = mao_formats::item::polymorph_template(&data)?;
+                            gear_db.get(mao_formats::resource::Id { kind: 0xfde97, instance: creature }).ok().flatten().map(|_| creature)
+                        });
+                        if let Some(creature) = creature {
+                            state.morphs.insert(who, creature);
+                        }
+                        // (and on a vehicle program, its board or bike)
+                        let vehicle = *vehicle_cache.entry(nano).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten().is_some_and(|d| mao_formats::item::is_vehicle_program(&d)));
+                        if vehicle {
+                            state.riding.insert(who, nano);
+                        }
                     }
-                    // (and on a vehicle program, its board or bike)
-                    let vehicle = *vehicle_cache.entry(nano).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten().is_some_and(|d| mao_formats::item::is_vehicle_program(&d)));
-                    if vehicle {
-                        state.riding_until.insert(who, (nano, Instant::now()));
-                    }
                 }
-                state.riding_until.retain(|_, (_, at)| at.elapsed() < Duration::from_secs(30));
-                for (who, (nano, _)) in &state.riding_until {
-                    state.riding.insert(*who, *nano);
-                }
-                state.riding.retain(|who, _| *who == own || state.riding_until.contains_key(who));
-                state.morphed_until.retain(|_, (_, at)| at.elapsed() < Duration::from_secs(30));
-                for (who, (creature, _)) in &state.morphed_until {
-                    state.morphs.insert(*who, *creature);
-                }
-                state.morphs.retain(|who, _| *who == own || state.morphed_until.contains_key(who));
                 // (the deformer hits run their course: the control ends at its duration)
                 state.deforms.retain(|_, (d, at)| d.duration <= 0.0 || at.elapsed().as_secs_f32() < d.duration);
                 // The spell lists' effects (`spelllist`): each made on its character with its sound controls; a flare (kind 1005,
@@ -10128,7 +10175,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         let whole = left.unwrap_or_else(|| {
                                             *duration_cache.entry(nano).or_insert_with(|| {
                                                 let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten();
-                                                data.as_deref().and_then(mao_formats::item::Item::parse).and_then(|t| t.stat(8)).unwrap_or(0)
+                                                // (the stat is in hundredths of a second)
+                                                data.as_deref().and_then(mao_formats::item::Item::parse).and_then(|t| t.stat(8)).unwrap_or(0).saturating_mul(10)
                                             })
                                         });
                                         (nano, whole.saturating_sub(since.elapsed().as_millis().min(u128::from(u32::MAX)) as u32))
@@ -10193,13 +10241,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                     special_cooldowns: std::mem::take(&mut state.special_events),
                     auras: Some({
-                        // (the character's own programs from its list, the others' from the buffs seen lately)
-                        state.active_buffs.retain(|_, nanos| {
-                            nanos.retain(|_, at| at.elapsed() < Duration::from_secs(30));
-                            !nanos.is_empty()
-                        });
-                        let still = &state.active_buffs;
-                        state.buff_first.retain(|(character, nano), _| still.get(character).is_some_and(|nanos| nanos.contains_key(nano)));
+                        // (the character's own programs from its list, the others' from `others_nanos`)
                         let mut aura_of = |nano: u32| -> Option<mao_formats::gfx::Visual> {
                             aura_cache
                                 .entry(nano)
@@ -10232,12 +10274,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                         };
                         add(own, true, position, state.nanos.clone());
-                        for (id, nanos) in &state.active_buffs {
+                        for (id, nanos) in &state.others_nanos {
                             if let Some((p, _)) = state.entities.get(id).filter(|_| *id != own) {
                                 add(*id, false, *p, nanos.keys().copied().collect());
                             }
                         }
-                        for id in state.spell_effects.keys().filter(|id| **id != own && !state.active_buffs.contains_key(id)) {
+                        for id in state.spell_effects.keys().filter(|id| **id != own && !state.others_nanos.contains_key(id)) {
                             if let Some((p, _)) = state.entities.get(id) {
                                 add(*id, false, *p, Vec::new());
                             }
@@ -12148,6 +12190,54 @@ mod door_tests {
         w.worn.push(entry(0x48, 297044));
         w.add(&Message { kind: 0x52526858, identity: (0xc350, own), data: answer(0, 1, 3, 0x48) }.frame(1));
         assert!(has(&w));
+    }
+
+    /// A program runs on a character from the server's `CharacterAction` 0x62 for it to its `Buff` (the captures'
+    /// own bytes: a fifteen-second program on the capture's character, taken off 15.07 s later; another player's
+    /// fifty-second one, whose `Buff` came just before the 0x62 of its re-cast). The time is hundredths of a second.
+    /// One's own joins the running list whoever cast it, and leaves it at the `Buff`; a `Buff` for a program that
+    /// is not running does nothing. `MAO_GAME`: a polymorph's body goes with its program.
+    #[test]
+    fn a_program_runs_from_its_start_to_its_buff() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (own, other) = (0x4bc80, 0x70cbbed0);
+        let mut w = World { own, ..World::default() };
+        let action = |id: u32, bytes: &str| Message { kind: 0x5e477770, identity: (0xc350, id), data: hex(bytes) }.frame(1);
+        let buff = |id: u32, bytes: &str| Message { kind: 0x39343c68, identity: (0xc350, id), data: hex(bytes) }.frame(1);
+        let on = |w: &World, id: u32| w.nanos_on(id).iter().map(|n| (n.0, n.1)).collect::<Vec<_>>();
+        // (another player's: the `Buff` of the old one first, which is nothing here, then the start)
+        w.add(&buff(other, "00000070cbbed000040505"));
+        assert!(on(&w, other).is_empty());
+        w.add(&action(other, "0000000062000000000000cf1b0004050570cbbed0000013880000"));
+        assert_eq!(on(&w, other), [(0x40505, Some(50_000))]);
+        // (a second program, cast on him by the capture's character; then the first is taken off)
+        w.add(&action(other, "0000000062000000000000cf1b0002682f0004bc80000005dc0000"));
+        w.add(&buff(other, "00000070cbbed000040505"));
+        assert_eq!(on(&w, other), [(0x2682f, Some(15_000))]);
+        assert!(w.nanos.is_empty());
+        w.add(&buff(other, "0000000004bc800002682f"));
+        assert!(on(&w, other).is_empty() && w.others_nanos.is_empty());
+        // (one's own, as the capture has it; and one another player cast on one's own character, which joins too)
+        w.add(&action(own, "0000000062000000000000cf1b0002682f0004bc80000005dc0000"));
+        w.add(&action(own, "0000000062000000000000cf1b0004050570cbbed0000013880000"));
+        assert_eq!((w.nanos.clone(), on(&w, own)), (vec![0x2682f, 0x40505], vec![(0x2682f, Some(15_000)), (0x40505, Some(50_000))]));
+        w.mods_dirty = false;
+        w.add(&buff(own, "0000000004bc800002682f"));
+        assert_eq!((w.nanos.clone(), w.mods_dirty), (vec![0x40505], true));
+        // (gone, `Despawn`: nothing of the other's programs is kept)
+        w.add(&action(other, "0000000062000000000000cf1b0004050570cbbed0000013880000"));
+        w.add(&Message { kind: 0x36510078, identity: (0xc350, other), data: vec![1] }.frame(1));
+        assert!(w.others_nanos.is_empty());
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let _ = ITEM_DB.set(db);
+        // (announced as a leet, template 17655: the body goes when the leet's program, 268697, is taken off, and not
+        // when another program is)
+        w.crafts.insert(other, (17655, 90));
+        w.add(&buff(other, "00000070cbbed000040505"));
+        assert_eq!(w.crafts.get(&other), Some(&(17655, 90)));
+        w.add(&buff(other, "00000070cbbed000041999"));
+        assert_eq!(w.crafts.get(&other), None);
     }
 
     /// The capture of a player who puts a Yalmaha XL on in view (`arete-20261031-0842`, his messages in order): he

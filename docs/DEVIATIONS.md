@@ -1409,6 +1409,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: sitting players stand; wounded NPC pose static
 - Where: `docs/CLIENT_UI.md:4683`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18): a player announced sitting now sits (the movement mode of its full update is read: mode 8 holds the ground's idle). The grounded creature's idle held at its end is as it was.
 
 #### `NPC-013` Shop totals computed by the client
 
@@ -1528,6 +1529,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a form may linger after a polymorph ends; movement animation may differ
 - Where: `docs/CLIENT_UI.md:1975`; `docs/CLIENT_UI.md:1967`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18): the 30 s timeout is gone: a polymorph ends with its program's `Buff`, or when the character is announced without the body. The polymorphed character's own speed and animation names are still not done.
 
 #### `NPC-026` Polymorph animation rate is a client-tuned 1.0 where not calibrated
 
@@ -2502,7 +2504,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The buff message carries no time, so a nano announced without its time is shown with its whole duration (item stat 8) counted from when it was first seen.
 - A player notices: Time left of another character's buff in the target NCU window is wrong for a nano not seen being cast.
 - Where: `crates/mao-client/src/net.rs:1176`; `crates/mao-client/src/net.rs:9535`; `docs/CLIENT_UI.md:429`; `docs/ORIGINAL_AUDIT.md:108`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): another character's programs have the time the server told (0x62's, or the update's list), in hundredths of a second as it comes; no estimate from a first sighting any more.
 
 #### `NAN-006` Spell criteria the client cannot decide count as failing
 
@@ -2720,7 +2723,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Since the server repeats others' buffs, one seen in the last 30 s counts as still running.
 - A player notices: Another character's morph, mount or aura can linger up to 30 s after the program ends, or vanish if the server stops repeating.
 - Where: `crates/mao-client/src/net.rs:9280`; `crates/mao-client/src/net.rs:9302`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the guess is gone: `Buff` turned out to be a program's removal, not its repeat. The programs on other characters are kept from their start (`CharacterAction` 0x62 for the character) or their update's list to their `Buff` (`World::others_nanos`), and morphs, vehicles and auras are read from there.
 
 #### `NAN-030` Active nano list found by its shape
 

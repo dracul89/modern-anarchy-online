@@ -5420,7 +5420,7 @@ What rests on what: the announcement on ten captured players and the code; the m
 (the message kind is captured for clothes and weapons, not for a craft). A missed dismount would leave a small
 craft walking about until the player's next announcement.
 
-Not ported, and found beside it (none changed here):
+Not ported, and found beside it (the first was mended the same day, see the next part):
 
 - **`Buff` (`39343c68`) is the removal of a program, not a sign that it runs.** Its exec (FUN_100726e5 →
   FUN_10051041) ends the nano, and in the captures it comes when a program's time is up (15.07 s after a 15 s
@@ -5434,3 +5434,34 @@ Not ported, and found beside it (none changed here):
 - `docs/FLIGHT_ORIGINAL.md`'s "Who runs the spell" says a worn item's list comes from the server. It does not:
   the client runs every spell of the wear list at `TemplateAction` 6 (corrected there).
 Tests: `another_players_craft_and_flight_are_known` (`MAO_GAME` for the mount), `a_player_is_announced_with_its_scale`.
+
+### `Buff` is a program's removal; program times are hundredths of a second (the same day)
+
+Asked whether to mend the `Buff` misreading found above, the user said "Yes, fix it". Two faults, the second
+found while mending the first:
+
+- **`Buff` (`39343c68`) takes a program off a character.** The client took it for "this program is running" and
+  counted a program as running for thirty seconds after each (`buffs_seen`, `active_buffs`, `buff_first`,
+  `morphed_until`, `riding_until`: all gone). The programs on other characters are now kept as they are
+  (`World::others_nanos`): those a character's full update lists, those the server starts on it in view
+  (`CharacterAction` 0x62 **for that character**, the nano as its target, the caster in the first parameter, the
+  time in the second: `program_started`), until its `Buff` (`program_ended`), its time's end, or the character's
+  going. A target's NCU window (now with the real times, not an estimate from the first sighting), the auras,
+  another's polymorph body and its vehicle are read from there. One's own programs leave the running list at
+  their `Buff` too (the server's word; before, only the clock or one's own cancelling took one off), and a program
+  **another player casts on one's own character now joins the list**: the client had taken 0x62's first
+  parameter, the caster, for the character the nano is on, and read only its own casts. A polymorph's body goes
+  with its program when the body is still that program's (FUN_100a7aa2's ending).
+- **Every program time is in hundredths of a second**, on the wire (0x62's, the full update's list) and in the
+  database (stat 8: 1440000 for a four-hour program). The client took them for milliseconds: the NCU window showed
+  a tenth of each time (24:00 for four hours), and **one's own programs were taken off the client's list, with
+  what they added to the stats, after a tenth of their time**, until the next world entry listed them again. In
+  the captures: a program told 500 is taken off 4.95 s later (dozens of them), one told 1500 after 15.07 s, and a
+  four-hour one's time left in the character's later updates goes down by 100 a second. The times are made
+  milliseconds where they are read (`n3::active_nano_times`, `program_started`, the NCU's and the program
+  window's totals).
+
+Not changed: a hoverbike program of another player is still drawn from the program running on it (this client's
+own way; in the original that list has criteria and would come as a spell list, which no capture shows for an
+onlooker). The ending run's criteria gate (FUN_10050b90) was not read.
+Tests: `a_program_runs_from_its_start_to_its_buff`, `the_active_nanos_are_found` (the times).

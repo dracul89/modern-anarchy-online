@@ -878,6 +878,10 @@ These were written before this list; some may have been seen working since witho
 - [ ] The raid window (2026-11-18, your own two characters in a team): `/open raid`: empty teams, "Convert To
   Raid" enabled; as the leader click it: "raid" line, Team 1 fills with both; "Raid Locks" says the lock list. Zone
   with the team: the perks window still has its perks.
+- [ ] Program times (2026-11-18): cast a long buff on yourself: the NCU window shows its full time (hours, not
+  minutes) and it is still there, with its bonus in the stats, half an hour later. Have another player (your
+  other character) buff you: it appears in the NCU window. Watch somebody's polymorph or hoverbike end: the form
+  goes at once.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

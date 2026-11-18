@@ -2326,7 +2326,11 @@ impl Message {
         self.active_nano_times().into_iter().map(|(id, _)| id).collect()
     }
 
-    /// The same with the time each nano has left, in milliseconds (the entry's first time; the second is the same at login).
+    /// The same with the time each nano has left, in milliseconds (the entry's first time; the second is the same at
+    /// login). The message has the time in hundredths of a second, as every program time on the wire and in the
+    /// database is: in the captures a program's time left goes down by 100 a second from one update to the next (a
+    /// four-hour program, 1440000, cast 54.9 s before: 1434525). Until 2026-11-18 the number was passed on as it came
+    /// and taken for milliseconds, a tenth of the time.
     pub fn active_nano_times(&self) -> Vec<(u32, u32)> {
         const NANO_TYPE: u32 = 0xcf1b;
         if self.kind != ENTITY_INFO {
@@ -2338,7 +2342,7 @@ impl Message {
             let Some(count) = word(at).filter(|&c| c % 0x3f1 == 0 && c / 0x3f1 >= 2 && c / 0x3f1 <= 65) else { continue };
             let n = (count / 0x3f1 - 1) as usize;
             if (0..n).all(|i| word(at + 4 + 20 * i) == Some(NANO_TYPE)) {
-                return (0..n).filter_map(|i| Some((word(at + 8 + 20 * i)?, word(at + 16 + 20 * i)?))).collect();
+                return (0..n).filter_map(|i| Some((word(at + 8 + 20 * i)?, word(at + 16 + 20 * i)?.saturating_mul(10)))).collect();
             }
         }
         Vec::new()
@@ -2730,7 +2734,8 @@ mod nano_tests {
         data.extend_from_slice(&[0, 0, 0x17, 0xa6, 0, 0]);
         let m = Message { kind: ENTITY_INFO, identity: (0xc350, 1), data };
         assert_eq!(m.active_nanos(), vec![0x27cbd, 0x23fdd]);
-        assert_eq!(m.active_nano_times(), vec![(0x27cbd, 0x13ad21), (0x23fdd, 0x13a99d)]);
+        // (hundredths of a second in the message: three and a half hours left of each)
+        assert_eq!(m.active_nano_times(), vec![(0x27cbd, 0x13ad21 * 10), (0x23fdd, 0x13a99d * 10)]);
         assert!(Message { kind: ENTITY_INFO, identity: (0xc350, 1), data: vec![0; 40] }.active_nanos().is_empty());
     }
 }
