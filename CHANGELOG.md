@@ -6,6 +6,15 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+## 0.1.6 (2026-11-18)
+
+### The launcher
+
+- The launcher no longer closes a second after opening ("Invalid surface") on machines that draw with Direct3D 12,
+  and the login no longer closes there at a refused password.
+- The graphics device chosen in the launcher's settings is now used by the game itself, not only by the launcher
+  and the login.
+
 ### Items
 
 - A right click on an item one cannot wear or wield no longer takes off what is worn in its place. The item is
@@ -124,13 +133,14 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   at once, both cloud options off hides the single clouds, and "wait for vertical sync" sets the client's VSync.
 - The helmet, shoulder pad and social tab boxes each keep their own setting (ticking one overwrote the others).
 
-### The launcher
+### Not yet seen in a live game
 
-- The launcher no longer closes a second after opening ("Invalid surface") on machines that draw with Direct3D 12,
-  and the login no longer closes there at a refused password.
-- The graphics device chosen in the launcher's settings is now used by the game itself, not only by the launcher
-  and the login.
-
+Read from the original client and tried offline or by test only: joining and splitting stacks inside a backpack, the
+item menu's Delete outside a backpack and its looter entries, everything of a raid (`/raid`, the raid window's
+buttons and teams), a pet's kept name and `/pet rename`, other players getting on and off a craft in view, the
+death's reason from a nano program or a shield, the keys taken over from the original client, the new right-click
+menus (seen in pictures only) and the options that now act. The Direct3D 12 fix was tried here by choosing that
+device: the launcher, the login and one short visit to the game.
 ## 0.1.5 (2026-11-17)
 
 ### The launcher
