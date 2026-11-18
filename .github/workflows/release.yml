@@ -225,7 +225,9 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security default-keychain -s "$keychain"
           if ! security find-identity -v -p codesigning "$keychain" | grep -q "Developer ID Application"; then
-            echo "::error::the certificate in MACOS_CERTIFICATE_P12 is not a Developer ID Application certificate with its key"
+            # (what was in it instead, by kind only: the names stay out of a log anyone can read)
+            found=$(security find-identity -p codesigning "$keychain" | sed -n 's/.*"\([^:"]*\):[^"]*"\(.*\)/\1\2/p' | sort -u | paste -sd, -)
+            echo "::error::MACOS_CERTIFICATE_P12 holds no usable Developer ID Application certificate with its key; it holds: ${found:-no signing certificate at all}"
             exit 1
           fi
           # (the notary account under a name, in the same keychain; Apple is asked whether it is right)
