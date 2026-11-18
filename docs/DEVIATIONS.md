@@ -1357,6 +1357,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: thin/fat players look medium; board/bike visuals incomplete
 - Where: `crates/mao-client/src/net.rs:4041`; `crates/mao-client/src/net.rs:4633`; `docs/CLIENT_UI.md:2335`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18): Partly stale, checked 2026-11-18: the vehicles' trails (kind 3039, effects::visual_trails), thrown particles (kind 3028) and the movement flags 0x2000 / 0x4000 are drawn now. Still so: every character of the world is drawn with its breed's medium body (Characters::build is 1 outside character creation; the thin and fat bodies are only in the creation preview). Not checked: a vehicle's jump animation.
 
 #### `NPC-007` A creature with no standing animation holds its walk's first frame
 
@@ -1843,7 +1844,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: mailbox::KNOWN_TERMINALS (four entries from captures) stands in for announced terminals.
 - A player notices: Mail works only at those terminals.
 - Where: `crates/mao-client/src/mailbox.rs:18`; `docs/CLIENT_UI.md:137`; `crates/mao-client/src/net.rs:7881`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): No longer so, and was not when the catalog was made: mailbox::terminals reads the playfield's own dynel table (identity type 0xc773: 385 terminals in 203 playfields) and falls back on the four captured ones only for a playfield whose table has none. Found by the local model's first look at the open entries; checked in the code.
 
 #### `INV-019` Item cells counted along rows and kept in one places.ini for all characters
 
