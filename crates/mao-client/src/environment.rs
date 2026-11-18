@@ -5,16 +5,19 @@
 //!
 //! The fogs, in the original's order:
 //! - the weather fog (table [1]): grey `0.7 × [1]`, weight `[1]`;
-//! - the mist ([0], FUN_100b9da8 over the object of FUN_100b9775): its colour is (0.4, 0.5, 0.7) when the darkness is 4
-//!   or more, grey 0.8 at −0.5 or less, lerped between (FUN_100b98fe), scaled by the light × 1.4 kept within 0.5 and 1;
-//!   fogged as `(r × 0.7, g × 0.8, b × 0.9)` with weight `[0] × 0.8`;
+//! - the rain's or snow's ([0], FUN_100b9da8 over the object of FUN_100b9775; the lines themselves are
+//!   `precipitation.rs`): its colour is (0.4, 0.5, 0.7) when entry 8 is above 4, grey 0.8 at −0.5 or less, lerped
+//!   between (FUN_100b98fe), scaled by the light × 1.4 kept within 0.5 and 1; fogged as `(r × 0.7, g × 0.8, b × 0.9)`
+//!   with weight `[0] × 0.8`;
 //! - the four precipitations ([3]–[6], FUN_100b9ba5 over the objects set up by FUN_100b9b10): colours (0.6, 0.35, 0),
 //!   (0.18, 0.15, 0.15), (0.35, 0, 0) and (0, 0.4, 0), fogged at × 0.8 with weight `min(1, v) × 0.7`;
 //! - the area's own fog ([0x12]–[0x15]), when its colour is not black, after `AddFogLightIntensity(min(day,
-//!   1 − [8] × 0.8), at least 0.5)`.
+//!   1 − [2] × 0.8), at least 0.5)`.
 //!
-//! The darkness [8] also sets `VisualEnvFX_t`'s +0x1134 to `1 − [8] / 2.333`: the client takes that as a dimming of
-//! the sky and its light.
+//! The clouds [2] also set `VisualEnvFX_t`'s +0x1134 to `1 − [2] / 2.333` (the effect scripts' `CloudTranspariency`):
+//! the client takes that as a dimming of the sky and its light as well. Both were read from entry 8 here until
+//! 2026-11-18: the frame reads the table's byte offset 8, which is its third float (`FLD [EAX+8]` at 0x100bf033 and
+//! 0x100bf243), where the rain's look and sound read byte offset 0x20, the ninth.
 
 use mao_formats::areas::{self, Area};
 
@@ -74,7 +77,8 @@ impl Gather {
 /// The environment at `position` (server coordinates) on `day` at `seconds` into it, with the day's intensity.
 pub fn compute(areas_list: &[Area], base: Option<&[u8; 26]>, position: [f32; 3], day: i32, seconds: f32, daylight: f32) -> Environment {
     let (blend, weather) = areas::blend_with_weather(areas_list, position, Some((day, seconds)), base);
-    let v = weather.v;
+    // (`MAO_WEATHER`: the table set by hand, for a look at the rain or a storm)
+    let v = crate::precipitation::forced().unwrap_or(weather.v);
     let mut fog = Gather::new();
     // the weather fog
     fog.add([v[1] * 0.7; 3], v[1]);
@@ -97,11 +101,11 @@ pub fn compute(areas_list: &[Area], base: Option<&[u8; 26]>, position: [f32; 3],
     }
     // the area's fog
     if blend.fog.iter().any(|&c| c != 0.0) {
-        fog.light((daylight.min(1.0 - v[8] * 0.8)).max(0.5));
+        fog.light((daylight.min(1.0 - v[2] * 0.8)).max(0.5));
         fog.add(blend.fog, blend.density);
     }
     let gathered = (fog.density > 0.0).then(|| (fog.colour.map(|c| c * fog.light), fog.density));
-    Environment { ambient: blend.ambient, fog: gathered, fog_light: fog.light, sky: (1.0 - v[8] / 2.333).clamp(0.0, 1.0), weather: v }
+    Environment { ambient: blend.ambient, fog: gathered, fog_light: fog.light, sky: (1.0 - v[2] / 2.333).clamp(0.0, 1.0), weather: v }
 }
 
 impl Default for Environment {

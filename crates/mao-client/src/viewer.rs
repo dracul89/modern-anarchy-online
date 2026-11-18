@@ -510,6 +510,17 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         }
         eprintln!("camera: under a liquid of type {kind}");
     }
+    // `MAO_WEATHER=<entry>:<value>,…`: the weather's rain, snow or storms as they stand after two seconds of frames.
+    if let Some(v) = crate::precipitation::forced() {
+        let (eye, forward) = (camera.eye(), (camera.target - camera.eye()).normalize_or_zero());
+        let mut fx = crate::precipitation::WeatherFx::default();
+        let mut sheets = Vec::new();
+        for _ in 0..120 {
+            sheets = fx.advance(&v, [eye.x, eye.z, eye.y], [forward.x, forward.z, forward.y], [1.5, 0.0, 0.5], scene.daylight, true, 1.0 / 60.0);
+        }
+        eprintln!("weather: {} sheets' corners", sheets.len());
+        scene.shells.extend(crate::precipitation::shell(sheets));
+    }
     // `MAO_STATEL_EFFECTS=<seconds>` (with `MAO_GFX`): the statels' own effects (`crate::statel_effects`) that long in.
     if let (Ok(age), Ok(file)) = (std::env::var("MAO_STATEL_EFFECTS"), std::env::var("MAO_GFX")) {
         let gfx = mao_formats::files::read(std::path::Path::new(&file)).ok().and_then(|d| mao_formats::gfx::Gfx::parse(&d).ok());
@@ -730,6 +741,8 @@ struct App {
     /// The wind (the environment weather object's, see `wind`), stepped every frame from the weather's wind.
     wind: crate::wind::Wind,
     wind_at: std::time::Instant,
+    /// The weather's rain, snow and storm lines and the storms' tints (`precipitation.rs`).
+    weather_fx: crate::precipitation::WeatherFx,
     /// When the performance overlay last asked the renderer how much graphics memory it holds.
     perf_memory_at: std::time::Instant,
     daylight: f32,
@@ -936,7 +949,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     }
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), weather_fx: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         // (started from the character list, whose window has had the screen up since Play was pressed: it goes on from
@@ -2488,11 +2501,13 @@ impl ApplicationHandler for App {
                         w.scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
                         w.scene.water_light = frame.lights.water.map(|l| mao_render::WaterLight { colour: l.colour, to_light: mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]), specular: frame.lights.specular });
                     }
-                    // (the weather's rain, dust and fallout round the eye: outdoors, with the environment effects on)
-                    if self.ground.is_some() && crate::prefs::effect_category_active(crate::prefs::ENVIRONMENT) {
-                        let eye = w.camera.eye();
+                    // (the weather's rain or snow and its storms round the eye, outdoors: `Environment_t`'s frame. The
+                    // storms' lines follow the `UseStormParticles` preference; the rain and the storms' tints follow none.)
+                    if self.ground.is_some() {
+                        let (eye, forward) = (w.camera.eye(), (w.camera.target - w.camera.eye()).normalize_or_zero());
                         let wind = self.wind.now();
-                        sparks.extend(crate::precipitation::particles(&self.environment.weather, [eye.x, eye.y, eye.z], [wind[0], wind[2], wind[1]], crate::precipitation::clock()));
+                        let sheets = self.weather_fx.frame(&self.environment.weather, [eye.x, eye.z, eye.y], [forward.x, forward.z, forward.y], [wind[0], wind[2], wind[1]], self.daylight, crate::prefs::on("UseStormParticles"));
+                        shells.extend(crate::precipitation::shell(sheets));
                     }
                     w.scene.particles = sparks;
                     w.scene.shells = shells;

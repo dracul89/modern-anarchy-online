@@ -5827,7 +5827,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: rain, red and green fallout and sand dust are particles in a 14 m box round the eye, at most 700 each, fixed colours, fall speeds and wind drift; dust is faint tan motes along the wind
 - A player notices: rain, sandstorms and fallout look different from the original's streaks
 - Where: `crates/mao-client/src/precipitation.rs:7`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): precipitation.rs is a port of VisualRain_t now (see RND-138): the original's 350 lines per cloud, its colours, falls and alphas; the rain is entry 0, the storms entries 3 to 6. Still the client's own: lines drawn as thin sheets.
 
 #### `RND-004` Spell flight 0.45 s and landing 1.4 s are the client's own timings
 
@@ -6063,7 +6064,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: rain and snow as particles with the client's own numbers
 - A player notices: rain and snow differ in density and size
 - Where: `crates/mao-client/src/precipitation.rs:7`; `docs/ORIGINAL_AUDIT.md:179`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): The counts and movement are the original's since the VisualRain_t port (see RND-138); the sheets' width is the client's own (about a picture element).
 
 #### `RND-030` Animation cross-fade uses a normalised weighted sum
 
@@ -7051,7 +7053,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: fog and sky dimming from the weather object; rain, dust, fallout (client's own streak count and fall) and lightning are drawn now; no cloud layer found in code
 - A player notices: no weather cloud layer
 - Where: `docs/CLIENT_UI.md:2152`; `docs/ORIGINAL_AUDIT.md:67`; `docs/CLIENT_UI.md:2134`; `crates/mao-client/src/precipitation.rs:1`; `crates/mao-client/src/lightning.rs:1`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): The cloud layer was a misreading: +0x114 is the cloud cover's number in the frame block, and the layer is the scripts' ThickClouds mesh, which was drawn already. Ported what the weather really draws and the client did not: the rain or snow (entry 0, nothing was drawn for it), the four storms as wind-blown line clouds in the original's colours and numbers, each storm's flickering screen tint, all on a port of VisualRain_t (precipitation.rs); the storms' lines follow UseStormParticles. A fault mended with it: the sky's dimming and the fog's light went by entry 8 where the original reads entry 2 (the clouds). Cloud shadows left. Looked at in offscreen pictures only.
 
 #### `RND-139` Effect locators: bone, weapon and mesh attractors; effect mesh details not drawn
 

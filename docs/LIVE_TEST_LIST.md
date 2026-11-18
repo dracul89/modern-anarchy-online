@@ -901,6 +901,10 @@ These were written before this list; some may have been seen working since witho
 - [ ] Direct3D 12 (2026-11-18): on the launcher's Visual page choose the device's "(Dx12)" entry, restart: the
   launcher stays and shows its page, a wrong password shows the error page, and the game draws (its log's first
   lines name the device). Then choose your own device again.
+- [ ] Weather (2026-11-18): in rain (you hear it) thin blue-grey streaks fall round you, straight down whichever way
+  you look; in a sand or toxic storm short coloured streaks are blown past and the screen is tinted and flickers.
+  If the streaks hang sideways or sit behind you, tell me. `MAO_WEATHER=0:0.9,8:5`
+  (an environment variable at start) forces rain.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

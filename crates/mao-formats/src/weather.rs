@@ -24,7 +24,9 @@
 /// The weather values of a state, the first fourteen of `Environment_t`'s table.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Weather {
-    /// 0 fog, 1 mist, 2 clouds, 3–6 the four precipitations, 7 wind, 8 darkness, 9 thunder, 10 lightning, 11–13 the rest.
+    /// 0 the rain or snow, 1 the fog, 2 clouds, 3–6 the four storms, 7 wind, 8 what makes the rain snow (above 4 rain,
+    /// at −0.5 and below snow), 9 thunder, 10 lightning, 11–13 the rest. (The roll's notes above call 0 "fog", 1 "mist"
+    /// and 8 "darkness": names given before their uses in `Environment_t`'s frame were read.)
     pub v: [f32; 14],
 }
 

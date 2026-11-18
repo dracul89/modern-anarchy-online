@@ -2149,7 +2149,7 @@ The original's planet map (`cd_image/textures/PlanetMap/normal/`: an index of zo
 
 ## The weather, from the original's code
 
-`mao_formats::weather` is `Environment_t`'s weather object: an R250 generator (the 250-word table from Gamecode's `.rdata`, the seed added to one word), seeds from the area's environment bytes and the day count, a 19440 s schedule in three thirds of states 120–1200 s long, each state's own 16 floats and 8 words, and FUN_100bcec6's roll: clear, fog, mist, clouds or one of four precipitations by the area's weights (bytes 0–7, doubled plus 100 when above 1), faded in over a quarter to all of the state's length, the wind, darkness, thunder and lightning values after. `environment.rs` turns the blended table into one fog as `VisualFog_t` gathers them — the weather fog (grey 0.7 × [1]), the mist (blue-grey by day, grey when dark, × 0.7/0.8/0.9, weight 0.8 × [0]), the four precipitations' fogs (orange, dark brown, dark red, green at × 0.8, weight 0.7) and the area's own fog lit by `min(day, 1 − darkness × 0.8)` — and dims the sky by `1 − darkness / 2.333` (the original's `VisualEnvFX_t` +0x1134). The sprites of rain and dust, the cloud layer and the lightning are not drawn. Because the seeding barely changes between days, an area's weather pattern repeats daily; Mort's areas, for instance, are under some dust or fog most of the time by their weights.
+`mao_formats::weather` is `Environment_t`'s weather object: an R250 generator (the 250-word table from Gamecode's `.rdata`, the seed added to one word), seeds from the area's environment bytes and the day count, a 19440 s schedule in three thirds of states 120–1200 s long, each state's own 16 floats and 8 words, and FUN_100bcec6's roll: clear, fog, mist, clouds or one of four precipitations by the area's weights (bytes 0–7, doubled plus 100 when above 1), faded in over a quarter to all of the state's length, the wind, darkness, thunder and lightning values after. `environment.rs` turns the blended table into one fog as `VisualFog_t` gathers them — the weather fog (grey 0.7 × [1]), the mist (blue-grey by day, grey when dark, × 0.7/0.8/0.9, weight 0.8 × [0]), the four precipitations' fogs (orange, dark brown, dark red, green at × 0.8, weight 0.7) and the area's own fog lit by `min(day, 1 − darkness × 0.8)` — and dims the sky by `1 − darkness / 2.333` (the original's `VisualEnvFX_t` +0x1134). (Corrected 2026-11-18, see "The weather that falls": the dimming and the fog's light go by the clouds, entry 2; "mist" is the rain's or snow's own fog; the rain, the storms and the lightning are drawn, and the cloud layer always was.) Because the seeding barely changes between days, an area's weather pattern repeats daily; Mort's areas, for instance, are under some dust or fog most of the time by their weights.
 
 ## The water and the playfield's own environment, from the original's code
 
@@ -5691,3 +5691,47 @@ A player on 0.1.5 can get past it until a new release: a file `launcher.ini` bes
 (`%APPDATA%\\ModernAnarchyOnline`) with the line `page = off` keeps the launcher from opening its page, and with it
 from the fault (tried with the installed 0.1.5: it closes with the page on and stays with it off); the login
 then closes only at a refused password.
+
+## The weather that falls, the city window, the container windows as lists (2026-11-18)
+
+The user: "port WIN-109, WIN-110 and RND-138". Each was read anew in the original by a reader who had to name the
+file of every rule; what a port rests on was then checked in the decompile, the drop-in ports and the game files.
+None of it was seen in the live game.
+
+### The weather that falls: rain, snow, the storms' lines and tints (RND-138)
+
+**The entry's cloud layer was a misreading.** `VisualEnvFX_t` +0x114 is not something drawn: it is one float of
+the frame block (the weather's cloud cover, entry 2, written by Gamecode FUN_100adb33). The cloud layer is the
+effect scripts' `ThickClouds` mesh (`skydome_clouds.abiff`, its alpha `GAME.ThickCloudsIntensity`), which this
+client has drawn and fed since the scripts' visuals were ported. What the weather draws and this client did not:
+
+- **The rain or snow is entry 0, and nothing was drawn for it.** The notes had called entry 0 "fog" and drew
+  entry 4 as the rain. `Environment_t`'s frame (FUN_100becbe) gives entry 0 to the object whose sound is
+  `SM_Sandy_Env_Rain` (FUN_100b9da8): shown while it is above 0, at its own value as the alpha, under no
+  preference. Its look goes by entry 8 (FUN_100b98fe; the numbers read from Gamecode.dll): above 4 it is rain,
+  (0.4, 0.5, 0.7), falling at 16.2 with 0.4 of the wind at 0.75 of the alpha; at −0.5 and below snow, grey 0.8,
+  falling at 2.2 with all of the wind; between them a blend.
+- **The four storms (entries 3 to 6) are blown line clouds, not rain.** Their colours are their fogs', their fall
+  0.3 (0.6 for the dark one) and their part of the wind 0.9; alpha `entry³ × 0.45` times 0.318, 0.7, 0.718, 0.318
+  (FUN_100b9ba5, FUN_100b9b10 and its four callers' arguments). The lines follow the `UseStormParticles`
+  preference, which was not read (the client went by the environment effects' switch instead).
+- **Each storm tints the screen** in its colour, flickering (`VisualFader_t`): `flicker × 0.55 × entry³`, the
+  flicker over 1.07 each frame and, one frame in five, up by 0.17 to at most 0.85. New here.
+- **The line cloud is `VisualRain_t`** as the drop-in has it (`rain.rs`, difftested): 350 lines in a box of 15
+  hung on the camera, each line's tail where its head was a frame ago. `precipitation.rs` is that now
+  (`LineCloud`, `WeatherFx`); the client's own particle box, counts and speeds are gone. A check on the way: the
+  original turns the fall and the wind into the cloud's frame by three matrices, which is exactly the inverse of
+  the cloud's own rotation (tried with numbers), so the lines fall straight down in the world whatever way the
+  camera looks.
+- **A fault mended with it: the clouds' entry.** The sky's dimming (`1 − x / 2.333`) and the area fog's light
+  (`1 − x × 0.8`) were read from entry 8; the frame reads the table's byte offset 8, its third float, the clouds
+  (entry 2). Entry 8 is the rain-or-snow number. Overcast weather now dims the sky and the fog; the old reading
+  dimmed them by the cold.
+
+This client's own in it: the lines are thin sheets about a picture element wide where the original draws lines;
+the tint's sheet stands at a tenth of the original's distance and size so that nothing near covers it; the wind is
+this client's own wind value; the flicker runs per frame as in the original, so it is quicker at a higher frame
+rate. Not read: the light handed to the rain's colour (the day's intensity is used, as the rain's fog does).
+Not ported: cloud shadows (no reader of `UseCloudShadows` was found; they are switched off in Rubi-Ka's script).
+`MAO_WEATHER=<entry>:<value>,…` sets the table by hand, for a picture (`map <playfield> --image`) or a live look.
+Tests: the four in `precipitation.rs`.
