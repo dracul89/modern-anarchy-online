@@ -844,6 +844,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] The belt's deck (2026-11-18): with two deck places, a third NCU unit is refused with "This item requires a
   computer deck" (the game's line) and nothing moves; a right click on the belt, or on another belt, with units
   in the deck says the deck must be empty and nothing moves. **Tell me if a unit is refused that the game takes.**
+- [ ] Small ones (2026-11-18): move the mission window's sliders, restart: they are as left. In exclusive full
+  screen `/start https://...` asks first; in a window it opens at once.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

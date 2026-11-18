@@ -61,6 +61,25 @@ pub const SLIDERS: [(&str, &str, i32, i32); 7] = [("Easy", "Hard", 0, 100), ("Go
 /// the middle, the six others at 0.
 pub const SLIDERS_AT_FIRST: [i32; 7] = [50, 0, 0, 0, 0, 0, 0];
 
+/// The names the original keeps the sliders under in its `MissionSelectionViewConfig` (GUI.dll FUN_100d10fc reads
+/// them when the window is made, with [`SLIDERS_AT_FIRST`] for what is not there; FUN_100d04fe writes them when it
+/// goes). Here each is a number of `tabs.ini` under the config's name and its own, counted from the slider's least
+/// value. (Not kept: `show_advanced_options`, the button that hides the six other sliders, which this window lacks.)
+const SLIDER_NAMES: [&str; 7] = ["difficulty", "dim_good", "dim_ctrl", "dim_secret", "dim_mystery", "dim_stealth", "dim_reward"];
+
+fn slider_key(i: usize) -> String {
+    format!("MissionSelectionViewConfig.{}", SLIDER_NAMES[i])
+}
+
+/// A slider's value as the number kept, and back (a number out of the slider's range gives the nearest end).
+fn slider_kept(i: usize, value: i32) -> usize {
+    (value.clamp(SLIDERS[i].2, SLIDERS[i].3) - SLIDERS[i].2) as usize
+}
+
+fn slider_from(i: usize, kept: usize) -> i32 {
+    (SLIDERS[i].2 as i64 + kept as i64).min(SLIDERS[i].3 as i64) as i32
+}
+
 /// The request's seven bytes from the sliders, as `N3Msg_GenerateMissions` (Gamecode 0x10016276) makes them: the
 /// difficulty is `floor(slider * 11/101 + 1)`, 1 to 11 (the two constants are doubles at 0x10158430 and 0x10156eb8,
 /// used as floats); each of the six others is a signed byte, and one outside -100 to 100 stays 0
@@ -292,6 +311,8 @@ pub struct MissionWindow {
     pub open: bool,
     /// The sliders' values ([`SLIDERS`]); [`request_bytes`] makes the request's bytes of them.
     pub sliders: [i32; 7],
+    /// The sliders as they were last kept (`slider_key`).
+    sliders_saved: [i32; 7],
     pub offers: Vec<Offer>,
     pub selected: Option<usize>,
     /// The offer that was selected when [`MissionWindow::mark`] last looked.
@@ -312,7 +333,7 @@ pub struct MissionWindow {
 
 impl Default for MissionWindow {
     fn default() -> MissionWindow {
-        MissionWindow { open: false, sliders: SLIDERS_AT_FIRST, offers: Vec::new(), selected: None, marked: None, status: String::new(), want_items: String::new(), want_places: String::new(), keep_asking: false, limit: DEFAULT_LIMIT, helper_loaded: false, answers: 0, roll: None }
+        MissionWindow { open: false, sliders: SLIDERS_AT_FIRST, sliders_saved: SLIDERS_AT_FIRST, offers: Vec::new(), selected: None, marked: None, status: String::new(), want_items: String::new(), want_places: String::new(), keep_asking: false, limit: DEFAULT_LIMIT, helper_loaded: false, answers: 0, roll: None }
     }
 }
 
@@ -371,6 +392,20 @@ impl MissionWindow {
             if let Ok(text) = std::fs::read_to_string(helper_path()) {
                 (self.want_items, self.want_places, self.limit, self.keep_asking) = helper_from(&text);
             }
+            // (the sliders as they were left the last time)
+            for i in 0..7 {
+                if let Some(kept) = crate::layout::tab(&slider_key(i)) {
+                    self.sliders[i] = slider_from(i, kept);
+                }
+            }
+            self.sliders_saved = self.sliders;
+        }
+        // (kept once the mouse has let a slider go: the original writes them when the window goes)
+        if self.sliders != self.sliders_saved && !ctx.input(|i| i.pointer.any_down()) {
+            for i in 0..7 {
+                crate::layout::set_tab(&slider_key(i), slider_kept(i, self.sliders[i]));
+            }
+            self.sliders_saved = self.sliders;
         }
         let helper_before = helper_text(&self.want_items, &self.want_places, self.limit, self.keep_asking);
         let wanted = Wanted::from_lines(&self.want_items, &self.want_places);
@@ -618,6 +653,10 @@ mod helper_tests {
             }
         }
         assert_eq!(SLIDERS.map(|s| (s.2, s.3)), [(0, 100), (-100, 100), (-100, 100), (-100, 100), (-100, 100), (-100, 100), (-100, 100)]);
+        // (a slider's kept number: counted from its least value, and a number too great is the greatest)
+        assert_eq!((slider_kept(0, 50), slider_kept(1, -100), slider_kept(1, 0), slider_kept(6, 100)), (50, 0, 100, 200));
+        assert_eq!((slider_from(0, 50), slider_from(1, 0), slider_from(1, 100), slider_from(6, 200), slider_from(0, 9999)), (50, -100, 0, 100, 100));
+        assert_eq!(slider_key(3), "MissionSelectionViewConfig.dim_secret");
     }
 
     #[test]

@@ -873,6 +873,8 @@ fn present_mode(surface: &wgpu::Surface, gpu: &Gpu, vsync: bool) -> wgpu::Presen
 /// the window is on, else the system's n-th (the window's own when there is no such monitor).
 pub(crate) fn apply_mode(window: &Window, mode: WindowMode, monitor: u32) {
     let chosen = if monitor == 0 { None } else { window.available_monitors().nth(monitor as usize - 1) };
+    // (whether the game owns the screen, which `/start` asks: set true below where the exclusive mode is taken)
+    crate::chatwindow::EXCLUSIVE.store(false, std::sync::atomic::Ordering::Relaxed);
     match mode {
         WindowMode::Windowed => {
             window.set_fullscreen(None);
@@ -885,7 +887,10 @@ pub(crate) fn apply_mode(window: &Window, mode: WindowMode, monitor: u32) {
                 monitor.video_modes().filter(|m| m.size() == size).max_by_key(|m| (m.refresh_rate_millihertz(), m.bit_depth()))
             });
             match best {
-                Some(video_mode) => window.set_fullscreen(Some(Fullscreen::Exclusive(video_mode))),
+                Some(video_mode) => {
+                    window.set_fullscreen(Some(Fullscreen::Exclusive(video_mode)));
+                    crate::chatwindow::EXCLUSIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
                 None => {
                     eprintln!("no exclusive video mode for this monitor: using a borderless window instead");
                     window.set_fullscreen(Some(Fullscreen::Borderless(None)));

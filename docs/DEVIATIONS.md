@@ -3783,7 +3783,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: opens an http/https address without a question
 - A player notices: link opens without a question
 - Where: `crates/mao-client/src/chatwindow.rs:1184`; `docs/GUI_DLL_PARITY.md:160`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18, overnight): in the exclusive full-screen mode a Warning box with text 10000 ReallyMinimizeGame asks first (chatwindow::EXCLUSIVE); the usage line for a missing address is not done.
 
 #### `CHT-057` /tower, /terminate (Notum Wars) are not carried out
 
@@ -5235,6 +5236,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `crates/mao-client/src/mission.rs:315`; `docs/CLIENT_UI.md:4040`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-18, overnight): read (MissionSelectionViewConfig: show_advanced_options, difficulty, dim_good, dim_ctrl, dim_secret, dim_mystery, dim_stealth, dim_reward; the toggle hides sliders 1 to 6); changes the window's layout, so left for a time when it can be looked at.
+- Done in part (2026-11-18, overnight, later the same night): the seven sliders are kept in tabs.ini under the config's names; the advanced options button is still not done.
 
 #### `WIN-136` Notification window: links, saved frame not ported
 

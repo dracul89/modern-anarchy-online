@@ -206,6 +206,10 @@ fn bar_id(frame: &str) -> egui::Id {
     egui::Id::unique(("chat-input", frame))
 }
 
+/// The game owns the screen: the exclusive full-screen mode is on (`viewer::apply_mode`), the original's
+/// `DisplaySystem_t` full-screen byte, which `/start` asks before it opens an address.
+pub static EXCLUSIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub struct ChatWindow {
     pub open: bool,
     /// Whether every line is also written to the chat log (the live client turns it on).
@@ -237,6 +241,8 @@ pub struct ChatWindow {
     /// `ChatWarnWhenSpeakingToUnsubGroups`: a line sent to a group the window does not show is warned of.
     pub warn_unshown: bool,
     invites: Vec<(u32, String)>,
+    /// A `/start` address that waits for the answer to "leave the full screen?" ([`EXCLUSIVE`]).
+    start_pending: Option<String>,
     pub outs: Vec<Out>,
     /// A preview's: the tab to show and the menu to have open (main, talk, public or combat).
     pub demo: Option<(usize, String)>,
@@ -287,7 +293,7 @@ pub struct ChatWindow {
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0, away: Default::default(), scripts: Default::default(), filter: crate::chatfilter::Filter::load(), macro_made: None, unkept: false }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), start_pending: None, outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0, away: Default::default(), scripts: Default::default(), filter: crate::chatfilter::Filter::load(), macro_made: None, unkept: false }
     }
 }
 
@@ -1180,11 +1186,17 @@ impl ChatWindow {
                 None
             }
             Parsed::DValue { name, value } => Some(Out::DValue { name, value }),
-            // (FUN_100ba073, FUN_100b9acf: only an http or https address, opened by the system)
+            // (FUN_100ba073, FUN_100b9acf: only an http or https address, opened by the system. While the game owns the
+            // screen (the display system's full-screen byte: the exclusive mode, not a borderless window) a box asks
+            // first, titled "Warning:" with text 10000's `ReallyMinimizeGame`, and only Yes opens the address.)
             Parsed::Start { address } => {
                 let lower = address.to_lowercase();
                 if lower.starts_with("http://") || lower.starts_with("https://") {
-                    open_outside(&address);
+                    if EXCLUSIVE.load(std::sync::atomic::Ordering::Relaxed) {
+                        self.start_pending = Some(address);
+                    } else {
+                        open_outside(&address);
+                    }
                 }
                 None
             }
@@ -1736,6 +1748,15 @@ impl ChatWindow {
         }
         // an invitation to a private chat group: the original's question (FUN_100a76c9, without its list of chat
         // windows to put the group in: the windows that take new channels by themselves show it)
+        if let Some(address) = self.start_pending.clone() {
+            let question = crate::gui::xml::ldb_named(10000, "ReallyMinimizeGame", "Opening this leaves the game's full screen. Go on?");
+            if let Some(yes) = crate::chrome::question(ctx, palette, "start-minimize", "Warning:", &question) {
+                if yes {
+                    open_outside(&address);
+                }
+                self.start_pending = None;
+            }
+        }
         self.take_invitations();
         if let Some((owner, name)) = self.invites.first().cloned() {
             let title = crate::gui::xml::ldb_named(10001, "PrivateGroupInvitation", "Private chat group");

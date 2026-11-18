@@ -5124,3 +5124,15 @@ toggle would have to follow the server's open and close actions: a live matter);
 the compare is in city.dll and no capture has such a signal). Nothing to port: a points shop's cost (INV-070) has
 the same "Credits:" label in the original.
 Test: `a_belt_is_judged_by_its_wield_requirement_before_a_swap` (the deck's part), `a_value_between_two_templates_is_the_nearest_whole`.
+
+### `/start` asks before it leaves the full screen; the mission request window keeps its sliders (CHT-056, WIN-135 in part)
+
+- `/start <address>` (GUI.dll FUN_100ba073, FUN_100b9acf): while the game owns the screen (the display system's
+  full-screen byte: the exclusive mode, not a borderless window) a box titled "Warning:" asks with text 10000's
+  `ReallyMinimizeGame`, Yes and No, and only Yes opens the address. `chatwindow::EXCLUSIVE` is set where the
+  exclusive mode is taken (`viewer::apply_mode`). Not done: the usage line for `/start` with no address.
+- The mission request window's seven sliders are kept between sessions under the original's names
+  (`MissionSelectionViewConfig`: `difficulty`, `dim_good`, `dim_ctrl`, `dim_secret`, `dim_mystery`, `dim_stealth`,
+  `dim_reward`; GUI.dll FUN_100d10fc reads them, FUN_100d04fe writes them), here as numbers in `tabs.ini`, written
+  when the mouse lets a slider go. Not done: the "advanced options" button that hides six of them (a change of the
+  window's layout).

@@ -58,6 +58,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A level-up says the experience that made it, and a new title when one comes with it.
 - For characters of level 200 to 220 a mission's page shows its pay in shadow knowledge when read in the
   Shadowlands.
+- The mission terminal's window remembers where its sliders were left.
 
 ### Flight
 
