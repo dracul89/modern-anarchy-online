@@ -27,8 +27,13 @@
 //!
 //! The evaluator's two flag arguments are not ported: ebp+0x18 (with it, equality on stats 4, 0x21, 0x3c, 0x170 compares the
 //! level) and ebp+0x28 (with it, every criterion but the basic comparisons on stats 4, 0x21, 0x2f, 0x3b, 0x3c, 0x185 passes).
-//! Both callers ported (the spell runner and the perk check) pass 0 for them. The feedback lines it writes when its feedback
-//! flag (ebp+0x14) is set are not ported either (both callers pass 0).
+//! Both callers ported (the spell runner and the perk check) pass 0 for them.
+//!
+//! With its feedback flag (ebp+0x14) set, as the items' wear and wield checks set it for a player's own move, a
+//! comparison that fails leaves a line in a list (ebp-0x24), and when the whole list has failed and the one judged is
+//! the client's own character the lines are told ([`evaluate_told`], [`Told`]). Ported: below and above (0x10007065,
+//! 0x100071f7) and the equalities of breed, side, sex and profession (0x100068fa on). The other operators' lines
+//! (targets, teams, running nanos, perks and the rest) are not: such a failure says nothing here.
 
 /// A criterion: (stat, value, operator) as the templates keep them.
 pub type Criterion = (u32, i32, u32);
@@ -68,8 +73,43 @@ pub trait Context {
     }
 }
 
+/// What a failed comparison says when the evaluator is asked to tell (its feedback flag), each a text of the feedback
+/// category fed as FUN_100065d8 feeds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Told {
+    /// `Feedback_IsRequiredToBeAtLeast` (above, 0x100071f7): whose ("Target" after On Target, else "Your": text
+    /// category 2007), the stat (its name, category 2002) and the least value that passes, the criterion's plus one.
+    AtLeast { target: bool, stat: u32, value: i64 },
+    /// `Feedback_IsNotLessThan` (below, 0x10007065): whose, the stat and the criterion's value.
+    NotBelow { target: bool, stat: u32, value: i64 },
+    /// `Feedback_TargetBreedMustBe` (stat 4: text category 1005, the value and 600).
+    Breed(i64),
+    /// `Feedback_TargetSideMustBe` (stat 0x21: category 2005).
+    Side(i64),
+    /// `Feedback_TargetSexMustBe` (stat 0x3b: category 1005, the value and 100).
+    Sex(i64),
+    /// `Feedback_ThisEffectCanOnlyBeUtilitizedBy` (stats 0x3c and 0x170: the profession's name, category 2004).
+    Profession(i64),
+}
+
 /// FUN_100065d8 on `criteria`, the stats read from `holder`. `Err` when an operator needs what the context does not know.
 pub fn evaluate(criteria: &[Criterion], holder: Holder, ctx: &dyn Context) -> Result<bool, Unknown> {
+    judge(criteria, holder, ctx, &mut Vec::new(), &mut false)
+}
+
+/// [`evaluate`] with the feedback flag: the answer, and what is to be told when it is no. Lines are told only of a
+/// list judged to its end (one cut short by a missing holder or an operator outside the table says nothing: the
+/// original frees its list there, 0x100091de) and only when `holder` is the client's own character.
+pub fn evaluate_told(criteria: &[Criterion], holder: Holder, ctx: &dyn Context) -> (Result<bool, Unknown>, Vec<Told>) {
+    let (mut told, mut ended) = (Vec::new(), false);
+    let result = judge(criteria, holder, ctx, &mut told, &mut ended);
+    if result != Ok(false) || !ended || !ctx.is_own(holder) {
+        told.clear();
+    }
+    (result, told)
+}
+
+fn judge(criteria: &[Criterion], holder: Holder, ctx: &dyn Context, told: &mut Vec<Told>, ended: &mut bool) -> Result<bool, Unknown> {
     if criteria.is_empty() {
         return Ok(true);
     }
@@ -89,11 +129,35 @@ pub fn evaluate(criteria: &[Criterion], holder: Holder, ctx: &dyn Context) -> Re
         let get = |h: Holder| ctx.stat(h, stat).ok_or(unknown);
         let v = value as i64;
         let result: bool = match op {
-            // (0x100068fa) equal
-            0 => get(holder)? == v,
+            // (0x100068fa) equal; a character's failed one has a line for a few stats
+            0 => {
+                let met = get(holder)? == v;
+                if !met && character.is_some() {
+                    match stat {
+                        4 => told.push(Told::Breed(v)),
+                        0x21 => told.push(Told::Side(v)),
+                        0x3b => told.push(Told::Sex(v)),
+                        0x3c | 0x170 => told.push(Told::Profession(v)),
+                        _ => {}
+                    }
+                }
+                met
+            }
             // (0x10007065, 0x100071f7) below, above: the client's own character only
-            1 => !own || get(holder)? < v,
-            2 => !own || get(holder)? > v,
+            1 => {
+                let met = !own || get(holder)? < v;
+                if !met {
+                    told.push(Told::NotBelow { target: kind == 0x12, stat, value: v });
+                }
+                met
+            }
+            2 => {
+                let met = !own || get(holder)? > v;
+                if !met {
+                    told.push(Told::AtLeast { target: kind == 0x12, stat, value: v + 1 });
+                }
+                met
+            }
             // (0x10006f20) unequal
             0x18 => get(holder)? != v,
             // (0x1000717a) all the value's bits set; (0x10007129) none of them
@@ -168,6 +232,7 @@ pub fn evaluate(criteria: &[Criterion], holder: Holder, ctx: &dyn Context) -> Re
         };
         stack.push(result);
     }
+    *ended = true;
     Ok(stack.into_iter().all(|b| b))
 }
 
@@ -239,6 +304,33 @@ mod tests {
         assert_eq!(evaluate(&[], ME, &c), Ok(true));
         // (a timer operator: unknown here)
         assert_eq!(evaluate(&[(0, 5, 5)], ME, &c), Err(Unknown { operator: 5 }));
+    }
+
+    /// What a failed list tells: the comparisons that failed, each as the original words it; nothing of a list that
+    /// passes (an alternative that failed beside one that held), of one cut short, or of anyone but oneself.
+    #[test]
+    fn a_failed_list_tells_what_failed() {
+        let stats: BTreeMap<u32, i64> = [(161, 40), (54, 20), (60, 7)].into_iter().collect();
+        let perks = HashSet::new();
+        let c = own(&stats, &perks);
+        assert_eq!(evaluate_told(&[(161, 75, 2)], ME, &c), (Ok(false), vec![Told::AtLeast { target: false, stat: 161, value: 76 }]));
+        assert_eq!(evaluate_told(&[(161, 39, 2)], ME, &c), (Ok(true), vec![]));
+        assert_eq!(evaluate_told(&[(54, 15, 1), (60, 3, 0), (0, 0, 4)], ME, &c), (Ok(false), vec![Told::NotBelow { target: false, stat: 54, value: 15 }, Told::Profession(3)]));
+        // (either of two: the one that failed is not told when the other held)
+        assert_eq!(evaluate_told(&[(161, 75, 2), (54, 10, 2), (0, 0, 3)], ME, &c), (Ok(true), vec![]));
+        // (cut short by an operator outside the table: no line)
+        assert_eq!(evaluate_told(&[(161, 75, 2), (0, 0, 86)], ME, &c), (Ok(false), vec![]));
+        // (someone else's: equality fails for them too, and nothing is told)
+        struct Other;
+        impl Context for Other {
+            fn stat(&self, _: Holder, _: u32) -> Option<i64> {
+                Some(0)
+            }
+            fn is_own(&self, _: Holder) -> bool {
+                false
+            }
+        }
+        assert_eq!(evaluate_told(&[(60, 3, 0)], (CHARACTER, 9), &Other), (Ok(false), vec![]));
     }
 
     #[test]

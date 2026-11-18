@@ -4297,6 +4297,10 @@ the mouse's turn the original applies while stat 224's bits 2 or 4 are set and s
 
 ## The original's own wear check, read to its end (2026-11-16)
 
+**Corrected on 2026-11-18** (see "An item is judged before anything is taken off" at the end of this file): the
+first point below is wrong for an item in the inventory. Such an item is judged by another function, and one of
+the weapons' page by its wield requirements; the jetpack is refused by the original itself.
+
 Fifth of the user's "do all of the Readable from the decompile now". `N3Msg_IsItemPossibleToWear` (Gamecode
 0x10026c57) and what it calls were read whole. What that changes:
 
@@ -4906,3 +4910,60 @@ place now sets nothing down and keeps the template.
 
 Not seen live. A shopkeeper that does not talk at all (none in the captures) is still used with a double click,
 which opens the chat first: the original's own choice between talking and using was not read.
+
+## An item is judged before anything is taken off (2026-11-18, the user's mission belt)
+
+The report: "wrong belt shown from mission and trying to equip it unequipped my existing. we should be checking
+requirements before starting equipment swaps that could cause problems later."
+
+What the log has. The mission "Yell at Patrick for Killing you" names its reward as the templates 36782 and 36777
+at quality 30, and that is what the server handed over: a Belt Component Platform between the Ti-200X (quality 20,
+Computer Literacy above 30 to wield) and the 300X (quality 40, above 120), so at 30 it asks for more than 75. The
+client showed that item, by the name of its lower template as everywhere. Nothing was found wrong in what was
+shown; if the game shows another belt for this mission, that is still to be said. The right click on it then went:
+the worn belt off to the backpack (the server did it), the new belt to the belt's place (the server refused:
+"Your Computer Literacy is required to be at least 76!", and the client took the move back), and the old belt lay
+in the backpack.
+
+What the original does (Gamecode `N3Msg_UseItem` 0x10028883): each of its branches first asks
+`N3Msg_IsItemPossibleToWear` (0x10026c57), and a no ends the use before the place is emptied (FUN_10047732 /
+FUN_1004b3ee come after). For an item in an inventory that function goes to FUN_100498ed, which asks the
+inventory's own item object (`DummyItemBase_t`, vtable 0x10163a64) by the item's class (stat 76):
+
+- class 1, the weapons' page (weapons, the belt and its units, utilities, HUDs): vtable +0x64, FUN_10081ed7, the
+  **wield** requirements (action 8). No such action, or none in it: it passes. Else the criteria evaluator judges
+  them with its feedback flag set, and its own line is the only one said.
+- the other classes: vtable +0x5c, FUN_10081d5f, the wear requirements (action 6), the evaluator's lines and then
+  `Feedback_UnableToWear`.
+
+The note of 2026-11-16 had read the branch for an item lying in the world (`WeaponItem_t`, action 6 only) and
+concluded that wield requirements are the server's to refuse. That was wrong, and it is why the belt's
+requirement was not asked here. 12,282 of the 19,549 templates of class 1 have a wield action (the new
+`itemactions <game> worn` counts them).
+
+Ported:
+
+- `World::wear_refusal` judges the wield action for class 1 and the wear action for the rest.
+- The evaluator's lines (`requirements::evaluate_told`, `Told`; `feedback::requirement`): a comparison that fails
+  leaves a line, told when the whole list failed and the character is one's own. Below and above
+  (`Feedback_IsNotLessThan`, `Feedback_IsRequiredToBeAtLeast`: whose, the stat's name, the number) and the
+  equalities of breed, side, sex and profession. The other operators' lines are not ported.
+- **The value judged is the one the windows show.** The evaluator reads a stat in mode 0, which for a character
+  (FUN_10059399) is the shown value: what is stored, what the worn items, perks and nanos add, and for a skill
+  what the attributes add. The client judged the stored value alone, in the wear check, the perks' and the
+  spells' criteria alike (`derived::judged_one`; a few stats are read stored whatever the mode, as there).
+- The check is asked at the right click, before any move is queued (`net.rs`, the use of an item that is worn
+  instead). The log line is `items: the use of place N (item X) is refused before any move`.
+
+The client's own, at the user's wish: when the place is taken, the character is judged **as it will be without
+the item that comes off** (`derived::modifiers_without`, `Stripped`). The original judges it as it stands, takes
+the old item off, and the server may then refuse the new one for want of what the old one gave: the same state
+as in the report. `DEVIATIONS.md` has it as `INV-084`.
+
+A risk to know: the shown values are this client's own sum (worn items, perks, nanos, organization, trickle). A
+source it does not know makes a value too low, and the check then refuses what the server would take. The skill
+window shows the same numbers, so a refusal can be checked against it.
+
+Tests: `a_failed_list_tells_what_failed`, `a_belt_is_judged_by_its_wield_requirement_before_a_swap` (`MAO_GAME`).
+Not seen live. Not ported from the two checks: the refusal while fighting (asked only with a page number the use
+does not pass) and the wear bit of the "can" flags.

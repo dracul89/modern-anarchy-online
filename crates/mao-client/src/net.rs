@@ -1052,13 +1052,52 @@ pub fn send_chat(out: crate::chatwindow::Out) {
 /// the playfield, whom they fight. Others' stats are not kept (their below / above criteria pass, as in the original).
 impl crate::requirements::Context for World {
     fn stat(&self, holder: crate::requirements::Holder, stat: u32) -> Option<i64> {
-        (holder == (crate::requirements::CHARACTER, self.own)).then(|| self.stats.get(&stat).copied().unwrap_or(0))
+        // (the value the windows show, not the stored one: `derived::judged_one`. Until 2026-11-18 the stored value
+        // was judged, without what the worn items, the perks and the attributes add.)
+        (holder == (crate::requirements::CHARACTER, self.own)).then(|| crate::derived::judged_one(&self.stats, &self.item_mods, stat))
     }
     fn is_own(&self, holder: crate::requirements::Holder) -> bool {
         holder == (crate::requirements::CHARACTER, self.own)
     }
     fn has_perk(&self, character: crate::requirements::Holder, perk: u32) -> Option<bool> {
         self.is_own(character).then(|| self.perks.contains(&perk))
+    }
+}
+
+/// The world judged with another modifier map: the character as it will be with a worn item taken off
+/// (`derived::modifiers_without`).
+struct Stripped<'a> {
+    world: &'a World,
+    modifiers: std::collections::BTreeMap<u32, i64>,
+}
+
+impl crate::requirements::Context for Stripped<'_> {
+    fn stat(&self, holder: crate::requirements::Holder, stat: u32) -> Option<i64> {
+        (holder == (crate::requirements::CHARACTER, self.world.own)).then(|| crate::derived::judged_one(&self.world.stats, &self.modifiers, stat))
+    }
+    fn is_own(&self, holder: crate::requirements::Holder) -> bool {
+        self.world.is_own(holder)
+    }
+    fn has_perk(&self, character: crate::requirements::Holder, perk: u32) -> Option<bool> {
+        self.world.has_perk(character, perk)
+    }
+}
+
+/// A line a refused move of an item says: a feedback text by its name, or what the criteria evaluator tells of a
+/// comparison that failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Say {
+    Named(&'static str),
+    Told(crate::requirements::Told),
+}
+
+impl Say {
+    fn line(&self) -> crate::chatwindow::Line {
+        let text = match self {
+            Say::Named(name) => crate::feedback::plain(name),
+            Say::Told(told) => crate::feedback::requirement(told),
+        };
+        crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text)
     }
 }
 
@@ -1083,14 +1122,32 @@ impl crate::spelllist::Scene for World {
 
 impl World {
     /// Why an item cannot go to a wear place, as Gamecode's `N3Msg_IsItemPossibleToWear` (0x10026c57) decides before
-    /// anything is sent: `None` when it can; `Some(None)` when it cannot and nothing is said (not a weapon, armour,
-    /// implant or spirit by its class, stat 76; a place its placement mask, stat 298, does not have, FUN_10080659; no
-    /// "wear" among its "can" flags, FUN_10081d5f); `Some(text)` when its requirements to wear it (action 6) are not
-    /// met, with the feedback text's name. **Action 6 is the only one judged**, for a weapon too (`WeaponItem_t`'s
-    /// check, FUN_10087a42, is the same test of action 6, and an item without one passes: FUN_100816f6); a weapon's
-    /// wield requirements (action 8, FUN_1009c967) are another question, which this function's caller does not
-    /// ask. So an item whose only requirements are to wield it (the Ganimedes jetpack) is asked of the server by
-    /// the original as well, and refused there. The equipment's lock is asked before this (`equipment_locked`).
+    /// anything is sent or moved: `None` when it can; `Some` with nothing to say when it cannot and nothing is said
+    /// (not a weapon, armour, implant or spirit by its class, stat 76; a place its placement mask, stat 298, does
+    /// not have, FUN_10080659); `Some` with the lines when its requirements are not met.
+    ///
+    /// An item in an inventory (identity types 0x65 to 0xf9) is judged by FUN_100498ed, on the inventory's own item
+    /// object (`DummyItemBase_t`, vtable 0x10163a64), by its class:
+    /// * class 1, the weapons' page (weapons, the belt, its units, the utilities, the HUDs): the **wield** check,
+    ///   vtable +0x64, FUN_10081ed7: the requirements of action 8; an item without that action or with none in it
+    ///   passes. What fails is told by the criteria evaluator alone ("Your Computer Literacy is required to be at
+    ///   least 76!"). The wear action, 6, is not asked of these.
+    /// * the others: the wear check, vtable +0x5c, FUN_10081d5f: the requirements of action 6, told by the evaluator
+    ///   and then `Feedback_UnableToWear`.
+    /// (**Corrected 2026-11-18.** The note of 2026-11-16 read the other branch, for an item that lies in the world,
+    /// where `WeaponItem_t`'s FUN_10087a42 asks action 6, and concluded that wield requirements are left to the
+    /// server. They are not: the user's mission belt, refused by the server after the old belt had come off. So the
+    /// Ganimedes jetpack is refused here too, as the original refuses it.)
+    ///
+    /// The requirements are judged on the values the windows show (`derived::judged_one`). `off` is what the move
+    /// will first take off the place (a swap by use): the character is then judged as it will be without that
+    /// item's effects, **this client's own addition** at the user's wish ("we should be checking requirements before
+    /// starting equipment swaps that could cause problems later"): the original judges the character as it stands,
+    /// takes the old item off, and the server may then refuse the new one for want of what the old one gave. The
+    /// equipment's lock is asked before this (`equipment_locked`).
+    /// Not here from FUN_10081ed7 and FUN_10081d5f: the refusal while fighting (`Feedback_CantDoThisWhileFighting`,
+    /// only with the page 6, which `N3Msg_UseItem` does not pass) and the wear bit of the "can" flags that the wear
+    /// check wants first (a move the server will not have comes back as it was).
     /// Not here, read on 2026-11-16 and left to the server, since each needs something of the character the client
     /// does not keep and a wrong no would stop the player: an implant needs bit 0x10 of the character's stat 224
     /// (FUN_10044dd8, else `Feedback_AccessingImplants`; the bit is raised by a spell the client does not run); a
@@ -1099,21 +1156,38 @@ impl World {
     /// `Feedback_SocialArmorAndOtherArmor`, by a flag of the character's at +0x138, and FUN_10080aff's
     /// `Feedback_SocialArmorNoOtherArmor`, by the item's flag 0x100 and the worn pieces' stat 702); an item that is
     /// not one's own (`Feedback_ItemNotOwnedByYou`).
-    fn wear_refusal(&self, entry: &inventory::Entry, to: u32, db: &ResourceDatabase) -> Option<Option<&'static str>> {
+    fn wear_refusal(&self, entry: &inventory::Entry, to: u32, db: &ResourceDatabase, off: Option<&inventory::Entry>) -> Option<Vec<Say>> {
         // (nothing is put on while the overflow's first place holds something: Gamecode FUN_1004bd28, 0x1004cab6)
         if self.overflow.iter().any(|e| e.slot == 0) {
-            return Some(Some("Feedback_WearingDisabledWhenItemsInOverflow"));
+            return Some(vec![Say::Named("Feedback_WearingDisabledWhenItemsInOverflow")]);
         }
         let stat = |k: u32| template_stat(entry.low_id, k).unwrap_or(0) as u32;
         let slot = to % 16;
         // (not by the `Can` flags' wear bit, 4: a garden key has only 1, carry, and is worn all the same; a move the server
         // will not have comes back as it was)
         if !matches!(stat(76), 1 | 2 | 3 | 5) || slot == 0 || stat(298) & (1 << slot) == 0 {
-            return Some(None);
+            return Some(Vec::new());
         }
+        let wield = stat(76) == 1;
+        let actions = crate::derived::actions(db, entry);
+        let action = actions.iter().find(|a| a.kind == if wield { 8 } else { 6 })?;
         let own = (crate::requirements::CHARACTER, self.own);
-        let unmet = crate::derived::actions(db, entry).iter().filter(|a| a.kind == 6).any(|a| crate::requirements::evaluate(&a.criteria, own, self) == Ok(false));
-        unmet.then_some(Some("Feedback_UnableToWear"))
+        let (met, told) = match off {
+            Some(off) => {
+                let level = self.stats.get(&0x36).copied().unwrap_or(1);
+                let stripped = Stripped { world: self, modifiers: crate::derived::modifiers_without(db, &self.item_mods, off, level) };
+                crate::requirements::evaluate_told(&action.criteria, own, &stripped)
+            }
+            None => crate::requirements::evaluate_told(&action.criteria, own, self),
+        };
+        if met != Ok(false) {
+            return None;
+        }
+        let mut says: Vec<Say> = told.into_iter().map(Say::Told).collect();
+        if !wield {
+            says.push(Say::Named("Feedback_UnableToWear"));
+        }
+        Some(says)
     }
 
     /// The numbers of the special actions the character has (`None` until the server has listed its special attacks):
@@ -8526,12 +8600,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // (to a wear place only what may be worn there: the original asks itself before it asks the server; and
                 // nothing on or off while the equipment is locked)
                 let refusal = if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), from, to) {
-                    Some(Some("Feedback_EquipmentLocked"))
+                    Some(vec![Say::Named("Feedback_EquipmentLocked")])
                 } else {
-                    state.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| state.wear_refusal(e, to, &gear_db))
+                    state.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| state.wear_refusal(e, to, &gear_db, None))
                 };
-                if let Some(Some(name)) = refusal {
-                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
+                for say in refusal.iter().flatten() {
+                    state.game_lines.push(say.line());
                 }
                 if refusal.is_some() {
                     // (the window shows the move as it is made: the list again puts the item back where it was)
@@ -8607,6 +8681,24 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     } else {
                         (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + 30).find(|&p| !taken(p))
                     };
+                    // (before anything moves the original asks whether the item can be worn there, or taken off:
+                    // `N3Msg_IsItemPossibleToWear` and `...ToUnWear` at the head of each branch of `N3Msg_UseItem`. A no
+                    // ends the use with the check's own line and nothing is touched. Until 2026-11-18 the check was
+                    // asked only when the item's own move came up, after the worn one had been taken off: the user's
+                    // mission belt, refused for its Computer Literacy, left the old belt in the backpack. What is on
+                    // the place is given to the check, which judges the character without it: `World::wear_refusal`.)
+                    let wearing = e.slot >= inventory::BACKPACK_FIRST;
+                    let refusal = to.and_then(|to| {
+                        if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), e.slot, to) {
+                            return Some(vec![Say::Named("Feedback_EquipmentLocked")]);
+                        }
+                        let off = state.worn.iter().find(|w| w.slot == to);
+                        if wearing { state.wear_refusal(&e, to, &gear_db, off) } else { None }
+                    });
+                    for say in refusal.iter().flatten() {
+                        state.game_lines.push(say.line());
+                    }
+                    let to = to.filter(|_| refusal.is_none());
                     // (a place that is taken is emptied first: what is worn there goes into the backpack's first free place,
                     // then the item is worn, FUN_10047732 / FUN_1004b3ee before the move in `N3Msg_UseItem`; one move a turn)
                     if let Some(to) = to {
@@ -8618,7 +8710,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                         wear_by_use.push_back((e.slot, to));
                     }
-                    eprintln!("items: the use of place {} (item {}) is a move: {:?}", e.slot, e.low_id, wear_by_use);
+                    match &refusal {
+                        Some(says) => eprintln!("items: the use of place {} (item {}) is refused before any move: {says:?}", e.slot, e.low_id),
+                        None => eprintln!("items: the use of place {} (item {}) is a move: {:?}", e.slot, e.low_id, wear_by_use),
+                    }
                 } else {
                     if crate::gear::traced() {
                         eprintln!("items: the use of place {} sent to the server", keys.fire.1);
@@ -11343,9 +11438,55 @@ mod door_tests {
         let entry = |slot: u32, low_id: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id, high_id: low_id, quality: 1, extra: 0 };
         let w = World { own: 7, ..World::default() };
         let (crystal, rifle) = (entry(0x45, 0x46147), entry(0x46, 0x1dae1));
-        assert_eq!(w.wear_refusal(&crystal, 6, &db), Some(None));
-        assert_eq!(w.wear_refusal(&rifle, 0x11, &db), Some(None));
-        assert_ne!(w.wear_refusal(&rifle, 6, &db), Some(None));
+        assert_eq!(w.wear_refusal(&crystal, 6, &db, None), Some(Vec::new()));
+        assert_eq!(w.wear_refusal(&rifle, 0x11, &db, None), Some(Vec::new()));
+        assert_ne!(w.wear_refusal(&rifle, 6, &db, None), Some(Vec::new()));
+    }
+
+    /// `MAO_GAME`: the user's mission belt of 2026-11-18, a Belt Component Platform of quality 30 between the
+    /// templates 36782 and 36777, which asks for Computer Literacy above 75 to be wielded. A character short of it is
+    /// refused before anything moves, with the evaluator's line and no other; one who has it by what is trained, or
+    /// by what the attributes add, is not. A requirement the worn item's own effect meets is not met for the swap.
+    #[test]
+    fn a_belt_is_judged_by_its_wield_requirement_before_a_swap() {
+        use crate::requirements::Told;
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let _ = ITEM_DB.set(db.clone());
+        let entry = |slot: u32, low_id: u32, high_id: u32, quality: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id, high_id, quality, extra: 0 };
+        let (new, old) = (entry(79, 36782, 36777, 30), entry(7, 252158, 252158, 1));
+        let short = Some(vec![Say::Told(Told::AtLeast { target: false, stat: 161, value: 76 })]);
+        let mut w = World { own: 7, worn: vec![old.clone(), new.clone()], ..World::default() };
+        w.stats.insert(161, 40);
+        assert_eq!(w.wear_refusal(&new, 7, &db, Some(&old)), short);
+        assert_eq!(w.wear_refusal(&new, 7, &db, None), short);
+        // (the line, in the game's words when its texts are at hand)
+        let line = Say::Told(Told::AtLeast { target: false, stat: 161, value: 76 }).line().text;
+        assert!(line.contains("76") && line.contains("Computer Literacy"), "{line}");
+        // (trained enough)
+        w.stats.insert(161, 76);
+        assert_eq!(w.wear_refusal(&new, 7, &db, Some(&old)), None);
+        // (not trained enough, but the attributes add the rest: the shown value is judged)
+        w.stats.insert(161, 40);
+        for attribute in 0x10..=0x15 {
+            w.stats.insert(attribute, 600);
+        }
+        assert!(crate::derived::judged_one(&w.stats, &w.item_mods, 161) > 75);
+        assert_eq!(w.wear_refusal(&new, 7, &db, Some(&old)), None);
+        // (what the worn belt gives goes with it: its deck places and NCU are not there to be counted on)
+        let level = 1;
+        w.item_mods = crate::derived::worn_modifiers(&db, &w.worn, level);
+        let given: Vec<(u32, i64)> = crate::derived::effects(&db, &old, level);
+        assert!(!given.is_empty());
+        let left = crate::derived::modifiers_without(&db, &w.item_mods, &old, level);
+        for (stat, amount) in given {
+            assert_eq!(left.get(&stat).copied().unwrap_or(0), w.item_mods[&stat] - amount);
+            let stripped = Stripped { world: &w, modifiers: left.clone() };
+            let criteria = [(stat, 0, 2)];
+            let own = (crate::requirements::CHARACTER, w.own);
+            assert_eq!(crate::requirements::evaluate(&criteria, own, &w), Ok(true));
+            assert_eq!(crate::requirements::evaluate(&criteria, own, &stripped), Ok(false));
+        }
     }
 
     /// An item move the server refuses is taken back, one it takes stays (the two answers seen live on 2026-11-10: a nano

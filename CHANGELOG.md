@@ -6,6 +6,14 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Items
+
+- A right click on an item one cannot wear or wield no longer takes off what is worn in its place. The item is
+  judged first, as the original judges it, and the game's own line says what is missing ("Your Computer Literacy
+  is required to be at least 76!"). A swap is also judged without what the item coming off adds.
+- Requirements are judged on the values the skill window shows (with what worn items, perks, nanos and the
+  attributes add), not on the trained values alone.
+
 ### Shops
 
 - A shopkeeper who talks can be bought from: the Shop button of the NPC's window opens the shop, as the original's

@@ -43,7 +43,7 @@ client does today, what a player notices, and where it is in the code.
 | [Targeting and mouse](#targeting-and-mouse) (`TGT`) | 2 | 8 | 2 | 1 | 3 | 1 | 17 | 3 |
 | [Death and revival](#death-and-revival) (`DTH`) | 5 | 1 | 4 | 2 | 2 | 0 | 14 | 2 |
 | [NPCs and creatures](#npcs-and-creatures) (`NPC`) | 4 | 9 | 14 | 0 | 11 | 2 | 40 | 5 |
-| [Inventory and items](#inventory-and-items) (`INV`) | 15 | 22 | 8 | 2 | 31 | 5 | 83 | 10 |
+| [Inventory and items](#inventory-and-items) (`INV`) | 15 | 22 | 8 | 2 | 31 | 6 | 84 | 10 |
 | [Nano programs](#nano-programs) (`NAN`) | 3 | 24 | 9 | 1 | 18 | 5 | 60 | 0 |
 | [Zoning and playfields](#zoning-and-playfields) (`ZON`) | 2 | 3 | 7 | 4 | 7 | 5 | 28 | 2 |
 | [Chat and commands](#chat-and-commands) (`CHT`) | 15 | 13 | 16 | 3 | 21 | 12 | 80 | 3 |
@@ -55,7 +55,7 @@ client does today, what a player notices, and where it is in the code.
 | [Settings and files](#settings-and-files) (`SET`) | 22 | 3 | 3 | 1 | 8 | 17 | 54 | 2 |
 | [Network and protocol](#network-and-protocol) (`NET`) | 0 | 2 | 5 | 3 | 1 | 2 | 13 | 0 |
 | [Other](#other) (`OTH`) | 2 | 3 | 4 | 0 | 8 | 4 | 21 | 1 |
-| **all** | 127 | 272 | 140 | 43 | 240 | 114 | 936 | 54 |
+| **all** | 127 | 272 | 140 | 43 | 240 | 115 | 937 | 54 |
 
 ## Start here: what a player notices most
 
@@ -189,6 +189,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - [ ] `INV-081` Tradeskill guide made from item descriptions
 - [ ] `INV-082` Backpack count heading
 - [ ] `INV-083` Item finder (/find) is the client's own tool
+- [ ] `INV-084` A swap by right click is judged without the item that comes off (added 2026-11-18)
 
 **Nano programs**
 
@@ -2373,7 +2374,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `docs/ORIGINAL_AUDIT.md:39`
 - Decision: [ ] port  [ ] leave
 
-### Inventory and items: the client has it, the original does not (5)
+### Inventory and items: the client has it, the original does not (6)
 
 #### `INV-079` Auto loot of fresh corpses
 
@@ -2418,6 +2419,15 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A window (/find <part of a name>) searching every character played with this client by words in an item's name, saying which character, where (worn, inventory, bag, bank) and how old the knowledge is; clicking a result opens the item's description. "Look into my bags" uses each unseen bag of the played character half a second apart without a window; the character's items are written to disk every few seconds. It cannot see bags never looked into, a bank never seen, a bag inside the bank, or characters not yet played with this client.
 - A player notices: A player can look up where an item is, even on a character not logged in; bags are opened silently on request.
 - Where: `crates/mao-client/src/itemindex.rs:2`; `crates/mao-client/src/itemindex.rs:14`; `crates/mao-client/src/net.rs:8010`; `docs/CLIENT_UI.md:949`; `docs/CLIENT_UI.md:962`; `docs/LIVE_TEST_LIST.md:586`
+- Decision: [ ] keep  [ ] remove
+
+#### `INV-084` A swap by right click is judged without the item that comes off
+
+- ADDITION, medium (added by hand on 2026-11-18, at the user's wish; the count in the file's head is one more for it)
+- Original: N3Msg_UseItem asks N3Msg_IsItemPossibleToWear with the character as it stands, the old item still on; it then takes the old item off and wears the new one, and the server may refuse the new one for want of what the old one gave, which leaves the old item in the backpack.
+- Client: When the wear place is taken, the new item's requirements are judged on the shown values less the effects of the item that will come off (derived::modifiers_without, net.rs Stripped); a no ends the use with the game's line and nothing moves.
+- A player notices: A swap that would strand the old item is refused at the click; a swap the original would have tried (and the server refused) is not tried.
+- Where: `crates/mao-client/src/net.rs` (`World::wear_refusal`, the use of an item that is worn instead); `crates/mao-client/src/derived.rs` (`modifiers_without`); `docs/CLIENT_UI.md` ("An item is judged before anything is taken off")
 - Decision: [ ] keep  [ ] remove
 
 ## Nano programs

@@ -15,7 +15,7 @@ const QUALITY_LEVEL: u32 = 54;
 /// Whether a placement is worn: the weapon tab (including the belt in 7, its NCU units in 9-14 and the second HUD place, 15 (a Dreadloch booster sat there), which add health and
 /// nano like any worn item: a level-25 character's belt gives +100 health and each unit +50), clothes and implants. The
 /// social tab (49 and up) only changes how the character looks.
-fn worn(slot: u32) -> bool {
+pub(crate) fn worn(slot: u32) -> bool {
     matches!(slot, 1..=15 | 17..=31 | 33..=45)
 }
 
@@ -247,6 +247,30 @@ pub fn shown_one(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>, st
         }
         None => stored.get(&stat).copied().unwrap_or(0) + bonus,
     }
+}
+
+/// A stat as the criteria evaluator reads it (Gamecode FUN_100065d8: the holder's `GetStat` in mode 0, which for a
+/// character is FUN_10059399): the value the windows show ([`shown_one`]: FUN_10065a92), but the stored value alone
+/// for the stats that function reads so whatever the mode: 2, 0x1b, 0x36, 0xcc, 0x167, 0x184, 0x1c0, 0x1c6, 0x1c7,
+/// 0x1c9, 0x1e4, 0x206 and those from 0x44c on. (Its stats made of two others, 0x20d to 0x274, and a morphed
+/// character's second container are not here.)
+pub fn judged_one(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>, stat: u32) -> i64 {
+    if matches!(stat, 2 | 0x1b | 0x36 | 0xcc | 0x167 | 0x184 | 0x1c0 | 0x1c6 | 0x1c7 | 0x1c9 | 0x1e4 | 0x206) || stat >= 0x44c {
+        return stored.get(&stat).copied().unwrap_or(0);
+    }
+    shown_one(stored, modifiers, stat)
+}
+
+/// The modifier map as it will be with one worn item taken off: its effects less. An item in a place that adds
+/// nothing (the backpack, the social tab) changes nothing.
+pub fn modifiers_without(db: &ResourceDatabase, modifiers: &BTreeMap<u32, i64>, off: &Entry, level: i64) -> BTreeMap<u32, i64> {
+    let mut left = modifiers.clone();
+    if !off.is_bag() && worn(off.slot) {
+        for (stat, amount) in effects(db, off, level) {
+            *left.entry(stat).or_insert(0) -= amount;
+        }
+    }
+    left
 }
 
 #[cfg(test)]

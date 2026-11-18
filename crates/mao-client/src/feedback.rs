@@ -50,6 +50,12 @@ fn english(name: &str) -> &'static str {
         "Feedback_WasAttackedByNanobots" => "%s was attacked with nanobots for %u points of %s damage.",
         "Feedback_YouHitOtherWith" => "You hit %s with %s for %u points of %s damage.",
         "Feedback_UnableToWear" => "You do not meet what it takes to wear that.",
+        "Feedback_IsRequiredToBeAtLeast" => "%s %s has to be %d or more.",
+        "Feedback_IsNotLessThan" => "%s %s is not under %d.",
+        "Feedback_TargetBreedMustBe" => "The breed has to be %s.",
+        "Feedback_TargetSideMustBe" => "The side has to be %s.",
+        "Feedback_TargetSexMustBe" => "The sex has to be %s.",
+        "Feedback_ThisEffectCanOnlyBeUtilitizedBy" => "Only for the profession %s.",
         "Feedback_NewLevel" => "You are level %d now.",
         "Feedback_DeathByTerminate" => "You were terminated.",
         "Feedback_DeathByReflectDamage" => "You died of damage thrown back at you.",
@@ -416,6 +422,28 @@ pub fn unable_to_perform(name: &str, seconds: f32) -> String {
 /// A skill's short name (text category 2003), as the wait line names it.
 pub fn skill_name(stat: u32) -> String {
     texts().and_then(|t| t.get(2003, stat as i32)).map(str::to_string).unwrap_or_else(|| crate::skills::stat_name(stat))
+}
+
+/// What the criteria evaluator says of a comparison that failed (Gamecode FUN_100065d8 with its feedback flag,
+/// `requirements::Told`): the feedback text fed the words and numbers the original feeds, each a text of its own
+/// category (whose: 2007; a stat's name: 2002; a breed and a sex: 1005; a side: 2005; a profession: 2004).
+pub fn requirement(told: &crate::requirements::Told) -> String {
+    use crate::requirements::Told;
+    let text = |category: i32, key: i64| texts().and_then(|t| t.get(category, key as i32)).map(str::to_string);
+    let whose = |target: bool| {
+        let name = if target { "Target" } else { "Your" };
+        texts().and_then(|t| t.named(2007, name)).unwrap_or(name).to_string()
+    };
+    let stat_name = |stat: u32| text(2002, stat as i64).unwrap_or_else(|| crate::skills::stat_name(stat));
+    let one = |name: &str, word: Option<String>, number: i64| line(name, &[Arg::Text(&word.unwrap_or_else(|| number.to_string()))]);
+    match *told {
+        Told::AtLeast { target, stat, value } => line("Feedback_IsRequiredToBeAtLeast", &[Arg::Text(&whose(target)), Arg::Text(&stat_name(stat)), Arg::Int(value)]),
+        Told::NotBelow { target, stat, value } => line("Feedback_IsNotLessThan", &[Arg::Text(&whose(target)), Arg::Text(&stat_name(stat)), Arg::Int(value)]),
+        Told::Breed(v) => one("Feedback_TargetBreedMustBe", text(1005, v + 600), v),
+        Told::Side(v) => one("Feedback_TargetSideMustBe", text(2005, v), v),
+        Told::Sex(v) => one("Feedback_TargetSexMustBe", text(1005, v + 100), v),
+        Told::Profession(v) => one("Feedback_ThisEffectCanOnlyBeUtilitizedBy", text(2004, v), v),
+    }
 }
 
 /// A feedback line with one number (`%d`), as FUN_10012c3e feeds it.
