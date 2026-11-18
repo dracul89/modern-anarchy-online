@@ -846,6 +846,8 @@ These were written before this list; some may have been seen working since witho
   in the deck says the deck must be empty and nothing moves. **Tell me if a unit is refused that the game takes.**
 - [ ] Small ones (2026-11-18): move the mission window's sliders, restart: they are as left. In exclusive full
   screen `/start https://...` asks first; in a window it opens at once.
+- [ ] An item between two templates (2026-11-18): the mission belt's page (quality 30) says 3 deck places; compare
+  a few such items' pages with the game's (value, range, price).
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

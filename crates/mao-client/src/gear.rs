@@ -272,7 +272,8 @@ pub fn from_entries(db: &ResourceDatabase, textures: &crate::Textures, entries: 
     entries
         .iter()
         .map(|e| {
-            let template = lookup(e.low_id).or_else(|| lookup(e.high_id));
+            // (as it is at its quality: the high template itself at that one's level, `derived::item_at`)
+            let template = crate::derived::item_at(db, e.low_id, e.high_id, e.quality).map(|t| t.1).or_else(|| lookup(e.high_id));
             let icon = template.as_ref().and_then(|t| t.icon()).and_then(|id| {
                 icons
                     .entry(id)

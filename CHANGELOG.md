@@ -17,6 +17,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   units are in it, each with the game's line; both used to be tried and refused by the server.
 - A worn item's penalties at a quality between its two templates are rounded as the game rounds them (off by one
   at times).
+- An item whose quality lies between two templates shows its own values on its page (deck places, ranges, price),
+  and at the top quality it carries the higher template's name and icon, as in the game.
 
 ### Shops
 

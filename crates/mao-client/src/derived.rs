@@ -56,6 +56,54 @@ pub fn between(low: i64, high: i64, fraction: i64, span: i64) -> i64 {
     low + ((high - low) * fraction * 2 + span).div_euclid(2 * span)
 }
 
+/// The stats of an item that lie between its two templates' at a quality between their levels (Gamecode
+/// FUN_100cbbe0's list); every other stat is the low template's. The price, stat 74, goes by a curve of its own
+/// ([`price_between`]).
+const BETWEEN_STATS: [u32; 26] = [1, 2, 26, 27, 36, 45, 73, 75, 101, 134, 210, 211, 212, 236, 250, 284, 285, 286, 287, 289, 294, 297, 299, 341, 422, 538];
+
+/// The price between two templates' (Gamecode FUN_100cbb68): the line's value `v` first, then its share of the way
+/// from the smaller to the larger price, squared (floats, cut to a whole number).
+fn price_between(a: i64, b: i64, v: i64) -> i64 {
+    let (lo, hi) = (a.min(b) as f32, a.max(b) as f32);
+    if hi <= lo {
+        return a;
+    }
+    let t = (v as f32 - lo) / (hi - lo);
+    (t * t * (hi - lo) + lo) as i64
+}
+
+/// An item of two templates as it is at a quality (Gamecode FUN_100cc5a1, FUN_100cbfc8): its template's bytes and
+/// what the pages and lists show of it. At the low template's level, or with one template, the low template; **at the
+/// high template's level the high template itself**, name, icon and all; between the two the low template with the
+/// stats of [`BETWEEN_STATS`] and the price worked out between both ([`between`]). The stats are left the low
+/// template's when the two templates do not have the same number of them (the original then works out nothing), or
+/// when the high one's level is not above the low one's.
+pub fn item_at(db: &ResourceDatabase, low: u32, high: u32, quality: u32) -> Option<(Vec<u8>, Item)> {
+    let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
+    let Some(low_data) = template(low) else {
+        let data = template(high)?;
+        let it = Item::parse(&data)?;
+        return Some((data, it));
+    };
+    let mut it = Item::parse(&low_data)?;
+    let Some((high_data, top)) = (if high == low { None } else { template(high) }).and_then(|d| Item::parse(&d).map(|i| (d, i))) else { return Some((low_data, it)) };
+    let level = |i: &Item| i.stat(QUALITY_LEVEL).map(|v| v as i32 as i64);
+    let (Some(l), Some(h), q) = (level(&it), level(&top), quality as i64) else { return Some((low_data, it)) };
+    if q == h && h != l {
+        return Some((high_data, top));
+    }
+    if q == l || h <= l || !(1..=511).contains(&l) || !(1..=511).contains(&h) || it.stats.len() != top.stats.len() {
+        return Some((low_data, it));
+    }
+    for s in it.stats.iter_mut().filter(|s| BETWEEN_STATS.contains(&s.0) || s.0 == 74) {
+        let Some(b) = top.stat(s.0).map(|v| v as i32 as i64) else { continue };
+        let a = s.1 as i32 as i64;
+        let v = between(a, b, q - l, h - l);
+        s.1 = (if s.0 == 74 { price_between(a, b, v) } else { v }) as i32 as u32;
+    }
+    Some((low_data, it))
+}
+
 /// An item's actions (use, wear, wield) with their criteria at the item's quality: like the effects, the values of the lowest and
 /// highest template are interpolated by the quality level.
 pub fn actions(db: &ResourceDatabase, entry: &Entry) -> Vec<item::Action> {
@@ -285,6 +333,25 @@ pub fn modifiers_without(db: &ResourceDatabase, modifiers: &BTreeMap<u32, i64>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `MAO_GAME`: the Belt Component Platform between the Ti-200X (level 20) and the 300X (level 40): at 30 it has
+    /// the low template's name, deck places and a price between the two; at 40 it is the 300X itself.
+    #[test]
+    fn an_item_between_two_templates() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let at = |q: u32| item_at(&db, 36782, 36777, q).unwrap().1;
+        let (low, mid, top) = (at(20), at(30), at(40));
+        assert!(low.name.contains("Ti-200X") && mid.name.contains("Ti-200X") && top.name.contains("300X"));
+        // (deck places 2 and 3: 2.5 goes up; the value stat 2 falls from 2000 to 1000)
+        assert_eq!((low.stat(45), mid.stat(45), top.stat(45)), (Some(2), Some(3), Some(3)));
+        assert_eq!((low.stat(2), mid.stat(2), top.stat(2)), (Some(2000), Some(1500), Some(1000)));
+        // (the price 2500 to 10000: half the way is a quarter of the difference)
+        assert_eq!((low.stat(74), mid.stat(74), top.stat(74)), (Some(2500), Some(4375), Some(10000)));
+        assert_eq!(price_between(10000, 2500, 6250), 4375);
+        // (one template: itself)
+        assert_eq!(item_at(&db, 252158, 252158, 1).unwrap().1.stat(45), Some(2));
+    }
 
     /// FUN_100cb909's rounding: rising and falling amounts alike to the nearest whole, a half upward.
     #[test]

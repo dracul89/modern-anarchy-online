@@ -2265,8 +2265,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: uses the low template's stats (the requirements are interpolated).
 - A player notices: stat values on a page at a quality between the templates may be the low template's.
 - Where: `crates/mao-client/src/gui/iteminfo.rs:41`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
 - Looked at, left (2026-11-18, overnight): read (FUN_100cc5a1, FUN_100cbfc8, FUN_100cb909: 27 stats interpolated, the price by a curve, the high template whole at its level); the page is unchanged. The rounding fault it showed in the client's effects and requirements is mended (derived::between).
+- Done (2026-11-18, overnight, later the same night): the page and the inventory's names take the item as it is at its quality (derived::item_at: the high template at its level, 26 stats and the price between both); the page's modifier and skill lists still read the low template.
 
 #### `INV-066` Locks not done: item-own wait, nano points, locked-special lines
 

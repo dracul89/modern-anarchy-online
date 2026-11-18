@@ -5136,3 +5136,18 @@ Test: `a_belt_is_judged_by_its_wield_requirement_before_a_swap` (the deck's part
   `dim_reward`; GUI.dll FUN_100d10fc reads them, FUN_100d04fe writes them), here as numbers in `tabs.ini`, written
   when the mouse lets a slider go. Not done: the "advanced options" button that hides six of them (a change of the
   window's layout).
+
+### An item between two templates is shown as it is at its quality (INV-065)
+
+Gamecode makes the item object for a low template, a high template and a quality in FUN_100cc5a1 (FUN_100cbfc8
+works out what lies between): at the low template's level it is the low template; **at the high template's level
+it is the high template itself**, name, icon and all; between the two it is the low template with 26 of its stats
+taken between both by the rounding of `derived::between` (the list is FUN_100cbbe0's: the value, the deck places,
+the ranges, the delays and the like) and its price by a curve (FUN_100cbb68). `derived::item_at` does that for
+the item pages (`gui::iteminfo::item_page`) and for the names and icons of the inventory's items
+(`gear::from_entries`): a Belt Component Platform of quality 30 between the Ti-200X and the 300X has 3 deck
+places and a price of 4375 on its page, and the same item at quality 40 is named the 300X.
+
+Left: the page's modifier and skill lists still read the low template's (the worn effects and the requirements
+are worked out between both already, `derived::effects` and `derived::actions`).
+Test: `an_item_between_two_templates` (`MAO_GAME`).

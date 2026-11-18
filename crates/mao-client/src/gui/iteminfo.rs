@@ -38,8 +38,8 @@
 //!
 //! Not yet: the shop price (FUN_10031fda, a vendor's stat 74), the nano page's radius (`N3Msg_GetFormularRadius`, a field the
 //! NanoItem_t computes when it loads), the armour, implant and nano pages' own sections (FUN_1003826b, FUN_10038586),
-//! the shop price, fixtures, towers and buildings, and the stats interpolated between the low and high templates (the
-//! requirements are).
+//! the shop price, fixtures, towers and buildings. An item of two templates is shown as it is at its quality
+//! (`derived::item_at`: the high template itself at its level, else the low one's with some stats between both).
 
 use mao_formats::item::{self, Item};
 use mao_formats::resource::{Id, ResourceDatabase};
@@ -555,9 +555,7 @@ pub fn nano_page(db: &ResourceDatabase, id: u32, player: &BTreeMap<u32, i64>) ->
 /// FUN_1003826b) and implants' (3 and 5, FUN_10038586), else the general one (FUN_1003882b).
 pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, player: &BTreeMap<u32, i64>) -> Option<String> {
     let level = player.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1).max(1) as u32;
-    let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
-    let data = template(low).or_else(|| template(high))?;
-    let it = Item::parse(&data)?;
+    let (data, it) = crate::derived::item_at(db, low, high, ql)?;
     // (`OnLookatItem`'s tips, by the item's name)
     crate::tips::trigger("OnLookatItem", &it.name);
     let entry = mao_net::inventory::Entry { slot: 0, flags: 0, count: 1, container: (0, 0), low_id: low, high_id: high, quality: ql, extra: 0 };
