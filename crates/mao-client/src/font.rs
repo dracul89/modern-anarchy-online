@@ -226,32 +226,46 @@ pub fn text(ctx: &egui::Context, painter: &egui::Painter, pos: egui::Pos2, text:
 /// Off Windows Verdana is where macOS keeps it or where Linux's Microsoft core fonts package puts it (its file name's case
 /// differs between distributions).
 pub fn verdana(ctx: &egui::Context, size: f32) -> egui::FontId {
-    static TRIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    let family = egui::FontFamily::Name("verdana".into());
+    verdana_styled(ctx, size, false, false)
+}
+
+/// Verdana as `FontSystem_t::CreateTTFont` (0x1012ed48) makes it: weight 700 when the style names "bold", italic when it
+/// names "italic" (the system's `verdanab.ttf`, `verdanai.ttf`, `verdanaz.ttf`). The regular face stands in until the
+/// styled one is in, or when the system has none.
+pub fn verdana_styled(ctx: &egui::Context, size: f32, bold: bool, italic: bool) -> egui::FontId {
+    static TRIED: [std::sync::atomic::AtomicBool; 4] = [const { std::sync::atomic::AtomicBool::new(false) }; 4];
+    let style = bold as usize | (italic as usize) << 1;
+    let name = ["verdana", "verdana-bold", "verdana-italic", "verdana-bolditalic"][style];
+    let family = egui::FontFamily::Name(name.into());
     if ctx.fonts(|f| f.families().contains(&family)) {
         return egui::FontId::new(size, family);
     }
-    if !TRIED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        if let Some(bytes) = verdana_files().into_iter().find_map(|p| std::fs::read(p).ok()) {
+    if !TRIED[style].swap(true, std::sync::atomic::Ordering::Relaxed) {
+        if let Some(bytes) = verdana_files(style).into_iter().find_map(|p| std::fs::read(p).ok()) {
             let insert = egui::epaint::text::InsertFontFamily { family, priority: egui::epaint::text::FontPriority::Highest };
-            ctx.add_font(egui::epaint::text::FontInsert::new("verdana", egui::FontData::from_owned(bytes), vec![insert]));
+            ctx.add_font(egui::epaint::text::FontInsert::new(name, egui::FontData::from_owned(bytes), vec![insert]));
         }
+    }
+    if style != 0 {
+        return verdana_styled(ctx, size, false, false);
     }
     egui::FontId::proportional(size)
 }
 
-/// Where the system's Verdana may be, the likeliest first.
-fn verdana_files() -> Vec<std::path::PathBuf> {
+/// Where the system's Verdana of a style (bold 1, italic 2, both 3) may be, the likeliest first.
+fn verdana_files(style: usize) -> Vec<std::path::PathBuf> {
     use std::path::PathBuf;
+    let (lower, mixed) = [("verdana.ttf", "Verdana.ttf"), ("verdanab.ttf", "Verdana_Bold.ttf"), ("verdanai.ttf", "Verdana_Italic.ttf"), ("verdanaz.ttf", "Verdana_Bold_Italic.ttf")][style];
     if cfg!(windows) {
         let dir = std::env::var("WINDIR").map(|w| PathBuf::from(w).join("Fonts")).unwrap_or_else(|_| PathBuf::from("C:/Windows/Fonts"));
-        return vec![dir.join("verdana.ttf")];
+        return vec![dir.join(lower)];
     }
     let mut dirs: Vec<PathBuf> = ["/System/Library/Fonts/Supplemental", "/Library/Fonts", "/usr/share/fonts/truetype/msttcorefonts", "/usr/share/fonts/msttcore", "/usr/share/fonts/msttcorefonts", "/usr/share/fonts/TTF", "/usr/share/fonts/truetype", "/usr/local/share/fonts"].iter().map(PathBuf::from).collect();
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         dirs.extend([home.join("Library/Fonts"), home.join(".local/share/fonts"), home.join(".fonts")]);
     }
-    dirs.iter().flat_map(|d| [d.join("Verdana.ttf"), d.join("verdana.ttf")]).collect()
+    let named = [mixed, ["Verdana.ttf", "Verdana Bold.ttf", "Verdana Italic.ttf", "Verdana Bold Italic.ttf"][style]];
+    dirs.iter().flat_map(|d| [d.join(named[0]), d.join(named[1]), d.join(lower)]).collect()
 }
 
 pub fn drop_cache(d: &mut egui::util::IdTypeMap) {

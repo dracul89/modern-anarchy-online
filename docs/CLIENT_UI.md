@@ -7157,3 +7157,7 @@ The inbox list reads every entry the server's count gives; the client used to st
 ### /cc alone (CHT-004)
 
 FUN_100ba6f4 answers `/cc` with no command by a fixed line that the syntax is invalid. The client now says that (in its own words) instead of its usage line.
+
+### Bold and italic interface fonts (WIN-027)
+
+The original's font table (GUI.dll 0x10272df0) marks entries 4 (CC17, Verdana 20), 6 (BOLD, Verdana 13) and 9 (HUGE, Verdana 24) bold and 11 (ITALIC, Verdana 16) italic; `CreateTTFont` (0x1012ed48) makes them with weight 700 and the italic flag. The client draws those entries with the system's Verdana Bold / Italic faces (verdanab.ttf, verdanai.ttf), falling back to regular Verdana when the face is missing. Text size still follows egui's points, not the original's screen-height scale.

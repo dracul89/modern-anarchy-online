@@ -4795,6 +4795,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: bold and italic UI text appears regular; text size does not follow screen height
 - Where: `crates/mao-client/src/gui/font.rs:7`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The weights are ported: FontSystem_t's table (GUI.dll 0x10272df0, read by the constructor 0x1012eef1) has a bold byte at +0x10 and an italic byte at +0x11 (read from GUI.dll itself: entries 4 CC17, 6 BOLD and 9 HUGE bold, 11 ITALIC italic), which CreateTTFont (0x1012ed48) turns into CreateFontA weight 700 / the italic flag. gui/font.rs now has FontId::style() and asks font.rs's new verdana_styled() for the system's verdanab.ttf / verdanai.ttf / verdanaz.ttf (regular Verdana stands in while the face loads or when the system lacks it). Left: the screen-height scaling (GetScaleFromLowestResolution, (scale - 1) * a constant + 1, and font 4 by GetDisplayHeight / a constant) is still egui's points; it would change every view's measured size, which wants a look at the screen. Test: gui::font::tests::font_table_weights.
 
 #### `WIN-028` Inventory and wear windows share one key and one window
 

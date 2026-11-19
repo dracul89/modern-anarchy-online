@@ -4,8 +4,11 @@
 //! (`CreateTTFont` 0x1012ed48, `CreateFontA` with the cell height) 4 bold 20, 5 13, 6 bold 13, 7 12, 8 16, 9 bold 24, 10 14,
 //! 11 italic 16.
 //!
-//! Departures: the TrueType fonts are egui's Verdana at the size whose ascent plus descent is the cell height (Verdana's
-//! 2489/2048 of its em), regular whatever their weight; the original also scales them by the screen's height
+//! The table's byte at +0x10 asks for bold, the one at +0x11 for italic (the constructor's "Bold" / "Regular" plus
+//! "italic" style, which `CreateTTFont` turns into weight 700 and the italic flag): entries 4, 6 and 9 are bold, 11 italic.
+//!
+//! Departures: the TrueType fonts are egui's Verdana (the system's regular, bold or italic face) at the size whose ascent
+//! plus descent is the cell height (Verdana's 2489/2048 of its em); the original also scales them by the screen's height
 //! (`GetScaleFromLowestResolution`), which egui's points do here; CHAT (12, empty in the table) is the chat bitmap font.
 
 use super::geom::Point;
@@ -30,6 +33,11 @@ impl FontId {
             12 => Some("chat"),
             _ => None,
         }
+    }
+
+    /// A TrueType entry's weight and slant: (bold, italic), the table's bytes at +0x10 and +0x11.
+    pub fn style(self) -> (bool, bool) {
+        (matches!(self.0, 4 | 6 | 9), self.0 == 11)
     }
 
     /// A TrueType entry's cell height.
@@ -60,7 +68,10 @@ impl Measure {
     pub fn egui_font(&self, font: FontId) -> egui::FontId {
         let size = font.cell() / VERDANA_CELL;
         match &self.ctx {
-            Some(ctx) => crate::font::verdana(ctx, size),
+            Some(ctx) => {
+                let (bold, italic) = font.style();
+                crate::font::verdana_styled(ctx, size, bold, italic)
+            }
             None => egui::FontId::proportional(size),
         }
     }
@@ -103,5 +114,22 @@ impl Measure {
     /// A single line's size in the views' units (pixels less one).
     pub fn line_size(&self, font: FontId, text: &str) -> Point {
         Point::new(self.width(font, text) - 1.0, self.height(font) - 1.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn font_table_weights() {
+        // (FontSystem_t's table at 0x10272df0: BOLD, CC17 and HUGE are bold, ITALIC italic, the rest regular)
+        assert_eq!(FontId::named("BOLD").style(), (true, false));
+        assert_eq!(FontId::named("CC17").style(), (true, false));
+        assert_eq!(FontId::named("HUGE").style(), (true, false));
+        assert_eq!(FontId::named("ITALIC").style(), (false, true));
+        for n in ["NORMAL", "SMALL", "LARGE", "TT_MIN12"] {
+            assert_eq!(FontId::named(n).style(), (false, false), "{n}");
+        }
     }
 }
