@@ -23,8 +23,9 @@
 //! `(0x6b, handle << 16 | place)` (`Chest_t`'s FUN_1007e3e3). Across two containers nothing is ever joined (a plain
 //! move). Not ported for these windows: an inventory item shown at the cell it was let go on, the menu's List Mode
 //! and Auto Arrange, closing by Escape (`esc_backpacks`), and telling the server that a bag was closed (the
-//! original's message was not identified). The bank, corpses and chests are arranged as they were, in their places'
-//! order (the bank's stacks are not joined or split by hand here: its window has no placing by hand).
+//! original's message was not identified). Corpses, chests and the organization's contract open arranged by name, the
+//! bank and the reclaim terminal in their places' order ([`first_sort`]; the bank's stacks are not joined or split by
+//! hand here: its window has no placing by hand).
 //!
 //! **An item's menu** (GUI.dll FUN_100caf07, connected for every item view by `InventoryViewBase_c`'s FUN_100ccde7):
 //! the right button held on an item for `MouseButtonHoldDelay`, 0.3 s (the list's FUN_10041aa4 starts a timer at
@@ -402,6 +403,17 @@ pub struct LootWindow {
 /// What a container's list mode and order are kept under (the original keeps a file each: `Bank.xml`,
 /// `Container_<type>x<instance>.xml` for one's own backpack, `TempContainer_<handle>.xml` for another's; here the
 /// others share one, since their handles are new each time).
+/// The identity type of the reclaim terminal's list.
+pub const RECLAIM: u32 = 0xdeae;
+
+/// How a container's grid is arranged before anything is kept (`ItemContainerView_c` FUN_100ce55d): one placed by
+/// hand (one's own backpack, the bank) not at all; another's container, the organization's contract and a trade's
+/// list by name (`SetListSortColumn(1, 0)`, FUN_10041258(1)); the reclaim terminal's not (the same function leaves
+/// it out of the sorting), its items in their places' order.
+pub fn first_sort(kind: u32, placed: bool) -> Option<(i32, i32)> {
+    if placed || kind == RECLAIM { None } else { Some((1, 0)) }
+}
+
 fn config_key(view: &LootView) -> String {
     match view.identity.0 {
         _ if view.own => format!("Container_{}x{}", view.identity.0, view.identity.1),
@@ -544,8 +556,7 @@ impl LootWindow {
         let arranged = *self.grid_sort.get_or_insert_with(|| match std::env::var("MAO_LOOT_SORT").ok().and_then(|v| v.parse().ok()).or_else(|| crate::layout::tab(&format!("{key}GridSort"))) {
             Some(0) if view.placed() => None,
             Some(n) if n > 0 => Some((((n - 1) / 2) as i32, ((n - 1) % 2) as i32)),
-            _ if view.placed() => None,
-            _ => Some((1, 0)),
+            _ => first_sort(view.identity.0, view.placed()),
         });
         // (placed by hand: the grid of one's own backpack or of the bank while it is not arranged)
         let hand = view.placed() && arranged.is_none() && !in_list;
@@ -1075,6 +1086,17 @@ pub fn title(kind: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_100ce55d: another's container and the contract by name; one's own, the bank and the reclaim list not.
+    #[test]
+    fn a_container_opens_arranged_by_name_or_not() {
+        assert_eq!(first_sort(0xc76a, false), Some((1, 0)));
+        assert_eq!(first_sort(BAG, false), Some((1, 0)));
+        assert_eq!(first_sort(ORGANIZATION, false), Some((1, 0)));
+        assert_eq!(first_sort(BAG, true), None);
+        assert_eq!(first_sort(BANK, true), None);
+        assert_eq!(first_sort(RECLAIM, false), None);
+    }
 
     #[test]
     fn a_backpack_has_its_own_window_and_name() {

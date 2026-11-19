@@ -7229,3 +7229,7 @@ The original keeps where each item stands in the inventory and in each backpack 
 ### An item let go on an empty wear cell (INV-020)
 
 GUI.dll FUN_100e220f: an item let go on a cell of a wear page that is no wear place (the implant page's corners, for one) goes to the item's own place on that page, its stat 0x58, and the wear check (`N3Msg_IsItemPossibleToWear`) is asked as for any wear place. The client now does the same (`invwindows::wear_drop_place`); before, such a drop did nothing. The item is still not kept in hand after a refusal, and there is no "no" pointer.
+
+### Which containers open sorted by name (INV-021)
+
+ItemContainerView_c FUN_100ce55d: a corpse, a chest, another's container, the organization's contract and a trade's list open arranged by name; one's own backpacks and the bank are placed by hand, and the reclaim terminal's list keeps the server's order. The client does the same (`loot::first_sort`).

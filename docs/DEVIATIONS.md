@@ -2238,7 +2238,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: "The bank, corpses and chests are arranged as they were, in their places' order."
 - A player notices: Loot lists are in server order, not alphabetical.
 - Where: `crates/mao-client/src/loot.rs:20`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The sorting by name was already there (loot.rs: another's container opens arranged by its name column, `SetListSortColumn(1, 0)` and FUN_10041258(1), since commit bdf1a9c; the entry quoted an older comment). Ported now the rest of ItemContainerView_c FUN_100ce55d's rule: the reclaim terminal's list (0xdeae) is left out of the sorting, like one's own backpacks and the bank; the rule is `loot::first_sort`, and the module's head says it. Test `loot::tests::a_container_opens_arranged_by_name_or_not`.
 
 #### `INV-022` Right click sends Use; wear/take-off rule not in the window
 
