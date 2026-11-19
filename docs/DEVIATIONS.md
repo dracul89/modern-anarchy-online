@@ -3909,7 +3909,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: tells "<name> is now online." / "has gone offline." only for a listed non-temporary friend whose state changed; the first listing and recent messages are not told
 - A player notices: extra chat lines, in the client's wording
 - Where: `crates/mao-client/src/net.rs:6228`; `docs/CLIENT_UI.md:1730`; `docs/CLIENT_UI.md:1963`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original writes no chat line when a friend comes online or goes offline. GUI.dll's chat library handles S2C_ADD_BUDDY (0x28, FUN_1016d6f4) by updating its buddy vector and setting its dirty flag only; ChatGUIModule_c::UpdateBuddyList (0x10086442) signals FriendListController_c (FUN_100a6581), whose existing-friend update FUN_100a72c5 only emits the node's changed signal, which FriendListView_c (FUN_100a8a4c → FUN_100a86f6/FUN_100a87fe) uses to move the row between the online and offline lists. No text in text.mdb names it either. The client's own "is now online." / "has gone offline." line is removed; the friend list still updates. No unit test (the handler is in the network loop; the change is a removed line).
 - Looked at, left (2026-11-19, overnight): What the original shows when a friend comes or goes (its buddy handler's lines) was not read tonight. Left.
 
 #### `CHT-011` Lines typed while the chat was down are dropped on reconnect

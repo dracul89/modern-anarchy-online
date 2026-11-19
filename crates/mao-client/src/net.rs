@@ -8052,13 +8052,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 if std::env::var_os("MAO_TRACE_CHAT").is_some() {
                                     eprintln!("buddy {id} online {online} kind {:?}", kind.as_bytes());
                                 }
-                                // (a friend already on the list who comes or goes is told; the first listing is not, nor one
-                                // of the recent messages)
-                                let changed = !temporary && buddies.1.get(&id).is_some_and(|(_, was, recent)| *was != online && !*recent);
-                                let shown = buddies.1.get(&id).map_or(name.clone(), |(n, _, _)| n.clone());
+                                // (a friend who comes or goes only moves between the friend list's online and offline
+                                // rows: the chat library's S2C_ADD_BUDDY [FUN_1016d6f4] updates its buddy list, and
+                                // FriendListController_c [FUN_100a6581 → FUN_100a72c5] and FriendListView_c [FUN_100a8a4c]
+                                // re-sort it; no line is written in the chat)
                                 buddies.1.insert(id, (name, online, temporary));
                                 buddies.0 += 1;
-                                changed.then(|| Line::new(Kind::System, format!("{shown} {}.", if online { "is now online" } else { "has gone offline" })))
+                                None
                             }
                             // (the server has taken a character off the list: the list drops it. The server's own line
                             // about it comes apart, as a numbered text.)

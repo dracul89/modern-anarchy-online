@@ -291,6 +291,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - An invitation to a private chat group asks which chat windows should show the group, and flashes the inviter's row in the friends list; with the invitation option at 2 the question waits until you press that row.
 - A chat window that has no saved place first comes up where the original's does: the main one across the bottom of the screen, others and tell windows in the middle.
 - With the original's chat font on, chat lines are as close together as in the original (9 pixels), and accented letters are spaced by the font's own widths.
+- A friend logging on or off no longer writes a line in the chat; the friend list shows it, as in the original.
 
 ### Movement
 

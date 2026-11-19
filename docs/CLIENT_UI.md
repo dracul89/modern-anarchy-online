@@ -7842,3 +7842,7 @@ Gamecode reads a creature's template (type 0xfde97) section by section (FUN_1004
 ### A machine with no name is "Name missing" (NPC-027)
 
 Gamecode names an item (FUN_100809a0) by its own name, else by its NameTemplate's (stat 446) template's name, else with "NameMissing". The client fell back to "Booth" and the machine's number; it now uses the original's word.
+
+### Friends coming and going (CHT-010)
+
+The original writes nothing in the chat when a friend logs on or off: the chat library's S2C_ADD_BUDDY handler (GUI.dll FUN_1016d6f4) updates its buddy list, and FriendListController_c (FUN_100a6581, FUN_100a72c5) and FriendListView_c (FUN_100a8a4c) move the friend between the online and offline rows of the friend list. The client now does the same; its own "is now online" line is gone.
