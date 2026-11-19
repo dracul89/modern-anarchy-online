@@ -74,6 +74,8 @@ pub struct Attack {
     pub stop: bool,
     pub start: Option<(u32, u8)>,
     pub lines: Vec<&'static str>,
+    /// An item's requirements refused it (FUN_100816f6 with its feedback on): their own lines come before `lines`.
+    pub requirements: bool,
 }
 
 /// What the attack key's target is, as FUN_10069a9f looks at it.
@@ -85,7 +87,10 @@ pub enum Target {
     /// attackable, 0x10069e86), whether it is in the own team or raid (FUN_10065d65 / FUN_10065dab), and what the check
     /// reads of its stats ([`Facts`]).
     Character { dead: bool, fights_me: bool, mate: bool, facts: Facts },
-    /// Anything else (an item, a terminal).
+    /// An item standing in the world (`SimpleItem_t`): whether its flags have 0x10000000, and whether its requirements
+    /// for action 11 are met (FUN_100816f6(0xb, own)).
+    Item { attackable: bool, met: bool },
+    /// Anything else (a terminal: no dynel).
     Other,
 }
 
@@ -115,7 +120,8 @@ pub struct Own {
 
 /// FUN_10069a9f(target, with feedback), for a player's own character: whether the target may be attacked, and the line
 /// it says when it may not. In its order: nothing there, or not a character (a terminal: no dynel), is refused without a
-/// word; oneself `Feedback_YouCantAttackYourself`; a target with state flag 0x20000000 `Feedback_CantbeAttacked`; one's
+/// word; an item (`SimpleItem_t`, before any of the character's own checks) `Feedback_YouCantAttackThisItem` without its
+/// flag 0x10000000, else by its requirements for action 11; oneself `Feedback_YouCantAttackYourself`; a target with state flag 0x20000000 `Feedback_CantbeAttacked`; one's
 /// own flag 0x80000000 with one's own stat 215 set may attack any character (0x10069c3a: the own character's +0x1ec,
 /// then its stat 0xd7), as may anyone at a target with the same of its own (0x10069c6f, the target's +0x1ec and stat
 /// 0xd7); swimming `Feedback_YouCantAttackWhileSwimming`; flag 0x400 or flying `Feedback_YoureUnableToAttack`; a dead
@@ -123,13 +129,17 @@ pub struct Own {
 /// surrendering (stat 449 1 or 2, 0x10069d64): to oneself (stat 451) and done (2) `Feedback_YouAcceptedSurrender`, to
 /// another `Feedback_TargetIsSurrendering` (1) or `Feedback_TargetHasSurrendered` (2); one that fights oneself may be
 /// attacked; a team or raid member is refused with the local `CharacterAction` 0x76 of parameter 5 (FUN_100692b4, which
-/// FUN_1005d61f's table 0x1005f62e says as `Feedback_NotAllowedToAttackTeamMembers`). Not checked: an item's attackable
-/// flag (`Feedback_YouCantAttackThisItem`), the suppression gas line (the districts' fight modes, FUN_1003e3e2, which
+/// FUN_1005d61f's table 0x1005f62e says as `Feedback_NotAllowedToAttackTeamMembers`). Not checked: the suppression gas line (the districts' fight modes, FUN_1003e3e2, which
 /// only tells and refuses nothing), the own stat 673 test at the start, and the team check's word at the character's
 /// +0x1f0 (5 lets a team member be attacked).
 pub fn can_attack(own: Own, kind: Target) -> Result<(), Option<&'static str>> {
     let Target::Character { dead, fights_me, mate, facts } = kind else {
-        return Err(if kind == Target::Yourself { Some("Feedback_YouCantAttackYourself") } else { None });
+        return match kind {
+            Target::Yourself => Err(Some("Feedback_YouCantAttackYourself")),
+            Target::Item { attackable: false, .. } => Err(Some("Feedback_YouCantAttackThisItem")),
+            Target::Item { met: true, .. } => Ok(()),
+            _ => Err(None),
+        };
     };
     if facts.flags as u32 & 0x2000_0000 != 0 {
         return Err(Some("Feedback_CantbeAttacked"));
@@ -185,6 +195,7 @@ pub fn default_attack(fought: Option<u32>, fighting: bool, switching: bool, own:
         (Ok(()), Some(t)) if !pending => a.start = Some((t, if fighting { 2 } else { 0 })),
         (Ok(()), Some(_)) => a.lines.push("Feedback_PleaseWaitUntilPreviousAction"),
         (refusal, _) => {
+            a.requirements = matches!(kind, Target::Item { attackable: true, met: false });
             a.lines.extend(refusal.err().flatten());
             a.lines.push("Feedback_UnableToAttackTarget");
         }
@@ -348,7 +359,7 @@ mod tests {
         let me = Own::default();
         // swimming: the attack key's own line only, after the stop
         let swimming = Own { swimming: true, ..me };
-        assert_eq!(default_attack(Some(5), true, false, swimming, false, Some(9), alive), Attack { stop: true, lines: vec!["Feedback_CantAttackInThisState"], start: None });
+        assert_eq!(default_attack(Some(5), true, false, swimming, false, Some(9), alive), Attack { stop: true, lines: vec!["Feedback_CantAttackInThisState"], start: None, requirements: false });
         assert_eq!(can_attack(swimming, alive), Err(Some("Feedback_YouCantAttackWhileSwimming")));
         // flying, or stat 224's 0x400
         assert_eq!(can_attack(Own { flying: true, ..me }, alive), Err(Some("Feedback_YoureUnableToAttack")));
@@ -392,5 +403,11 @@ mod tests {
         assert_eq!(can_attack(me, surrender(1, true, true)), Ok(()));
         assert_eq!(can_attack(me, surrender(3, false, true)), Ok(()));
         assert_eq!(can_attack(me, surrender(1, false, false)), Ok(()));
+        // (an item: its flag, then its requirements, whose own lines the caller tells first; flying is not asked of it)
+        assert_eq!(can_attack(Own { flying: true, ..me }, Target::Item { attackable: true, met: true }), Ok(()));
+        assert_eq!(default_attack(None, false, false, me, false, Some(7), Target::Item { attackable: false, met: true }).lines, vec!["Feedback_YouCantAttackThisItem", "Feedback_UnableToAttackTarget"]);
+        let unmet = default_attack(None, false, false, me, false, Some(7), Target::Item { attackable: true, met: false });
+        assert!(unmet.requirements && unmet.start.is_none());
+        assert_eq!(unmet.lines, vec!["Feedback_UnableToAttackTarget"]);
     }
 }

@@ -4963,11 +4963,42 @@ impl World {
         crate::team::with(|t| t.members.iter().any(|m| m.id == id) || (t.raid.is_some() && t.others.iter().flatten().any(|m| m.id == id)))
     }
 
+    /// FUN_10069a9f's `SimpleItem_t` branch for an item standing in the world: whether its flags have 0x10000000 (else it
+    /// cannot be attacked), and, with them, the lines its requirements for action 11 tell when they are not met
+    /// (FUN_100816f6, told as the evaluator tells them). `None` when the target is no such item.
+    fn item_attack(&self, t: u32) -> Option<(bool, Option<Vec<String>>)> {
+        let &(flags, template) = self.item_dynels.get(&t)?;
+        if flags & 0x1000_0000 == 0 {
+            return Some((false, None));
+        }
+        let Some(db) = ITEM_DB.get() else { return Some((true, None)) };
+        let quality = template_stat(template, 54).unwrap_or(1).max(1) as u32;
+        let entry = inventory::Entry { slot: 0, flags: 0, count: 1, container: (0xc73d, t), low_id: template, high_id: template, quality, extra: 0 };
+        let Some(action) = crate::derived::actions(db, &entry).into_iter().find(|a| a.kind == 11) else { return Some((true, None)) };
+        let (met, told) = crate::requirements::evaluate_told(&action.criteria, (crate::requirements::CHARACTER, self.own), self);
+        Some((true, (met == Ok(false)).then(|| told.iter().map(crate::feedback::requirement).collect())))
+    }
+
+    /// The lines an attack decision says: an item's requirement lines first when its requirements refused it (the
+    /// evaluator tells them inside the check), then the decision's own.
+    fn attack_lines(&self, target: Option<u32>, decision: &crate::combat::Attack) -> Vec<String> {
+        let mut lines = Vec::new();
+        if decision.requirements {
+            lines.extend(target.and_then(|t| self.item_attack(t)).and_then(|i| i.1).unwrap_or_default());
+        }
+        lines.extend(decision.lines.iter().map(|name| crate::feedback::plain(name)));
+        lines
+    }
+
     /// What the attack key's target is for FUN_10069a9f.
     fn attack_target(&self, target: Option<u32>) -> crate::combat::Target {
         match target {
             None => crate::combat::Target::Nothing,
             Some(t) if t == self.own => crate::combat::Target::Yourself,
+            Some(t) if self.item_dynels.contains_key(&t) => {
+                let (attackable, told) = self.item_attack(t).unwrap_or((false, None));
+                crate::combat::Target::Item { attackable, met: told.is_none() }
+            }
             Some(t) if self.infos.contains_key(&t) => {
                 let stat = |s: u32| self.others_stats.get(&t).and_then(|m| m.get(&s)).copied();
                 crate::combat::Target::Character {
@@ -5016,19 +5047,12 @@ impl World {
             // (FUN_10069a9f: an item, `SimpleItem_t`, is judged by its own flags: without 0x10000000 it cannot be attacked;
             // with it, by its requirements for action 11 (FUN_100816f6), told as the evaluator tells them; the character's
             // own checks are not asked)
-            if let Some(&(flags, template)) = self.item_dynels.get(&t) {
-                if flags & 0x1000_0000 == 0 {
+            if let Some((attackable, told)) = self.item_attack(t) {
+                if !attackable {
                     return line("Feedback_YouCantAttackThisItem");
                 }
-                if let Some(db) = ITEM_DB.get() {
-                    let quality = template_stat(template, 54).unwrap_or(1).max(1) as u32;
-                    let entry = inventory::Entry { slot: 0, flags: 0, count: 1, container: (0xc73d, t), low_id: template, high_id: template, quality, extra: 0 };
-                    if let Some(action) = crate::derived::actions(db, &entry).into_iter().find(|a| a.kind == 11) {
-                        let (met, told) = crate::requirements::evaluate_told(&action.criteria, (crate::requirements::CHARACTER, self.own), self);
-                        if met == Ok(false) {
-                            return Some(told.iter().map(crate::feedback::requirement).collect());
-                        }
-                    }
+                if let Some(told) = told {
+                    return Some(told);
                 }
             } else {
                 if t == self.own {
@@ -9429,7 +9453,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let _ = connection.send(&n3::attack_flagged(own, t, flag));
                         attack_sent = Some(Instant::now());
                     }
-                    pending_messages.extend(decision.lines.iter().map(|name| crate::feedback::plain(name)));
+                    pending_messages.extend(state.attack_lines(target, &decision));
                     continue;
                 }
                 // Tab and friends (`N3Msg_GetCloseTarget`): the next character of the kind, by distance past the target's
@@ -10006,7 +10030,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let _ = connection.send(&n3::attack_flagged(own, t, flag));
                         attack_sent = Some(Instant::now());
                     }
-                    pending_messages.extend(decision.lines.iter().map(|name| crate::feedback::plain(name)));
+                    pending_messages.extend(state.attack_lines(Some(id), &decision));
                 }
                 let can = state.table.iter().find(|d| d.0 == kind && d.1 == id).and_then(|d| template_stat(d.3, 30));
                 if crate::picking::uses(deed, kind == n3::CHARACTER, id == own, can) {
