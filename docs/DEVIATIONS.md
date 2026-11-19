@@ -43,9 +43,9 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 54 | 0 | 0 | 0 | 0 | **0** |
-| **medium** | 158 | 56 | 21 | 54 | 27 | 0 | **0** |
-| **low** | 725 | 118 | 20 | 531 | 56 | 0 | **0** |
-| **all** | 937 | 228 | 41 | 585 | 83 | 0 | **0** |
+| **medium** | 158 | 57 | 23 | 51 | 27 | 0 | **0** |
+| **low** | 725 | 118 | 22 | 529 | 56 | 0 | **0** |
+| **all** | 937 | 229 | 45 | 580 | 83 | 0 | **0** |
 
 ### By area
 
@@ -57,12 +57,12 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
 | NPCs and creatures (`NPC`) | 40 | 15 | 5 | 19 | 1 | 0 | **0** |
 | Inventory and items (`INV`) | 84 | 34 | 10 | 36 | 4 | 0 | **0** |
-| Nano programs (`NAN`) | 60 | 10 | 1 | 46 | 3 | 0 | **0** |
+| Nano programs (`NAN`) | 60 | 11 | 3 | 43 | 3 | 0 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 5 | 0 | 19 | 4 | 0 | **0** |
 | Chat and commands (`CHT`) | 80 | 21 | 0 | 53 | 6 | 0 | **0** |
 | Windows and interface (`WIN`) | 180 | 46 | 9 | 102 | 23 | 0 | **0** |
 | Camera (`CAM`) | 13 | 5 | 0 | 8 | 0 | 0 | **0** |
-| Rendering and world (`RND`) | 194 | 26 | 4 | 156 | 8 | 0 | **0** |
+| Rendering and world (`RND`) | 194 | 26 | 6 | 154 | 8 | 0 | **0** |
 | Sound and music (`SND`) | 17 | 3 | 0 | 14 | 0 | 0 | **0** |
 | Launcher, login, character creation (`LCH`) | 51 | 20 | 2 | 23 | 6 | 0 | **0** |
 | Settings and files (`SET`) | 54 | 8 | 2 | 27 | 17 | 0 | **0** |
@@ -112,11 +112,10 @@ None.
 - `INV-057` Requirement operators needing world state give "unknown" (MISSING) - part done
 - `INV-058` Requirement texts: special criteria, breed/gender names, apply-on reordering not ported (MISSING) - part done
 
-**Nano programs** (4)
+**Nano programs** (3)
 
 - `NAN-006` Spell criteria the client cannot decide count as failing (SIMPLIFIED) - looked at, left
-- `NAN-028` Cast, tracer, hit and spiral effects: partial decode with chosen sizes and timings (GUESS) - looked at, left
-- `NAN-038` Cast effect: hand cords draw nothing; phases 3-4 (projectile, impact) not played (MISSING) - looked at, left
+- `NAN-028` Cast, tracer, hit and spiral effects: partial decode with chosen sizes and timings (GUESS) - part done
 - `NAN-039` Nano programs window: programs cannot be placed by hand; radius value, widths and sort not kept (MISSING) - part done
 
 **Zoning and playfields** (3)
@@ -157,7 +156,7 @@ None.
 - `RND-002` Plants kept cut out at half alpha instead of blended (OWN-RULE) - looked at, left
 - `RND-004` Spell flight 0.45 s and landing 1.4 s are the client's own timings (OWN-RULE) - looked at, left
 - `RND-006` Terrain keeps slope lighting and shadow map instead of the original's flat-lit ground (OWN-RULE) - looked at, left
-- `RND-022` Attach points use fixed figures for a standing body, not the posed skeleton (SIMPLIFIED) - looked at, left
+- `RND-022` Attach points use fixed figures for a standing body, not the posed skeleton (SIMPLIFIED) - part done
 - `RND-023` Buff ring ribbon drawn as sprites, clocks tied to 30 frames per second (SIMPLIFIED) - looked at, left
 - `RND-024` Flat grey floor under interiors whose ground is not read (SIMPLIFIED) - looked at, left
 - `RND-026` Map: ground picture shrunk and averaged (SIMPLIFIED) - looked at, left
@@ -3004,6 +3003,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Tracers always start and end at the same heights.
 - Where: `crates/mao-client/src/net.rs:9705`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19): With NAN-028 (commit 9a1d9fd): the cast's hand parts now follow the caster's posed hand attractors (FUN_100f331d, FUN_100f3f59, FUN_100f2bab) when the body's pose is known (effects::body_place, the _on functions; viewer.rs passes the posed attractors); the fixed heights stay only without a pose. Left: the tracer's end points (1.1 m / 1.2 m above the feet): CreateTracer 0x100d2394 has no caller; two-point effects arrive as server triggers (GfxTriggerIIR_t, FUN_10039a44), so their points need a capture of one.
 - Looked at, left (2026-11-19, overnight): The original takes cast/tracer heights from the bodies' attractors; the client's effect code has no per-body attractor heights for others (NAN-018); graphics, pictures only.
 
 #### `NAN-015` Cast animation is only self or directed
@@ -3146,7 +3146,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Effects look different from the original's.
 - Where: `docs/CLIENT_UI.md:1999`; `docs/CLIENT_UI.md:2004`; `docs/CLIENT_UI.md:1969`
 - Decision: [ ] port  [ ] leave
-- Done in part (2026-11-19, overnight): Most of the entry's list was already replaced by earlier class-by-class ports, checked here: the spiral's 0.42 m / 1.9 m are gone (the hit coil is `_GfxControlSpiral_t`'s own numbers), the spiral rings' life, radius and period come from the templates (every kind-1002 template has life 1.5 and every 1001 a period in range, so the client's guards never fire), the trail is RND-137's port, and no sprite or hit size factor is left (`Reach` now only picks the place). What was still chosen and is now the original's: where the effects stand on the body. The original moves every control's locator each frame to its attach point on the posed body (Gamecode FUN_10106591 / FUN_10105e6d: attach 0 the body's own frame, 1000–1018 the bone by name, 2000–2023 the attractor by name, else the head), and Spell1's two hand locators are the caster's left and right hand attractors (2001, 2000: FUN_100f331d), whose places its run takes every frame (FUN_100f3f59) and moves the hand parts to (FUN_100f2bab). The client now does the same where the body's pose is known: new `effects::body_place` (attach → place on the posed body: the body's frame for 0, `Locator::attractor` otherwise), `cast_particles_on` (the flares and the beam at the posed hands), `visual_particles_on` / `pulse_particles_on` (stars, sparks, smoke, sprites, nano, particle and Electra/Suns visuals of hits and running effects at their posed attach points, through bundles, toggles and scatters) and `Shot::particles_on` (the hit at the target's posed attach point); the viewer passes the nearest posed caster's attractors (commit 2af3c4a). The standing figures (`anchor`) stay only for a body not known. Left, with reasons: the tracer's two ends (net.rs: 1.1 m above the caster's feet, 1.2 m above the target's; in flight −0.25, plasma +0.25) — the original's tracer controls take two points (`CreateGfxControlTracer` FUN_100d176c), but `CreateTracer` (0x100d2394, export 90) has no caller in Gamecode.dll and no other module of the game imports it by name, and the point-pair effects arrive as the server's remote triggers (`GfxTriggerIIR_t`, FUN_10039a44, modes 1–6), so where those points sit needs a capture of such a trigger; the flight and landing times are RND-004 (kept by the user). The buff rings' own placement is RND-022 / NAN-009. Related entries this commit partly covers (for the coordinator): NAN-014 (the cast's hand heights; tracers left), RND-110 (the hit's place when the body is known; tracer offsets left), RND-022 (attach points of the non-ring effects). For RND-004: no tracer timing of the original came out of this; the only flight rule read is Spell1's own projectile (phase 3, FUN_100f3070: speed `max(previous, min(5 × distance, 10))` m/s, DAT_101584fc 5 and DAT_101601a8 10), which no program uses (NAN-038). Tests: `effects::tests::a_cast_runs_at_the_posed_hands_and_a_hit_at_its_posed_attach_point` (body places, flares and beam at posed hands, hit and running stars at the posed head, tracer point unchanged, no-body fallback identical); whole mao-client bin 721 pass.
+- Done in part (2026-11-19): Most of the entry's list was already replaced by earlier class-by-class ports, checked here: the spiral's 0.42 m / 1.9 m are gone (the hit coil is `_GfxControlSpiral_t`'s own numbers), the spiral rings' life, radius and period come from the templates (every kind-1002 template has life 1.5 and every 1001 a period in range, so the client's guards never fire), the trail is RND-137's port, and no sprite or hit size factor is left (`Reach` now only picks the place). What was still chosen and is now the original's: where the effects stand on the body. The original moves every control's locator each frame to its attach point on the posed body (Gamecode FUN_10106591 / FUN_10105e6d: attach 0 the body's own frame, 1000–1018 the bone by name, 2000–2023 the attractor by name, else the head), and Spell1's two hand locators are the caster's left and right hand attractors (2001, 2000: FUN_100f331d), whose places its run takes every frame (FUN_100f3f59) and moves the hand parts to (FUN_100f2bab). The client now does the same where the body's pose is known: new `effects::body_place` (attach → place on the posed body: the body's frame for 0, `Locator::attractor` otherwise), `cast_particles_on` (the flares and the beam at the posed hands), `visual_particles_on` / `pulse_particles_on` (stars, sparks, smoke, sprites, nano, particle and Electra/Suns visuals of hits and running effects at their posed attach points, through bundles, toggles and scatters) and `Shot::particles_on` (the hit at the target's posed attach point); the viewer passes the nearest posed caster's attractors (commit 2af3c4a). The standing figures (`anchor`) stay only for a body not known. Left, with reasons: the tracer's two ends (net.rs: 1.1 m above the caster's feet, 1.2 m above the target's; in flight −0.25, plasma +0.25) — the original's tracer controls take two points (`CreateGfxControlTracer` FUN_100d176c), but `CreateTracer` (0x100d2394, export 90) has no caller in Gamecode.dll and no other module of the game imports it by name, and the point-pair effects arrive as the server's remote triggers (`GfxTriggerIIR_t`, FUN_10039a44, modes 1–6), so where those points sit needs a capture of such a trigger; the flight and landing times are RND-004 (kept by the user). The buff rings' own placement is RND-022 / NAN-009. Related entries this commit partly covers (for the coordinator): NAN-014 (the cast's hand heights; tracers left), RND-110 (the hit's place when the body is known; tracer offsets left), RND-022 (attach points of the non-ring effects). For RND-004: no tracer timing of the original came out of this; the only flight rule read is Spell1's own projectile (phase 3, FUN_100f3070: speed `max(previous, min(5 × distance, 10))` m/s, DAT_101584fc 5 and DAT_101601a8 10), which no program uses (NAN-038). Tests: `effects::tests::a_cast_runs_at_the_posed_hands_and_a_hit_at_its_posed_attach_point` (body places, flares and beam at posed hands, hit and running stars at the posed head, tracer point unchanged, no-body fallback identical); whole mao-client bin 721 pass.
 - Looked at, left (2026-11-19, overnight): The sizes and timings (spiral radius 0.42 m, height 1.9 m, flight 0.45 s, hit size, sprite scale) stand in for values in gfxtweak.bin's effect trees that the client's decoder does not yet read (the _GfxControl* classes' parameters in DisplaySystem.dll). Replacing them means finishing that decode class by class and comparing with the original's pictures; much larger than one entry and only checkable against screenshots.
 
 #### `NAN-029` Others' morph, vehicle and aura programs are guessed from repeated buffs for 30 seconds
@@ -3251,7 +3251,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No projectile or impact from casts.
 - Where: `docs/ORIGINAL_AUDIT.md:267`
 - Decision: [x] port  [ ] leave
-- Done (2026-11-19, overnight): Nothing to port: the client already shows what the original shows. The hand cords draw nothing in the original either: Spell1's phase 1 (FUN_100f29ea) makes its words 29–30 cords with the point `CreateGfxControl(id, Vector3)` (Gamecode FUN_100cea4b → `_GfxControlCord_t` FUN_100d6420), whose locator takes the cord's flag bit 2 as its "lays links" byte (FUN_101067af's last argument); every cord a cast template names has flags 5 (bit 2 clear), so the cord's set-position (FUN_100d69d8, called each frame by FUN_100f2bab with the hand's place) only moves its locator (FUN_101064f7) and never lays a link (FUN_100d6323), and its run (FUN_100d5f5a) only ages links it has none of. Phases 3–4 (FUN_100f3f30 calls FUN_100f3e99 projectile / FUN_100f31b1 impact only when word 33, +0x11c, is 0; NextState FUN_100f2617 retimes only then too) are on in exactly two templates, 9000 and 9002, which are one word short and read word 33 as 0 (FUN_10106dc8); no other template refers to them, and no nano program or item names them (or anything containing them) in its cast, hit, running, tracer, gather or impact effect. Only one kind-1008 `_GfxControlNano1_t` template exists (8011) and only Spell1s name it. So in the original no cast ever throws a projectile or plays an impact, and no cord draws. The Original line of the entry ("hand cords lay links") is not what the code does. Proof as a game-data test: mao-formats `a_cast_effect_lays_no_cords_and_throws_nothing` (MAO_GAME), which also confirms the 180 cast templates.
+- Done (2026-11-19): Nothing to port: the client already shows what the original shows. The hand cords draw nothing in the original either: Spell1's phase 1 (FUN_100f29ea) makes its words 29–30 cords with the point `CreateGfxControl(id, Vector3)` (Gamecode FUN_100cea4b → `_GfxControlCord_t` FUN_100d6420), whose locator takes the cord's flag bit 2 as its "lays links" byte (FUN_101067af's last argument); every cord a cast template names has flags 5 (bit 2 clear), so the cord's set-position (FUN_100d69d8, called each frame by FUN_100f2bab with the hand's place) only moves its locator (FUN_101064f7) and never lays a link (FUN_100d6323), and its run (FUN_100d5f5a) only ages links it has none of. Phases 3–4 (FUN_100f3f30 calls FUN_100f3e99 projectile / FUN_100f31b1 impact only when word 33, +0x11c, is 0; NextState FUN_100f2617 retimes only then too) are on in exactly two templates, 9000 and 9002, which are one word short and read word 33 as 0 (FUN_10106dc8); no other template refers to them, and no nano program or item names them (or anything containing them) in its cast, hit, running, tracer, gather or impact effect. Only one kind-1008 `_GfxControlNano1_t` template exists (8011) and only Spell1s name it. So in the original no cast ever throws a projectile or plays an impact, and no cord draws. The Original line of the entry ("hand cords lay links") is not what the code does. Proof as a game-data test: mao-formats `a_cast_effect_lays_no_cords_and_throws_nothing` (MAO_GAME), which also confirms the 180 cast templates.
 - Looked at, left (2026-11-19, overnight): The missing parts are whole effect classes of DisplaySystem.dll: _GfxControlSpell1_t's phases 3-4 (a _GfxControlNano0_t projectile from the hands to the target and a _GfxControlNano1_t impact over the bones) and the hand cords (kind 1003 links). Each is its own renderer port with its own gfxtweak data; well beyond the 40-minute bound, and only checkable by pictures of a live cast.
 
 #### `NAN-039` Nano programs window: programs cannot be placed by hand; radius value, widths and sort not kept
@@ -6830,6 +6830,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: effects sit at typical heights, not on the real body part when animated or of non-standard size
 - Where: `crates/mao-client/src/effects.rs:3139`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19): With NAN-028 (commit 9a1d9fd): cast, hit and running effects are placed at the posed body's attach points each frame (FUN_10106591 / FUN_10105e6d) when the pose is known. Left: the buff rings themselves still use the per-attach figures (effects.rs anchor()), as moving them changes every ring's look and wants a look against the original.
 - Looked at, left (2026-11-19, overnight): The original places a buff ring through FUN_10105e6d (Gamecode): attach 1000-1018 is the posed bone of that name from the table at 0x102c63a8 (`Bip01 Pelvis_ac`, `Bip01 Spine_ac` ... `Bip01 R Hand_ac`, exact match in RCATMesh_t::GetBoneMatrix), falling back to the head attractor; then `_GfxControlBuffPlaceHolder_t`'s Run (0x100d52c3) lays each step at the locator's origin plus cos/sin times the radius along the locator frame's axes (FUN_1010640a origin, FUN_10106439 / FUN_1010646a the frame's x and y axes, all overridden by fixed axes when the locator is the dynel itself). The bone lookup itself is ported under RND-139 (see there). Moving the rings from the client's per-attach figures (`effects.rs` anchor(), with its left-limb mirror rule tuned against screenshots) onto the posed bone frames changes every buff ring's placement and orientation and can only be judged by eye against the original, which cannot be done tonight; the placeholder's own offset/step fields (0x6c, 0x90, 0x94, 0x98) would also need reading against the template words. Left for a session with screenshots.
 
 #### `RND-023` Buff ring ribbon drawn as sprites, clocks tied to 30 frames per second
@@ -7712,6 +7713,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: effects may sit off the original's height
 - Where: `crates/mao-client/src/effects.rs:2986`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19): With NAN-028 (commit 9a1d9fd): a hit now sits at the target's attach point on the posed body (FUN_10106591 / FUN_10105e6d, effects::body_place) when the pose is known. Left: the tracer's end points and its -0.25/+0.25 offsets in flight, which need a capture of a server effect trigger (GfxTriggerIIR_t, FUN_10039a44); CreateTracer 0x100d2394 has no caller.
 - Looked at, left (2026-11-19, overnight): The hit and tracer places come from the effects' locators in the original (a hit at the target's attach point, a tracer along its locator's path), see RND-004 and RND-139; the fixed offsets stand in for those per-kind paths. Left with RND-004.
 
 #### `RND-111` Land control bitmap texture filter unknown
