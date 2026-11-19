@@ -106,9 +106,9 @@ enum Route {
     Chase(u32),
 }
 
-/// How fast the walked creatures go (m/s) until their own paths show otherwise (wandering creatures, live: a steady 1.5),
-/// and how near a chased one stops.
-const PATH_SPEED: f32 = 1.5;
+/// How fast the walked creatures go (m/s): a walk is `CharVehicle_t`'s mode 2, whose speed FUN_1006f9eb sets to
+/// [`WALK_SPEED`] for every character, the same 1.5 the wandering creatures were measured at live.
+const PATH_SPEED: f32 = WALK_SPEED;
 /// The shortest wait for the nano programs (a cast and its recharge, seconds) whose end is told in the chat.
 const NANO_WAIT_TOLD: f32 = 2.0;
 /// A running creature's speed when neither its `RunSpeed` nor its paths tell it: the rule's speed at a RunSpeed of nothing.
@@ -4789,8 +4789,11 @@ impl World {
             // `RunSpeed / 275 + 5` within 1.5 and 13; where its RunSpeed is not known, the speed its paths in a row
             // showed, and 5 with neither. Until 2026-11-17 a creature chasing went at the walk's 1.5 until two paths in a
             // row had shown its speed, and came up to eight metres behind the server's: it fought and died from afar.)
+            // (the run's `RunSpeed` falls off below 15% health as a player's does, FUN_1006f2fc: the health as the
+            // announcement and the info packets tell it)
             let speed = if self.path_runs.contains(&id) {
-                self.infos.get(&id).and_then(|i| i.run_speed).map(|r| (r as f32 / 275.0 + 5.0).clamp(1.5, 13.0)).or_else(|| self.path_speeds.get(&id).copied()).unwrap_or(RUN_SPEED)
+                let health = self.health.get(&id).copied();
+                self.infos.get(&id).and_then(|i| i.run_speed).map(|r| creature_run_speed(r, health)).or_else(|| self.path_speeds.get(&id).copied()).unwrap_or(RUN_SPEED)
             } else {
                 PATH_SPEED
             };
@@ -5621,6 +5624,13 @@ pub(crate) fn movement_speeds(stats: &BTreeMap<u32, i64>) -> (f32, f32) {
     let ratio = if max_health > 0.0 { health / (max_health * 0.15) } else { 1.0 };
     let effective = if ratio < 1.0 { ratio * (run_speed + 1000.0) - 1000.0 } else { run_speed };
     ((effective / 275.0 + 5.0).clamp(1.5, 13.0), (effective / 392.857_1 + 3.0).clamp(1.05, 9.1))
+}
+
+/// A running creature's speed: [`movement_speeds`]' forward run for its announced `RunSpeed` and, when known, its health
+/// and maximum (below 15% of it the speed falls off, FUN_1006f2fc; unknown, no fall).
+fn creature_run_speed(run_speed: u16, health: Option<(i64, i64)>) -> f32 {
+    let (now, max) = health.unwrap_or((0, 0));
+    movement_speeds(&BTreeMap::from([(156, run_speed as i64), (27, now), (1, max)])).0
 }
 
 /// The speed a flying character moves at, in units a second (FUN_1006f9eb's case of mode 7): `RunSpeed / 275 + 7`
@@ -15155,6 +15165,16 @@ mod movement_tests {
         let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
         assert_eq!(door_sound_pair(&db, 41565), (0xcfde8382, 0xc16f0487));
         assert!(!table_door_sounds(&db, 6553).is_empty());
+    }
+
+    #[test]
+    fn a_running_creature_slows_when_near_death() {
+        // (NPC-017: RunSpeed 550 runs at 7; at 15% health or more the same; at 7.5% health half of RunSpeed + 1000 less
+        // 1000, -225, so 4.18; walking is 1.5)
+        assert!((creature_run_speed(550, None) - 7.0).abs() < 1e-4);
+        assert!((creature_run_speed(550, Some((150, 1000))) - 7.0).abs() < 1e-4);
+        assert!((creature_run_speed(550, Some((75, 1000))) - (5.0 - 225.0 / 275.0)).abs() < 1e-4);
+        assert_eq!(PATH_SPEED, 1.5);
     }
 
     #[test]

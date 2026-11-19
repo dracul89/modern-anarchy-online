@@ -1839,6 +1839,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a creature may lag or lead the server's place; its pace approximates the original's
 - Where: `crates/mao-client/src/net.rs:3746`; `crates/mao-client/src/net.rs:111`; `crates/mao-client/src/net.rs:129`; `crates/mao-client/src/net.rs:3260`; `crates/mao-client/src/net.rs:12689`; `crates/mao-net/src/n3.rs:1688` and 3 more
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): A running creature with a known RunSpeed now runs at the characters' rule in full (FUN_1006f9eb's mode 3 forward: RunSpeed * (1/275) + 5, at least 1.5, 13 above 13; the constants 0x10161ac0, 0x101584fc, 0x10161aa8, 0x10161a74 read from Gamecode.dll), including FUN_1006f2fc's fall below 15% health (ratio * (RunSpeed + 1000) - 1000), with the health and maximum the client holds for it (its announcement and the info packets): net.rs creature_run_speed over movement_speeds. Left, as the client's own: the speed learnt from two paths in a row and the flat 5 when the RunSpeed was not read (since NPC-018 the RunSpeed is read by the reader's order, so these stand only for a message cut short), and the chaser stopping 1.5 m short (CHASE_NEAR; the server's FollowTarget paths decide where the original's creature stops; not read). Test net::movement_tests::a_running_creature_slows_when_near_death.
 
 #### `NPC-018` Creature template found by scanning, not by the original's field order
 
@@ -1857,7 +1858,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a walked path goes at a fixed PATH_SPEED 1.5 m/s measured from wandering creatures
 - A player notices: walking pace may differ from the server's
 - Where: `crates/mao-client/src/net.rs:109`; `crates/mao-client/src/net.rs:3746`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The flat 1.5 is the original's own: a walked path is CharVehicle_t's mode 2, and FUN_1006f9eb sets every character's mode-2 speed to _DAT_1015e7ac = 1.5 (read from Gamecode.dll), with no stat in it. The client's PATH_SPEED is now that constant (WALK_SPEED) rather than a number measured from wandering creatures; the value is unchanged. Test net::movement_tests::a_running_creature_slows_when_near_death (asserts PATH_SPEED 1.5).
 
 #### `NPC-020` Mission request scope for an unknown terminal kind is a fixed 5
 

@@ -7349,3 +7349,11 @@ The client reads a creature's full update in the order of the original's reader 
 ### A creature's movement mode (NPC-016)
 
 The movement block in a creature's announcement is the original's vehicle state (Gamecode FUN_1006f587): three floats of velocity, then the status bytes (FUN_10070981), the first of them the movement mode (FUN_10070a2f): 8 is sitting on the ground, which the client draws lying or sitting as before; the run speed follows the block and the head's mesh. Now read field by field, no longer by measured offsets.
+
+### A creature's running speed (NPC-017)
+
+A running creature goes at the characters' speed rule (Gamecode FUN_1006f9eb, mode 3: `RunSpeed / 275 + 5`, within 1.5 and 13), with its run falling off below 15% of its health (FUN_1006f2fc), as a player's does. The client now applies the fall too, with the health it knows of the creature.
+
+### A creature's walking speed (NPC-019)
+
+A creature walking a path goes at 1.5 a second: the original's vehicle sets every character's walking speed (mode 2) to that constant (Gamecode FUN_1006f9eb, `_DAT_1015e7ac`), which the client uses, where it had the same number from measuring wandering creatures.
