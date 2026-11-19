@@ -7241,3 +7241,7 @@ Gamecode `N3Msg_ConvertSpellList` (0x100213ec) writes a line for each spell type
 ### Shutting the bank tells the server (INV-051)
 
 The original's container window, when shut, uses its container again (GUI.dll FUN_100ca891); for the bank that is Gamecode's `N3Msg_UseItem(0xdead)`, which sends `CharacterAction` 0x6a with nothing in it. The client now sends it when the player shuts the bank's window (`loot::bank_shut`, `net::close_bank`). Not sent: the close when walking away from the terminal.
+
+### Item pages: vicinity and personal modifiers, skills to use (INV-054)
+
+GUI.dll's general item page (FUN_1003882b) shows, after the modifiers, the effects on friends and foes nearby and the personal ones (spell lists 24, 25, 26), then the skills the item is used with, then its charges; the armour and implant pages (FUN_1003826b, FUN_10038586) show the skills to use after the modifiers. The client's pages now follow that order. The shop price, the nano radius, the insurance cost, a building's upkeep and fixtures are still not shown.

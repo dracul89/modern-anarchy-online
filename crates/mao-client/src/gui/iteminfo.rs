@@ -36,9 +36,15 @@
 //! A weapon's damage per second (FUN_10033e0d, `N3Msg_GetDpsString` 0x10018daf): its damage over the attack and recharge
 //! times the reader would have (Gamecode FUN_10067c74 and FUN_10067d92), "%.1f-%.1f(%.1f)".
 //!
-//! Not yet: the shop price (FUN_10031fda, a vendor's stat 74), the nano page's radius (`N3Msg_GetFormularRadius`, a field the
-//! NanoItem_t computes when it loads), the armour, implant and nano pages' own sections (FUN_1003826b, FUN_10038586),
-//! the shop price, fixtures, towers and buildings. An item of two templates is shown as it is at its quality
+//! The general page (FUN_1003882b) has after the modifiers the vicinity and personal modifier lists (24, 25, 26), the
+//! skills the item is used with and then the charges; the armour and implant pages (FUN_1003826b, FUN_10038586) the
+//! skills it is used with after the modifiers.
+//!
+//! Not yet: the shop price (FUN_10031fda, `N3Msg_GetShopItemStat(item, 74)`, for a page opened from a shop), the nano
+//! page's radius (`N3Msg_GetFormularRadius`, a field the NanoItem_t computes when it loads), the general page's
+//! insurance cost (stats 0x16a and 0x3d, "NumCredits" / "InsuranceCost"), a building's upkeep (FUN_10032d30,
+//! `CityHouseTemplate_c`), FUN_1003210c (stats 0x184 and 0x4b, "NotSet"), "ItemHasFormula" with the formula's nano
+//! page, fixtures (FUN_10032092), towers and buildings. An item of two templates is shown as it is at its quality
 //! (`derived::item_at`: the high template itself at its level, else the low one's with some stats between both).
 
 use mao_formats::item::{self, Item};
@@ -421,6 +427,16 @@ impl Ctx<'_> {
         section(&text("SkillToUse"), &v, 0)
     }
 
+    /// FUN_10032f25, FUN_10032fc1 and FUN_1003305d: one spell list's modifier string (`N3Msg_GetModifierString` of the
+    /// list: 24 the vicinity's friends, 25 its foes, 26 personal), labelled; nothing when it writes nothing.
+    fn modifier_list(&self, list: u32, label: &str) -> String {
+        let lists = mao_formats::spell::lists(&self.data);
+        let db = self.db;
+        let nano_name = |id: u32| nano_name(db, id);
+        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| super::spells::convert(spells, self.level, self.player(382) as i32, &nano_name)).collect();
+        if m.is_empty() { m } else { section(&text(label), &m, 0) }
+    }
+
     /// FUN_10033c4b and FUN_10033d2c: a spell list's modifier string on a new line (on death 20, on cancel 28).
     fn spell_list(&self, list: u32, label: &str) -> String {
         let lists = mao_formats::spell::lists(&self.data);
@@ -568,10 +584,17 @@ pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, player: &B
             c.skills(12, "AtkSkills"), c.skills(13, "DefSkills"), c.modifiers(), c.skill_to_use(), c.damage_type(), c.description(),
         ]
     } else if matches!(c.stat(76), Some(2) | Some(3) | Some(5)) {
-        // (armour FUN_1003826b, implants FUN_10038586: no charges; armour's "Fabric" shows only in a debug input mode)
-        vec![c.header(), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.requirements(), c.location(), c.modifiers(), c.description()]
+        // (armour FUN_1003826b, implants FUN_10038586: no charges, the skills it is used with after the modifiers;
+        // armour's "Fabric" shows only in a debug input mode)
+        vec![c.header(), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.requirements(), c.location(), c.modifiers(), c.skill_to_use(), c.description()]
     } else {
-        vec![c.header(), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.requirements(), c.location(), c.modifiers(), c.charges(), c.description()]
+        // (FUN_1003882b: after the modifiers the vicinity and personal modifier lists (24, 25, 26: FUN_10032f25,
+        // FUN_10032fc1, FUN_1003305d), the skills it is used with (FUN_100330f9), then the charges)
+        vec![
+            c.header(), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.requirements(), c.location(), c.modifiers(),
+            c.modifier_list(24, "VicinityFriendModifier"), c.modifier_list(25, "VicinityHostileModifier"), c.modifier_list(26, "PersonalModifier"),
+            c.skill_to_use(), c.charges(), c.description(),
+        ]
     };
     Some(parts.concat())
 }
