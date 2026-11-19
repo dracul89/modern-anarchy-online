@@ -26,9 +26,15 @@
 //! and the compass and says so: "MissionWptUploaded", then "MissionShownAsDot" in the mission's playfield, else
 //! "MissionNotInArea"; a mission without a place "NoWptInfo".
 //!
-//! Not done: the columns' widths, order and sort kept between sessions (`MissionViewConfig`'s `listview_config`), the
-//! active mission kept with them (`active_mission`, whose place the original uploads again at the start), and "Update
-//! Team Members" itself (`GiveQuestToMembers`, never captured).
+//! "Update Team Members" (FUN_100d2ab2) sends `N3Msg_UpdateNearbyTeamMembers` (Gamecode 0x10017e63): a
+//! `GiveQuestToMembersIIR_t` from the own character with the mission's instance (FUN_100acdf4, written by FUN_100acef9).
+//!
+//! The columns' widths and the sort are kept (`MissionViewConfig`'s `listview_config`: `multilist::Keeper`), and so is
+//! the active mission (`active_mission`, read by FUN_100d3644 and written by FUN_100d2b0e; here `MissionViewActive<the
+//! character>` in tabs.ini, the instance). Whenever the list is filled again (FUN_100d347d: when the window is made and
+//! when the missions change) an active mission that is in the list and was not uploaded since the window was made, or
+//! since it was last missing from the list (`+0x1ac`), has its place uploaded again (FUN_100d2dcf); one that is not in
+//! the list stays the active one, to be uploaded when it comes back (after a zoning).
 
 use std::sync::Arc;
 
@@ -108,6 +114,8 @@ pub fn remaining_cell(left: i64) -> String {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Command {
     Delete((u32, u32)),
+    /// "Update Team Members" (`N3Msg_UpdateNearbyTeamMembers`).
+    UpdateTeamMembers((u32, u32)),
 }
 
 /// The missions of a parsed `QuestFullUpdate`.
@@ -228,8 +236,11 @@ pub struct MissionLog {
     /// The missions that came as new, whose places are still to be uploaded
     /// (`InventoryGUIModule_c::SlotGotNewMission`, GUI.dll 0x100c742e).
     fresh: Vec<(u32, u32)>,
-    /// The active mission (`MissionView_c` +0x1a4): the one last uploaded to the map, the list's selected row.
+    /// The active mission (`MissionView_c` +0x1a4): the one last uploaded to the map, the list's selected row; whether
+    /// its place was uploaded since the window was made or it was last missing (`+0x1ac`); whether the kept one was read.
     active: Option<(u32, u32)>,
+    uploaded: bool,
+    active_read: bool,
     /// The mission whose deletion awaits an answer.
     confirm: Option<(u32, u32)>,
     textures: std::collections::HashMap<u32, egui::TextureHandle>,
@@ -274,9 +285,29 @@ impl MissionLog {
     /// A whole list at once (a picture's or a test's).
     pub fn set(&mut self, missions: Vec<Mission>) {
         self.missions = missions;
-        // (FUN_100d347d: an active mission no longer in the list is not shown as one)
-        if self.active.is_some_and(|a| !self.missions.iter().any(|m| m.id == a)) {
-            self.active = None;
+    }
+
+    /// FUN_100d347d's end, each time the open window looks at the list: an active mission in the list whose place was
+    /// not uploaded yet is uploaded again (FUN_100d2dcf: only when it names a place, saying nothing otherwise); one not in
+    /// the list stays active and is to be uploaded again when it comes (`+0x1ac` cleared).
+    fn refresh(&mut self, playfield: u32, shown: &mut Shown) {
+        let Some(id) = self.active else { return };
+        match self.missions.iter().find(|m| m.id == id) {
+            None => self.uploaded = false,
+            Some(m) if !self.uploaded && m.place.is_some() => self.upload(id, playfield, shown),
+            Some(_) => {}
+        }
+    }
+
+    /// The kept active mission's key (the original's config is the character's own).
+    fn active_key() -> Option<String> {
+        crate::layout::character().map(|c| format!("MissionViewActive{c}"))
+    }
+
+    /// The active mission changed: kept (FUN_100d2b0e writes it when the window goes; here at once).
+    fn keep_active(&self) {
+        if let Some(key) = Self::active_key() {
+            crate::layout::set_tab(&key, self.active.map_or(0, |a| a.1 as usize));
         }
     }
 
@@ -284,7 +315,8 @@ impl MissionLog {
     pub fn remove(&mut self, id: (u32, u32)) {
         self.missions.retain(|m| m.id != id);
         if self.active == Some(id) {
-            self.active = None;
+            (self.active, self.uploaded) = (None, false);
+            self.keep_active();
         }
     }
 
@@ -308,7 +340,11 @@ impl MissionLog {
             Some((pf, p)) => {
                 (shown.waypoint, shown.waypoint_of) = (Some((pf, p)), Some(id));
                 shown.lines.extend(upload_lines(pf, playfield));
-                self.active = Some(id);
+                let changed = self.active != Some(id);
+                (self.active, self.uploaded) = (Some(id), true);
+                if changed {
+                    self.keep_active();
+                }
             }
             None => shown.lines.push(text("NoWptInfo")),
         }
@@ -332,8 +368,22 @@ impl MissionLog {
     pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, playfield: u32) -> Shown {
         let mut shown = self.news(playfield);
         if !self.open {
+            // (the window gone: made again, it uploads the active mission's place again, FUN_100d3644 -> FUN_100d347d)
+            self.uploaded = false;
             return shown;
         }
+        // (the kept active mission, once the character is known: FUN_100d3644's `active_mission`)
+        if !self.active_read
+            && let Some(key) = Self::active_key()
+        {
+            self.active_read = true;
+            if self.active.is_none()
+                && let Some(instance) = crate::layout::tab(&key).filter(|i| *i != 0)
+            {
+                self.active = Some((MISSION_TYPE, instance as u32));
+            }
+        }
+        self.refresh(playfield, &mut shown);
         if self.views.is_none() {
             use crate::gui::multilist::{self, MOVABLE, RESIZABLE, SORTABLE};
             use crate::gui::view::{Layout, Node, Tree};
@@ -407,8 +457,7 @@ impl MissionLog {
             && ctx.input(|i| i.pointer.secondary_clicked())
             && let Some(m) = self.missions.get(k)
         {
-            // (FUN_100d3123's menu: the upload when the mission names a place; the team entry for a team mission only,
-            // and not to be chosen: `GiveQuestToMembers` is not known to this client)
+            // (FUN_100d3123's menu: the upload when the mission names a place; the team entry for a team mission only)
             let mut names = vec!["Look@Mission"];
             if m.place.is_some() {
                 names.push("Upload2Map");
@@ -417,7 +466,7 @@ impl MissionLog {
                 names.push("UpdateTeamMembers");
             }
             names.push("DeleteMission");
-            let labels: Vec<(String, bool)> = names.iter().map(|n| (text(n), *n != "UpdateTeamMembers")).collect();
+            let labels: Vec<(String, bool)> = names.iter().map(|n| (text(n), true)).collect();
             self.popup = Some(crate::chrome::menu_at(ctx, at, &labels));
             self.menu = Some((m.id, names));
         }
@@ -428,6 +477,8 @@ impl MissionLog {
             match names.get(k).copied() {
                 Some("Look@Mission") => shown.info = Some(m.url()),
                 Some("Upload2Map") => self.upload(id, playfield, &mut shown),
+                // (FUN_100d2ab2: `N3Msg_UpdateNearbyTeamMembers`)
+                Some("UpdateTeamMembers") => shown.commands.push(Command::UpdateTeamMembers(id)),
                 Some("DeleteMission") => self.confirm = Some(m.id),
                 _ => {}
             }
@@ -592,6 +643,32 @@ mod tests {
         assert!(log.news(655).waypoint.is_none());
         assert!(waypoint_goes(Some((MISSION_TYPE, 2)), (MISSION_TYPE, 2)) && waypoint_goes(Some((MISSION_TYPE, 2)), (0, 0)) && waypoint_goes(None, (0, 0)));
         assert!(!waypoint_goes(Some((MISSION_TYPE, 2)), (MISSION_TYPE, 3)) && !waypoint_goes(None, (MISSION_TYPE, 3)));
+    }
+
+    /// WIN-119 (FUN_100d347d): the active mission is uploaded again once the window looks at the list; after it went
+    /// missing (a zoning) it stays active and is uploaded again when it comes back; the server dropping it ends it.
+    #[test]
+    fn the_active_mission_is_uploaded_again() {
+        let with = |id: u32| Mission { id: (MISSION_TYPE, id), place: Some((655, [1.0, 2.0, 3.0])), ..mission(&[]) };
+        let mut log = MissionLog { active: Some((MISSION_TYPE, 4)), ..Default::default() };
+        let mut shown = Shown::default();
+        log.refresh(655, &mut shown);
+        assert!(shown.waypoint.is_none() && log.active == Some((MISSION_TYPE, 4)));
+        log.arrived(Arrived::Missions(vec![with(4)], false));
+        log.refresh(655, &mut shown);
+        assert_eq!((shown.waypoint_of, shown.lines.len()), (Some((MISSION_TYPE, 4)), 2));
+        // (once: not again while it stays)
+        let mut again = Shown::default();
+        log.refresh(655, &mut again);
+        assert!(again.waypoint.is_none());
+        log.arrived(Arrived::Zoned);
+        log.refresh(655, &mut again);
+        assert!(again.waypoint.is_none() && log.active == Some((MISSION_TYPE, 4)));
+        log.arrived(Arrived::Missions(vec![with(4)], false));
+        log.refresh(655, &mut again);
+        assert_eq!(again.waypoint_of, Some((MISSION_TYPE, 4)));
+        log.remove((MISSION_TYPE, 4));
+        assert_eq!(log.active, None);
     }
 
     /// `N3Msg_QuestRemainingTime`: the last deadline still ahead counts, a passed one or none leaves -1; the list shows

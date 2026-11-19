@@ -9577,6 +9577,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     crate::missionlog::Command::Delete(id) => {
                         let _ = connection.send(&n3::quest_delete(own, id));
                     }
+                    crate::missionlog::Command::UpdateTeamMembers(id) => {
+                        eprintln!("[{:6.1}] update team members of mission {:#x}", clock.elapsed().as_secs_f32(), id.1);
+                        let _ = connection.send(&n3::give_quest_to_members(own, id.1));
+                    }
                 }
             }
             while let Ok(command) = npc_chat_rx.try_recv() {

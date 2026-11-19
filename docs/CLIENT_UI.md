@@ -7586,3 +7586,7 @@ FontSystem_t (GUI.dll 0x1012eef1) sizes two of its fonts by the screen: CC17 is 
 ### Character info page: more of the original's lines (WIN-116)
 
 GUI.dll FUN_1003482c's page also has the side's tokens for one's own character (stat 62, an omni's 75), the side experience bonus from the info packet ("%.02f%%"), an omni's organization as "Detachment", and for one's own character the veteran points, victory points, ICC commendations, Freelancers Inc. tokens and specializations, then the duel, solo and team ranks by name and number (N3Msg_GetPVPRank's thresholds) before their kills. The client now writes all of these. Not yet: the organization's grid destinations, the city, the account's items and the item page's shop price.
+
+### Mission journal: active mission and Update Team Members (WIN-119)
+
+The original's journal keeps its active mission (MissionViewConfig's active_mission, GUI.dll FUN_100d3644 / FUN_100d2b0e) and, whenever its list is filled (FUN_100d347d), uploads that mission's place again if it was not since the window was made or since the mission was last missing (after a zoning). The client does the same, keeping the active mission per character. "Update Team Members" on a team mission's row sends GiveQuestToMembersIIR_t with the mission (N3Msg_UpdateNearbyTeamMembers, Gamecode 0x10017e63).

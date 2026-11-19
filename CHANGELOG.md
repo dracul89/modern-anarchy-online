@@ -100,6 +100,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The skills window no longer shows "Changes sent." or "Reset asked for."; refusals (disabled skill, cap, not enough IP) still show.
 - Inventory, backpacks, bank, loot, missions, info, tradeskill kit, knowledge and actions windows now have tabs: right-click a tab to pick it up, left-click on another window's tabs to dock it there, or elsewhere to give it a window of its own, as in the original.
 - Framed chat windows fade when the pointer leaves them like other windows (pin them to keep them solid); borderless chat windows fade as a whole to their "inactive" level unless being typed in.
+- The mission journal remembers your active mission between sessions and puts its waypoint back on the map when the journal opens or after zoning.
+- "Update Team Members" in a team mission's menu now works (sends the original's request to the server).
 
 ### Items
 

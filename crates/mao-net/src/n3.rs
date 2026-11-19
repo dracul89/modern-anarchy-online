@@ -1347,6 +1347,15 @@ pub fn quest_delete(character: u32, mission: (u32, u32)) -> Frame {
     Message { kind: 0x212c487a, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `GiveQuestToMembersIIR_t` (`n3InfoItemRemote_t::MapToKey` of the name): "Update Team Members" of a team mission
+/// (`N3Msg_UpdateNearbyTeamMembers`, Gamecode 0x10017e63: from the own character, FUN_100ace80, with the mission's
+/// instance, FUN_100acdf4, the one word FUN_100acef9 writes). Built from the disassembly: no capture has one.
+pub fn give_quest_to_members(character: u32, mission: u32) -> Frame {
+    let mut data = vec![0u8];
+    data.extend_from_slice(&mission.to_be_bytes());
+    Message { kind: crate::grid::map_to_key("GiveQuestToMembersIIR_t"), identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `CreateQuest` (`291f361b`): takes one of the offered missions (its identity from the offer).
 pub fn create_quest(character: u32, mission: (u32, u32)) -> Frame {
     let mut data = vec![1u8];
@@ -1598,6 +1607,9 @@ mod tests {
         assert_eq!(hex(pet_command_to(7, 4, (0xc350, 0x1234))), "000000000000000004000000000000" .to_string() + "07e20000c350000012340000000000000000");
         assert_eq!(hex(pet_command_text(7, 0, 15, &[(0xc350, 0x1234)], "Rex")), "00000000000000000f000000000000" .to_string() + "07e20000c350000012340000000000000003526578");
         assert_eq!(crate::grid::map_to_key("SetNameIIR_t"), 0x734e5a7b);
+        // (WIN-119: "Update Team Members", the mission's instance after the header byte)
+        let give = Message::parse(&give_quest_to_members(0x12345678, 0x2a)).unwrap();
+        assert_eq!((give.kind, give.identity, give.data), (crate::grid::map_to_key("GiveQuestToMembersIIR_t"), (CHARACTER, 0x12345678), vec![0, 0, 0, 0, 0x2a]));
         let mut data = vec![0u8, 0, 0, 0, 3, 1, 0, 0, 0, 3];
         data.extend_from_slice(b"Rex");
         data.extend_from_slice(&[0; 12]);
