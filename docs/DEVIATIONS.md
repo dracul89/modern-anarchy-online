@@ -6097,6 +6097,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some control-center icons missing or misplaced.
 - Where: `docs/ORIGINAL_UI_PLAN.md:206`; `crates/mao-client/src/gui/controlcenter.rs:91`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the control center's icon strip (CCMenu) lays out icons the client draws differently; fitting Wear and Shop needs the CCMenu layout read, a GUI_DLL_PARITY item.
 
 ### Windows and interface: the client has it, the original does not (30)
 
@@ -6168,6 +6169,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: markup colour names resolve under any skin
 - Where: `crates/mao-client/src/theme.rs:108`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original always has its Default folder's TextColors.xml beside a skin; taking it when a skin lacks one is what the original's own layout of files gives.
 
 #### `WIN-158` Actions tooltip has the client's own text
 
@@ -6177,6 +6179,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra hover text on action tiles
 - Where: `crates/mao-client/src/actions.rs:386`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: a tooltip on the action tiles; it adds information without changing what the tiles do.
 
 #### `WIN-159` AOU mod skins bundled and selectable
 
@@ -6186,6 +6189,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: optional alternate skins
 - Where: `docs/CLIENT_UI.md:164`; `README.md:94`; `crates/mao-client/src/theme.rs:40`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the AOU skins are optional themes; the default is the game's own skin.
 
 #### `WIN-160` Creature inspect page is the client's own headline with health
 
@@ -6195,6 +6199,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Creature info page differs.
 - Where: `crates/mao-client/src/net.rs:2699`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP until the original's creature info page is read; it is a stand-in where the original's page was not found.
 
 #### `WIN-161` Error boxes are queued, never repeated
 
@@ -6204,6 +6209,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a repeated refusal shows one box
 - Where: `crates/mao-client/src/chrome.rs:59`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: queuing the boxes without repeats only spares a player a stack of the same refusal; each text still shows.
 
 #### `WIN-162` Escape always closes the client's own Options, Whom-Pah, Browser and Help windows
 
@@ -6213,6 +6219,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Escape closes windows the original does not have
 - Where: `crates/mao-client/src/ui.rs:406`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the windows concerned are the client's own (Options, Whom-Pah, Browser, Help), which the original's esc_* options do not know; the original's windows follow the options.
 
 #### `WIN-163` Help assistant ("Ask the guides") is the client's own window
 
@@ -6222,6 +6229,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: An extra window and extra network use when sources are turned on.
 - Where: `crates/mao-client/src/helpwindow.rs:2`; `docs/HELP_ASSISTANT.md:3`; `docs/CLIENT_UI.md:3295`; `README.md:91`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: one of the client's own tools the user asked for; network use only when its sources are turned on.
 
 #### `WIN-164` Help window (Ctrl+H) with find and chat input history
 
@@ -6231,6 +6239,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a help window and input history the original does not have
 - Where: `crates/mao-client/src/help.rs:1`; `docs/CLIENT_UI.md:1848`; `docs/GUI_DLL_PARITY.md:109`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the key list window and the chat history add help without taking anything of the original away.
 
 #### `WIN-165` Hover breakdown tooltips on stats and skills
 
@@ -6240,6 +6249,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Extra tooltip with value breakdown.
 - Where: `crates/mao-client/src/stats.rs:17`; `docs/CLIENT_UI.md:1675`; `docs/STAT_ENGINE.md:420`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: an extra tooltip with the stat's parts; the original's bar tips (TooltipHealth ...) are still there.
 
 #### `WIN-166` Inbox status line and "Sending ..." text
 
@@ -6249,6 +6259,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra text the original does not show
 - Where: `crates/mao-client/src/mailbox.rs:115`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE the status line (or keep only the delete refusal): the original's mail window shows only InboxSize ("n/30", GUI.dll FUN_10109489), and the refusal is also said by the game's own feedback text.
 
 #### `WIN-167` Info view file:// pages also search the game's text folder
 
@@ -6258,6 +6269,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: more places searched for text files
 - Where: `crates/mao-client/src/gui/infoview.rs:71`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: one more folder searched for a file:// page only finds files the original would have shown as missing; nothing changes for the pages the original finds.
 
 #### `WIN-168` Inspect window: title carries the character's name, right click opens the item page
 
@@ -6267,6 +6279,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a different title and a different right-click result in the Inspect window
 - Where: `crates/mao-client/src/invwindows.rs:265`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE both for faithfulness: the original's Inspect window is titled Inspect and a right press opens the item menu (FUN_100e24b8); the name in the title and the info page on right click are the client's own. (Porting the menu needs the item menu in that window.)
 
 #### `WIN-169` Missing game texts fall back to the client's own words
 
@@ -6276,6 +6289,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: windows show the client's wording when the game's text files are absent
 - Where: `crates/mao-client/src/charinfo.rs:45`; `crates/mao-client/src/net.rs:771`; `crates/mao-client/src/gui/xml.rs:365`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the game's texts are always used when text.mdb has them; the client's words only fill in where the file lacks a text.
 
 #### `WIN-170` Performance overlay
 
@@ -6285,6 +6299,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: an overlay at the top left
 - Where: `crates/mao-client/src/perf.rs:1`; `crates/mao-client/src/viewer.rs:2668`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: off by default (/perf), a developer's and player's help.
 
 #### `WIN-171` Plain strip drawn when there is no skin
 
@@ -6294,6 +6309,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Non-original look when there is no skin.
 - Where: `crates/mao-client/src/ui.rs:1109`; `docs/CLIENT_UI.md:201`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: drawn only when no skin can be found at all, where the original could not draw its strip either.
 
 #### `WIN-172` Planet map window: map choice list inside the window
 
@@ -6303,6 +6319,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a player can change the planet map from the window itself
 - Where: `crates/mao-client/src/planetwindow.rs:199`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the choice is the original's own option (`PlanetMapIndexFile`; FUN_1004cb15 lists the indexes); the list in the window is a shorter way to it.
 
 #### `WIN-173` Shop status line "Trade complete."
 
@@ -6312,6 +6329,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: minor extra text
 - Where: `crates/mao-client/src/shop.rs:302`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original's trade shows no such line; the trade window closing says it was done.
 
 #### `WIN-174` Shop window title carries the shop's name
 
@@ -6321,6 +6339,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A name shows in the title bar that the original does not show.
 - Where: `crates/mao-client/src/shop.rs:426`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: a name in the title bar the skin's view leaves out; nothing is hidden by it.
 
 #### `WIN-175` Skills window messages use the client's own words
 
@@ -6330,6 +6349,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Extra text under the skills window.
 - Where: `crates/mao-client/src/skillwindow.rs:553`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE the client's own status texts where the original says nothing, keeping text.mdb's (Skill_LackIP) where it does; "Changes sent." and "Reset asked for." have no counterpart.
 
 #### `WIN-176` The client can build planet maps of its own and list any map folder
 
@@ -6408,6 +6428,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the camera feels the same at any frame rate; the original's would be tighter or looser
 - Where: `crates/mao-client/src/camera.rs:113-119`; `crates/mao-client/src/viewer.rs:2085-2089`; `docs/CLIENT_UI.md:1298`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The time scaling is the user's choice ("sixty is this client's choice", docs/CLIENT_UI.md), and the original's per-frame shares are there behind the developer switch. At 60 frames a second the two are the same. Not changed against that choice.
 
 ### Camera: an approximation or a stand-in (2)
 
@@ -6419,6 +6440,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: camera collision differs on such playfields
 - Where: `docs/ORIGINAL_AUDIT.md:202`; `crates/mao-client/src/viewer.rs:776`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's line of sight (`n3Playfield_t::LineOfSight`) tests the playfield's collision surfaces; the props' meshes stand in only on playfields where the client found no surfaces (the 0xf424d v5 KD surfaces are read where they exist). Ending the stand-in means finding those playfields' surfaces, not a camera rule.
 
 #### `CAM-005` Zooming in always ends in first person
 
@@ -6427,7 +6449,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the setting is not checked: any zoom in past 0.8 switches to first person
 - A player notices: players who turned ZoomTo1stPerson off are still thrown into first person
 - Where: `crates/mao-client/src/camera.rs:482`; `crates/mao-client/src/camera.rs:24`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already ported: `camera::turn_and_zoom` takes `hold_third`, which viewer.rs sets from `!crate::prefs::on("ZoomTo1stPerson")` (LoginPrefs.xml's value, true by default); with it off, zooming in stops at the nearest distance and zooming out does not leave first person (camera.rs, the `ZoomTo1stPerson` comments). The entry's text is out of date. Nothing changed.
 
 ### Camera: the original was not read: inferred or measured (2)
 
@@ -6448,6 +6471,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: how far the world is drawn before the far plane cuts it
 - Where: `crates/mao-render/src/lib.rs:895`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's near and far planes are set by DisplaySystem's camera from the view distance and its own constants, which were not found under a name in the decompile; the client's planes from the scene's size draw the same world. Left until the original's clip setup is read.
 
 ### Camera: a guard or fallback the original lacks (2)
 
@@ -6459,6 +6483,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: after a hitch the camera catches up more slowly
 - Where: `crates/mao-client/src/camera.rs:524`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: the quarter-second cap only changes how the camera catches up after a stall (a frame longer than 0.25 s); without it a long hitch flings the camera's vehicle, which the original's 0.4 s substeps would not let happen either. Nothing a player sees in steady play.
 
 #### `CAM-009` Camera pulled in to stay above the ground
 
@@ -6468,6 +6493,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the camera comes nearer the character on slopes so the ground does not hide the view
 - Where: `crates/mao-client/src/viewer.rs:2548-2570`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: the original's camera is a vehicle that settles against the collision surfaces; the client's camera does not collide with the heightmap the same way, so the pull-in is what keeps the ground from hiding the view. It goes when the camera's vehicle collides as the original's (not a short port).
 
 ### Camera: the original does it, the client does not (3)
 
@@ -6479,6 +6505,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: that playfield uses the normal camera
 - Where: `docs/CLIENT_UI.md:2788`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: playfield 0x380's free camera (`SetMainDynel`) needs that playfield's purpose checked live (no capture visits it).
 
 #### `CAM-011` Room camera attractors: manual cycling and collider visibility not ported
 
@@ -6488,6 +6515,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: camera attractors chosen without the original's visibility test; no view-cycling keys
 - Where: `docs/ORIGINAL_AUDIT.md:206`; `docs/CLIENT_UI.md:1711`; `crates/mao-client/src/camera.rs:39`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The room attractors' manual cycling, the two-step door search for "visible" and the next/previous view keys are a part of the original's room camera (`GetNextVisibleAttractor`) the client has not ported; it needs the room collider's door walk, more than one night's entry.
 
 #### `CAM-012` Two-shot and secondary-target camera framing not ported
 
@@ -6497,6 +6525,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the camera never frames two subjects together
 - Where: `crates/mao-client/src/camera.rs:47`; `docs/CLIENT_UI.md:2144`; `docs/ORIGINAL_AUDIT.md:62`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The two-shot and secondary-target framing of `n3Camera_t` are modes the game drives from scripts (cut scenes) the client does not run; nothing in play the client handles triggers them.
 
 ### Camera: the client has it, the original does not (1)
 
@@ -6508,6 +6537,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a status line the original may not print
 - Where: `crates/mao-client/src/viewer.rs:2954`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the game's texts have no such line (text.mdb's camera texts are the menu's labels and tips only), so the original changes the mode silently.
 
 ## Rendering and world
 
@@ -8475,6 +8505,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: same rules for which sound plays, a different mixing quality
 - Where: `crates/mao-client/src/audio.rs:1`; `crates/mao-client/src/mixer.rs:1`; `crates/mao-client/src/gui/controlcenter.rs:179`; `docs/CLIENT_UI.md:2409`; `docs/GUI_DLL_PARITY.md:63`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Sandy's rules are ported; the Miles sound system under them is a licensed library the client cannot ship, so a mixer of the client's own plays the same sounds by the same allocation rule. Nothing more of the original to port.
 
 ### Sound and music: an approximation or a stand-in (9)
 
@@ -8495,6 +8526,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible in normal play
 - Where: `crates/mao-client/src/audio.rs:632`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: the original reads past the variant array for a large index, which reads garbage; in Rust that is a panic that ends the client. Playing nothing is the closest safe outcome.
 
 #### `SND-004` Liquid depth probed at the character, not under it
 
@@ -8504,6 +8536,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: splash/wade step sounds may change at slightly different heights
 - Where: `crates/mao-client/src/sounds.rs:141`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's probe is the vehicle's surface alignment (`Vehicle_t` +0x10c kept within 0.1 above the surface between frames, the ground point under the character with its height); porting it needs that state carried in the client's movement, which keeps none for the liquid. Left for a pass on the character's vehicle.
 
 #### `SND-005` Music player's random choices start from a fixed seed
 
@@ -8523,6 +8556,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/music.rs:14`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): `AIL_digital_latency` is Miles' driver's own figure; the client's mixer has no such driver, and its output starts at once. Nothing to read it from.
 
 #### `SND-007` Sample memory budget is fixed
 
@@ -8532,6 +8566,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: samples may be re-read from disk sooner in a big session
 - Where: `crates/mao-client/src/audio.rs:321`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): How the original sets its sample budget was not found ("not stated"); the drop-in's 0xf00000 is what the client uses. Left until the budget's source is read in SandyInterface.
 
 #### `SND-008` Simultaneous sound plays ordered by creation
 
@@ -8541,6 +8576,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/audio.rs:237`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original orders the frame's plays by the sources' memory addresses, which are the allocator's and differ from run to run; no fixed order can match it.
 
 #### `SND-009` Sound preferences read once from LoginPrefs.xml
 
@@ -8550,6 +8586,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: volume changes depend on the options window feeding the same module
 - Where: `crates/mao-client/src/audio.rs:1627`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Whether the client's option panel passes each change to the sound module (as GUI.dll's slots do) was not traced; the settings are read at start and the control center's switches set the volumes (audio.rs). Left for a check of the option panel's sound pages.
 
 #### `SND-010` Thunder only on playfields with a tile map
 
@@ -8559,6 +8596,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no thunder on room playfields
 - Where: `crates/mao-client/src/ambience.rs:163`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The strike cell needs the zone's side from the tile map; a room playfield has none, and what the original does there was not stated. Left until the original's room weather is read.
 
 ### Sound and music: the original was not read: inferred or measured (1)
 
@@ -8570,6 +8608,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: district music may be wrong in places
 - Where: `docs/ORIGINAL_AUDIT.md:92`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the districts' spawn data the original reads is not decoded yet; until it is, the heads are found by their shape.
 
 ### Sound and music: the original does it, the client does not (6)
 
@@ -8581,6 +8620,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: creatures' reaction to noise is not driven by the sound system's radii
 - Where: `crates/mao-client/src/audio.rs:16`; `docs/ORIGINAL_AUDIT.md:90`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The alert and noise radii go to the game's AI through AFCM (module 9's messages 0xbf and 0x119); the client has no AI of its own to receive them (creatures' behaviour is the server's), so there is nothing to send them to.
 
 #### `SND-013` Environment sounds: zones' own lists, env FX pools, water level
 
@@ -8590,6 +8630,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none stated
 - Where: `docs/ORIGINAL_AUDIT.md:94`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the zones' own sound lists and the env FX pools are more of the ambience port, a part larger than this entry.
 
 #### `SND-014` Environment type's indoor sounds and effects not followed
 
@@ -8599,6 +8640,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: indoor ambient sounds/effects by environment type absent
 - Where: `docs/CLIENT_UI.md:2605`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the environment type's indoor sounds and effects (FUN_100b2478's switch) are a part of their own in the ambience port.
 
 #### `SND-015` Fly-mode step sound not played
 
@@ -8618,6 +8660,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: missing sounds/texts for those
 - Where: `docs/ORIGINAL_AUDIT.md:91`; `crates/mao-client/src/feedback.rs:241`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the item-hit sound (FUN_1009b4b0) and the "Sneak Attack!" texts need the hit's message read, not yet traced to a capture.
 
 #### `SND-017` Lightning strike at the character has no sender
 
@@ -8627,6 +8670,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: only distant thunder and near jolts
 - Where: `crates/mao-client/src/ambience.rs:8`; `docs/ORIGINAL_AUDIT.md:94`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The strike at the character (FUN_100bde3c, AFCM message 0x7f, FUN_100b2d7e) has no sender found: who posts 0x7f to the weather module was not traced. Left until the sender is found.
 
 ## Launcher, login, character creation
 
