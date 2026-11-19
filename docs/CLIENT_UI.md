@@ -3248,7 +3248,8 @@ original's `SetAnimationTime` + `UpdateWorldMatrix` (`anim * TRS * parent`) and 
   FUN_10088970 steps it each frame), a door with an animation swings open over it and back when it closes, instead of
   vanishing; its shut pose is the animation's start (the pose it is drawn in). The original opens a door on a character's touch
   (FUN_1007fccc, unless FUN_1007fad8 keeps them out: a lock, an owned building); here the Whom-Pahs' doors (template "Dummy
-  Whom-Pah") open as the character comes within 4 m and close 5 s after, the other doors on a use as before.
+  Whom-Pah") open as the character comes within 4 m and close 5 s after, the other doors on a use as before. (Since
+  2026-11-18 every door by the touch itself: "A door opens at the character's touch".)
 * **Outer textures.** A dynel's `OverrideTexture` (stat 336) is put on its mesh's materials whose names have neither "face" nor
   "under" (`n3VisualDynel_t::SetOverrideTexture` → `VisualMesh_t::ChangeOuterTexture`, FUN_10070f1f): from the playfield's
   dynel records (a Whom-Pah door's destination sign; a record without its own takes its item template's, as with the mesh:
@@ -5197,7 +5198,8 @@ Tests: `a_weapon_lets_its_own_specials_through`, `a_special_needs_a_weapon_that_
   things come into range, not events. This client holds a door open for five seconds from the last time one's own
   character was within four metres, and a door the server showed open for a day: both are its own, kept tonight
   since the doors work as they are and a door that flaps at the edge of its reach would be worse than one that
-  closes late. The notes that call stat 335 a closing time are wrong.
+  closes late. The notes that call stat 335 a closing time are wrong. (Both went on 2026-11-18, and the stat 0 bits
+  below are read now: "A door opens at the character's touch".)
 - **Read and left**: the locked door's question (FUN_1007fad8: a key item, the door's requirements, a key list, an
   access card, an owned building and its team; its only line is for a full inventory) is not small and wants a
   locked door live. Found beside it and not changed: a door's "open" and "locked" are bits 0x80 and 0x40 of its
@@ -6569,3 +6571,29 @@ the old scan and the wear list agree on every number; the 2062 perks are the sam
 keep their amounts in the list of being used and are read as before.
 
 Tests: `what_is_worn_is_the_wear_list`, `a_wear_list_at_a_quality`, `the_spells_that_used_to_end_a_list`.
+
+### A door opens at the character's touch and shuts as it leaves (ZON-001)
+
+The client's 4 m and 3 m and its five seconds are gone. The original (N3's `n3Dynel_t::CheckBodyCollision` 0x1000483b,
+`Door_t` FUN_1007fccc and its frame FUN_1007ff44):
+
+- **The touch is two spheres meeting**, the character's body sphere and the door's, each from its mesh's packed word
+  (`hazards::body_sphere`, as for a mine) and only for the client's own character (`net::door_touched`). A door's
+  sphere is large: over the game's 5084 doors most are about 3 m round, centred about 2 m up.
+- **A door that is not locked opens at once**, and nothing is told to the server.
+- **It shuts on the first frame nothing touches it.** There is no timer. A door the server said stays open
+  (`DoorStatusUpdate`'s third flag, `net::door_stays`) stays; every captured message has that flag at 0, and a door the
+  server opens without it shuts again at once when nobody is at it (the client kept such a door open for a day).
+- **What locks a door is bit 0x40 of its stat 0**, not of stat 259 as the client read it (`door_locked`). That is 684
+  of the game's doors against the 13 that have stat 259's bit: those 684 stay shut until the server unlocks them or the
+  character may pass (`door_may_pass`), as in the original. **To watch live: a door that used to open and no longer does.**
+- **A shut door does not stop the character between rooms**: `Door_t`'s FUN_1007fc97 lets anyone through a door that is
+  not locked (`interior::allowed` asked for an open one). Which rooms are drawn still goes by the open doors.
+
+An open question, left out on purpose: FUN_10089f0a calls the touch only while a count of every other second divides by
+the door's stat 437, which no door of the game has. Read as it stands a door would answer for its first two seconds
+alone, so something supplies the stat that was not found. Not ported: the wait of a locked door that lets the
+character through (stat 335, a second), the push back from a door that does not (dungeons), the touch's own sound
+(class 0x6f) and the door's own use, which keeps its five seconds (ZON-004).
+
+Tests: `a_door_is_held_open_by_the_touch`, `doors_are_numbered_from_their_ids`, `a_generated_missions_doors_are_usable`.

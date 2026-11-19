@@ -66,6 +66,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   it. Let go over a character, an item is used on that character with the original's message.
 - The skill window counts only what a worn item gives while worn: bonuses from an item's use or aura effects no longer
   show, and bonuses that depend on your profession, breed or a skill now do.
+- Doors open when you touch them and shut as soon as you leave, as in the original, instead of within 4 m and for five
+  seconds. Doors the game marks as locked now stay shut until the server unlocks them.
 
 ### Items
 

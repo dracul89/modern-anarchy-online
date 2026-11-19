@@ -94,10 +94,11 @@ impl RoomState {
 
     /// The character's step among the rooms: `position` after the move. A step into another room that the doors do not
     /// allow is undone (the place it last stood in its room is returned); any other is kept, with the room it is in now.
-    pub fn step(&mut self, interior: &Interior, position: [f32; 3], noclip: bool, open: &dyn Fn(u8) -> bool) -> [f32; 3] {
+    /// `passable`: whether this character may go through a door (see [`RoomState::allowed`]).
+    pub fn step(&mut self, interior: &Interior, position: [f32; 3], noclip: bool, passable: &dyn Fn(u8) -> bool) -> [f32; 3] {
         let to = interior.room_at(position, self.current);
         match (self.current, to) {
-            (Some(from), Some(to)) if from != to && !noclip && !self.allowed(interior, from, to, open) => self.last_position,
+            (Some(from), Some(to)) if from != to && !noclip && !self.allowed(interior, from, to, passable) => self.last_position,
             (_, Some(to)) => {
                 self.current = Some(to);
                 self.last_position = position;
@@ -113,14 +114,16 @@ impl RoomState {
     }
 
     /// Whether the character may pass from room `from` to room `to` (`IsDynelRoomTransitionAllowed`): through the doorway's
-    /// doors when it has any, else through a room between that has doors both ways; every door on the way must be open.
-    pub fn allowed(&self, interior: &Interior, from: usize, to: usize, open: &dyn Fn(u8) -> bool) -> bool {
+    /// doors when it has any, else through a room between that has doors both ways; the character must be let through
+    /// every door on the way. That is not the door's being open: `Door_t`'s FUN_1007fc97 lets anyone through a door that
+    /// is not locked, shut or not, and asks of a locked one whether this character may pass (FUN_1007fad8).
+    pub fn allowed(&self, interior: &Interior, from: usize, to: usize, passable: &dyn Fn(u8) -> bool) -> bool {
         if from == to {
             return true;
         }
         let direct = self.doors(from, to);
         if !direct.is_empty() {
-            return direct.iter().all(|&n| open(n));
+            return direct.iter().all(|&n| passable(n));
         }
         if interior.joined(from, to) {
             // (a doorway the server placed no door in: nothing to open, the original forbids the crossing)
@@ -129,7 +132,7 @@ impl RoomState {
         let rooms = interior.rooms.rooms.len();
         (0..rooms).filter(|&mid| mid != from && mid != to && interior.joined(from, mid) && interior.joined(mid, to)).any(|mid| {
             let (a, b) = (self.doors(from, mid), self.doors(mid, to));
-            !a.is_empty() && !b.is_empty() && a.iter().chain(b).all(|&n| open(n))
+            !a.is_empty() && !b.is_empty() && a.iter().chain(b).all(|&n| passable(n))
         })
     }
 

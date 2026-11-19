@@ -523,6 +523,12 @@ struct World {
     /// The template (`StaticInstance`, stat 23) of each door the server announced (a generated mission's): its model.
     door_templates: BTreeMap<u32, u32>,
     doors_open: BTreeMap<u8, Instant>,
+    /// The doors the character's touch holds open: they shut as it leaves (`Door_t`'s frame, FUN_1007ff44).
+    doors_touched: std::collections::BTreeSet<u8>,
+    /// The doors the server said stay open with nobody at them (`door_stays`).
+    doors_stay: std::collections::BTreeSet<u8>,
+    /// Each door's body sphere (`door_sphere`), where its mesh is known.
+    door_spheres: std::collections::HashMap<u8, (f32, f32)>,
     /// The machines the server announces with a model (mesh instance, position, rotation): drawn like the other entities.
     props: BTreeMap<u32, (u32, [f32; 3], [f32; 4])>,
     /// The travel list of the playfield, from the server (until taken).
@@ -831,10 +837,33 @@ const DOOR_TYPE: u32 = 0xc748;
 const DOOR_FULL_UPDATE: u32 = 0x365a5071;
 /// How long a door that was used stays open.
 const DOOR_OPEN: Duration = Duration::from_secs(5);
-/// How close the character comes to a door that opens on approach before it opens (its leaves' reach).
-const APPROACH_REACH: f32 = 4.0;
+/// A door's or the character's body sphere where no mesh gives one (height of its centre, radius): `VisualCATMesh_t`'s
+/// radius without a mesh, and `n3VisualDynel_t::UpdateCollision`'s start for the centre.
+const NO_MESH_SPHERE: (f32, f32) = (0.5, 1.0);
 /// A door the server opened, until it says closed.
 const SERVER_OPEN: Duration = Duration::from_secs(24 * 3600);
+
+/// A door's body sphere from its mesh (`hazards::body_sphere`, the mesh's packed word): height of the centre, radius.
+fn door_sphere(mesh: u32) -> Option<(f32, f32)> {
+    let object = ITEM_DB.get()?.get(mao_formats::resource::Id { kind: 0xf6951, instance: mesh }).ok()??;
+    Some(crate::hazards::body_sphere(mao_formats::mesh::parse(&object).ok()?.colour, 1.0))
+}
+
+/// Whether the character's body touches a door (N3's `n3Dynel_t::CheckBodyCollision` 0x1000483b, for the client's own
+/// character alone): within 10 m on x and on z, and the two spheres meet. Spheres are (height of the centre above the
+/// feet, radius): a door's is about three metres round, so this is no touch of a leaf.
+fn door_touched(own: [f32; 3], own_sphere: (f32, f32), at: [f32; 3], door: (f32, f32)) -> bool {
+    let (dx, dz) = (at[0] - own[0], at[2] - own[2]);
+    let dy = (at[1] + door.0) - (own[1] + own_sphere.0);
+    let reach = own_sphere.1 + door.1;
+    dx.abs() <= 10.0 && dz.abs() <= 10.0 && dx * dx + dy * dy + dz * dz <= reach * reach
+}
+
+/// A `DoorStatusUpdate`'s third flag (FUN_100a0330 reads it after the key; FUN_100a015a keeps it at the door's +0x1d5): the
+/// door stays open when nobody touches it. Every captured message has 0.
+fn door_stays(data: &[u8]) -> bool {
+    door_open(data).is_some() && data.get(11).is_some_and(|&b| b != 0)
+}
 
 /// Whether a `DoorStatusUpdate` says the door is open: its `DoorStatusUpdateIIR_t` (read by FUN_100a0330) after a byte: the
 /// version (2), the locked flag, the open flag, stat 195 (`int`), a flag byte and a list (`000003f1` empty); none when the
@@ -2016,24 +2045,32 @@ impl World {
     /// The server's word on a door (`DoorStatusUpdateIIR_t`'s apply, FUN_100a015a: open calls `DoorOpened`, closed
     /// `DoorClosed`): open stays open until the server says closed; closed ends what the server opened, not the few seconds
     /// a use of our own opened it for.
-    fn door_status(&mut self, id: u32, open: bool) {
+    fn door_status(&mut self, id: u32, open: bool, stays: bool) {
         let Some(n) = self.door_number(id) else { return };
-        if open {
+        if stays {
+            self.doors_stay.insert(n);
+        }
+        // (opened with nobody at it and not told to stay, the door's next frame shuts it again: FUN_1007ff44)
+        if open && self.doors_stay.contains(&n) {
             self.doors_open.insert(n, Instant::now() + SERVER_OPEN);
-        } else if self.doors_open.get(&n).is_some_and(|until| *until > Instant::now() + DOOR_OPEN) {
+        } else if !open && self.doors_open.get(&n).is_some_and(|until| *until > Instant::now() + DOOR_OPEN) {
             self.doors_open.remove(&n);
         }
     }
 
-    /// A frame's doors: those that open on approach opened while the character is at them (FUN_1007fccc on its touch: the
-    /// door's state machine opens it, FUN_10080477 → FUN_10080319, and it closes again a while after), and each door's
-    /// change from shut to open or back noted for its animation (FUN_1008563d plays the mesh's animation forward from 0,
-    /// FUN_10085684 back from its end; FUN_10088970 steps it each frame).
-    fn tick_doors(&mut self, own: [f32; 3]) {
+    /// A frame's doors: those the character's body touches are opened (FUN_1007fccc: the door's state machine,
+    /// FUN_10080477 → FUN_10080319), a door held open so shuts on the first frame nobody touches it unless the server said it
+    /// stays (`Door_t`'s frame FUN_1007ff44: there is no timer), and each door's change from shut to open or back noted for
+    /// its animation (FUN_1008563d plays the mesh's animation forward from 0, FUN_10085684 back from its end; FUN_10088970
+    /// steps it each frame). `own_sphere` is the character's body sphere.
+    ///
+    /// (FUN_10089f0a calls the touch only while its count of every other second divides by the door's stat 437. No door of
+    /// the game has that stat, and read so a door would answer for its first two seconds alone: the test is left out.)
+    fn tick_doors(&mut self, own: [f32; 3], own_sphere: (f32, f32)) {
         let now = Instant::now();
-        let reached = |at: [f32; 3]| (at[0] - own[0]).hypot(at[2] - own[2]) < APPROACH_REACH && (at[1] - own[1]).abs() < 3.0;
-        // (a locked door in reach asks whether this character may pass, and opens for one who may: `door_may_pass`)
-        let asked: Vec<u8> = self.door_slots.iter().filter(|(n, (_, at))| !self.approach_doors.contains(n) && reached(*at) && self.doors_open.get(n).is_none_or(|until| *until <= now)).map(|(n, _)| *n).collect();
+        let touching: Vec<u8> = self.door_slots.iter().filter(|(n, (_, at))| door_touched(own, own_sphere, *at, self.door_spheres.get(*n).copied().unwrap_or(NO_MESH_SPHERE))).map(|(n, _)| *n).collect();
+        // (a locked door touched asks whether this character may pass, and opens for one who may: `door_may_pass`)
+        let asked: Vec<u8> = touching.iter().copied().filter(|n| !self.approach_doors.contains(n)).collect();
         let mut passed: Vec<u8> = Vec::new();
         if !asked.is_empty() {
             let keys = self.keys_held();
@@ -2044,13 +2081,17 @@ impl World {
                 }
             }
         }
-        for (&n, &(_, at)) in &self.door_slots {
-            if (self.approach_doors.contains(&n) || passed.contains(&n)) && reached(at) {
-                let until = now + DOOR_OPEN;
-                let open = self.doors_open.entry(n).or_insert(until);
-                if *open < until {
-                    *open = until;
-                }
+        for &n in &touching {
+            if self.approach_doors.contains(&n) || passed.contains(&n) {
+                self.doors_open.insert(n, now + SERVER_OPEN);
+                self.doors_touched.insert(n);
+            }
+        }
+        let left: Vec<u8> = self.doors_touched.iter().copied().filter(|n| !touching.contains(n)).collect();
+        for n in left {
+            self.doors_touched.remove(&n);
+            if !self.doors_stay.contains(&n) {
+                self.doors_open.remove(&n);
             }
         }
         for &n in self.door_slots.keys() {
@@ -2127,14 +2168,21 @@ impl World {
         self.terminals.clear();
         self.door_slots.clear();
         self.doors_open.clear();
+        self.doors_touched.clear();
+        self.doors_stay.clear();
+        self.door_spheres.clear();
         self.door_motion.clear();
         self.door_props.clear();
         self.prop_textures.retain(|k, _| *k < 0xfe00_0000);
         self.prop_anim.retain(|k, _| *k < 0xfe00_0000);
+        let mut spheres: std::collections::HashMap<u32, Option<(f32, f32)>> = Default::default();
         for (key, prop, door) in props {
             if let Some(n) = door {
                 self.door_slots.insert(n, (key, prop.1));
                 self.door_props.insert(key, n);
+                if let Some(sphere) = *spheres.entry(prop.0).or_insert_with(|| door_sphere(prop.0)) {
+                    self.door_spheres.insert(n, sphere);
+                }
             }
             self.props.insert(key, prop);
         }
@@ -3821,7 +3869,7 @@ impl World {
                 Some((true, key)) => format!(", locked, key {key:#x}"),
                 _ => String::new(),
             });
-            self.door_status(m.identity.1, open);
+            self.door_status(m.identity.1, open, door_stays(&m.data));
             // (and whether it is locked from now on, with its key: FUN_100a015a)
             if let (Some((locked, key)), Some(n)) = (lock, self.door_number(m.identity.1)) {
                 if locked {
@@ -3849,17 +3897,14 @@ impl World {
             let count = word(55).and_then(|n| usize::try_from(n / 0x3f1).ok()?.checked_sub(1)).unwrap_or(0).min(64);
             let stat = |key: u32| (0..count).map(|i| 59 + 8 * i).find(|&p| word(p) == Some(key)).and_then(|p| word(p + 4));
             // The door takes a number like the table's doors (its place in the run of ids), so the server's status messages, a
-            // use of our own and the swing animation find it; the door flags (stat 259) bit 0x80 is "open" (`DoorFullUpdateIIR_t`'s
-            // apply FUN_1009fff9 opens or closes the new door by it).
+            // use of our own and the swing animation find it. (Its stat 0's bit 0x80 is "open", and `DoorFullUpdateIIR_t`'s apply
+            // FUN_1009fff9 opens the new door by it; with nobody at it, its next frame shuts it again.)
             if let Some(n) = self.door_number(m.identity.1) {
                 self.door_slots.insert(n, (m.identity.1, at));
-                if stat(259).is_some_and(|flags| flags & 0x80 != 0) {
-                    self.doors_open.insert(n, Instant::now() + SERVER_OPEN);
-                }
                 // (what the locked door's question reads of it)
                 self.door_stats.insert(n, crate::DoorStats { flags: stat(259).unwrap_or(0), exit: stat(189).unwrap_or(0), key: stat(195).unwrap_or(0), building: stat(188).unwrap_or(0) });
                 // (and whether it opens at a touch: not when its flags say it is locked, `approach_doors`)
-                match stat(259) {
+                match stat(0) {
                     Some(flags) if crate::door_locked(flags) => {
                         self.approach_doors.remove(&n);
                     }
@@ -3876,6 +3921,9 @@ impl World {
                     self.door_sounds.insert(n, door_sound_pair(db, template));
                 }
                 if let Some(mesh) = template_stat(template, 12).filter(|&mesh| mesh > 0) {
+                    if let (Some(n), Some(sphere)) = (self.door_number(m.identity.1), door_sphere(mesh as u32)) {
+                        self.door_spheres.insert(n, sphere);
+                    }
                     let rotation = [f(25), f(29), f(33), f(37)];
                     let rotation = if rotation == [0.0; 4] { [0.0, 0.0, 0.0, 1.0] } else { rotation };
                     self.props.insert(m.identity.1, (mesh as u32, at, rotation));
@@ -10019,17 +10067,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 (airborne, vy) = (false, 0.0);
                 body_reset = true;
             }
-            // The rooms: the character crosses from one to another only through an open door (`IsDynelRoomTransitionAllowed`);
+            // The rooms: the character crosses from one to another only through a door that lets it (`IsDynelRoomTransitionAllowed`);
             // the step that would have taken it elsewhere is undone. The rooms it can see are told to the viewer when they change.
             if let Some(interior) = &interior {
                 room_state.register(interior, &state.door_slots);
                 let now = Instant::now();
+                let keys_held = state.keys_held();
                 let open = |n: u8| state.doors_open.get(&n).is_some_and(|until| *until > now);
+                // (`Door_t`'s FUN_1007fc97: any door that is not locked, shut or not; a locked one asks)
+                let passable = |n: u8| state.approach_doors.contains(&n) || door_may_pass(state.door_stats.get(&n).copied().unwrap_or_default(), true, &|key| keys_held.contains(&key), state.owned_inside);
                 // (a place the server gave is no step: the room there is the character's, door or no door)
                 if std::mem::take(&mut room_placed) {
                     room_state.placed();
                 }
-                position = room_state.step(interior, position, keys.noclip, &open);
+                position = room_state.step(interior, position, keys.noclip, &passable);
                 let shown = room_state.shown(interior, now, &open);
                 if shown != rooms_shown {
                     rooms_shown = shown.clone();
@@ -10550,7 +10601,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if last_overlay.elapsed() >= Duration::from_millis(33) {
                 last_overlay = Instant::now();
                 let built = Instant::now();
-                state.tick_doors(position);
+                // (the character's body sphere, as for a mine: its breed's and sex's mesh, by its scale)
+                let own_sphere = characters.as_mut().zip(state.infos.get(&own)).and_then(|(c, i)| {
+                    c.ensure_body(i.breed, i.sex);
+                    let packed = c.bodies.get(&(i.breed, i.sex))?.as_ref()?.0.colour;
+                    Some(crate::hazards::body_sphere(packed, state.stats.get(&360).map_or(1.0, |&s| s as f32 / 100.0)))
+                });
+                state.tick_doors(position, own_sphere.unwrap_or(NO_MESH_SPHERE));
                 state.tick_shock(Instant::now());
                 // (characters farther than the setting are not drawn; 0 draws all)
                 let reach = keys.char_distance;
@@ -13294,18 +13351,19 @@ mod door_tests {
         } else if std::env::var_os("MAO_GAME").is_some() {
             panic!("the door's template has no Mesh stat");
         }
-        // (the door is numbered and placed like the table's doors; its flags, stat 259, say it is shut: 0)
+        // (the door is numbered and placed like the table's doors, and shut)
         let n = w.door_number(door).expect("a number");
         assert_eq!(w.door_slots.get(&n), Some(&(door, at)));
         assert!(!w.doors_open.contains_key(&n));
-        // (the next door of the run announced open: flags 0x80)
-        let open_door = door + 1;
-        let open_bytes = DOOR_BYTES.replace("0000010300000000", "0000010300000080");
-        assert_ne!(open_bytes, DOOR_BYTES);
-        w.add(&Message { kind: DOOR_FULL_UPDATE, identity: (DOOR_TYPE, open_door), data: hex(&open_bytes) }.frame(1));
-        let n_open = w.door_number(open_door).expect("a number");
-        assert_ne!(n_open, n);
-        assert!(w.doors_open.get(&n_open).is_some_and(|until| *until > Instant::now()));
+        assert!(w.approach_doors.contains(&n));
+        // (the next door of the run announced locked: stat 0's bit 0x40; stat 259's says nothing of it)
+        let locked_door = door + 1;
+        let locked_bytes = DOOR_BYTES.replace("00000000c0081403", "00000000c0081443");
+        assert_ne!(locked_bytes, DOOR_BYTES);
+        w.add(&Message { kind: DOOR_FULL_UPDATE, identity: (DOOR_TYPE, locked_door), data: hex(&locked_bytes) }.frame(1));
+        let n_locked = w.door_number(locked_door).expect("a number");
+        assert_ne!(n_locked, n);
+        assert!(!w.approach_doors.contains(&n_locked) && !w.doors_open.contains_key(&n_locked));
     }
 
     /// The 16:55 capture's Malfunctioning Cleaning Robot: its two `SpellList`s make their effects on it; Cedric Harding's
@@ -13988,13 +14046,19 @@ mod door_tests {
         assert_eq!(door_open(&closed), Some(false));
         assert_eq!(door_open(&open), Some(true));
         assert_eq!(door_open(&[0; 16]), None);
-        // a closed word leaves our own use's few seconds; an open word holds until a closed one
-        world.door_status(0x10c1a5a7, false);
+        // a closed word leaves our own use's few seconds; an open word holds only a door told to stay, until a closed one
+        world.door_status(0x10c1a5a7, false, false);
         assert!(world.doors_open.contains_key(&2));
-        world.door_status(0x10c1a5a9, true);
-        assert!(world.doors_open.get(&4).is_some_and(|until| *until > Instant::now() + Duration::from_secs(3600)));
-        world.door_status(0x10c1a5a9, false);
+        world.door_status(0x10c1a5a9, true, false);
         assert!(!world.doors_open.contains_key(&4));
+        world.door_status(0x10c1a5a9, true, true);
+        assert!(world.doors_open.get(&4).is_some_and(|until| *until > Instant::now() + Duration::from_secs(3600)));
+        world.door_status(0x10c1a5a9, false, false);
+        assert!(!world.doors_open.contains_key(&4));
+        // (the stay flag's place in the word: after the key)
+        let mut stays = closed;
+        stays[11] = 1;
+        assert!(door_stays(&stays) && !door_stays(&closed) && !door_stays(&[0; 16]));
         // (the word's locked flag and key: every captured one is unlocked with no key)
         assert_eq!(door_lock(&closed), Some((false, 0)));
         let mut locked = closed;
@@ -14030,17 +14094,44 @@ mod door_tests {
         w.door_slots.insert(3, (0x10c80003, [10.0, 0.0, 20.0]));
         w.door_stats.insert(3, crate::DoorStats { flags: 0x40, exit: 0, key: 0, building: 0 });
         // (locked: it stays shut)
-        w.tick_doors([10.0, 0.0, 21.0]);
+        w.tick_doors([10.0, 0.0, 21.0], NO_MESH_SPHERE);
         assert!(!w.doors_open.contains_key(&3));
         // (inside an owned building it opens)
         w.owned_inside = true;
-        w.tick_doors([10.0, 0.0, 21.0]);
+        w.tick_doors([10.0, 0.0, 21.0], NO_MESH_SPHERE);
         assert!(w.doors_open.contains_key(&3));
         // (unlocked by the server, it opens for anybody; locked again, it does not)
         let mut w = World { own: 7, ..World::default() };
         w.door_slots.insert(3, (0x10c80003, [10.0, 0.0, 20.0]));
         w.approach_doors.insert(3);
-        w.tick_doors([10.0, 0.0, 21.0]);
+        w.tick_doors([10.0, 0.0, 21.0], NO_MESH_SPHERE);
+        assert!(w.doors_open.contains_key(&3));
+    }
+
+    /// A door opens as the two body spheres meet and shuts on the first frame they do not (`Door_t`'s FUN_1007ff44: no timer),
+    /// unless the server said it stays.
+    #[test]
+    fn a_door_is_held_open_by_the_touch() {
+        // (spheres: a door's 3 m round, 2 m up; the character's 1 m round, 1 m up)
+        let (door, own) = ((2.0, 3.0), (1.0, 1.0));
+        assert!(door_touched([3.8, 0.0, 0.0], own, [0.0; 3], door));
+        assert!(!door_touched([4.1, 0.0, 0.0], own, [0.0; 3], door));
+        // (the height counts: the same place a floor below does not touch)
+        assert!(!door_touched([3.0, -4.0, 0.0], own, [0.0; 3], door));
+        let mut w = World { own: 7, ..World::default() };
+        w.door_slots.insert(3, (0x10c80003, [0.0; 3]));
+        w.door_spheres.insert(3, door);
+        w.approach_doors.insert(3);
+        w.tick_doors([5.0, 0.0, 0.0], own);
+        assert!(!w.doors_open.contains_key(&3));
+        w.tick_doors([3.0, 0.0, 0.0], own);
+        assert!(w.doors_open.contains_key(&3));
+        w.tick_doors([5.0, 0.0, 0.0], own);
+        assert!(!w.doors_open.contains_key(&3), "shut as the character leaves");
+        // (told to stay, it does)
+        w.doors_stay.insert(3);
+        w.tick_doors([3.0, 0.0, 0.0], own);
+        w.tick_doors([5.0, 0.0, 0.0], own);
         assert!(w.doors_open.contains_key(&3));
     }
 }
@@ -14522,12 +14613,12 @@ mod movement_tests {
         w.door_sounds.insert(4, (0, 44));
         w.doors_open.insert(3, Instant::now() + Duration::from_secs(60));
         w.doors_open.insert(4, Instant::now() + Duration::from_secs(60));
-        w.tick_doors([500.0, 0.0, 500.0]);
+        w.tick_doors([500.0, 0.0, 500.0], NO_MESH_SPHERE);
         assert_eq!(std::mem::take(&mut w.door_sounds_due), vec![(11, at)]);
-        w.tick_doors([500.0, 0.0, 500.0]);
+        w.tick_doors([500.0, 0.0, 500.0], NO_MESH_SPHERE);
         assert!(w.door_sounds_due.is_empty());
         w.doors_open.clear();
-        w.tick_doors([500.0, 0.0, 500.0]);
+        w.tick_doors([500.0, 0.0, 500.0], NO_MESH_SPHERE);
         assert_eq!(std::mem::take(&mut w.door_sounds_due), vec![(22, at), (44, [50.0, 0.0, 50.0])]);
         let Some(game) = std::env::var_os("MAO_GAME") else { return };
         let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();

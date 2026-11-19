@@ -3043,7 +3043,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Whom-Pah doors (and doors not locked) open as the character comes within 4 m horizontally and 3 m vertically and close 5 s later; other doors open on a use
 - A player notices: door opening trigger distance differs from a touch
 - Where: `crates/mao-client/src/net.rs:806`; `crates/mao-client/src/main.rs:550`; `docs/CLIENT_UI.md:3249`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): a door opens when the character's body sphere meets the door's (both from their meshes' packed words) and shuts on the first frame nothing touches it, unless the server said it stays; the 4 m, 3 m and five seconds are gone. Locked is now bit 0x40 of stat 0 (684 doors, against 13 by stat 259's bit), and a shut door that is not locked no longer stops the character between rooms. Left out on purpose: the frame's stat 437 test, read as it stands it would stop a door answering after two seconds, and no door has that stat. `CLIENT_UI.md` "A door opens at the character's touch".
 
 #### `ZON-002` Zoning ends following and walking
 

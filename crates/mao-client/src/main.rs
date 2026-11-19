@@ -557,8 +557,8 @@ pub(crate) fn static_prop_anims(db: &ResourceDatabase, playfield: u32) -> Vec<(u
 }
 
 /// The doors of the playfield that open as a character comes up to them: every door that is not locked. A door's touch
-/// (`Door_t`'s FUN_1007fccc) opens it when it is shut and not locked (its flags' bit 0x40, vtable +0xfc; the flags are
-/// stat 259, the door's own or its template's), by FUN_10080477 → FUN_10080319: the sound, the flag and the mesh's
+/// (`Door_t`'s FUN_1007fccc) opens it when it is shut and not locked (bit 0x40 of its flags, vtable +0xfc; the flags are
+/// stat 0, the door's own or its template's), by FUN_10080477 → FUN_10080319: the sound, the flag and the mesh's
 /// animation, nothing told to the server. (A locked door's touch asks FUN_1007fad8 whether this character may pass: a
 /// key, an owned building, the team's mission; those stay shut here until the server says they are open.) Only the
 /// Whom-Pahs' doors were opened so before: a shop's doorways have doors with no mesh to be seen or used, so its rooms
@@ -570,14 +570,15 @@ pub(crate) fn approach_doors(db: &ResourceDatabase, playfield: u32) -> std::coll
         .into_iter()
         .filter(|d| d.kind == 0xc748)
         .filter(|d| {
-            let template = *flags.entry(d.template).or_insert_with(|| db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten().and_then(|x| mao_formats::item::Item::parse(&x)).and_then(|i| i.stat(259)).unwrap_or(0) as u32);
-            !door_locked(d.stat(259).unwrap_or(template))
+            let template = *flags.entry(d.template).or_insert_with(|| db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten().and_then(|x| mao_formats::item::Item::parse(&x)).and_then(|i| i.stat(0)).unwrap_or(0) as u32);
+            !door_locked(d.stat(0).unwrap_or(template))
         })
         .map(|d| (d.instance >> 16) as u8)
         .collect()
 }
 
-/// Whether a door's flags (stat 259) say it is locked: bit 0x40 (`Door_t`'s vtable +0xfc, 0x10085635).
+/// Whether a door's flags (stat 0) say it is locked: bit 0x40 (`Door_t`'s vtable +0xfc, 0x10085635). (Stat 259's bit 0x40
+/// is another thing: 13 doors of the game have it, against 684 that are locked by this one until the server says not.)
 pub(crate) fn door_locked(flags: u32) -> bool {
     flags & 0x40 != 0
 }
