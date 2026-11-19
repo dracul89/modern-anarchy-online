@@ -221,7 +221,7 @@ fn char_bar(ctx: &egui::Context, skin: &Skin, at: impl Fn(egui::Vec2) -> egui::P
             None => drop(painter.rect_filled(inner, 0.0, egui::Color32::from_black_alpha(160))),
         }
         if let Some(f) = &full {
-            let bar = crate::gui::powerbar::PowerBar { direction: crate::gui::powerbar::Direction::Up, background: None, full: None, start_cap: None, end_cap: None, value: fraction, colour: white };
+            let bar = crate::gui::powerbar::PowerBar { direction: crate::gui::powerbar::Direction::Up, background: None, full: None, start_cap: None, end_cap: None, value: fraction, colour: white, labels: Default::default() };
             let kept = bar.kept(f.size);
             // (in the middle of the background's size, the halves rounded down)
             let offset = egui::vec2(((body.x - f.size.x) * 0.5).floor(), ((body.y - f.size.y) * 0.5).floor());

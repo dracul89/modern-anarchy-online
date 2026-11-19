@@ -8,8 +8,10 @@
 //! picture at its own size, centred in the background's size (the halves rounded down) and cut to the value from the bar's
 //! start (`Recalculate` 0x1013e946: the kept part's far edge at the floor of the size times the value). The value is 1
 //! at first and held to 0 to 1 (`SetValue` 0x1013f283). Its preferred size is the background's (else the full picture's)
-//! plus the caps (`CalculatePreferredSize` 0x1013ecb4). The labels (`label`, `left_label`, `right_label`) are not drawn
-//! here: no skin gives them.
+//! plus the caps (`CalculatePreferredSize` 0x1013ecb4). The labels: `label` is `SetLabel` (0x1013f37c), a `TextView_c` in
+//! font 5 between two stretching spacers, so centred across the bar; `left_label` and `right_label`, when both are given,
+//! are `SetLabels` (0x1013f593), two such text views with a spacer between, at the bar's two ends (replacing a single
+//! label). No skin of the game's gives them; code does (the Stats window's bars, drawn by that window here).
 
 use super::font::Measure;
 use super::geom::Point;
@@ -41,6 +43,31 @@ pub struct PowerBar {
     pub value: f32,
     /// `SetBarColor`: the full picture's tint.
     pub colour: egui::Color32,
+    /// The text views over the bar (`SetLabel`, `SetLabels`).
+    pub labels: Labels,
+}
+
+/// What a bar has written over it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Labels {
+    #[default]
+    None,
+    /// `SetLabel`: one text, centred.
+    Centre(String),
+    /// `SetLabels`: one text at the start, one at the end.
+    Ends(String, String),
+}
+
+/// The labels an element gives (the XML constructor 0x1013f846): `label` when not empty is `SetLabel`, then
+/// `left_label` and `right_label` when neither is empty `SetLabels`, which takes the single label's place.
+pub fn labels_of(label: &str, left: &str, right: &str) -> Labels {
+    if !left.is_empty() && !right.is_empty() {
+        Labels::Ends(left.to_string(), right.to_string())
+    } else if !label.is_empty() {
+        Labels::Centre(label.to_string())
+    } else {
+        Labels::None
+    }
 }
 
 impl PowerBar {
@@ -67,6 +94,25 @@ impl PowerBar {
 fn size_of(m: &Measure, name: &Option<String>) -> Option<egui::Vec2> {
     let name = name.as_ref()?;
     m.ctx.as_ref().and_then(crate::skin::skin).and_then(|s| s.get(name)).map(|s| s.size)
+}
+
+impl PowerBar {
+    /// The labels in font 5 and the text view's own white, over the bar: centred, or at its two ends (the layout's
+    /// spacers); upright in the middle of the bar's height (how the bar's layout places them across was not read).
+    fn paint_labels(&self, p: &Paint) {
+        let m = p.env.measure;
+        let font = super::font::FontId::NORMAL;
+        let y = p.rect.center().y - (m.height(font) * 0.5).floor();
+        let white = egui::Color32::WHITE;
+        match &self.labels {
+            Labels::None => {}
+            Labels::Centre(t) => super::controls::text(p, font, egui::pos2((p.rect.center().x - m.width(font, t) * 0.5).floor(), y), t, white),
+            Labels::Ends(l, r) => {
+                super::controls::text(p, font, egui::pos2(p.rect.left(), y), l, white);
+                super::controls::text(p, font, egui::pos2(p.rect.right() - m.width(font, r), y), r, white);
+            }
+        }
+    }
 }
 
 impl Control for PowerBar {
@@ -104,16 +150,21 @@ impl Control for PowerBar {
         if let Some(bg) = &self.background {
             skin.draw_in(p.painter, bg, body, egui::Color32::WHITE);
         }
-        let Some(full) = self.full.as_ref().and_then(|n| skin.get(n)) else { return };
+        let Some(full) = self.full.as_ref().and_then(|n| skin.get(n)) else {
+            self.paint_labels(p);
+            return;
+        };
         // (centred in the background's size, the halves rounded down)
         let bg = size_of(m, &self.background).unwrap_or(full.size);
         let offset = egui::vec2(((bg.x - full.size.x) * 0.5).floor(), ((bg.y - full.size.y) * 0.5).floor());
         let kept = self.kept(full.size);
         if kept.width() <= 0.0 || kept.height() <= 0.0 {
+            self.paint_labels(p);
             return;
         }
         let uv = egui::Rect::from_min_max(egui::pos2(kept.left() / full.size.x, kept.top() / full.size.y), egui::pos2(kept.right() / full.size.x, kept.bottom() / full.size.y));
         p.painter.image(full.texture.id(), kept.translate(body.min.to_vec2() + offset), uv, self.colour);
+        self.paint_labels(p);
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -141,6 +192,7 @@ pub fn create(tree: &mut Tree, e: &Element) -> Id {
         end_cap: named("right_gfx"),
         value: 1.0,
         colour: egui::Color32::WHITE,
+        labels: labels_of(&e.text("label", ""), &e.text("left_label", ""), &e.text("right_label", "")),
     };
     tree.add(Node::from_element(e, 4, Box::new(bar)))
 }
@@ -169,7 +221,21 @@ mod tests {
         assert_eq!(b.kept(egui::vec2(101.0, 10.0)).right(), 26.0);
         set_value(&mut tree, id, 7.0);
         assert_eq!(tree.control::<PowerBar>(id).unwrap().value, 1.0);
-        let up = PowerBar { direction: Direction::Up, background: None, full: None, start_cap: None, end_cap: None, value: 0.5, colour: egui::Color32::WHITE };
+        let up = PowerBar { direction: Direction::Up, background: None, full: None, start_cap: None, end_cap: None, value: 0.5, colour: egui::Color32::WHITE, labels: Labels::None };
         assert_eq!(up.kept(egui::vec2(10.0, 21.0)).top(), 10.0);
+    }
+
+    /// The XML constructor (0x1013f846): `label` is `SetLabel`; `left_label` and `right_label`, both given, `SetLabels`
+    /// in its place; one of them alone is nothing.
+    #[test]
+    fn the_labels_come_from_the_element() {
+        assert_eq!(labels_of("", "", ""), Labels::None);
+        assert_eq!(labels_of("Health", "", ""), Labels::Centre("Health".into()));
+        assert_eq!(labels_of("Health", "0", "100"), Labels::Ends("0".into(), "100".into()));
+        assert_eq!(labels_of("", "0", ""), Labels::None);
+        let doc = super::super::xml::parse(r#"<PowerBar bg_gfx="GFX_GUI_HOR_BAR_EMPTY" label="Loading" name="bar"/>"#);
+        let mut tree = Tree::default();
+        let id = super::super::create(&mut tree, &doc[0]).unwrap();
+        assert_eq!(tree.control::<PowerBar>(id).unwrap().labels, Labels::Centre("Loading".into()));
     }
 }

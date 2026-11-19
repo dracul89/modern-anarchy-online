@@ -6028,7 +6028,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Draws background, caps and fill only; label, left_label, right_label are not drawn.
 - A player notices: Bars in XML windows show no label text.
 - Where: `crates/mao-client/src/gui/powerbar.rs:11`; `docs/CLIENT_UI.md:3048`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): `PowerbarView_c`'s XML constructor (GUI.dll 0x1013f846) reads `label`, `left_label` and `right_label`: a non-empty `label` is `SetLabel` (0x1013f37c), a `TextView_c` (0x101652be: font 5, Verdana 13, the text view's own colour) between two stretching `HLayoutSpacer`s, so centred across the bar; when both `left_label` and `right_label` are given, `SetLabels` (0x1013f593) puts two such text views at the bar's ends with a spacer between, removing a single label first. `gui/powerbar.rs` now keeps them (`Labels`, `labels_of`) and draws them over the bar in font 5 and white (the client's `TextView` default), centred or at the ends. A guess: they are drawn in the middle of the bar's height (how the bar's horizontal layout places its children across was not read). No skin of the game's uses these attributes (the code callers, FUN_1007fed3's Stats bars and the others, are windows this client draws itself). Test `gui::powerbar::tests::the_labels_come_from_the_element`.
 - Looked at, left (2026-11-19, overnight): No shipped skin's XML gives `label`, `left_label` or `right_label`; labels come only from code (SetLabel, as FUN_1007fed3 does for the Stats window's bars, which the client draws itself). Drawing them in gui/powerbar.rs needs PowerbarView_c::SetLabel's text view placement (its child TextViews and fonts), not read tonight.
 
 #### `WIN-138` Reclaim window absent

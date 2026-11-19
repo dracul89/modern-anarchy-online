@@ -7770,3 +7770,7 @@ A right click on an offer in the mission booth's window opens the original's men
 ### The notification window's place (WIN-136)
 
 The original's notification window takes the frame its saved `NotificationWindowConfig` keeps (FUN_1000ba68, `Window::LoadWndConfig`), else the whole width and the top third of the screen (FUN_1000b9df). The client now reads that frame from the original's layout for the character (`aoprefs.rs`), scaled to the screen, as it does for the other windows. Links in the lines (clickable by default in the original, FUN_1000bbaa) are not ported yet.
+
+### Labels on XML power bars (WIN-137)
+
+A `PowerBar` element's `label` is written centred over the bar, and `left_label` with `right_label` at its two ends, in font 5 (the original's `PowerbarView_c::SetLabel` 0x1013f37c and `SetLabels` 0x1013f593: text views between stretching spacers). No skin of the game's gives these; a custom skin's XML windows now show them.
