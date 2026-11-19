@@ -167,6 +167,16 @@ pub enum Action {
     CameraToggleView,
     /// A special action or character action done at once (index into [`QUICK`]).
     Quick(u8),
+    /// The original's window keys this client has the window for (GUI.dll `SetupProviders` 0x1006951c and the
+    /// browser's module: each toggles its window's value, `team_view`, `raid_window`, `lft_window`,
+    /// `research_window`, `knowledge_window`, `dailylogin_window`, and the item shop).
+    TeamWindow,
+    RaidWindow,
+    LftWindow,
+    ResearchWindow,
+    KnowledgeWindow,
+    DailyLoginWindow,
+    ItemShopWindow,
 }
 
 /// The special and character actions the original binds to keys: (name in the settings file, default key, the action's id in the
@@ -233,6 +243,14 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     // "for now", a key the original has nothing on)
     (Action::MapOverlay, "map_overlay", "Ctrl+P"),
     (Action::FriendsWindow, "friends_window", "Ctrl+7"),
+    // (the shipped `CharPrefs.xml`'s keys for these; the daily login's and the item shop's have none)
+    (Action::KnowledgeWindow, "knowledge_window", "Ctrl+3"),
+    (Action::TeamWindow, "team_window", "Ctrl+5"),
+    (Action::RaidWindow, "raid_window", "Ctrl+Shift+R"),
+    (Action::LftWindow, "lft_window", "Shift+F"),
+    (Action::ResearchWindow, "research_window", "Shift+O"),
+    (Action::DailyLoginWindow, "dailylogin_window", ""),
+    (Action::ItemShopWindow, "itemshop_window", ""),
     (Action::ProgramsWindow, "programs_window", "Ctrl+8"),
     (Action::StatsWindow, "stats_window", "Ctrl+9"),
     (Action::NcuWindow, "ncu_window", "Ctrl+0"),
@@ -922,7 +940,7 @@ impl Settings {
                     settings.keymap.set(action, old);
                 }
             }
-            for (n, name, value) in key_lines {
+            for (n, name, value) in key_lines.iter().cloned() {
                 match ACTIONS.iter().find(|(_, n, _)| *n == name) {
                     Some(&(action, _, _)) => {
                         let bad: Vec<&str> = value.split(',').map(str::trim).filter(|k| !k.is_empty() && !k.eq_ignore_ascii_case(INACTIVE) && parse_binding(k).is_none()).collect();
@@ -947,6 +965,15 @@ impl Settings {
                     if settings.keymap.bindings_of(action) == keys(old) && free {
                         settings.keymap.set(action, new);
                     }
+                }
+            }
+            // (an action the file has no line for, as one added since it was written, takes its default keys only
+            // where no action of the file has them: a key the player put elsewhere is not made to do two things)
+            let named: Vec<Action> = key_lines.iter().filter_map(|(_, name, _)| ACTIONS.iter().find(|(_, n, _)| n == name).map(|&(a, _, _)| a)).collect();
+            if !named.is_empty() && key_version == KEYMAP_VERSION {
+                for &(action, _, keys) in ACTIONS.iter().filter(|(a, _, _)| !named.contains(a)) {
+                    let free: Vec<String> = keys.split(',').filter_map(parse_binding).filter(|b| named.iter().all(|other| !settings.keymap.bindings_of(*other).contains(b))).map(|b| binding_name(&b)).collect();
+                    settings.keymap.set(action, &free.join(", "));
                 }
             }
         } else if !key_lines.is_empty() {
@@ -1153,6 +1180,12 @@ log_messages = on
     /// fixed key alone does its first action.
     #[test]
     fn a_key_on_two_actions_does_both() {
+        // (an action a file has no line for takes its defaults only where the file's actions do not have them)
+        let file = Settings::from_text(&format!("[keys]
+version = {KEYMAP_VERSION}
+attack = Ctrl+5
+"));
+        assert_eq!((file.keymap.keys(Action::TeamWindow), file.keymap.keys(Action::KnowledgeWindow), file.keymap.keys(Action::Attack)), (String::new(), "Ctrl+3".to_string(), "Ctrl+5".to_string()));
         let none = ModifiersState::empty();
         let mut keymap = Keymap::default();
         assert!(keymap.bind(Action::Attack, parse_binding("F").unwrap()));

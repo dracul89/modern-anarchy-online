@@ -1539,6 +1539,22 @@ impl ApplicationHandler for App {
                                 ui.friends.open = !ui.friends.open;
                             }
                         }
+                        // (the original's window keys: each toggles its window, as `/toggle` does)
+                        Action::TeamWindow | Action::RaidWindow | Action::LftWindow | Action::ResearchWindow | Action::KnowledgeWindow | Action::DailyLoginWindow | Action::ItemShopWindow if !event.repeat => {
+                            let name = match action {
+                                Action::TeamWindow => "team",
+                                Action::RaidWindow => "raid",
+                                Action::LftWindow => "lft",
+                                Action::ResearchWindow => "research",
+                                Action::KnowledgeWindow => "knowledge",
+                                Action::DailyLoginWindow => "dailyrewards",
+                                _ => "itemshop",
+                            };
+                            if let Some(ui) = w.ui.as_mut() {
+                                let open = !ui.window_open(name);
+                                ui.set_window(name, open);
+                            }
+                        }
                         Action::NcuWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.ncu.open = !ui.ncu.open;

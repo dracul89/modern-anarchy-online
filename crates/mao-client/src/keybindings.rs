@@ -91,6 +91,13 @@ pub const PROVIDERS: &[(&str, Action)] = &[
     ("WINDOW_STAT", Action::StatsWindow),
     ("WINDOW_NCU", Action::NcuWindow),
     ("WINDOW_TS", Action::TradeskillWindow),
+    ("WINDOW_TEAM", Action::TeamWindow),
+    ("WINDOW_RAID", Action::RaidWindow),
+    ("WINDOW_LFT", Action::LftWindow),
+    ("WINDOW_RESEARCH", Action::ResearchWindow),
+    ("WINDOW_KNOWLEDGE", Action::KnowledgeWindow),
+    ("WINDOW_DL", Action::DailyLoginWindow),
+    ("WINDOW_ITEMSHOP", Action::ItemShopWindow),
     ("SHORTUCT_BAR_ACTIVE_0", Action::HotbarSlot(0)),
     ("SHORTUCT_BAR_ACTIVE_1", Action::HotbarSlot(1)),
     ("SHORTUCT_BAR_ACTIVE_2", Action::HotbarSlot(2)),
@@ -370,7 +377,8 @@ mod tests {
         let Some(game) = std::env::var_os("MAO_GAME") else { return };
         let shipped = parse(&read(&Path::new(&game).join("cd_image/gui/Default/CharPrefs.xml")).unwrap()).unwrap();
         assert_eq!((shipped.version, shipped.binds.len()), (7, 99));
-        for (name, _) in PROVIDERS {
+        // (the daily login's and the item shop's windows have no key in it)
+        for (name, _) in PROVIDERS.iter().filter(|p| !matches!(p.0, "WINDOW_DL" | "WINDOW_ITEMSHOP")) {
             assert!(shipped.binds.iter().any(|b| b.1 == provider(name)), "{name}");
         }
         let key = |name: &str| shipped.binds.iter().filter(|b| b.1 == provider(name)).filter_map(|b| binding(b.0)).collect::<Vec<_>>();
@@ -378,6 +386,7 @@ mod tests {
         assert_eq!(key("WINDOW_TS"), [parse_binding("Shift+T").unwrap()]);
         assert_eq!(key("MOVEMENT_TOGGLEWALK"), [parse_binding("Backspace").unwrap()]);
         assert_eq!(key("MOVEMENT_FORWARD_V3"), [parse_binding("W").unwrap()]);
+        assert_eq!((key("WINDOW_TEAM"), key("WINDOW_RAID"), key("WINDOW_KNOWLEDGE")), (vec![parse_binding("Ctrl+5").unwrap()], vec![parse_binding("Ctrl+Shift+R").unwrap()], vec![parse_binding("Ctrl+3").unwrap()]));
         assert!(changed(None, &shipped).is_empty());
     }
 }
