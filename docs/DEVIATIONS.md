@@ -43,26 +43,26 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 47 | 7 | 0 | 0 | 0 | **0** |
-| **medium** | 158 | 41 | 29 | 55 | 27 | 6 | **0** |
-| **low** | 725 | 107 | 20 | 532 | 56 | 10 | **0** |
-| **all** | 937 | 195 | 56 | 587 | 83 | 16 | **0** |
+| **medium** | 158 | 47 | 29 | 55 | 27 | 0 | **0** |
+| **low** | 725 | 117 | 20 | 532 | 56 | 0 | **0** |
+| **all** | 937 | 211 | 56 | 587 | 83 | 0 | **0** |
 
 ### By area
 
 | Area | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Movement (`MOV`) | 33 | 9 | 1 | 18 | 4 | 1 | **0** |
-| Combat (`CMB`) | 38 | 8 | 5 | 23 | 1 | 1 | **0** |
+| Movement (`MOV`) | 33 | 10 | 1 | 18 | 4 | 0 | **0** |
+| Combat (`CMB`) | 38 | 9 | 5 | 23 | 1 | 0 | **0** |
 | Targeting and mouse (`TGT`) | 17 | 4 | 3 | 10 | 0 | 0 | **0** |
 | Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
-| NPCs and creatures (`NPC`) | 40 | 12 | 7 | 19 | 1 | 1 | **0** |
+| NPCs and creatures (`NPC`) | 40 | 13 | 7 | 19 | 1 | 0 | **0** |
 | Inventory and items (`INV`) | 84 | 32 | 12 | 36 | 4 | 0 | **0** |
-| Nano programs (`NAN`) | 60 | 6 | 3 | 46 | 3 | 2 | **0** |
+| Nano programs (`NAN`) | 60 | 8 | 3 | 46 | 3 | 0 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 5 | 0 | 19 | 4 | 0 | **0** |
-| Chat and commands (`CHT`) | 80 | 15 | 1 | 53 | 6 | 5 | **0** |
-| Windows and interface (`WIN`) | 180 | 41 | 13 | 102 | 23 | 1 | **0** |
-| Camera (`CAM`) | 13 | 4 | 0 | 8 | 0 | 1 | **0** |
-| Rendering and world (`RND`) | 194 | 20 | 4 | 158 | 8 | 4 | **0** |
+| Chat and commands (`CHT`) | 80 | 20 | 1 | 53 | 6 | 0 | **0** |
+| Windows and interface (`WIN`) | 180 | 42 | 13 | 102 | 23 | 0 | **0** |
+| Camera (`CAM`) | 13 | 5 | 0 | 8 | 0 | 0 | **0** |
+| Rendering and world (`RND`) | 194 | 24 | 4 | 158 | 8 | 0 | **0** |
 | Sound and music (`SND`) | 17 | 3 | 0 | 14 | 0 | 0 | **0** |
 | Launcher, login, character creation (`LCH`) | 51 | 18 | 4 | 23 | 6 | 0 | **0** |
 | Settings and files (`SET`) | 54 | 8 | 2 | 27 | 17 | 0 | **0** |
@@ -211,22 +211,6 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 "Your call": a client addition read overnight; its entry recommends keeping or removing it.
 
-- `MOV-029` (low) /sit command is the client's own: Addition: recommend REMOVE: the original's command list has no /sit (GUI.dll's command table FUN_100b2ac9 and the text interpreter list none); the X key (N3Msg_
-- `CMB-038` (medium) Floating combat numbers: Addition: recommend REMOVE (or put behind an option, off by default): the original draws no damage numbers over characters (no such view or setting in GUI.dll, 
-- `NPC-040` (low) Clicked NPC answer echoed locally; client line for rejected items: Addition: recommend REMOVE: the original writes NPC chat only from the server's KnubotAppendText, with no local echo of a clicked answer and no "N item(s) given
-- `NAN-056` (medium) Nano landing glow: three widening rings, colour from stats or school: Addition: recommend REMOVE: the original draws only the gfxtweak.bin effect a nano names (no rings of its own; the EffectRed/Green/Blue stats feed those effects
-- `NAN-058` (low) "Nano programs available." chat line: Addition: recommend REMOVE: no such line exists in the original (no text of that kind in GUI.dll's or Gamecode's strings, none sent by name from text.mdb); the 
-- `CHT-070` (medium) Use key adds a "Using X" line and a "Nothing targeted to use" notice: Addition: recommend REMOVE: the original's use key (N3Msg_UseItem / the target's use, GUI.dll) prints no "Using X" line and no "Nothing targeted" notice; these 
-- `CHT-072` (low) /fxscript with only a name gets a parameter mark added: Addition: recommend REMOVE: the original runs a script only when a parameters part follows the name; adding the mark runs scripts the original would not.
-- `CHT-075` (low) Deposit to Market adds a client line: Addition: recommend REMOVE: the original says nothing; the market window itself shows what was sent.
-- `CHT-076` (low) Inspect result also told as a chat line: Addition: recommend REMOVE: the original only opens the info page.
-- `CHT-078` (low) Own confirmation lines for several commands: Addition: recommend REMOVE: the original says nothing for these commands (e.g. /gfx); the lines are the client's own.
-- `WIN-154` (medium) Client's own message box for 14 seconds: Addition: recommend REMOVE: the original has no such box; its messages go to the chat window as feedback lines (and some, like the screenshot, say nothing at al
-- `CAM-013` (low) Camera mode change prints a chat line: Addition: recommend REMOVE: the game's texts have no such line (text.mdb's camera texts are the menu's labels and tips only), so the original changes the mode s
-- `RND-185` (medium) Distance haze when the area has no fog: Addition: recommend REMOVE: the original's only fog is the area's VisualFog_t; with none it draws clear to its far clip, so the haze is a look of the client's o
-- `RND-187` (medium) Plants sway in the wind and bend away from the player: Addition: recommend REMOVE: the original has no plant flag and moves plants only through their meshes' own animations; the sway and the bend away from the playe
-- `RND-191` (low) Generic emitter: dense clouds dimmed, jitter and clamps: Addition: recommend REMOVE: the dimming, jitter and clamps change the generic emitter's look away from the template's own numbers; if a template makes a cloud t
-- `RND-192` (low) Hit effect fade-in and fade-out added: Addition: recommend REMOVE: the original's hit effects end as their own controls fade them; an extra fade in and out changes their look.
 
 Low weight: see the counts above and each area's lists below.
 <!-- /status -->
@@ -359,7 +343,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 - [x] `MOV-027` /follow is the client's own walk-after-target **(kept by decision)**
 - [x] `MOV-028` Walk-to-place with its own obstacle detours **(kept by decision)**
-- [ ] `MOV-029` /sit command is the client's own **(your call)**
+- [x] `MOV-029` /sit command is the client's own **(done)**
 - [x] `MOV-030` Auto-run key **(done)**
 - [x] `MOV-031` Own character glides between server updates **(kept by decision)**
 - [x] `MOV-032` Walk-through-props toggle (noclip) and key layout **(kept by decision)**
@@ -368,7 +352,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 **Combat**
 
 - [x] `CMB-037` Damage meter window (client's own) **(kept by decision)**
-- [ ] `CMB-038` Floating combat numbers **(your call)**
+- [x] `CMB-038` Floating combat numbers **(done)**
 
 **Targeting and mouse**
 
@@ -377,7 +361,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 **NPCs and creatures**
 
 - [x] `NPC-039` Mission helper: "Looking for" lists and "Keep asking until one fits" **(kept by decision)**
-- [ ] `NPC-040` Clicked NPC answer echoed locally; client line for rejected items **(your call)**
+- [x] `NPC-040` Clicked NPC answer echoed locally; client line for rejected items **(done)**
 
 **Inventory and items**
 
@@ -390,9 +374,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Nano programs**
 
-- [ ] `NAN-056` Nano landing glow: three widening rings, colour from stats or school **(your call)**
+- [x] `NAN-056` Nano landing glow: three widening rings, colour from stats or school **(done)**
 - [x] `NAN-057` Programs fade while a cast or recharge runs; locks from the client's own timing **(kept by decision)**
-- [ ] `NAN-058` "Nano programs available." chat line **(your call)**
+- [x] `NAN-058` "Nano programs available." chat line **(done)**
 - [x] `NAN-059` Nano program and NCU tips are the client's own layout **(kept by decision)**
 - [x] `NAN-060` Right-click "Cancel this nano" entry is the client's own **(kept by decision)**
 
@@ -407,15 +391,15 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 **Chat and commands**
 
 - [x] `CHT-069` Chat commands of the client's own **(kept by decision)**
-- [ ] `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice **(your call)**
+- [x] `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice **(done)**
 - [x] `CHT-071` "Chat server is not connected" line **(kept by decision)**
-- [ ] `CHT-072` /fxscript with only a name gets a parameter mark added **(your call)**
+- [x] `CHT-072` /fxscript with only a name gets a parameter mark added **(done)**
 - [x] `CHT-073` /setoption names the client's own settings **(kept by decision)**
 - [x] `CHT-074` Client's own chat status lines **(kept by decision)**
-- [ ] `CHT-075` Deposit to Market adds a client line **(your call)**
-- [ ] `CHT-076` Inspect result also told as a chat line **(your call)**
+- [x] `CHT-075` Deposit to Market adds a client line **(done)**
+- [x] `CHT-076` Inspect result also told as a chat line **(done)**
 - [x] `CHT-077` New mail needs a recipient and subject (client's own check) **(done)**
-- [ ] `CHT-078` Own confirmation lines for several commands **(your call)**
+- [x] `CHT-078` Own confirmation lines for several commands **(done)**
 - [x] `CHT-079` Scripts folder beside the client's settings is searched first **(kept by decision)**
 - [x] `CHT-080` Team invitation text is the client's own **(kept by decision)**
 
@@ -424,7 +408,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - [x] `WIN-151` Fog-of-war corner map and overlay map are the client's own **(done)**
 - [x] `WIN-152` Smart hotbars with priority lists and queued presses **(done)**
 - [x] `WIN-153` Client settings window beside the original's option panel **(kept by decision)**
-- [ ] `WIN-154` Client's own message box for 14 seconds **(your call)**
+- [x] `WIN-154` Client's own message box for 14 seconds **(done)**
 - [x] `WIN-155` Hotbar "is not ready: queued" message and own cooldowns **(kept by decision)**
 - [x] `WIN-156` Map: dots for nearby characters and the character arrow **(kept by decision)**
 - [x] `WIN-157` A skin without its own TextColors.xml takes the game's **(kept by decision)**
@@ -454,20 +438,20 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Camera**
 
-- [ ] `CAM-013` Camera mode change prints a chat line **(your call)**
+- [x] `CAM-013` Camera mode change prints a chat line **(done)**
 
 **Rendering and world**
 
 - [x] `RND-183` Anti-aliasing, anisotropic filtering, mips and hemisphere light **(kept by decision)**
 - [x] `RND-184` Coloured boxes stand in for characters with no model **(kept by decision)**
-- [ ] `RND-185` Distance haze when the area has no fog **(your call)**
+- [x] `RND-185` Distance haze when the area has no fog **(done)**
 - [x] `RND-186` Name plates are the client's own **(kept by decision)**
-- [ ] `RND-187` Plants sway in the wind and bend away from the player **(your call)**
+- [x] `RND-187` Plants sway in the wind and bend away from the player **(done)**
 - [x] `RND-188` Real sun shadows from the playfield's props, shadow-map options **(kept by decision)**
 - [x] `RND-189` Drawing scale with FSR 1 upscaling and a mip bias **(kept by decision)**
 - [x] `RND-190` Frame limiter and background frame rate **(kept by decision)**
-- [ ] `RND-191` Generic emitter: dense clouds dimmed, jitter and clamps **(your call)**
-- [ ] `RND-192` Hit effect fade-in and fade-out added **(your call)**
+- [x] `RND-191` Generic emitter: dense clouds dimmed, jitter and clamps **(done)**
+- [x] `RND-192` Hit effect fade-in and fade-out added **(done)**
 - [x] `RND-193` Textures block-compressed on the card, on by default **(kept by decision)**
 - [x] `RND-194` View distance and character distance settings **(kept by decision)**
 
