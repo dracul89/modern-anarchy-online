@@ -83,7 +83,6 @@ pub struct MailWindow {
     pub entries: Vec<Entry>,
     pub selected: Option<u32>,
     pub opened: Option<Opened>,
-    pub status: String,
     /// The message window (a new mail, or the one opened): `mailmessage.rs`.
     pub message: crate::mailmessage::MessageWindow,
     /// The inbox on the skin's view, its list, what it last showed, and a mail waiting for "delete?".
@@ -100,7 +99,7 @@ pub struct MailWindow {
 
 impl Default for MailWindow {
     fn default() -> MailWindow {
-        MailWindow { open: false, count: None, entries: Vec::new(), selected: None, opened: None, status: String::new(), message: Default::default(), window: None, list: None, shown: None, said: Vec::new(), deleting: None, keeper: Default::default() }
+        MailWindow { open: false, count: None, entries: Vec::new(), selected: None, opened: None, message: Default::default(), window: None, list: None, shown: None, said: Vec::new(), deleting: None, keeper: Default::default() }
     }
 }
 
@@ -115,7 +114,6 @@ impl MailWindow {
     /// A new inbox from the server.
     pub fn set_entries(&mut self, entries: Vec<Entry>) {
         self.count = Some(entries.len());
-        self.status = format!("The inbox holds {} messages.", entries.len());
         if self.selected.is_some_and(|id| !entries.iter().any(|e| e.id == id)) {
             self.selected = None;
             self.opened = None;
@@ -132,7 +130,6 @@ impl MailWindow {
         if !deletable(flags) {
             let text = crate::feedback::plain("Feedback_MailDeleteAttachments");
             let text = if text.is_empty() { "Take what is attached to the message before deleting it.".to_string() } else { text };
-            self.status = text.clone();
             self.said.push(text);
             return None;
         }
@@ -244,16 +241,11 @@ impl MailWindow {
             }
             let skin = crate::skin::skin(ctx);
             let min = crate::gui::host::preferred_pixels(&w.tree, root, false);
-            let (tree, status) = (&mut w.tree, &self.status);
+            let tree = &mut w.tree;
             let mut is_open = true;
             crate::chrome::window(ctx, palette, "Mail", "Mail", &mut is_open, |win| win.default_size(min.max(egui::vec2(550.0, 300.0))).resizable(true).default_pos(crate::layout::pos("Mail", egui::pos2(520.0, 90.0))), |ui| {
-                // (the views over the window less the room of the status line under them)
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                    if !status.is_empty() {
-                        ui.label(egui::RichText::new(status).small());
-                    }
-                    crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
-                });
+                // (the views over the whole window: `InboxSize` "n/30" is all it says)
+                crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
             });
             self.keeper.after("MailWindowConfig", &w.tree, list, true);
             // (a row clicked: selected; twice, opened in the message window: FUN_10109548)
@@ -291,9 +283,6 @@ impl MailWindow {
         }
         // The message window (a new mail, or the one opened).
         if let Some(c) = self.message.show(ctx, gear, items, self.opened.as_ref(), palette) {
-            if matches!(c, MailCommand::Send { .. }) {
-                self.status = "Sending ...".into();
-            }
             match c {
                 // (its Delete asks the same question first: FUN_1010686c, `ConfirmDeleteMail`)
                 MailCommand::Delete(m) => self.deleting = Some(m),

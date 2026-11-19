@@ -281,9 +281,8 @@ pub struct Update {
     pub mission_status: Option<String>,
     /// A mission was accepted (the request is sent): the mission window goes.
     pub mission_accepted: bool,
-    /// The inbox's message count when the server reports it, and a note for the mail window.
+    /// The inbox's message count when the server reports it.
     pub mail_count: Option<usize>,
-    pub mail_status: Option<String>,
     /// The inbox's entries, an opened mail and a flag change, when the server sends them.
     pub mail_entries: Option<Vec<mao_net::mail::Entry>>,
     pub mail_opened: Option<crate::mailbox::Opened>,
@@ -1829,10 +1828,6 @@ impl ApplicationHandler for App {
                             }
                             if let Some(n) = u.mail_count.take() {
                                 ui.mail.count = Some(n);
-                                ui.mail.status = format!("The inbox holds {n} messages.");
-                            }
-                            if let Some(status) = u.mail_status.take() {
-                                ui.mail.status = status;
                             }
                         }
                         if let Some((name, stats, parts)) = u.stats.take() {

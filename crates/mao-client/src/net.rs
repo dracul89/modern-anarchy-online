@@ -8038,7 +8038,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut mission_seen, mut pending_missions, mut pending_mission_status): (u8, Option<Vec<crate::mission::Offer>>, Option<String>) = (0, None, None);
         let mut pending_mission_accepted = false;
         // Mail: the answer's count and notes for the window, when the inbox request is due, and when the last send went out.
-        let (mut pending_mail_count, mut pending_mail_status): (Option<usize>, Option<String>) = (None, None);
+        let mut pending_mail_count: Option<usize> = None;
         // Shops: the stock to show, a note, the open booth and the trade's bag (from the server's Trade open).
         let (mut pending_shop, mut pending_shop_status): (Option<crate::shop::ShopState>, Option<String>) = (None, None);
         // (the NPC chat: what the server said for the window, and the NPC talked to)
@@ -8061,7 +8061,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // After a trade completes the server wants the booth used again (as the original does) for the next one.
         let mut shop_reuse: Option<Instant> = None;
         let (mut pending_mail_entries, mut pending_mail_opened, mut pending_mail_flags): (Option<Vec<mao_net::mail::Entry>>, Option<crate::mailbox::Opened>, Option<(u32, u32)>) = (None, None, None);
-        let (mut inbox_due, mut mail_sent): (Option<Instant>, Option<Instant>) = (None, None);
+        let mut inbox_due: Option<Instant> = None;
         // `MAO_MISSION=type,instance[,scope[,difficulty]]` (decimal or 0x hex) asks that mission terminal
         // for missions once the character has arrived (or 6 s into the session without a walk), and prints the offers.
         let mut mission_request: Option<(u32, u32, u8, [u8; 7])> = std::env::var("MAO_MISSION").ok().and_then(|t| {
@@ -8261,28 +8261,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         if let Some(change) = mao_net::mail::parse_flags(&m.data) {
                             pending_mail_flags = Some(change);
                         }
-                        match n3::mail_count(&m.data) {
-                            Some((0, n)) => pending_mail_count = Some(n),
-                            // Action 8: the mail was accepted (the capture's successful send).
-                            Some((8, _)) => {
-                                mail_sent = None;
-                                pending_mail_status = Some("Mail sent.".into());
-                            }
-                            _ => {}
-                        }
-                    }
-                    // Right after a send: a notice (a free account is refused) or action 0xba with a message code (the
-                    // capture's declined attempts) means the server did not take the mail.
-                    if mail_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
-                        if let Some(m) = Message::parse(&frame) {
-                            if m.kind == 0x206b4b73 {
-                                mail_sent = None;
-                                pending_mail_status = Some("The server declined the mail (sending is limited to paying accounts).".into());
-                            } else if m.kind == 0x5e477770 && m.data.get(4) == Some(&0xba) {
-                                mail_sent = None;
-                                let code = m.data.get(21..25).map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
-                                pending_mail_status = Some(format!("The server declined the mail (message code {code})."));
-                            }
+                        if let Some((0, n)) = n3::mail_count(&m.data) {
+                            pending_mail_count = Some(n);
                         }
                     }
                     // The NPC chat (`npcchat.rs`): the window opened with the NPC's name, its lines and answers.
@@ -9407,7 +9387,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let _ = connection.send(&n3::use_object(own, uses, (0xc773, serial)));
                             inbox_due = Some(Instant::now() + Duration::from_millis(900));
                         }
-                        None => pending_mail_status = Some("No known mail terminal here (they come from captures: Old Athens has two).".into()),
+                        None => {}
                     },
                     crate::mailbox::MailCommand::Open(id) => {
                         let _ = connection.send(&mao_net::mail::open(own, id));
@@ -9428,7 +9408,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     crate::mailbox::MailCommand::Send { recipient, subject, body, item, credits, express } => {
                         let _ = connection.send(&n3::mail_send(own, &recipient, &subject, &body, item, credits, express));
-                        mail_sent = Some(Instant::now());
                     }
                 }
             }
@@ -11657,7 +11636,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     checklist: state.checklist.take(),
                     city: pending_city.take(),
                     city_map: pending_city_map.take(),
-                    mail_status: pending_mail_status.take(),
                     destinations: pending_destinations.take(),
                     heading: Some(heading),
                     // (the control center's two target bars, `CCTargetControl_c`'s update FUN_10074349: the friendly one the

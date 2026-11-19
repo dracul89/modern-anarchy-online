@@ -6297,7 +6297,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a status line under the list ("The inbox holds N messages.", "Sending ...", the delete refusal)
 - A player notices: extra text the original does not show
 - Where: `crates/mao-client/src/mailbox.rs:115`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): Removed the inbox's status line under the list (mailbox.rs) and everything that only fed it: "The inbox holds N messages.", "Sending ...", the net thread's "Mail sent." / "The server declined the mail ..." notes (with the `mail_sent` timer that only served them) and "No known mail terminal here ..." (`Update::mail_status` gone). The mail window now shows what GUI.dll's `MailWindow_c` (FUN_10109a11) shows: the list and `InboxSize` "n/30" (FUN_10109489). The delete refusal stays a chat line in the game's words (`Feedback_MailDeleteAttachments`, FUN_101096f1). Tests: `mail` (5 pass).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE the status line (or keep only the delete refusal): the original's mail window shows only InboxSize ("n/30", GUI.dll FUN_10109489), and the refusal is also said by the game's own feedback text.
 
 #### `WIN-167` Info view file:// pages also search the game's text folder

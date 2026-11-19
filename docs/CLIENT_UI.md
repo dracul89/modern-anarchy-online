@@ -7393,3 +7393,7 @@ The server's missions are added to the journal as the original adds them (Gameco
 ### No "Take all" in container windows (INV-080)
 
 The client's own "Take all" button is gone from corpse, chest and overflow windows. As in the original (GUI.dll `InventoryView_c` FUN_100ccefe, `ItemContainerView_c` FUN_100ce55d, which build only the item list), items are taken one click at a time; the `auto_loot` option still empties a corpse as it opens.
+
+### Mail window without a status line (WIN-166)
+
+The client's own status line under the inbox ("The inbox holds N messages.", "Sending ...", "Mail sent.", the declined-mail and no-terminal notes) is gone. As the original's `MailWindow_c` (GUI.dll FUN_10109a11), the window shows the list and the "n/30" inbox size (FUN_10109489); a delete refused for an untaken attachment is still told in chat (`Feedback_MailDeleteAttachments`, FUN_101096f1).

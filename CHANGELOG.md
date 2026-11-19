@@ -95,6 +95,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The organization's leave and promotion questions come up in the middle of the screen, as in the original.
 - The planet map window first opens 300 by 400 at the top left of the screen, as in the original.
 - The mail inbox remembers its column widths and sort order.
+- The mail window no longer shows its own status line ("Sending ...", "Mail sent.", inbox count text); the "n/30" inbox size remains, as in the original.
 
 ### Items
 
