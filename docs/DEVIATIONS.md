@@ -8347,7 +8347,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: compares trimmed text ignoring ASCII case
 - A player notices: not known whether the original ignores case
 - Where: `crates/mao-client/src/loginviews.rs:455`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Read: GUI.dll `CharDeleteWindow_c::SlotOkayButtonActivated` 0x1000db27 compares the field's text (`TextInputView_c::GetText`) with the character's name by `std::string::compare`: exact, case-sensitive, nothing trimmed; any difference shows `MatchError`. The client compared trimmed text ignoring case; now `loginviews::delete_name_matches` is the exact comparison. Test: `loginviews::tests::deleting_asks_for_the_name_exactly`.
 
 #### `LCH-016` Login hall loaded once instead of four stages
 

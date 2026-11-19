@@ -1012,6 +1012,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] With a fresh mao.ini, Shift+Enter opens the chat input and numeric-pad / starts a command
 - [ ] Play a character: "Please wait" progress window over the hall for a moment, then the loading screen, then the game
 - [ ] Cancel in that progress window: back at the login form, no game window appears
+- [ ] Delete confirmation: the name in small letters gives the match error; typed exactly, the character is deleted
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

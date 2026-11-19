@@ -7041,3 +7041,7 @@ The original's fixed keys come from a key table built into GUI.dll (the text at 
 ### Entering a character: the progress window until the ticket (LCH-038)
 
 The original's Play (GUI.dll `LoginModule_c::SlotSelectCharacter` 0x10011be1, `Show(4)` 0x1001175a) puts the login and the character list away and shows its progress window ("Please wait...", `DimensionNetworkTimeout`, 30 s) until the server has handed out the character's ticket; only then does the loading screen go up. Running out of time (`SlotSelectCharacterTimeout` 0x10011523) goes back to the login form. The launcher now does the same: the progress window stands over the hall while the game's process logs the character in; that process writes `MAO_TICKET_UP` when the ticket has come, and the loading screen goes up from that moment in the launcher's window and carries on in the game's. Cancelled or timed out, the game's process is ended and the login form is back.
+
+### Deleting a character asks for its name exactly (LCH-015)
+
+The original's deletion confirmation (GUI.dll `CharDeleteWindow_c::SlotOkayButtonActivated` 0x1000db27) goes on only when the typed text is the character's name exactly, with its capitals and nothing around it; otherwise it shows `MatchError`. The client compares the same way now (it ignored case and spaces before).

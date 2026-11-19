@@ -490,14 +490,14 @@ impl CharSelectScreen {
         if let Some(d) = self.delete.as_mut() {
             let signals = d.window.show(ctx, palette);
             let root = d.window.root;
-            let typed = d.window.tree.find(root, "name_input").and_then(|f| crate::gui::textinput::text(&d.window.tree, f)).unwrap_or("").trim().to_string();
+            let typed = d.window.tree.find(root, "name_input").and_then(|f| crate::gui::textinput::text(&d.window.tree, f)).unwrap_or("").to_string();
             let mut close = !d.window.open;
             for (id, signal) in signals {
                 if signal != crate::gui::host::Signal::Clicked {
                     continue;
                 }
                 match d.window.tree.get(id).name.as_str() {
-                    "ok_btn" if typed.eq_ignore_ascii_case(&d.character.name) => {
+                    "ok_btn" if delete_name_matches(&typed, &d.character.name) => {
                         action = Some(CharAction::Delete(d.character.id));
                         close = true;
                     }
@@ -545,9 +545,25 @@ impl CharSelectScreen {
     }
 }
 
+/// Whether the name typed in the deletion's confirmation lets OK go on (`CharDeleteWindow_c::SlotOkayButtonActivated`
+/// 0x1000db27: `std::string::compare` of the field's text with the character's name, so exactly the name, in its case,
+/// nothing around it).
+pub fn delete_name_matches(typed: &str, name: &str) -> bool {
+    typed == name
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The deletion asks for the name exactly as it is.
+    #[test]
+    fn deleting_asks_for_the_name_exactly() {
+        assert!(delete_name_matches("Someone", "Someone"));
+        assert!(!delete_name_matches("someone", "Someone"));
+        assert!(!delete_name_matches("Someone ", "Someone"));
+        assert!(!delete_name_matches("", "Someone"));
+    }
 
     /// Play on an active character logs in; on an inactive one it asks, or with every slot taken only says so.
     #[test]
