@@ -279,6 +279,12 @@ pub fn dialog_width(height_at: impl Fn(f32) -> f32) -> f32 {
 /// `Some(Some(k))` when button `k` was pressed, `Some(None)` when it was closed without one (its close button, or Escape
 /// with `esc_dialogs`: `SlotSelected(-1)`), `None` while it waits. `name` is one of [`DIALOGS`].
 pub fn dialog(ctx: &egui::Context, palette: &Palette, name: &'static str, title: &str, text: &str, buttons: &[&str]) -> Option<Option<usize>> {
+    dialog_placed(ctx, palette, name, title, text, buttons, false)
+}
+
+/// [`dialog`], put in the screen's middle when it comes up when `centred` (the caller's `Window::MoveToCenter` after
+/// `Go`), else at the pointer.
+pub fn dialog_placed(ctx: &egui::Context, palette: &Palette, name: &'static str, title: &str, text: &str, buttons: &[&str], centred: bool) -> Option<Option<usize>> {
     debug_assert!(DIALOGS.contains(&name), "{name} is not listed in chrome::DIALOGS");
     let frame = ctx.cumulative_frame_nr();
     let fresh = {
@@ -290,7 +296,7 @@ pub fn dialog(ctx: &egui::Context, palette: &Palette, name: &'static str, title:
     };
     // (without a pointer yet, the screen's middle, and there every frame: the first frames' screen is egui's placeholder,
     // far larger than the window's, and a box put at its middle once stayed outside the picture)
-    let pointer = ctx.input(|i| i.pointer.latest_pos());
+    let pointer = ctx.input(|i| i.pointer.latest_pos()).filter(|_| !centred);
     let at = pointer.unwrap_or(ctx.content_rect().center());
     let font = crate::gui::font::FontId::NORMAL;
     let width = dialog_width(|w| crate::gui::controls::markup_height(ctx, text, font, w));
@@ -353,8 +359,13 @@ pub fn yes_no() -> [String; 2] {
 
 /// A yes/no message box ([`dialog`]): `Some(true)` for Yes, `Some(false)` for No or when it was closed.
 pub fn question(ctx: &egui::Context, palette: &Palette, name: &'static str, title: &str, text: &str) -> Option<bool> {
+    question_placed(ctx, palette, name, title, text, false)
+}
+
+/// [`question`], in the screen's middle when `centred` ([`dialog_placed`]).
+pub fn question_placed(ctx: &egui::Context, palette: &Palette, name: &'static str, title: &str, text: &str, centred: bool) -> Option<bool> {
     let [yes, no] = yes_no();
-    dialog(ctx, palette, name, title, text, &[&yes, &no]).map(|a| a == Some(0))
+    dialog_placed(ctx, palette, name, title, text, &[&yes, &no], centred).map(|a| a == Some(0))
 }
 
 /// A right-click menu as the original's `PopupMenu_c` (`gui::popup`), for the client's windows: `entries` are the labels

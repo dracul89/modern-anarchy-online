@@ -14,7 +14,7 @@
 //!
 //! The titles `OrgDisband`, `OrgLeave` and `OrgJoin` are what the code hands the window as its title, as written.
 //! The leave and the promotion boxes come up in the screen's middle (`Window::MoveToCenter`), the others at the
-//! pointer; here all six come up at the pointer. The tax boxes are only raised for a tax above 0 and under 1,000,000,000, and the promotion's only when
+//! pointer ([`Ask::centred`]). The tax boxes are only raised for a tax above 0 and under 1,000,000,000, and the promotion's only when
 //! the member is in sight (its name is asked of the character's object).
 //!
 //! Not done: before the invitation's yes is sent, the original looks at one of the character's timers (number 5,
@@ -54,6 +54,12 @@ fn text(name: &str, own: &str) -> String {
 }
 
 impl Ask {
+    /// Whether the box comes up in the screen's middle: `LeaveOrg` (0x10052c90) and `OpenPromotionDialog` (0x10052e53)
+    /// call `Window::MoveToCenter` after `Go`; the others stay at the pointer, where `DialogBox_c` puts them.
+    fn centred(&self) -> bool {
+        matches!(self, Ask::Leave | Ask::Promotion { .. })
+    }
+
     /// The window's name for [`crate::chrome::dialog`].
     fn window(&self) -> &'static str {
         match self {
@@ -132,7 +138,7 @@ pub fn from_server(asked: mao_net::n3::OrgAsk, name_of: impl Fn(u32) -> Option<S
 /// Shows the first waiting question and sends its answer.
 pub fn show(ctx: &egui::Context, palette: &crate::theme::Palette) {
     let Some(question) = WAITING.lock().unwrap_or_else(|e| e.into_inner()).front().cloned() else { return };
-    if let Some(yes) = crate::chrome::question(ctx, palette, question.window(), &question.title(), &question.text()) {
+    if let Some(yes) = crate::chrome::question_placed(ctx, palette, question.window(), &question.title(), &question.text(), question.centred()) {
         WAITING.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
         if let Some((command, at, flag)) = question.answer(yes) {
             crate::net::org_answer(command, at, flag);
@@ -158,6 +164,9 @@ mod tests {
         assert_eq!((Ask::TaxChanged { tax: 5 }.answer(true), Ask::TaxChanged { tax: 5 }.answer(false)), (Some((0x10, At::Target, false)), None));
         let promotion = Ask::Promotion { member: (0xc350, 9), name: "Somebody".into() };
         assert_eq!((promotion.answer(true), promotion.answer(false)), (Some((10, At::Identity((0xc350, 9)), true)), None));
+        // (the leave and promotion boxes in the screen's middle, the others at the pointer)
+        assert!(Ask::Leave.centred() && promotion.centred());
+        assert!(!Ask::Disband.centred() && !invitation.centred() && !owed.centred() && !Ask::TaxChanged { tax: 5 }.centred());
         // (the titles the code hands the windows)
         assert_eq!((Ask::Disband.title(), invitation.title(), owed.title(), Ask::TaxChanged { tax: 5 }.title()), ("OrgDisband".into(), "OrgJoin".into(), "OrgLeave".into(), "OrgLeave".into()));
         // (the invitation's text is two texts with two spaces between)

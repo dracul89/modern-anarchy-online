@@ -5107,6 +5107,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: box position differs; invitation timer absent
 - Where: `docs/CLIENT_UI.md:4238`; `crates/mao-client/src/orgboxes.rs:17`; `crates/mao-client/src/orgboxes.rs:20`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The boxes' places are ported: OrganizationGUIModule_c's LeaveOrg (GUI.dll 0x10052c90, Go at 0x10052e38 then MoveToCenter at 0x10052e3f) and OpenPromotionDialog (0x10052e53, Go 0x10053032, MoveToCenter 0x10053046) put their boxes in the screen's middle; the invitation (0x100530e5) and the others only call Go, which leaves DialogBox_c at the pointer. orgboxes.rs has Ask::centred() and asks chrome's new question_placed / dialog_placed (dialog() unchanged for every other caller). Left: the invitation's timer number 5 (FUN_1006414f), which needs the character's timer list the client does not keep. Test: orgboxes::tests::the_boxes_answers_are_the_originals.
 
 #### `WIN-062` Page language is always English
 

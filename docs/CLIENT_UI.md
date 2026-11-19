@@ -7189,3 +7189,7 @@ The original's `LoadGUIColors` (GUI.dll 0x1006c13d) turns GUIColors.xml's six co
 ### City controller's bill date (WIN-050)
 
 The original writes the next bill's date with `strftime("%#x")`; the game never sets a C locale, so it is always the English long date, without a leading zero on the day ("Thursday, November 5, 2026"). The client writes the same.
+
+### Organization boxes' places (WIN-061)
+
+The original raises the organization's leave box (`LeaveOrg` 0x10052c90) and promotion box (`OpenPromotionDialog` 0x10052e53) in the screen's middle (`Window::MoveToCenter` after `Go`) and the disband, invitation and tax boxes at the pointer, where every `DialogBox_c` comes up. The client now does the same.
