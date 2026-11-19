@@ -11511,13 +11511,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         fxs_universal.retain(|u| u.1.alive());
                         gone
                     },
-                    // (each where its object is now; the effect itself goes with the first of them)
+                    // (each where its object is now and how it is turned, its frame's x and z axes (`RunFunction` gives the
+                    // effect's locator the object's `Position` and `Rotation`); the effect itself goes with the first of them)
                     placed: fxs_universal
                         .iter_mut()
                         .map(|(key, o, effect, sent)| {
                             let at = o.variable_named("Position").map_or(position, |v| crate::fxs::vector_of(&v));
+                            let q = o.variable_named("Rotation").map_or([0.0, 0.0, 0.0, 1.0], |v| crate::fxs::quaternion_of(&v));
+                            let (mut x, mut z) = ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+                            crate::fxs::math::rotate_by(&mut x, &q);
+                            crate::fxs::math::rotate_by(&mut z, &q);
                             let visual = if std::mem::replace(sent, true) { None } else { gfx.as_ref().and_then(|g| g.visual(*effect)) };
-                            (*key, [at[0], at[2], at[1]], visual)
+                            (*key, [at[0], at[2], at[1]], [[x[0], x[2], x[1]], [z[0], z[2], z[1]]], visual)
                         })
                         .collect(),
                     flares: std::mem::take(&mut state.placed_effects)

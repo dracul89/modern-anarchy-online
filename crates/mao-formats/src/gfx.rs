@@ -1226,6 +1226,48 @@ impl Trail2 {
     }
 }
 
+/// A kind-3019 template as `_GfxControlTrail_t` reads it (Gamecode FUN_10102857 the constructor; FUN_101024de the words,
+/// FUN_10102566 the `GfxVisualTrail` (displaysystem `gfxtrail.rs`) and its `Init`, FUN_10102331 the run): word 0 the
+/// flags (the locator's), words 1–3 and 4–6 the locator's offset and turn, word 7 the attach point, word 9 the material,
+/// word 10 the width, word 11 the texture's length along the trail, word 12 the life of a sample, word 13 the colour (ARGB),
+/// word 14 the mode (0 one ribbon facing the view, 1 four from the sampled orientations; a template without the word is
+/// mode 0). The duration (word 8) is read and replaced by −1: a trail runs while its locator lives. The visual is added
+/// (`GfxVisualTrail(material, none, true, false, mode)`) and draws 50 samples (`Init(0x32, ...)`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Trail {
+    pub flags: u32,
+    pub place: [f32; 3],
+    pub turn: [f32; 3],
+    pub attach: i32,
+    pub material: i32,
+    pub width: f32,
+    pub texture: f32,
+    pub life: f32,
+    pub colour: u32,
+    pub mode: i32,
+}
+
+impl Trail {
+    pub fn read(r: &Record) -> Option<Trail> {
+        if r.payload.len() < 14 {
+            return None;
+        }
+        Some(Trail {
+            flags: r.int(0) as u32,
+            place: [r.float(1), r.float(2), r.float(3)],
+            turn: [r.float(4), r.float(5), r.float(6)],
+            attach: r.int(7),
+            material: r.int(9),
+            width: r.float(10),
+            texture: r.float(11),
+            life: r.float(12),
+            colour: r.int(13) as u32,
+            // (`FUN_10106dc8`, as `int`: a word past the template's end is 0)
+            mode: r.int(14),
+        })
+    }
+}
+
 /// A kind-3014 template as `_GfxControlVein_t` reads it (Gamecode FUN_10103396 the constructor; FUN_10103026 the words,
 /// FUN_10102e1a the `GfxVisualVein` (displaysystem `gfxvein.rs`) and its first state, FUN_10102c87 the run): word 0 the flags
 /// (0x100 the texture turned along the strands, 0x200 added unless 0x8000, 0x1000 the place follows the locator, 0x4000 the
@@ -2352,6 +2394,8 @@ pub enum Visual {
     Trail2(Trail2),
     /// A bundle of swaying strands climbing from the point (kind 3014, `_GfxControlVein_t`: the Shadowlands' veins).
     Vein(Vein),
+    /// Ribbons back along where the point has been (kind 3019, `_GfxControlTrail_t`: the ships' engine trails).
+    Trail(Trail),
     /// Rocks thrown up from the point, falling and bouncing on the ground (kind 1029, `_GfxControlVulcanRocks_t`).
     VulcanRocks(VulcanRocks),
     /// A pool of billboard particles in one of the visual's kinds (kind 3024, `GfxControlBParticle_t`).
@@ -2579,6 +2623,7 @@ impl Gfx {
             3025 => EffectMesh::read(r).map(Visual::EffectMesh),
             3000 => ShockWave::read(r).map(Visual::ShockWave),
             3039 => Trail2::read(r).map(Visual::Trail2),
+            3019 => Trail::read(r).map(Visual::Trail),
             // (the effect of word 28 is made at the vein's place as it starts, an effect of its own: `CreateEffect2`)
             3014 => {
                 let vein = Vein::read(r)?;

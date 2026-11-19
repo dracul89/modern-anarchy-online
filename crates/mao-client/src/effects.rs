@@ -2010,6 +2010,219 @@ pub fn placed_shells(v: &Visual, at: [f32; 3], t: f32, eye: [f32; 3], look: [f32
     }
 }
 
+/// The trails a visual runs (kind 3019): itself, or a bundle's parts'.
+pub fn visual_trail_parts(v: &Visual) -> Vec<&mao_formats::gfx::Trail> {
+    match v {
+        Visual::Trail(t) => vec![t],
+        Visual::Meta(children) => children.iter().flat_map(visual_trail_parts).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// How many samples `GfxVisualTrail`'s rings hold (`RING`).
+const TRAIL_RING: u32 = 1000;
+
+/// The samples `GfxVisualTrail` keeps (displaysystem `gfxtrail.rs`: `Init` and FUN_1002b486's sampling): rings of 1000
+/// places (world, Z up), orientations (the frame's x and z rows, world) and times, each sample's length from the one before,
+/// how many were taken, the last one's time and the trail's whole length.
+#[derive(Clone, Debug)]
+pub struct TrailRing {
+    points: Vec<[f32; 3]>,
+    orientations: Vec<[[f32; 3]; 2]>,
+    times: Vec<f32>,
+    segments: Vec<f32>,
+    taken: u32,
+    last: f32,
+    length: f32,
+}
+
+impl TrailRing {
+    /// `Init(samples, ...)`: nothing taken; the first `samples` places (1, 1, 1), the orientations the identity's.
+    pub fn new(samples: usize) -> TrailRing {
+        let mut points = vec![[0.0f32; 3]; TRAIL_RING as usize];
+        for p in points.iter_mut().take(samples) {
+            *p = [1.0; 3];
+        }
+        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        TrailRing { points, orientations: vec![identity; TRAIL_RING as usize], times: vec![0.0; TRAIL_RING as usize], segments: vec![0.0; TRAIL_RING as usize], taken: 0, last: 0.0, length: 0.0 }
+    }
+
+    fn point(&self, k: u32) -> [f32; 3] {
+        self.points[(k % TRAIL_RING) as usize]
+    }
+
+    fn segment(&self, k: u32) -> f32 {
+        self.segments[(k % TRAIL_RING) as usize]
+    }
+
+    /// The sampling: a twentieth of a second after the last sample, the place `at`, the orientation and the time `now` put
+    /// in the rings, the length from the sample before added to the trail's.
+    pub fn sample(&mut self, at: [f32; 3], orientation: [[f32; 3]; 2], now: f32) {
+        if !(self.last + 0.05 < now) {
+            return;
+        }
+        let n = self.taken;
+        self.last = now;
+        let k = (n % TRAIL_RING) as usize;
+        self.points[k] = at;
+        self.orientations[k] = orientation;
+        self.times[k] = now;
+        if n != 0 {
+            let p = self.point(n.wrapping_sub(1));
+            self.segments[k] = ((p[0] - at[0]).powi(2) + (p[1] - at[1]).powi(2) + (p[2] - at[2]).powi(2)).sqrt();
+            self.length += self.segments[k];
+        } else {
+            self.segments[0] = 0.0;
+        }
+        self.taken = n.wrapping_add(1);
+    }
+}
+
+/// The walk back along a trail's samples (FUN_1002b486): from sample `j`, the place one spacing on each step.
+struct TrailWalk {
+    j: u32,
+    /// What is left of the current segment.
+    left: f32,
+    /// How far into the current segment.
+    into: f32,
+    /// The length walked since the last place.
+    walked: f32,
+}
+
+impl TrailWalk {
+    /// The next place: between samples `a` (later) and `a − 1` at the fractions `f` (of the earlier) and `g`, or the first
+    /// sample (none).
+    fn step(&mut self, ring: &TrailRing, spacing: f32) -> Option<(u32, f32, f32)> {
+        let mut a = self.j;
+        let mut sum = ring.segment(a) * self.left + self.walked;
+        if !(spacing < sum) {
+            self.left = 1.0;
+            self.into = 0.0;
+            loop {
+                self.j = self.j.wrapping_sub(1);
+                self.walked = sum;
+                if self.j < 1 {
+                    return None;
+                }
+                a = self.j;
+                sum = ring.segment(a) + self.walked;
+                if spacing < sum {
+                    break;
+                }
+            }
+        }
+        let f = (spacing - self.walked) / ring.segment(a) + self.into;
+        self.into = f;
+        self.left = 1.0 - f;
+        self.walked = 0.0;
+        Some((a, f, self.left))
+    }
+}
+
+/// `_GfxControlTrail_t`'s ribbons (kind 3019) for a point now at `at` (world, Z up) and `ring` its samples, `now` seconds
+/// into its visual's life, seen along `look` (the view's forward, world), as FUN_1002b486 draws `GfxVisualTrail` (Init
+/// with 50 samples, the template's colour, width, life and texture length; the spacing 2.5): each ribbon from the point
+/// back along the samples, a pair of corners each spacing on (at most 50), their alpha the colour's times what is left of
+/// their sample's life (the walk stops at the first spent one; the point's own pair has none), the texture's `u` from
+/// `(|last sample| + the trail's length) / texture` down by `2.5 / texture` a step, `v` 0 and 1 across. Mode 0 one ribbon
+/// half the width either side along the view's up, or, once more than ten samples are taken and the tenth back lies more
+/// than 0.1 away, across that stretch and the view's forward; it narrows by 0.97 a step. Mode 1 four, from the samples'
+/// orientations (mixed between samples): half the width along their z, along their x, and 0.35 of it along the two
+/// diagonals. Added.
+pub fn trail_shells(t: &mao_formats::gfx::Trail, ring: &TrailRing, at: [f32; 3], now: f32, look: [f32; 3]) -> Vec<Shell> {
+    const SAMPLES: usize = 50;
+    const SPACING: f32 = 2.5;
+    let n = ring.taken;
+    let last = if n != 0 { n - 1 } else { n };
+    let du = -SPACING / t.texture;
+    let length = |v: [f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    let u0 = (length(ring.point(last)) + ring.length) / t.texture;
+    let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let add = |a: [f32; 3], b: [f32; 3]| [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+    let scale = |a: [f32; 3], k: f32| a.map(|c| c * k);
+    let cross = |a: [f32; 3], b: [f32; 3]| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    let lerp = |a: [f32; 3], b: [f32; 3], f: f32, g: f32| add(scale(a, g), scale(b, f));
+    let rgb = t.colour & 0xff_ffff;
+    let faded = |k: f32| (((t.colour & 0xff00_0000) as f64 * k as f64) as u64 as u32) & 0xff00_0000 | rgb;
+    let vertex = |p: [f32; 3], c: u32, u: f32, v: f32| ShellVertex { position: p, uv: [u, v], colour: shell_colour(c) };
+    let born = |a: u32, f: f32, g: f32| ring.times[((a - 1) % TRAIL_RING) as usize] * f + ring.times[(a % TRAIL_RING) as usize] * g;
+    let half = t.width * 0.5;
+    let ribbons: Vec<u32> = if t.mode == 0 { vec![4] } else if t.mode == 1 { vec![0, 1, 2, 3] } else { Vec::new() };
+    let mut vertices = Vec::new();
+    for q in ribbons {
+        // (mode 1's ribbon `q` across a place: from the sample's x and z rows)
+        let ribbon = |x: [f32; 3], z: [f32; 3], side: [f32; 3]| match q {
+            0 => scale(z, half),
+            1 => scale(x, half),
+            2 | 3 => {
+                let mut v = if q == 2 { add(x, z) } else { sub(x, z) };
+                let l = length(v);
+                if l != 0.0 {
+                    v = scale(v, 1.0 / l);
+                }
+                scale(v, t.width * 0.3499999940395355)
+            }
+            _ => side,
+        };
+        let o = ring.orientations[(last % TRAIL_RING) as usize];
+        let (mut x, mut z) = (o[0], o[1]);
+        let mut side = if q == 4 {
+            // (the view's up, world; across the stretch and the view's forward once there is one. The game's cross product
+            // is the world's turned round, its axes being the world's mirrored)
+            let f = scale(look, 1.0 / length(look).max(1e-9));
+            let s = cross(f, [0.0, 0.0, 1.0]);
+            let s = scale(s, 1.0 / length(s).max(1e-9));
+            let mut side = scale(cross(s, f), half);
+            if last > 10 {
+                let d = sub(ring.point(last - 10), at);
+                if length(d) > 0.1 {
+                    let c = cross(f, d);
+                    side = scale(c, t.width / length(c) * 0.5);
+                }
+            }
+            side
+        } else {
+            ribbon(x, z, [0.0; 3])
+        };
+        let mut strip = vec![vertex(add(at, side), rgb, u0, 0.0), vertex(sub(at, side), rgb, u0, 1.0)];
+        let mut walk = TrailWalk { j: last, left: 1.0, into: 0.0, walked: 0.0 };
+        let (mut u, mut alive) = (u0, true);
+        for _ in 0..SAMPLES {
+            if !alive || walk.j < 2 {
+                break;
+            }
+            let (p, when) = match walk.step(ring, SPACING) {
+                Some((a, f, g)) => {
+                    let (oa, ob) = (ring.orientations[(a % TRAIL_RING) as usize], ring.orientations[((a - 1) % TRAIL_RING) as usize]);
+                    x = lerp(oa[0], ob[0], f, g);
+                    z = lerp(oa[1], ob[1], f, g);
+                    (lerp(ring.point(a), ring.point(a - 1), f, g), born(a, f, g))
+                }
+                None => (ring.point(0), ring.times[0]),
+            };
+            let mut k = 1.0 - (now - when) / t.life;
+            if 0.0 > k {
+                k = 0.0;
+                alive = false;
+            }
+            u += du;
+            if q != 4 {
+                side = ribbon(x, z, side);
+            }
+            strip.push(vertex(add(p, side), faded(k), u, 0.0));
+            strip.push(vertex(sub(p, side), faded(k), u, 1.0));
+            side = scale(side, 0.97);
+        }
+        if strip.len() >= 4 {
+            vertices.extend(strip_triangles(&strip));
+        }
+    }
+    if vertices.is_empty() {
+        return Vec::new();
+    }
+    vec![Shell { sprite: t.material.max(0) as u16, additive: true, vertices }]
+}
+
 /// A triangle strip's vertices as a list of triangles.
 fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
     let mut out = Vec::with_capacity(strip.len().saturating_sub(2) * 3);
@@ -3292,8 +3505,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
         // (crossed strips and cones: see `tparticle_shells`, `skyflash_shells`)
         Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::CrazyCone(_) | Visual::Spiral2(_) | Visual::TParticle2 { .. } | Visual::GroundGrid(_) => Vec::new(),
-        // (strips climbing from the point: see `vein_shells`)
-        Visual::Vein(_) => Vec::new(),
+        // (strips climbing from the point, ribbons back along where it has been: see `vein_shells`, `trail_shells`)
+        Visual::Vein(_) | Visual::Trail(_) => Vec::new(),
         Visual::Fire(f) => fire_particles(f, feet, 0.0, time),
         // (it shakes the camera: see `shake`)
         Visual::GroundShake { .. } => Vec::new(),
@@ -3497,6 +3710,8 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::GroundGrid(g) => if g.duration > 0.0 { (600.0, g.duration, 1) } else { (600.0, 600.0, -1) },
         // (a vein runs its time, words 11 and 12, or its duration when that is shorter)
         Visual::Vein(v) => (600.0, if v.duration > 0.0 { v.duration.min(v.life) } else { v.life }.max(0.05), 1),
+        // (a trail runs while its locator lives)
+        Visual::Trail(_) => (600.0, 600.0, -1),
         Visual::Spiral2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::TParticle2 { particles, .. } => pulse_timing(&Visual::BParticles(particles.clone())),
         // (a nano makes sprites until a life before its duration, and its last ones live out their lives; for ever without one)
@@ -3618,6 +3833,47 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_trail_lays_ribbons_back_along_its_samples() {
+        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        // (a point running along x at 10 a second for two seconds, ten frames a second: a sample each but the first, more
+        // than a twentieth of a second after the last)
+        let mut ring = TrailRing::new(50);
+        let mut at = [0.0f32; 3];
+        for frame in 0..=20 {
+            let now = frame as f32 / 10.0;
+            at = [10.0 * now, 0.0, 0.0];
+            ring.sample(at, identity, now);
+        }
+        assert_eq!(ring.taken, 20);
+        let t = mao_formats::gfx::Trail { flags: 7, place: [0.0; 3], turn: [0.0; 3], attach: 2001, material: 54, width: 2.0, texture: 3.5, life: 3.0, colour: 0xffff_ffff, mode: 0 };
+        let shells = trail_shells(&t, &ring, at, 2.0, [0.0, 1.0, 0.0]);
+        assert_eq!(shells.len(), 1);
+        let s = &shells[0];
+        assert!(s.additive && s.sprite == 54);
+        // (the point's own pair: across the stretch and the view (looking along y, so up and down z), half the width, no
+        // alpha; the next pair one spacing (2.5) back along the samples, its alpha what is left of its sample's life (its
+        // time 1.75 of 2, so 1 − 0.25 / 3), the texture 2.5 / 3.5 on; the one after 0.97 as wide)
+        let (a, b, c) = (&s.vertices[0], &s.vertices[1], &s.vertices[2]);
+        assert!((a.position[2] - 1.0).abs() < 1e-4 && (b.position[2] + 1.0).abs() < 1e-4 && (a.position[0] - 20.0).abs() < 1e-4);
+        assert_eq!((a.colour[3], b.colour[3]), (0.0, 0.0));
+        assert!((c.position[0] - 17.5).abs() < 1e-4 && (c.position[2] - 1.0).abs() < 1e-4, "{:?}", c.position);
+        assert_eq!(c.colour[3], ((255.0 * (1.0 - 0.25 / 3.0)) as u32) as f32 / 255.0);
+        assert!((a.uv[0] - c.uv[0] - 2.5 / 3.5).abs() < 1e-4);
+        let e = &s.vertices[3 * 2 + 2];
+        assert!((e.position[0] - 15.0).abs() < 1e-4 && (e.position[2] - 0.97).abs() < 1e-4, "{:?}", e.position);
+        // (2.5 a step back from 20 down to 2.5, then the first sample, the walk having run past it: nine pairs)
+        assert_eq!(s.vertices.len(), (2 * 9 - 2) * 3);
+        assert!((s.vertices.last().unwrap().position[0] - 1.0).abs() < 1e-4);
+        // (mode 1: four ribbons from the samples' orientations, the first half the width along their z)
+        let four = trail_shells(&mao_formats::gfx::Trail { mode: 1, ..t.clone() }, &ring, at, 2.0, [0.0, 1.0, 0.0]);
+        assert_eq!(four[0].vertices.len(), 4 * s.vertices.len());
+        assert!((four[0].vertices[0].position[1] - 1.0).abs() < 1e-4);
+        // (a sample whose life is spent ends the ribbon there)
+        let short = trail_shells(&mao_formats::gfx::Trail { life: 0.3, ..t.clone() }, &ring, at, 2.0, [0.0, 1.0, 0.0]);
+        assert!(short[0].vertices.len() < s.vertices.len());
+    }
 
     #[test]
     fn a_vein_s_strands_climb_and_fade_as_its_visual_draws_them() {

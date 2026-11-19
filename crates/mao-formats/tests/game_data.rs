@@ -342,6 +342,19 @@ fn the_connectors_veins_are_veins_with_their_fire() {
     }
 }
 
+/// The ships' engine trails (12570 one ribbon facing the view; 71000 and 71003, the drop ships' and bombers', four) are
+/// kind 3019, `_GfxControlTrail_t`.
+#[test]
+fn the_ships_trails_are_trails() {
+    use mao_formats::gfx::Visual;
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let gfx = mao_formats::gfx::Gfx::parse(&std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap()).unwrap();
+    for (id, mode, material, width, life) in [(12570, 0, 54, 2.0, 3.0), (71000, 1, 55, 3.5, 0.5), (71003, 1, 55, 0.5, 0.15)] {
+        let Some(Visual::Trail(t)) = gfx.visual(id) else { panic!("{id}") };
+        assert_eq!((t.mode, t.material, t.width, t.life, t.colour, t.attach), (mode, material, width, life, 0xffff_ffff, 2001), "{id}");
+    }
+}
+
 #[test]
 fn effect_classes_come_to_visuals() {
     use mao_formats::gfx::Visual;

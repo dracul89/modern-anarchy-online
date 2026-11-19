@@ -176,9 +176,9 @@ pub struct Update {
     /// Flare effects made alone at a place (Z up), as a sprung mine's blast (template 2100).
     pub flares: Vec<([f32; 3], mao_formats::gfx::Flare)>,
     /// Whole effects at a place (Z up), each by a number of its own: the effect scripts' meshes' universal effects, as
-    /// the orbital strike. The effect itself comes the first time; after that only where it is now; `placed_gone` are
-    /// those whose object has ended.
-    pub placed: Vec<(u64, [f32; 3], Option<mao_formats::gfx::Visual>)>,
+    /// the orbital strike. The effect itself comes the first time; after that only where it is now (and how its object is
+    /// turned: its frame's x and z axes, Z up); `placed_gone` are those whose object has ended.
+    pub placed: Vec<(u64, [f32; 3], [[f32; 3]; 2], Option<mao_formats::gfx::Visual>)>,
     pub placed_gone: Vec<u64>,
     /// The lightning's strikes to light (server coordinates, Y up) and their seeds (`lightning.rs`).
     pub strikes: Vec<([f32; 3], u32)>,
@@ -692,8 +692,10 @@ struct App {
     bursts: Vec<(std::time::Instant, crate::effects::CastShow)>,
     shots: Vec<(std::time::Instant, crate::effects::Shot)>,
     flares: Vec<(std::time::Instant, [f32; 3], mao_formats::gfx::Flare)>,
-    /// The effects made alone at a place and when each began (`Update::placed`).
-    placed: std::collections::HashMap<u64, (std::time::Instant, [f32; 3], mao_formats::gfx::Visual)>,
+    /// The effects made alone at a place and when each began (`Update::placed`), with their object's turn.
+    placed: std::collections::HashMap<u64, (std::time::Instant, [f32; 3], mao_formats::gfx::Visual, [[f32; 3]; 2])>,
+    /// The samples of their trails (`effects::visual_trail_parts`), one ring for each.
+    placed_trails: std::collections::HashMap<u64, Vec<crate::effects::TrailRing>>,
     /// The waterfalls' feet (Z up) and the fall effect drawn at each since the playfield came, when it has any.
     falls: Option<(std::time::Instant, Vec<[f32; 3]>, mao_formats::gfx::Visual)>,
     /// The playfield's statels' own effects: when they began, the effect, its places.
@@ -958,7 +960,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     }
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], look_right: None, heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), weather_fx: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, pointer: Default::default(), screenshot: false, autorun: false, logged_out: false, own_alpha: 1.0, input_stopped: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], look_right: None, heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), placed_trails: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), weather_fx: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, pointer: Default::default(), screenshot: false, autorun: false, logged_out: false, own_alpha: 1.0, input_stopped: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         // (started from the character list, whose window has had the screen up since the character's ticket came: it
@@ -1910,17 +1912,18 @@ impl ApplicationHandler for App {
                         if let Some(f) = u.sky_frame.take() {
                             self.fxs_frame = Some(f);
                         }
-                        for (key, at, visual) in std::mem::take(&mut u.placed) {
+                        for (key, at, turn, visual) in std::mem::take(&mut u.placed) {
                             match (self.placed.get_mut(&key), visual) {
-                                (Some(p), _) => p.1 = at,
+                                (Some(p), _) => (p.1, p.3) = (at, turn),
                                 (None, Some(visual)) => {
-                                    self.placed.insert(key, (std::time::Instant::now(), at, visual));
+                                    self.placed.insert(key, (std::time::Instant::now(), at, visual, turn));
                                 }
                                 (None, None) => {}
                             }
                         }
                         for key in std::mem::take(&mut u.placed_gone) {
                             self.placed.remove(&key);
+                            self.placed_trails.remove(&key);
                         }
                         for at in std::mem::take(&mut u.landings) {
                             if shown(crate::prefs::OTHERS) {
@@ -2440,11 +2443,20 @@ impl ApplicationHandler for App {
                     }
                     // (an effect at a place: its sparks, what it lays on the ground and its shake, while its object lives;
                     // an effect's own end is in its parts, which draw nothing past theirs)
-                    for (began, at, visual) in self.placed.values() {
+                    for (key, (began, at, visual, turn)) in &self.placed {
                         let (age, eye) = (began.elapsed().as_secs_f32(), w.camera.eye());
                         sparks.extend(crate::effects::placed_particles(visual, *at, age, [eye.x, eye.y, eye.z]));
                         shells.extend(crate::effects::visual_ground_shells(visual, *at, age, &ground));
                         shells.extend(crate::effects::placed_shells(visual, *at, age, [eye.x, eye.y, eye.z], (w.camera.target - eye).to_array()));
+                        // (a trail samples where its object is each frame, `GfxVisualTrail::Render` taking its place first)
+                        let parts = crate::effects::visual_trail_parts(visual);
+                        if !parts.is_empty() {
+                            let rings = self.placed_trails.entry(*key).or_insert_with(|| parts.iter().map(|_| crate::effects::TrailRing::new(50)).collect());
+                            for (trail, ring) in parts.iter().zip(rings.iter_mut()) {
+                                ring.sample(*at, *turn, age);
+                                shells.extend(crate::effects::trail_shells(trail, ring, *at, age, (w.camera.target - eye).to_array()));
+                            }
+                        }
                         shaking = shaking.max(crate::effects::shake(visual, *at, age, eye_now));
                     }
                     // (the waterfalls' feet: the fall effect at each, an environment effect, hidden past 80 units from the eye as
