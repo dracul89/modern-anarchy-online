@@ -7762,3 +7762,7 @@ The original's text views draw selected text on a light grey ground: `TextRender
 ### Where a tower would stand (WIN-118)
 
 While the tower build menu holds an item, the original's playfield map (with its land-control button on) marks where the tower would go: the map's circle in light grey (0xdcdcdc) three units in front of the character (`PFMapRenderer_c` FUN_100ea243; the flag is the map data's +0x75, set by the menu's item setter FUN_1005c605 through GlobalSignals +0x160 and cleared when the menu or its item goes). The client draws the same circle on its maps while the menu (Build or War) is open with an item in it (`TowerWindow::placing`, `automap::placement`).
+
+### The mission booth's offer menu and the new-mission tip (WIN-134)
+
+A right click on an offer in the mission booth's window opens the original's menu (`MissionSelectionView_c`, GUI.dll FUN_100d0f79): "Look at Mission" shows the offer's page in the info view (FUN_100d042b: its text, pay and reward items, as the journal's page of a mission), and "Upload to map", when the offer names a place, puts that place on the map and the compass again (FUN_100d08be). A new mission is reported to the tips of the day as "OnReceiveMission" (`SlotGotNewMission` 0x100c742e), as the original does before it uploads the mission's place.

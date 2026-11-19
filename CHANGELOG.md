@@ -110,6 +110,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Windows have the original's inner border and solid dark-teal body under the title.
 - The planet map shows the Shadowlands map in every Shadowlands playfield, dungeons included, as the original does.
 - With land control shown on the map, a light grey circle marks where a tower would stand while the tower build menu holds an item.
+- Right-clicking a mission booth offer opens its menu: Look at Mission and Upload to map.
 
 ### Items
 

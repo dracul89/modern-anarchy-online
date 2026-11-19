@@ -5995,7 +5995,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Menu and tip not done.
 - A player notices: No offer menu or new-mission tip.
 - Where: `crates/mao-client/src/mission.rs:592`; `docs/CLIENT_UI.md:4060`; `docs/ORIGINAL_AUDIT.md:73`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Both parts read and ported. The offer menu: `MissionSelectionView_c`'s right-click handler FUN_100d0f79 makes a popup with text.mdb 10000 `Look@Mission` (FUN_100d042b: `InfoViewModule_c::ShowURL("itemid://%d/%d")` of the offer) and, when `N3Msg_GetQuestWorldPos` finds the offer's place, `Upload2Map` (FUN_100d08be: the place sent through GlobalSignals +0x158, the journal's upload signal, the selection left as it is). The client's booth window (`mission.rs`) now opens it on a right click on an offer box; "Look at Mission" shows the offer's page in the info view (built as the journal's mission page, FUN_100360d5, from the offer: `MissionWindow::page`, `missionlog::mission_page`; the offers' reward items now keep their LowId/HighId for it; viewer.rs falls back to it after the journal), "Upload to map" sends the place up again (through `mark()`, so the usual "Waypoint uploaded" lines). The tip: `InventoryGUIModule_c::SlotGotNewMission` (0x100c742e) calls `TipSystem_t::Event("OnReceiveMission", null)` for every new mission before uploading its place; `missionlog::news` now reports it (`tips::trigger`). Tests `mission::helper_tests::the_offer_menu_uploads_the_place_again`, `an_offer_has_an_info_page` (MAO_GAME).
 - Looked at, left (2026-11-19, overnight): The offer's right-click menu (its info page, "Upload to map") and the new-mission tip (OnReceiveMission -> TipSystem_t) were not read through tonight; the tip also depends on WIN-076's tip events. Left.
 
 #### `WIN-135` Mission request window does not keep its sliders or hide the advanced ones

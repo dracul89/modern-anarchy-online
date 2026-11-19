@@ -325,6 +325,8 @@ impl MissionLog {
     fn news(&mut self, playfield: u32) -> Shown {
         let mut shown = Shown::default();
         for id in std::mem::take(&mut self.fresh) {
+            // (`InventoryGUIModule_c::SlotGotNewMission` 0x100c742e reports each new mission to the tips first)
+            crate::tips::trigger("OnReceiveMission", "");
             if self.missions.iter().any(|m| m.id == id && m.place.is_some()) {
                 self.upload(id, playfield, &mut shown);
             }
@@ -359,8 +361,7 @@ impl MissionLog {
     pub fn page(&self, url: &str, now: u32, reader: Reader, db: &mao_formats::resource::ResourceDatabase) -> Option<String> {
         let (kind, instance) = crate::gui::iteminfo::parse_itemid(url)?;
         let m = self.missions.iter().find(|m| kind == MISSION_TYPE && m.id == (kind, instance))?;
-        let item = |id: u32| db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: id }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map(|t| (t.icon(), t.name));
-        Some(page_of(m, now, reader, &item))
+        Some(mission_page(m, now, reader, db))
     }
 
     /// The window: the `MissionListView_c` list of the missions (icon, name, time left), the active one selected; a click
@@ -540,6 +541,13 @@ pub fn sk_for_xp(standing: i64, xp: i64) -> i64 {
 }
 
 /// FUN_100360d5's markup for a mission; `item` finds a reward item's icon and name by its template.
+/// A mission's info page (FUN_100360d5) with its reward items read from the database: the journal's missions and the
+/// booth's offers (`mission::MissionWindow::page`) alike.
+pub fn mission_page(m: &Mission, now: u32, reader: Reader, db: &mao_formats::resource::ResourceDatabase) -> String {
+    let item = |id: u32| db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: id }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d)).map(|t| (t.icon(), t.name));
+    page_of(m, now, reader, &item)
+}
+
 fn page_of(m: &Mission, now: u32, reader: Reader, item: &dyn Fn(u32) -> Option<(Option<u32>, String)>) -> String {
     use crate::gui::iteminfo::section;
     use crate::gui::spells::printf_ints;

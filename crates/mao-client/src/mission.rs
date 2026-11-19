@@ -104,6 +104,9 @@ pub struct Reward {
     pub name: String,
     pub quality: i64,
     pub icon: Option<Arc<Icon>>,
+    /// The item's templates (`LowId`, `HighId`), for the offer's info page.
+    pub low: u32,
+    pub high: u32,
 }
 
 /// One offered mission.
@@ -265,6 +268,32 @@ pub struct Command {
     pub mission: (u32, u32),
 }
 
+/// An offer as one of the journal's missions, for its info page.
+fn as_mission(o: &Offer) -> crate::missionlog::Mission {
+    crate::missionlog::Mission {
+        id: o.id,
+        title: o.title.clone(),
+        description: o.description.clone(),
+        icon: o.icon.clone(),
+        place: (o.destination.0 != 0).then_some(o.destination),
+        flags: 0,
+        credits: o.credits,
+        xp: o.xp,
+        rewards: o.rewards.iter().map(|r| crate::missionlog::Reward { low: r.low, high: r.high, quality: r.quality as u32 }).collect(),
+        deadlines: Vec::new(),
+    }
+}
+
+/// An offer menu's entry (text.mdb category 10000, the names GUI.dll asks for).
+fn menu_text(name: &str) -> String {
+    let english = match name {
+        "Look@Mission" => "Look at Mission",
+        "Upload2Map" => "Upload to map",
+        _ => name,
+    };
+    crate::gui::xml::ldb_named(10000, name, english)
+}
+
 /// The offers in a parsed `QuestAlternative` (`items` finds a reward item's name and icon, `icon` a mission icon).
 pub fn offers_from(value: &Value, item: &dyn Fn(i64) -> Option<(String, Option<Arc<Icon>>)>, icon: &dyn Fn(u32) -> Option<Arc<Icon>>) -> Vec<Offer> {
     let Some(Value::List(list)) = value.get("MissionDetails") else { return Vec::new() };
@@ -282,7 +311,7 @@ pub fn offers_from(value: &Value, item: &dyn Fn(i64) -> Option<(String, Option<A
                     .map(|r| {
                         let found = item(int(r, "LowId")).or_else(|| item(int(r, "HighId")));
                         let (name, icon) = found.unwrap_or_else(|| (format!("Item #{:x}", int(r, "LowId")), None));
-                        Reward { name, quality: int(r, "Ql"), icon }
+                        Reward { name, quality: int(r, "Ql"), icon, low: int(r, "LowId") as u32, high: int(r, "HighId") as u32 }
                     })
                     .collect(),
                 _ => Vec::new(),
@@ -333,11 +362,18 @@ pub struct MissionWindow {
     /// The answers the terminal has given (counted, to tell a new one).
     answers: u32,
     roll: Option<Roll>,
+    /// An offer's right-click menu (FUN_100d0f79): the offer and its entries' names, and the menu.
+    menu: Option<((u32, u32), Vec<&'static str>)>,
+    popup: Option<crate::gui::popup::PopupMenu>,
+    /// "Look at Mission" was chosen: the offer's page for the info view (`itemid://<type>/<instance>`).
+    pub info_url: Option<String>,
+    /// "Upload to map" was chosen for this offer: its place goes up again ([`MissionWindow::mark`]).
+    upload: Option<(u32, u32)>,
 }
 
 impl Default for MissionWindow {
     fn default() -> MissionWindow {
-        MissionWindow { open: false, sliders: SLIDERS_AT_FIRST, sliders_saved: SLIDERS_AT_FIRST, offers: Vec::new(), selected: None, marked: None, status: String::new(), want_items: String::new(), want_places: String::new(), keep_asking: false, limit: DEFAULT_LIMIT, helper_loaded: false, answers: 0, roll: None }
+        MissionWindow { open: false, sliders: SLIDERS_AT_FIRST, sliders_saved: SLIDERS_AT_FIRST, offers: Vec::new(), selected: None, marked: None, status: String::new(), want_items: String::new(), want_places: String::new(), keep_asking: false, limit: DEFAULT_LIMIT, helper_loaded: false, answers: 0, roll: None, menu: None, popup: None, info_url: None, upload: None }
     }
 }
 
@@ -366,6 +402,12 @@ impl MissionWindow {
     /// to map" sends); with none selected the offer's waypoint is taken away, as it is when the window goes
     /// (FUN_100d04fe). An offer without a place uploads nothing and leaves what is there.
     pub fn mark(&mut self) -> Option<Mark> {
+        // ("Upload to map" in an offer's menu, FUN_100d08be: the offer's place sent up again, the selection as it is)
+        if let Some(id) = self.upload.take()
+            && let Some(o) = self.offers.iter().find(|o| o.id == id).filter(|o| o.destination.0 != 0)
+        {
+            return Some(Mark::Upload { id, playfield: o.destination.0, place: o.destination.1 });
+        }
         let now = self.selected.filter(|_| self.open).and_then(|s| self.offers.get(s)).map(|o| (o.id, o.destination));
         let before = std::mem::replace(&mut self.marked, now.map(|n| n.0));
         match (before, now) {
@@ -373,6 +415,14 @@ impl MissionWindow {
             (Some(id), None) => Some(Mark::Remove { id }),
             _ => None,
         }
+    }
+
+    /// An offer's info page (`itemid://<type>/<instance>`, FUN_100d042b): the journal's page of a mission (FUN_100360d5)
+    /// made of the offer, with its place, pay and reward items and no time left.
+    pub fn page(&self, url: &str, now: u32, reader: crate::missionlog::Reader, db: &mao_formats::resource::ResourceDatabase) -> Option<String> {
+        let id = crate::gui::iteminfo::parse_itemid(url)?;
+        let o = self.offers.iter().find(|o| o.id == id)?;
+        Some(crate::missionlog::mission_page(&as_mission(o), now, reader, db))
     }
 
     /// The helper's settings from a picture's or a test's hand (not read from the file after).
@@ -445,6 +495,7 @@ impl MissionWindow {
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
+        let mut menu_open: Option<((u32, u32), Vec<&'static str>, egui::Pos2, Vec<(String, bool)>)> = None;
         crate::chrome::window(ctx, palette, "Missions", "Missions", &mut is_open, |w| w.resizable(false).default_pos(crate::layout::pos("Missions", egui::pos2(60.0, 80.0))), |ui| {
             ui.set_width(330.0);
             // The six offer boxes (three by two), as in the original.
@@ -471,6 +522,18 @@ impl MissionWindow {
                         }
                         if response.clicked() {
                             self.selected = Some(slot);
+                        }
+                        // (the right button: the offer's menu, FUN_100d0f79 — "Look at Mission", and "Upload to map"
+                        // when `N3Msg_GetQuestWorldPos` finds its place)
+                        if response.secondary_clicked()
+                            && let Some(at) = response.interact_pointer_pos()
+                        {
+                            let mut names = vec!["Look@Mission"];
+                            if offer.destination.0 != 0 {
+                                names.push("Upload2Map");
+                            }
+                            let labels: Vec<(String, bool)> = names.iter().map(|n| (menu_text(n), true)).collect();
+                            menu_open = Some((offer.id, names, at, labels));
                         }
                         response.on_hover_text(&offer.title);
                     }
@@ -577,6 +640,23 @@ impl MissionWindow {
                 }
             });
         });
+        if let Some((id, names, at, labels)) = menu_open {
+            self.popup = Some(crate::chrome::menu_at(ctx, at, &labels));
+            self.menu = Some((id, names));
+        }
+        if let Some(k) = crate::chrome::menu(ctx, palette, "offer-menu", &mut self.popup)
+            && let Some((id, names)) = self.menu.take()
+        {
+            match names.get(k).copied() {
+                // (FUN_100d042b: the info view's `itemid://<type>/<instance>` of the offer)
+                Some("Look@Mission") => self.info_url = Some(format!("itemid://{}/{}", id.0 as i32, id.1 as i32)),
+                Some("Upload2Map") => self.upload = Some(id),
+                _ => {}
+            }
+        }
+        if self.popup.is_none() {
+            self.menu = None;
+        }
         self.open = is_open && !close;
         // (a window shut stops the asking; the helper's lists are kept in its file as they change)
         if !self.open {
@@ -597,6 +677,36 @@ mod helper_tests {
 
     fn offer(id: u32, playfield: u32) -> Offer {
         Offer { id: (0xdac3, id), title: String::new(), description: String::new(), credits: 0, xp: 0, rewards: Vec::new(), icon: None, destination: (playfield, [id as f32, 0.0, 2.0]), playfield: String::new() }
+    }
+
+    /// An offer's menu (FUN_100d0f79): "Upload to map" (FUN_100d08be) sends the offer's place up again whatever is
+    /// selected; an offer without a place sends nothing.
+    #[test]
+    fn the_offer_menu_uploads_the_place_again() {
+        let mut w = MissionWindow { open: true, ..Default::default() };
+        w.set_offers(vec![offer(1, 655), offer(3, 0)]);
+        w.selected = Some(0);
+        assert!(matches!(w.mark(), Some(Mark::Upload { .. })));
+        assert_eq!(w.mark(), None);
+        w.upload = Some((0xdac3, 1));
+        assert_eq!(w.mark(), Some(Mark::Upload { id: (0xdac3, 1), playfield: 655, place: [1.0, 0.0, 2.0] }));
+        assert_eq!(w.mark(), None);
+        w.upload = Some((0xdac3, 3));
+        assert_eq!(w.mark(), None);
+    }
+
+    /// `MAO_GAME`: "Look at Mission" (FUN_100d042b) shows the offer's page as the journal shows a mission's.
+    #[test]
+    fn an_offer_has_an_info_page() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let mut w = MissionWindow { open: true, ..Default::default() };
+        let mut o = offer(1, 655);
+        (o.title, o.credits) = ("A test offer".into(), 1200);
+        w.set_offers(vec![o]);
+        let page = w.page("itemid://56003/1", 0, crate::missionlog::Reader::Points, &db).unwrap();
+        assert!(page.contains("A test offer"), "{page}");
+        assert!(w.page("itemid://56003/2", 0, crate::missionlog::Reader::Points, &db).is_none());
     }
 
     /// A click on an offer uploads its place, another offer's replaces it, and the waypoint is taken away when no

@@ -3187,7 +3187,7 @@ impl ApplicationHandler for App {
                         let record = self.textures.db().get(mao_formats::resource::Id { kind: mao_formats::playfield::KIND, instance: self.hud.playfield }).ok().flatten();
                         let shadowlands = record.as_deref().and_then(mao_formats::playfield::flag_words).is_some_and(|w| w[0] & 2 != 0);
                         let reader = crate::missionlog::Reader::of(&self.hud.stats, shadowlands);
-                        let mission = ui.mission_log.page(&url, crate::gametime::server_now(), reader, self.textures.db());
+                        let mission = ui.mission_log.page(&url, crate::gametime::server_now(), reader, self.textures.db()).or_else(|| ui.mission.page(&url, crate::gametime::server_now(), reader, self.textures.db()));
                         if let Some(page) = mission.or_else(|| crate::gui::iteminfo::page(self.textures.db(), &url, &self.hud.stats)) {
                             ui.info.show_page(&url, &page);
                         }

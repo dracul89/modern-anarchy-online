@@ -1399,6 +1399,9 @@ impl Ui {
                 if command.what != 0 {
                     requests.mission = Some(command);
                 }
+                if let Some(url) = mission.info_url.take() {
+                    info_view.show_url(&url);
+                }
             }
             // (a selected offer's place goes to the map and the compass, and away again with the selection or the window)
             match mission.mark() {
