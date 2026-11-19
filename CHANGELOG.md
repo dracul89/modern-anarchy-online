@@ -85,6 +85,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The windows that have a help page in the game (skills, perks, pets, research and others) have its "?" button.
 - Chat tabs can be dragged as in the original: right-click a tab to pick it up, then left-click on another chat
   window's tabs to move it there, or anywhere else to give it a window of its own.
+- The map is the original's playfield map window (the control center's Map menu): north up, following you, dragged to
+  look round, with the characters near by side. The client's round corner map and overlay are a setting now.
 
 ### Items
 

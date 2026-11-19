@@ -45,7 +45,7 @@ pub const WINDOWS: &[(&str, &str)] = &[
     ("knowledge_window", "knowledge"),
     ("tradeskill_window", "tradeskill"),
     ("research_window", "research"),
-    ("map_window", "planetmap"),
+    ("map_window", "pfmap"),
     ("planetmap_window", "planetmap"),
     ("specialaction_window", "actions"),
     ("mail_window", "mail"),

@@ -76,6 +76,7 @@ pub struct Hud {
     pub stat_parts: std::collections::BTreeMap<u32, crate::derived::Breakdown>,
     /// Who is about, for the map: (x, z) and what.
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
+    pub pf_dots: Vec<([f32; 2], crate::automap::PfKind)>,
     /// The playfield's Notum Wars tower sites, for the map (`mao_net::landcontrol`).
     pub towers: Vec<mao_net::landcontrol::Tower>,
     /// The playfield's land-control map (`N3Msg_GetLandControlBitmap`) and the character's district, its name and land
@@ -759,6 +760,7 @@ impl Ui {
             "tradeskill" => self.tradeskill.open,
             "research" => self.research.open,
             "map" | "planetmap" => self.planet.open,
+            "pfmap" | "map_window" => self.automap.pf_open,
             "automap" | "overlay" => self.automap.overlay,
             "optionpanel" => self.option_panel.open,
             "itemshop" => self.browser.showing(crate::browser::Mode::ItemStore),
@@ -984,6 +986,7 @@ impl Ui {
             "towerbuild" | "buildmenu" => &mut self.tower.open,
             "vehicles" | "vehicle" => &mut self.vehicles.open,
             "map" | "planetmap" | "planet map" => &mut self.planet.open,
+            "pfmap" | "pf map" | "map_window" => &mut self.automap.pf_open,
             "automap" | "overlay" => &mut self.automap.overlay,
             "chat" => &mut self.chat.open,
             "whompah" | "whom-pah" | "travel" => &mut self.whompah_open,
@@ -1129,7 +1132,11 @@ impl Ui {
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             let notum_wars = hud.stats.get(&389).is_some_and(|e| e & 1 != 0);
             automap.set_land_control(hud.land_map.as_ref(), hud.lc_district.as_ref());
-            automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.towers, notum_wars, &hud.location, palette);
+            // (the original's playfield map window; this client's own round corner map and overlay as a setting)
+            if settings.own_map {
+                automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.towers, notum_wars, &hud.location, palette);
+            }
+            automap.pf_window(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), &hud.pf_dots, &hud.towers, notum_wars, palette);
             if control_center.is_none() && crate::skin::skin(&ctx).is_some() {
                 *control_center = crate::gui::controlcenter::ControlCenter::load(&ctx);
             }
@@ -2000,6 +2007,12 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 let at = hud.position.unwrap_or([0.0; 3]);
                 map.set_land_control(hud.land_map.as_ref(), hud.lc_district.as_ref());
                 map.show(&ctx, Some(([at[0], at[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &[], &hud.towers, true, &hud.location, &palette);
+                // (MAO_PF_MAP=1: the original's playfield map window with the made-up characters, by their side)
+                if std::env::var_os("MAO_PF_MAP").is_some() {
+                    map.pf_open = true;
+                    let dots: Vec<([f32; 2], crate::automap::PfKind)> = hud.map_dots.iter().zip([crate::automap::PfKind::Clan, crate::automap::PfKind::Monster, crate::automap::PfKind::Omni, crate::automap::PfKind::Team]).map(|(d, k)| (d.0, k)).collect();
+                    map.pf_window(&ctx, Some(([at[0], at[2]], hud.heading)), &dots, &hud.towers, true, &palette);
+                }
             }
             if let Some(window) = preview_actions.as_mut() {
                 window.show(&ctx, &mut gear, &hud.perk_actions, hud.specials.as_deref(), &palette);
@@ -2872,6 +2885,7 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
         ui.heading("Interface");
         crate::chrome::checkbox(ui, palette, &mut settings.perf_overlay, "Show performance: frame rate, processor, memory and graphics card (/perf)");
         crate::chrome::checkbox(ui, palette, &mut settings.auto_loot, "Take everything from a corpse as soon as it opens");
+        crate::chrome::checkbox(ui, palette, &mut settings.own_map, "This client's own round corner map and overlay (O), beside the original's map window");
         crate::chrome::checkbox(ui, palette, &mut settings.smart_hotbar, "Smart hotbars (this client's own: priority lists, queued presses) instead of the original's shortcut bars");
         if !settings.smart_hotbar {
             ui.horizontal(|ui| {

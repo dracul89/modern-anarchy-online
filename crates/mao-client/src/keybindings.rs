@@ -82,7 +82,7 @@ pub const PROVIDERS: &[(&str, Action)] = &[
     ("WINDOW_WEAR", Action::InventoryWindow),
     ("WINDOW_SKILLS", Action::SkillsWindow),
     ("WINDOW_PLANETMAP", Action::PlanetMapWindow),
-    ("WINDOW_MAP", Action::PlanetMapWindow),
+    ("WINDOW_MAP", Action::MapWindow),
     ("WINDOW_OPTIONS", Action::ToggleOptions),
     ("WINDOW_SPECIALACTION", Action::ActionsWindow),
     ("WINDOW_MISSION", Action::MissionWindow),

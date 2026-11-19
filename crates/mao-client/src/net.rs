@@ -11087,6 +11087,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             })
                             .collect()
                     },
+                    // (the playfield map's characters: within 500 of the character, N3Msg_GetMapCharacters)
+                    pf_dots: {
+                        let team: Vec<u32> = crate::team::with(|t| t.members.iter().chain(t.others.iter().flatten()).map(|m| m.id).collect());
+                        state
+                            .entities
+                            .iter()
+                            .filter(|(id, (p, _))| **id != own && ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt() <= 500.0)
+                            .filter_map(|(id, (p, _))| {
+                                let info = state.infos.get(id)?;
+                                let kind = if target == Some(*id) { crate::automap::PfKind::Selected } else { crate::automap::PfKind::of(info.side, team.contains(id)) };
+                                Some(([p[0], p[2]], kind))
+                            })
+                            .collect()
+                    },
                     special_cooldowns: std::mem::take(&mut state.special_events),
                     auras: Some({
                         // (the character's own programs from its list, the others' from `others_nanos`)

@@ -6906,3 +6906,34 @@ A chat tab is moved as the original moves it (`ChatWindow::carry`).
 - **Escape** lets go of the tab. That is this client's own choice: how the original drops a drag otherwise was not read.
 
 The tab menu's two entries for moving a tab stay as this client's own.
+
+### The original's playfield map window (WIN-151)
+
+GUI.dll's `PlayfieldMapView_c` (0x100ec21c), the "PF Map" window `map_window`, is the default map now
+(`AutoMap::pf_window`). The client's own round corner map and its overlay are a setting ("This client's own round corner
+map", `own_map = on`), off by default.
+
+- **Opening it.** The control center's Map menu entry `map_window` opens it now, not the planet map. `WINDOW_MAP` is
+  its key; the game's files give it none, so it has none here either.
+- **Size and scale.** It starts 179 by 199 and can be sized. It is north up and never turned, with no zoom: the ground at
+  one pixel a world unit over black (FUN_100ea040).
+- **Following and dragging.** The character is in the middle every frame (FUN_10046700). Dragging moves the view half
+  again as far as the mouse (FUN_100ea177); let go, it comes back to the character (FUN_100ea145).
+- **What is drawn on it:**
+  - the land-control layer and the towers, as on the client's map;
+  - the characters within 500 as 8 by 8 squares by side, `MAPSQUARE_CLAN`, `_OMNI`, `_NEUTRAL`, a monster
+    `_MONSTER`, a team member `_TEAMMEMBER` (`automap::PfKind`, `N3Msg_GetMapCharacters` 0x1001bfba);
+  - the character's own `GFX_GUI_MAP_ARROW`, turned the way it faces.
+- **Tip and menu.** The tip gives the pointer's world place. The right button's menu shows the land-control buttons
+  under the map (`ShowButtons`).
+
+Not done:
+- the floors of a playfield of rooms (FUN_100474b7);
+- the vending machines' and reclaim booths' squares;
+- the selected target's and team members' facing arrows (the selected target is drawn as `MAPSQUARE_SELECTED`);
+- the mission target's square;
+- the map withheld on 31 playfields until the character has their map part (stats 471, 472, 585, 586; FUN_100581ec).
+
+In the offline picture the ground is not made, so the window shows its markers on black.
+
+Test: `a_character_is_drawn_by_its_side`. Picture: `MAO_UI_PREVIEW=map MAO_PF_MAP=1`.

@@ -158,6 +158,8 @@ pub struct Update {
     /// The character's name and stats, when they change.
     pub stats: Option<(String, std::collections::BTreeMap<u32, i64>, std::collections::BTreeMap<u32, crate::derived::Breakdown>)>,
     pub map_dots: Vec<([f32; 2], crate::automap::DotKind)>,
+    /// The characters on the playfield map (`automap::PfKind`).
+    pub pf_dots: Vec<([f32; 2], crate::automap::PfKind)>,
     /// The playfield's Notum Wars tower sites, when the list changes (zoning in, a tower destroyed or planted).
     pub towers: Option<Vec<mao_net::landcontrol::Tower>>,
     /// The playfield's land-control map, when it changes (zoning), and the character's district for the land-control
@@ -1580,6 +1582,11 @@ impl ApplicationHandler for App {
                                 ui.mission_log.open = !ui.mission_log.open;
                             }
                         }
+                        Action::MapWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.automap.pf_open = !ui.automap.pf_open;
+                            }
+                        }
                         Action::PlanetMapWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.planet.toggle();
@@ -1992,6 +1999,7 @@ impl ApplicationHandler for App {
                         self.hud.position = update.own;
                         self.hud.heading = self.heading;
                         self.hud.map_dots = std::mem::take(&mut update.map_dots);
+                        self.hud.pf_dots = std::mem::take(&mut update.pf_dots);
                         if let Some(towers) = update.towers.take() {
                             self.hud.towers = towers;
                         }

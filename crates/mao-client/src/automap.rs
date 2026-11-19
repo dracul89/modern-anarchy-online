@@ -216,6 +216,44 @@ pub enum DotKind {
     Target,
 }
 
+/// What the original's playfield map shows a character as (Gamecode `N3Msg_GetMapCharacters`, 0x1001bfba: within 500 of
+/// the character, those in play; a monster by its side, 3, a member of the team or raid, else Clan, Omni or neutral by
+/// side), and the square GUI.dll's marker pass draws for each (FUN_100eb31d: cells 0-3 and 7 of the 8 x 8 marker atlas).
+/// The selected target is drawn as the selected one (its arrow needs its facing, which this client keeps for nobody else).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PfKind {
+    Clan,
+    Omni,
+    Neutral,
+    Monster,
+    Team,
+    Selected,
+}
+
+impl PfKind {
+    pub fn sprite(self) -> &'static str {
+        match self {
+            PfKind::Clan => "GFX_GUI_MAPSQUARE_CLAN",
+            PfKind::Omni => "GFX_GUI_MAPSQUARE_OMNI",
+            PfKind::Neutral => "GFX_GUI_MAPSQUARE_NEUTRAL",
+            PfKind::Monster => "GFX_GUI_MAPSQUARE_MONSTER",
+            PfKind::Team => "GFX_GUI_MAPSQUARE_TEAMMEMBER",
+            PfKind::Selected => "GFX_GUI_MAPSQUARE_SELECTED",
+        }
+    }
+
+    /// N3Msg_GetMapCharacters' kind: side 3 a monster; a team member; side 1 Clan, 2 Omni, else neutral.
+    pub fn of(side: u8, team: bool) -> PfKind {
+        match side {
+            3 => PfKind::Monster,
+            _ if team => PfKind::Team,
+            1 => PfKind::Clan,
+            2 => PfKind::Omni,
+            _ => PfKind::Neutral,
+        }
+    }
+}
+
 /// The interface's side: the grid copy, its texture, and the corner map and overlay.
 pub struct AutoMap {
     grid: Option<Grid>,
@@ -224,6 +262,12 @@ pub struct AutoMap {
     last_upload: std::time::Instant,
     /// The big overlay is shown.
     pub overlay: bool,
+    /// The original's playfield map window (`map_window`, "PF Map"), its drag (where the view is taken from the character
+    /// while the mouse holds it) and whether its buttons show (`PFMapWindowConfig`'s `ShowButtons`, off at first).
+    pub pf_open: bool,
+    pf_pan: [f32; 2],
+    pf_buttons: bool,
+    pf_menu: Option<crate::gui::popup::PopupMenu>,
     /// World units across the corner map, and pixels per unit on the overlay.
     pub mini_span: f32,
     pub zoom: f32,
@@ -282,7 +326,7 @@ struct Planet {
 
 impl Default for AutoMap {
     fn default() -> Self {
-        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), mini_size: load_size(), ground_image: None, ground: None, ground_extent: [0.0; 2], planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, tower_menu: None, land_source: None }
+        AutoMap { pf_open: false, pf_pan: [0.0; 2], pf_buttons: false, pf_menu: None, grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), mini_size: load_size(), ground_image: None, ground: None, ground_extent: [0.0; 2], planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, tower_menu: None, land_source: None }
     }
 }
 
@@ -682,6 +726,93 @@ impl AutoMap {
         bar.bottom()
     }
 
+    /// The original's playfield map window (GUI.dll `PlayfieldMapView_c`, 0x100ec21c; its renderer `PFMapRenderer_c`,
+    /// FUN_100eb7d5): 179 by 199 at first, north up and not turned, the ground at one pixel a world unit (FUN_100ea040: 4
+    /// over the map's tile, 4 on a playfield with ground) over black, the character in the middle (FUN_10046700 centres it
+    /// every frame). Held and dragged the view moves half again as far as the mouse (FUN_100ea177, 1.5) and comes back to the
+    /// character when let go (FUN_100ea145). Over it the land-control picture, the towers, the characters near (8 by 8
+    /// squares, `PfKind`) and the character's own arrow (`GFX_GUI_MAP_ARROW`, 16 by 16, turned the way it faces); the right
+    /// button's menu shows or hides the land-control buttons under the map. The tip says where the pointer is in the
+    /// world (`PointerPosition`, then x by z to a tenth, FUN_100478c7). Not here: a playfield of rooms' floors (FUN_100474b7),
+    /// the vending machines' and reclaim booths' squares, the facing arrows of the selected target and team members, the
+    /// mission target's square, and the map withheld on some playfields until the character has it (FUN_100581ec).
+    #[allow(clippy::too_many_arguments)]
+    pub fn pf_window(&mut self, ctx: &egui::Context, me: Option<([f32; 2], f32)>, dots: &[([f32; 2], PfKind)], towers: &[Tower], notum_wars: bool, palette: &crate::theme::Palette) {
+        if !self.pf_open {
+            return;
+        }
+        self.refresh(ctx);
+        let Some((pos, heading)) = me else { return };
+        let mut open = self.pf_open;
+        let title = crate::gui::xml::ldb_named(10000, "Map", "Map");
+        crate::chrome::window(ctx, palette, "map_window", &title, &mut open, |w| w.default_size(egui::vec2(179.0, 199.0)).resizable(true).default_pos(crate::layout::pos("map_window", egui::pos2(40.0, 120.0))), |ui| {
+            let buttons = if self.pf_buttons { 26.0 } else { 0.0 };
+            let size = (ui.available_size() - egui::vec2(0.0, buttons)).max(egui::vec2(40.0, 40.0));
+            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+            const PX: f32 = 1.0;
+            if response.dragged() {
+                let d = response.drag_delta() * 1.5;
+                self.pf_pan = [self.pf_pan[0] - d.x / PX, self.pf_pan[1] + d.y / PX];
+            }
+            if response.drag_stopped() {
+                self.pf_pan = [0.0; 2];
+            }
+            let center = [pos[0] + self.pf_pan[0], pos[1] + self.pf_pan[1]];
+            let painter = ui.painter().with_clip_rect(rect);
+            painter.rect_filled(rect, 0.0, egui::Color32::BLACK);
+            if self.ground.is_some() {
+                self.paint(&painter, rect, center, PX, None, false);
+            }
+            self.land(&painter, rect, center, PX, None, false);
+            self.towers(&painter, rect, center, PX, None, towers, false);
+            let skin = crate::skin::skin(ctx);
+            for (p, kind) in dots {
+                let at = Self::to_screen(rect, center, PX, None, *p);
+                if !rect.contains(at) {
+                    continue;
+                }
+                let cell = egui::Rect::from_center_size(at, egui::vec2(8.0, 8.0));
+                if !skin.as_ref().is_some_and(|s| s.draw_in(&painter, kind.sprite(), cell, egui::Color32::WHITE)) {
+                    painter.rect_filled(cell.shrink(2.0), 0.0, egui::Color32::LIGHT_GRAY);
+                }
+            }
+            // (the character's arrow, turned about its middle the way it faces: up is north)
+            let at = Self::to_screen(rect, center, PX, None, pos);
+            match skin.as_ref().and_then(|s| s.get("GFX_GUI_MAP_ARROW")) {
+                Some(arrow) => {
+                    let (s, c) = heading.sin_cos();
+                    let turn = |x: f32, y: f32| at + egui::vec2(x * c - y * s, x * s + y * c);
+                    let mut mesh = egui::Mesh::with_texture(arrow.texture.id());
+                    for (x, y, u, v) in [(-8.0, -8.0, 0.0, 0.0), (8.0, -8.0, 1.0, 0.0), (8.0, 8.0, 1.0, 1.0), (-8.0, 8.0, 0.0, 1.0)] {
+                        mesh.vertices.push(egui::epaint::Vertex { pos: turn(x, y), uv: egui::pos2(u, v), color: egui::Color32::WHITE });
+                    }
+                    mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+                    painter.add(egui::Shape::mesh(mesh));
+                }
+                None => {
+                    painter.circle_filled(at, 3.0, egui::Color32::GREEN);
+                }
+            }
+            // (the tip: where the pointer is in the world)
+            if let Some(p) = response.hover_pos() {
+                let world = [center[0] + (p.x - rect.center().x) / PX, center[1] - (p.y - rect.center().y) / PX];
+                response.clone().on_hover_text(format!("{}
+{:.1}x{:.1}", crate::gui::xml::ldb_named(10000, "PointerPosition", "Pointer at"), world[0], world[1]));
+            }
+            if response.secondary_clicked() {
+                let at = response.interact_pointer_pos().unwrap_or(rect.center());
+                self.pf_menu = Some(crate::chrome::menu_marked(ctx, at, &[("Buttons".to_string(), true, Some(self.pf_buttons))]));
+            }
+            if self.pf_buttons {
+                self.control_bar(ui, egui::pos2(rect.left(), rect.bottom() + 3.0), notum_wars, palette);
+            }
+        });
+        if crate::chrome::menu(ctx, palette, "pf-map-menu", &mut self.pf_menu) == Some(0) {
+            self.pf_buttons = !self.pf_buttons;
+        }
+        self.pf_open = open;
+    }
+
     /// The corner map and, when switched on, the overlay. `notum_wars`: the account has the expansion (stat 389, bit 0), which
     /// the land-control button needs (MapControlView_c, FUN_100ecdf7, disables it otherwise).
     #[allow(clippy::too_many_arguments)]
@@ -803,6 +934,18 @@ impl AutoMap {
 /// id 0x8a `GFX_GUI_CHECKBOX_CHECKED`): 0x10a `GFX_GUI_MAP_ARROW`, 0x10b `ARROW_SELECTED`, 0x10c `BIG_ARROW`, 0x10d-0x10f
 /// `BUFFTOWER_BLUE`, `_GREY`, `_RED`, 0x110 `CIRCLE` (the 128-pixel texture's), 0x111-0x113 `CONTROLLER_BLUE`, `_GREY`,
 /// `_RED`, 0x114-0x116 `GUARDTOWER_BLUE`, `_GREY`, `_RED`: Clan red, Omni blue and the unclaimed grey.
+#[cfg(test)]
+mod pf_tests {
+    use super::*;
+
+    /// WIN-151: N3Msg_GetMapCharacters' kinds and their squares.
+    #[test]
+    fn a_character_is_drawn_by_its_side() {
+        assert_eq!((PfKind::of(3, true), PfKind::of(1, true), PfKind::of(1, false), PfKind::of(2, false), PfKind::of(0, false)), (PfKind::Monster, PfKind::Team, PfKind::Clan, PfKind::Omni, PfKind::Neutral));
+        assert_eq!(PfKind::of(2, false).sprite(), "GFX_GUI_MAPSQUARE_OMNI");
+    }
+}
+
 pub fn tower_sprite(side: i32, class: i32) -> &'static str {
     let colour = match side {
         1 => 0,

@@ -5434,7 +5434,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Diablo-style fog-of-war map built from walked cells and collision data; a round corner map turning with the camera, draggable, resizable (120-600 pts), zoomed with the wheel, marking north, with place and size saved in automap.ini; a large translucent overlay (toggle key, drag to pan, wheel to zoom, Space re-centres); the explored cells are not saved between sessions
 - A player notices: a minimap and full-screen map unlike the original's; explored area forgotten each session
 - Where: `crates/mao-client/src/automap.rs:708`; `docs/CLIENT_UI.md:1657`; `docs/CLIENT_UI.md:2048`; `docs/CLIENT_UI.md:2016`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
+- Done (2026-11-18): kept as a setting (own_map, off): the original's PF Map window is the default (AutoMap::pf_window): north up at one pixel a unit over black, following the character, dragged at 1.5 and back on release, land control and towers, characters by side as squares, its arrow, the pointer's place; map_window in the control center and WINDOW_MAP now open it. Not done: room floors, vendors and booths, the facing arrows of others, the mission square, the withheld maps.
 
 #### `WIN-152` Smart hotbars with priority lists and queued presses
 
@@ -5443,7 +5444,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: 6 bars of 10 slots, each slot a priority list of actions with its own cooldown (5 seconds per dropped action, 0 for a macro, editable by right click); a press fires the first one that is ready; when nothing is ready the press is queued and fires by itself later
 - A player notices: a slot can hold several actions and presses are remembered
 - Where: `crates/mao-client/src/hotbar.rs:1`; `crates/mao-client/src/ui.rs:2071`; `docs/CLIENT_UI.md:103`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
+- Done (2026-11-18): kept as a setting: since WIN-001 (2026-11-18) the original's shortcut bars are the default and the smart hotbars the client settings' choice (smart_hotbar).
 
 #### `WIN-153` Client settings window beside the original's option panel
 
