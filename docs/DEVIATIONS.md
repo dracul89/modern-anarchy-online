@@ -43,9 +43,9 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | | all | done | part done | looked at, left | left by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 46 | 7 | 0 | 1 | 0 | **0** |
-| **medium** | 158 | 30 | 24 | 50 | 0 | 33 | **21** |
-| **low** | 725 | 95 | 18 | 498 | 0 | 71 | **43** |
-| **all** | 937 | 171 | 49 | 548 | 1 | 104 | **64** |
+| **medium** | 158 | 38 | 29 | 55 | 0 | 36 | **0** |
+| **low** | 725 | 101 | 20 | 532 | 0 | 72 | **0** |
+| **all** | 937 | 185 | 56 | 587 | 1 | 108 | **0** |
 
 ### By area
 
@@ -53,17 +53,17 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Movement (`MOV`) | 33 | 8 | 1 | 18 | 0 | 6 | **0** |
 | Combat (`CMB`) | 38 | 8 | 5 | 23 | 0 | 2 | **0** |
-| Targeting and mouse (`TGT`) | 17 | 2 | 0 | 0 | 1 | 0 | **14** |
-| Death and revival (`DTH`) | 14 | 2 | 0 | 0 | 0 | 0 | **12** |
-| NPCs and creatures (`NPC`) | 40 | 5 | 4 | 1 | 0 | 0 | **30** |
+| Targeting and mouse (`TGT`) | 17 | 3 | 3 | 10 | 1 | 0 | **0** |
+| Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
+| NPCs and creatures (`NPC`) | 40 | 12 | 7 | 19 | 0 | 2 | **0** |
 | Inventory and items (`INV`) | 84 | 30 | 12 | 36 | 0 | 6 | **0** |
 | Nano programs (`NAN`) | 60 | 6 | 3 | 46 | 0 | 5 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 4 | 0 | 19 | 0 | 5 | **0** |
-| Chat and commands (`CHT`) | 80 | 14 | 0 | 51 | 0 | 9 | **6** |
+| Chat and commands (`CHT`) | 80 | 15 | 1 | 53 | 0 | 11 | **0** |
 | Windows and interface (`WIN`) | 180 | 37 | 13 | 102 | 0 | 28 | **0** |
-| Camera (`CAM`) | 13 | 3 | 0 | 8 | 0 | 1 | **1** |
+| Camera (`CAM`) | 13 | 4 | 0 | 8 | 0 | 1 | **0** |
 | Rendering and world (`RND`) | 194 | 20 | 4 | 158 | 0 | 12 | **0** |
-| Sound and music (`SND`) | 17 | 2 | 0 | 14 | 0 | 0 | **1** |
+| Sound and music (`SND`) | 17 | 3 | 0 | 14 | 0 | 0 | **0** |
 | Launcher, login, character creation (`LCH`) | 51 | 17 | 4 | 23 | 0 | 7 | **0** |
 | Settings and files (`SET`) | 54 | 8 | 2 | 27 | 0 | 17 | **0** |
 | Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 0 | 2 | **0** |
@@ -95,25 +95,16 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 **Targeting and mouse** (2)
 
-- `TGT-004` Attack key: can-attack check is partial (SIMPLIFIED)
-- `TGT-005` Friendly means the same side only for targeting keys (SIMPLIFIED)
+- `TGT-004` Attack key: can-attack check is partial (SIMPLIFIED) - part done
+- `TGT-005` Friendly means the same side only for targeting keys (SIMPLIFIED) - part done
 
-**Death and revival** (1)
+**NPCs and creatures** (5)
 
-- `DTH-007` White fade at own death: that effect 3000 is the white is a guess (GUESS)
-
-**NPCs and creatures** (10)
-
-- `NPC-001` Silent NPC is told its chat is closed and asked again after two seconds (OWN-RULE)
-- `NPC-007` A creature with no standing animation holds its walk's first frame (SIMPLIFIED)
-- `NPC-008` Hoverboards/hoverbikes drawn from a template worked out from the program (SIMPLIFIED)
-- `NPC-015` Built-in machines, doors and mail terminals found by inferred rules (GUESS)
-- `NPC-016` Creature movement mode (ground/stand) and run speed read from measured bytes (GUESS)
-- `NPC-017` Creature run speed is the characters' rule, learnt or fallback, not read (GUESS)
-- `NPC-018` Creature template found by scanning, not by the original's field order (GUESS)
-- `NPC-019` Creatures walk at a flat 1.5 m/s (GUESS)
-- `NPC-020` Mission request scope for an unknown terminal kind is a fixed 5 (GUESS)
-- `NPC-039` Mission helper: "Looking for" lists and "Keep asking until one fits" (ADDITION)
+- `NPC-007` A creature with no standing animation holds its walk's first frame (SIMPLIFIED) - part done
+- `NPC-008` Hoverboards/hoverbikes drawn from a template worked out from the program (SIMPLIFIED) - looked at, left
+- `NPC-015` Built-in machines, doors and mail terminals found by inferred rules (GUESS) - looked at, left
+- `NPC-017` Creature run speed is the characters' rule, learnt or fallback, not read (GUESS) - part done
+- `NPC-020` Mission request scope for an unknown terminal kind is a fixed 5 (GUESS) - looked at, left
 
 **Inventory and items** (13)
 
@@ -146,14 +137,11 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `ZON-004` Own door use opens the door for a fixed 5 seconds (SIMPLIFIED) - looked at, left
 - `ZON-006` Instanced playfield object ids read from live bytes (GUESS) - looked at, left
 
-**Chat and commands** (6)
+**Chat and commands** (3)
 
-- `CHT-002` /help and /version show the client's own text (OWN-RULE)
-- `CHT-016` Fight lines cannot tell a pet hit or a player attacker (SIMPLIFIED)
-- `CHT-050` Friends list: no flashing row for unread tells, no red folders, tell windows not under Chat Windows, no tell-window menu (MISSING)
-- `CHT-051` Private group invitation box has no chat-window list (MISSING)
-- `CHT-069` Chat commands of the client's own (ADDITION)
-- `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice (ADDITION)
+- `CHT-002` /help and /version show the client's own text (OWN-RULE) - part done
+- `CHT-050` Friends list: no flashing row for unread tells, no red folders, tell windows not under Chat Windows, no tell-window menu (MISSING) - looked at, left
+- `CHT-051` Private group invitation box has no chat-window list (MISSING) - looked at, left
 
 **Windows and interface** (20)
 
@@ -178,10 +166,6 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `WIN-120` Playfield map: shadow textures absent, no second patch texture, no rooms' pictures (MISSING) - looked at, left
 - `WIN-121` Text views that are not editable cannot be selected by mouse (MISSING) - part done
 
-**Camera** (1)
-
-- `CAM-006` Mouse turn, zoom speed and wheel step are fixed numbers (GUESS)
-
 **Rendering and world** (15)
 
 - `RND-001` Client's own sky and light when the scripts give none (OWN-RULE) - looked at, left
@@ -199,10 +183,6 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `RND-140` Statel zones of the second layout are not read (MISSING) - looked at, left
 - `RND-141` Statels' own matrix (second flag layout) not applied (MISSING) - part done
 - `RND-142` Worn meshes: the original's two hiding modes not ported (MISSING) - looked at, left
-
-**Sound and music** (1)
-
-- `SND-002` Indoors the zone is always 0 (music, district info) (SIMPLIFIED)
 
 **Launcher, login, character creation** (4)
 
@@ -239,6 +219,8 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `MOV-033` (low) Walk/run mode announced on entering each playfield: Addition: recommend REMOVE: the original never sends the walk/run mode on entering a playfield: across all captures (several zonings) its own movement messages 
 - `CMB-037` (medium) Damage meter window (client's own): Addition: recommend KEEP: the original has no damage meter (no such window or text in GUI.dll or Gamecode); the user asked for it (the client's own tools of 202
 - `CMB-038` (medium) Floating combat numbers: Addition: recommend REMOVE (or put behind an option, off by default): the original draws no damage numbers over characters (no such view or setting in GUI.dll, 
+- `NPC-039` (medium) Mission helper: "Looking for" lists and "Keep asking until one fits": Addition: recommend KEEP: it is opt-in, sends only the original's own QuestAlternative request at a pace no faster than a player clicking (1.2 s, capped count, 
+- `NPC-040` (low) Clicked NPC answer echoed locally; client line for rejected items: Addition: recommend REMOVE: the original writes NPC chat only from the server's KnubotAppendText, with no local echo of a clicked answer and no "N item(s) given
 - `INV-079` (medium) Auto loot of fresh corpses: Addition: recommend KEEP: an option, off by default (`auto_loot`), that changes nothing of the original's look or rules until the player turns it on; no auto lo
 - `INV-080` (medium) Container and overflow windows have a "Take all" button: Addition: recommend REMOVE: GUI.dll's container window has no "Take all" button or handler (docs/INVENTORY_ORIGINAL.md section 4, confirmed in `InventoryView_c`
 - `INV-081` (medium) Tradeskill guide made from item descriptions: Addition: recommend KEEP: a window of the client's own among its other own tools (damage meter, item finder, mission helper), opened only when asked for; it cha
@@ -255,6 +237,8 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `ZON-026` (medium) Whom-Pah window with a Go button that walks to the booth: Addition: recommend KEEP: the original has no such window (GUI_DLL_PARITY.md: "Whom-pah ... ours"); it only walks with ordinary movement messages and stops on a
 - `ZON-027` (low) Interior exit offered like a Whom-Pah booth: Addition: recommend KEEP with the Whom-Pah window (ZON-026): the original offers no such list; the exit entry only walks there with ordinary movement.
 - `ZON-028` (low) Whom-Pah booths labelled by their sign texture: Addition: recommend KEEP with the Whom-Pah window: the original never reads the sign statel as a destination; the label is the client's own help and sends nothi
+- `CHT-069` (medium) Chat commands of the client's own: Addition: recommend KEEP: the commands only open the client's own tools or act on the client (none sends anything the original would not), and a player who neve
+- `CHT-070` (medium) Use key adds a "Using X" line and a "Nothing targeted to use" notice: Addition: recommend REMOVE: the original's use key (N3Msg_UseItem / the target's use, GUI.dll) prints no "Using X" line and no "Nothing targeted" notice; these 
 - `CHT-071` (low) "Chat server is not connected" line: Addition: recommend KEEP: the original has its own not-connected line for /cc ("Error: Not connected to chat-server.", a literal of FUN_100ba6f4); a player need
 - `CHT-072` (low) /fxscript with only a name gets a parameter mark added: Addition: recommend REMOVE: the original runs a script only when a parameters part follows the name; adding the mark runs scripts the original would not.
 - `CHT-073` (low) /setoption names the client's own settings: Addition: recommend KEEP: /setoption is the only way to set the client's own options from the chat line, and the original's distributed values are still set as 
@@ -484,8 +468,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **NPCs and creatures**
 
-- [ ] `NPC-039` Mission helper: "Looking for" lists and "Keep asking until one fits"
-- [ ] `NPC-040` Clicked NPC answer echoed locally; client line for rejected items
+- [ ] `NPC-039` Mission helper: "Looking for" lists and "Keep asking until one fits" **(your call)**
+- [ ] `NPC-040` Clicked NPC answer echoed locally; client line for rejected items **(your call)**
 
 **Inventory and items**
 
@@ -514,8 +498,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Chat and commands**
 
-- [ ] `CHT-069` Chat commands of the client's own
-- [ ] `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice
+- [ ] `CHT-069` Chat commands of the client's own **(your call)**
+- [ ] `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice **(your call)**
 - [ ] `CHT-071` "Chat server is not connected" line **(your call)**
 - [ ] `CHT-072` /fxscript with only a name gets a parameter mark added **(your call)**
 - [ ] `CHT-073` /setoption names the client's own settings **(your call)**
@@ -1594,8 +1578,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the white clears over 1.5 s after the arrival; windows and chat are not whitened
 - A player notices: how the screen returns after revival
 - Where: `crates/mao-client/src/whiteout.rs:9`; `crates/mao-client/src/whiteout.rs:16`
-- Decision: [ ] port  [ ] leave
-- Looked at, left (2026-11-19, overnight): The whiteout itself is a guess (effect 3000 on the own character, memory notes); how the original's effect 3000 clears and what it covers was not read (a DisplaySystem effect), so the 1.5 s and the world-only white stay.
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): with DTH-007 (commit 483a603): the original's effect 3000 is _GfxControlWhiteOut_t (FUN_101052b2), whose template has no time word, so the white is whole at once and goes at once when the effect is deleted; the client's 1.5 s clearing is gone. Whether windows are whitened was not read.
 
 ### Death and revival: an approximation or a stand-in (1)
 
