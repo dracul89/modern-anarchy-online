@@ -228,6 +228,17 @@ pub fn set_character(id: u32) {
     }
 }
 
+/// A window put at a place now (a chat tab dropped where it opens its own window): kept, and moved there when next shown.
+pub fn place(name: &str, at: egui::Pos2) {
+    if disabled() {
+        return;
+    }
+    let mut layout = LAYOUT.lock().unwrap();
+    load(&mut layout);
+    layout.spots.insert(name.to_string(), [at.x, at.y]);
+    layout.relocate.insert(name.to_string());
+}
+
 /// Whether a window is to be moved to its starting place now (once, after `set_character` dropped a place noted too early).
 pub fn relocate(name: &str) -> bool {
     LAYOUT.lock().unwrap().relocate.remove(name)

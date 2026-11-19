@@ -3314,7 +3314,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: window menu entries "Move to a window of its own" / "Move into the window of X"
 - A player notices: no dragging of tabs
 - Where: `crates/mao-client/src/chatwindow.rs:540`; `crates/mao-client/src/chatwindow.rs:3`; `docs/CLIENT_UI.md:364`; `docs/GUI_DLL_PARITY.md:75`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): a chat tab is taken up by the right button let go on it (Tab FUN_10146ef3, as the decompile reads; not seen live), its picture follows the pointer, and the left button puts it before a tab of a strip, last on a strip, or into a window of its own at the pointer (not the only tab of a window); Escape lets go (the client's own). The menu entries stay as the client's own.
 
 #### `CHT-002` /help and /version show the client's own text
 

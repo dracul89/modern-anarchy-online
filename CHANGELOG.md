@@ -83,6 +83,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Windows fade when the mouse leaves them, as in the original; the pin keeps a window solid (and the frame menu's
   "Autofade Window" does the same). Escape closes pinned windows too now.
 - The windows that have a help page in the game (skills, perks, pets, research and others) have its "?" button.
+- Chat tabs can be dragged as in the original: right-click a tab to pick it up, then left-click on another chat
+  window's tabs to move it there, or anywhere else to give it a window of its own.
 
 ### Items
 

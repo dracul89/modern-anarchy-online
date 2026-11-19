@@ -1,8 +1,9 @@
 //! The chat windows: the lines that arrive (channels, tells, system notices) in tabs, and an input line. The first
 //! frame of chat windows (`chatgroups`) is the window with the input line; each other frame is a window of its own with
-//! its tabs and lines (the original gives every chat window its own input bar, which it can turn off). A tab is moved
-//! to a window of its own, or into another, from its menu (the original drags tabs); closing such a window puts its
-//! tabs back into the first. Typing a `/` opens the
+//! its tabs and lines (the original gives every chat window its own input bar, which it can turn off). A tab is dragged:
+//! taken up by the right button and put down by the left, on a tab strip or anywhere else for a window of its own
+//! (`ChatWindow::carry`); its menu also moves it (this client's own); closing such a window puts its tabs back into the
+//! first. Typing a `/` opens the
 //! original's list of commands under the cursor (filtered as you type, Up and Down to pick, Tab or Enter to take it); a line is
 //! sent with Enter. Enter and `/` outside the window start typing (the `chat_input` and `chat_command` keys).
 //!
@@ -266,6 +267,10 @@ pub struct ChatWindow {
     lines: Vec<Line>,
     /// The original's chat windows, here the tabs (`chatgroups`), and the character they were loaded for.
     panes: Vec<Pane>,
+    /// The tab being dragged (its pane) and where it was taken hold of, from the tab's corner.
+    carried: Option<(usize, egui::Vec2)>,
+    /// Where each frame's tab strip and its tabs (by pane) were drawn this frame, for a dragged tab to go to.
+    strips: Vec<(String, egui::Rect, Vec<(usize, egui::Rect)>)>,
     loaded_for: Option<Option<u32>>,
     tab: usize,
     /// The window shown in each other frame, and the window the open menu is about.
@@ -342,7 +347,7 @@ pub struct ChatWindow {
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), start_pending: None, outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0, away: Default::default(), scripts: Default::default(), filter: crate::chatfilter::Filter::load(), macro_made: None, unkept: false }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), start_pending: None, outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0, away: Default::default(), scripts: Default::default(), filter: crate::chatfilter::Filter::load(), macro_made: None, unkept: false, carried: None, strips: Vec::new() }
     }
 }
 
@@ -1572,6 +1577,7 @@ impl ChatWindow {
     /// its input bar. `n` is the frame's number, 0 the chat window itself.
     #[allow(clippy::too_many_arguments)]
     fn frame_body(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, palette: &Palette, n: usize, frame: &str, members: &[usize], bare: bool, clicks: &mut Vec<(Option<String>, crate::gui::controls::LinkClick)>, menu_at: &mut Option<(egui::Pos2, usize)>) -> Option<Out> {
+        let mut on_tab = false;
         let main = n == 0;
         let mut pressed = Vec::new();
         let Some(&lead) = members.first() else { return None };
@@ -1598,14 +1604,24 @@ impl ChatWindow {
             let names: Vec<String> = members.iter().map(|k| self.panes[*k].name.clone()).collect();
             let names: Vec<&str> = names.iter().map(String::as_str).collect();
             let mut tab = members.iter().position(|k| *k == shown).unwrap_or(0);
-            crate::chrome::tab_view(ui, palette, &names, &mut tab, |ui, tab| {
+            let mut hits = crate::chrome::TabHits::default();
+            crate::chrome::tab_view_hits(ui, palette, &names, &mut tab, &mut hits, |ui, tab| {
                 shown = members.get(tab).copied().unwrap_or(lead);
                 let height = (ui.available_height() - below).max(40.0);
                 draw_lines(ui, palette, &self.lines, &self.born, self.panes.get(shown), None, height, fade, &mut pressed);
             });
+            // (the right button let go on a tab takes it up, `ChatWindow_c`'s FUN_10097af7; the window's menu does not come)
+            if let (Some(i), None) = (hits.right_released, self.carried) {
+                let grab = ui.input(|inp| inp.pointer.interact_pos()).zip(hits.tabs.get(i)).map_or(egui::Vec2::ZERO, |(at, rect)| at - rect.min);
+                self.carried = members.get(i).map(|&p| (p, grab));
+                on_tab = true;
+            }
+            if let Some(strip) = hits.strip {
+                self.strips.push((frame.to_string(), strip, members.iter().copied().zip(hits.tabs).collect()));
+            }
         }
         // (the right button on a name is the name's menu, not the window's: FUN_1008fa92)
-        let on_name = pressed.iter().any(|c| c.secondary && linked_name(&c.link).is_some());
+        let on_name = on_tab || pressed.iter().any(|c| c.secondary && linked_name(&c.link).is_some());
         clicks.extend(pressed.into_iter().map(|c| ((!main).then(|| frame.to_string()), c)));
         if main {
             self.tab = shown;
@@ -1637,6 +1653,77 @@ impl ChatWindow {
         let out = self.input_bar(ui, ctx, frame, false, usize::MAX);
         self.telling = None;
         out
+    }
+
+    /// A tab carried (taken up by the right button on it): its picture follows the pointer, held where it was taken
+    /// (`DragObject_c::StartDragging`, 0x1012ba1c), until the left button puts it down:
+    /// - on a tab of a frame's strip, before that tab; on the strip past the tabs, last (FUN_10098038 with
+    ///   `TabView::SlotItemDropped` 0x10145a95); a frame left without tabs is gone;
+    /// - anywhere else, into a window of its own whose corner is there (FUN_100984c2), but not the only tab of its frame.
+    ///
+    /// Escape lets go of it (this client's own: how the original drops a drag otherwise was not read). Which button
+    /// takes a tab up is as the decompile reads (`Tab` FUN_10146ef3 begins on the second button let go on it), not seen live.
+    fn carry(&mut self, ctx: &egui::Context, palette: &Palette) {
+        let strips = std::mem::take(&mut self.strips);
+        let Some((pane, grab)) = self.carried else { return };
+        let Some(name) = self.panes.get(pane).map(|p| p.name.clone()) else {
+            self.carried = None;
+            return;
+        };
+        ctx.request_repaint();
+        let Some(at) = ctx.input(|i| i.pointer.latest_pos()) else { return };
+        // (the tab's picture: an active tab with its title, `TabView::CreateDragImage` 0x10146b1e)
+        egui::Area::new(egui::Id::unique("chat-tab-carried")).order(egui::Order::Tooltip).interactable(false).fixed_pos(at - grab).show(ctx, |ui| {
+            let font = crate::font::verdana(ctx, 13.0);
+            let width = ui.painter().layout_no_wrap(name.clone(), font.clone(), egui::Color32::WHITE).size().x.ceil() + 22.0;
+            let skin = crate::skin::skin(ctx);
+            let height = skin.as_ref().and_then(|s| s.get("GFX_GUI_TAB_ACTIVE_MIDDLE")).map_or(18.0, |s| s.size.y);
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+            if !skin.is_some_and(|s| s.three_slice(ui.painter(), "GFX_GUI_TAB_ACTIVE", rect, crate::chrome::rgb(palette.accent))) {
+                ui.painter().rect_filled(rect, 3.0, crate::chrome::rgb(palette.panel));
+            }
+            ui.painter().text(egui::pos2(rect.left() + 5.0, rect.center().y), egui::Align2::LEFT_CENTER, &name, font, egui::Color32::WHITE);
+        });
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.carried = None;
+            return;
+        }
+        if !ctx.input(|i| i.pointer.primary_clicked()) {
+            return;
+        }
+        self.carried = None;
+        let source = self.panes[pane].frame.clone();
+        let shown = self.panes.get(self.tab).map(|p| p.name.clone());
+        match strips.iter().find(|s| s.1.contains(at)) {
+            Some((frame, _, tabs)) => {
+                // (put down on itself: nothing moves)
+                if tabs.iter().any(|t| t.0 == pane && t.1.contains(at)) {
+                    return;
+                }
+                // (before the tab it is put on, or after the frame's last)
+                let before = tabs.iter().find(|t| t.1.contains(at)).map(|t| t.0).filter(|&t| t != pane).and_then(|t| self.panes.get(t)).map(|p| p.name.clone());
+                let last = chatgroups::members(&self.panes, frame).last().and_then(|&k| self.panes.get(k)).map(|p| p.name.clone());
+                let mut moved = self.panes.remove(pane);
+                moved.frame = frame.clone();
+                let at_index = match before.or(last) {
+                    Some(n) => self.panes.iter().position(|p| p.name == n).map_or(self.panes.len(), |k| if tabs.iter().any(|t| t.1.contains(at)) { k } else { k + 1 }),
+                    None => self.panes.len(),
+                };
+                self.panes.insert(at_index.min(self.panes.len()), moved);
+            }
+            None => {
+                if chatgroups::members(&self.panes, &source).len() < 2 {
+                    return;
+                }
+                let frame = chatgroups::free_name(&self.panes);
+                crate::layout::place(&frame, at - grab);
+                self.panes[pane].frame = frame;
+            }
+        }
+        if let Some(k) = shown.and_then(|n| self.panes.iter().position(|p| p.name == n)) {
+            self.tab = k;
+        }
+        chatgroups::save(&self.panes);
     }
 
     pub fn show(&mut self, ctx: &egui::Context, palette: &Palette) -> Option<Out> {
@@ -1738,6 +1825,7 @@ impl ChatWindow {
             self.menu_pane = pane;
             self.open_menu(ctx, at, None);
         }
+        self.carry(ctx, palette);
         // the presses on the lines' links: a character's name (FUN_1008fa92, FUN_100ac4c4), else the info view's
         for (frame, click) in clicks {
             match linked_name(&click.link).map(str::to_string) {

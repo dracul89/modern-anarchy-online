@@ -889,15 +889,35 @@ pub fn tab_places(widths: &[f32], room: f32) -> Vec<(f32, f32)> {
 /// theme's border colour. A tab opens when it is pressed; `add` is told which is open. Without the pictures it is a row of egui's
 /// selectable labels.
 pub fn tab_view<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selected: &mut usize, add: impl FnOnce(&mut egui::Ui, usize) -> R) -> R {
+    tab_view_hits(ui, palette, names, selected, &mut TabHits::default(), add)
+}
+
+/// Where a tab view's strip and tabs were drawn, and the tab the right button was pressed and let go on (GUI.dll's `Tab`
+/// FUN_10146ef3: that begins a tab's drag, `TabView::SlotBeginDrag` 0x101459dc).
+#[derive(Default)]
+pub struct TabHits {
+    pub strip: Option<egui::Rect>,
+    pub tabs: Vec<egui::Rect>,
+    pub right_released: Option<usize>,
+}
+
+/// [`tab_view`], telling where its strip and tabs are ([`TabHits`]).
+pub fn tab_view_hits<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selected: &mut usize, hits: &mut TabHits, add: impl FnOnce(&mut egui::Ui, usize) -> R) -> R {
     let skin = crate::skin::skin(ui.ctx()).filter(|s| s.has("GFX_GUI_TAB_ACTIVE_MIDDLE") && s.has("GFX_GUI_TAB_BORDER_LEFT"));
     let Some(skin) = skin else {
-        ui.horizontal(|ui| {
+        let strip = ui.horizontal(|ui| {
             for (i, name) in names.iter().enumerate() {
-                if ui.selectable_label(*selected == i, *name).clicked() {
+                let response = ui.selectable_label(*selected == i, *name);
+                if response.clicked() {
                     *selected = i;
                 }
+                if response.secondary_clicked() {
+                    hits.right_released = Some(i);
+                }
+                hits.tabs.push(response.rect);
             }
         });
+        hits.strip = Some(strip.response.rect);
         return add(ui, *selected);
     };
     let tint = rgb(palette.accent);
@@ -909,6 +929,8 @@ pub fn tab_view<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selecte
     let places = tab_places(&widths, room.max(40.0));
     let need = places.last().map(|(x, w)| x + w + 2.0).unwrap_or(40.0);
     let (strip, _) = ui.allocate_exact_size(egui::vec2(need.min(room), height + 1.0), egui::Sense::hover());
+    hits.strip = Some(egui::Rect::from_min_max(strip.min, egui::pos2(strip.left() + room, strip.bottom())));
+    hits.tabs = places.iter().map(|&(x, w)| egui::Rect::from_min_size(egui::pos2(strip.left() + x, strip.top()), egui::vec2(w, height))).collect();
     let painter = ui.painter().clone();
     let under = painter.add(egui::Shape::Noop);
     let mut order: Vec<usize> = (0..names.len()).filter(|&i| i != *selected).collect();
@@ -921,6 +943,9 @@ pub fn tab_view<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selecte
         // opens it too)
         if response.clicked() || response.is_pointer_button_down_on() || (response.hovered() && ui.input(|inp| inp.pointer.primary_pressed())) {
             *selected = i;
+        }
+        if response.secondary_clicked() {
+            hits.right_released = Some(i);
         }
         let active = i == *selected;
         skin.three_slice(&painter, if active { "GFX_GUI_TAB_ACTIVE" } else { "GFX_GUI_TAB_INACTIVE" }, rect, if active { tint } else { tint.gamma_multiply(0.6) });

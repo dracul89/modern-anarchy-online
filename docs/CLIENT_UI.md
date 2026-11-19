@@ -6887,3 +6887,22 @@ The middle button's camera reset is this client's own; the original resets with 
 
 Left: docking windows as tabs of one frame (`DockTabbedWindow`, the `DockAreas` files). That is a window tree and saved
 layouts of its own.
+
+### Chat tabs are dragged (CHT-001)
+
+A chat tab is moved as the original moves it (`ChatWindow::carry`).
+
+- **Taking it up.** The right button pressed and let go on the tab takes it up. That is GUI.dll's `Tab` (FUN_10146ef3)
+  beginning the drag on the second button (`TabView::SlotBeginDrag`, 0x101459dc). This is read from the decompile and
+  has not been seen live.
+- **Carrying it.** A picture of the tab follows the pointer, held where it was taken (`DragObject_c::StartDragging`).
+- **Putting it down** with the left button:
+  - on a tab of any chat window's strip, it goes before that tab;
+  - on the strip past the tabs, it goes last (`ChatWindow_c` FUN_10098038, `TabView::SlotItemDropped`);
+  - on itself, nothing moves;
+  - anywhere else, it becomes a window of its own whose corner is there (FUN_100984c2). The only tab of a window cannot
+    leave it that way.
+- **What is left behind.** A window left without tabs is gone.
+- **Escape** lets go of the tab. That is this client's own choice: how the original drops a drag otherwise was not read.
+
+The tab menu's two entries for moving a tab stay as this client's own.
