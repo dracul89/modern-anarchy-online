@@ -7407,6 +7407,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: slight shading differences while limbs bend
 - Where: `crates/mao-formats/src/catmesh.rs:40`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): randy31's CAT render was read through the drop-in (catrender.rs `skin_vertex`, FUN_100543bc for drawing and FUN_1005470d for bounds): the normal is turned by the first bone alone (the client already did this, so that half matches the original), the position by the first bone alone when the weight is above 0.99, else blended (NaN blends). The client wrongly needed the second bone even for a vertex on its first alone; now it does not (catmesh.rs `skinned_model`, test `catmesh::tests::a_vertex_on_its_first_bone_alone_needs_no_second`). Left as a SAFETY keep: a bone past the matrices, where the original's drawing pass reads past its array (garbage) and its bounds pass leaves the vertex as it was; the client keeps the rest position rather than reading out of bounds.
 - Looked at, left (2026-11-19, overnight): Original not stated: the original skins on the card through randy31's CAT render, whose normal blend was not read tonight; the client's first-bone normal only changes shading at joints, seen only. Left.
 
 #### `RND-078` Sky flash: always follows the point, torso radius taken as 0.5, texture extents not read as floats

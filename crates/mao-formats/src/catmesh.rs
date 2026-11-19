@@ -393,17 +393,27 @@ impl CatMesh {
 
     /// The mesh drawn with `bones` (from [`CatMesh::pose`]): each vertex
     /// blended between its two bones by its weight (the first only when the
-    /// weight is above 0.99). Z-up.
+    /// weight is above 0.99), its normal turned by the first bone alone, as
+    /// randy31's CAT render skins it (FUN_100543bc and FUN_1005470d, drop-in
+    /// `catrender.rs` `skin_vertex`). A vertex alone on its first bone does
+    /// not need the second. Z-up.
+    ///
+    /// (A bone past the matrices: the original's bounds pass leaves the
+    /// vertex as it was and its drawing pass reads past the matrices; here
+    /// the vertex stays at its rest place.)
     pub fn skinned_model(&self, bones: &[BoneMatrix], texture_kind: u32) -> crate::model::Model {
         self.build_model(texture_kind, |v| {
-            let (b1, b2) = (v.bones[0], v.bones[1]);
-            let (Some(first), Some(second)) = (usize::try_from(b1).ok().and_then(|i| bones.get(i)), usize::try_from(b2).ok().and_then(|i| bones.get(i))) else {
+            let bone = |b: i32| usize::try_from(b).ok().and_then(|i| bones.get(i));
+            let Some(first) = bone(v.bones[0]) else {
                 return (v.rest, v.normal);
             };
             let w = v.weight;
             let position = if w > 0.99 {
                 place(first, v.first)
             } else {
+                let Some(second) = bone(v.bones[1]) else {
+                    return (v.rest, v.normal);
+                };
                 let (a, b) = (place(first, v.first), place(second, v.second));
                 [0, 1, 2].map(|c| b[c] * (1.0 - w) + a[c] * w)
             };
@@ -514,5 +524,25 @@ impl CatMesh {
             parts.push(moved);
         }
         parts
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// randy31's skinning (`skin_vertex`): a vertex above 0.99 on its first bone is placed by it alone, whatever its second
+    /// bone; a blended one with a bone past the matrices stays at rest here; the normal follows the first bone.
+    #[test]
+    fn a_vertex_on_its_first_bone_alone_needs_no_second() {
+        let vertex = |bones: [i32; 2], weight: f32| Vertex { first: [1.0, 0.0, 0.0], second: [0.0, 1.0, 0.0], rest: [9.0, 9.0, 9.0], normal: [0.0, 0.0, 1.0], bones, weight, ..Default::default() };
+        let list = TriangleList { material: 0, vertices: vec![vertex([0, 7], 1.0), vertex([0, 7], 0.5), vertex([0, 1], 0.5)], indices: vec![0, 1, 2] };
+        let mesh = CatMesh { materials: vec![Material::default()], groups: vec![Group { lists: vec![list], ..Default::default() }], ..Default::default() };
+        let moved: BoneMatrix = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 10.0, 20.0, 30.0];
+        let model = mesh.skinned_model(&[moved, IDENTITY_BONE], 0);
+        let v = &model.parts[0].vertices;
+        assert_eq!((v[0].position, v[0].normal), ([11.0, 20.0, 30.0], [0.0, 0.0, 1.0]));
+        assert_eq!(v[1].position, [9.0, 9.0, 9.0]);
+        assert_eq!(v[2].position, [5.5, 10.5, 15.0]);
     }
 }

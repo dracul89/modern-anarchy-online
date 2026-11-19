@@ -7706,3 +7706,7 @@ The original's environment effects come from pools made once per kind (DisplaySy
 ### Skin pictures drawn unfiltered (RND-076)
 
 The original draws its GUI sprites through DisplaySystem's `RenderSprite_t` with point sampling (FUN_10079c06), switching filtering on only for the loading screen's picture (GUI.dll `SetupScreen`, 0x10017331). The client now samples the skin's sprites at the nearest texel too.
+
+### Skinning by the first bone (RND-077)
+
+randy31's CAT render (FUN_100543bc, drop-in `catrender.rs`) places a vertex weighted above 0.99 by its first bone alone and blends the two bones otherwise, and always turns the normal by the first bone. The client does the same; a vertex on its first bone no longer needs its second to be known. A bone past the pose's matrices leaves the vertex at rest (the original reads past its array).
