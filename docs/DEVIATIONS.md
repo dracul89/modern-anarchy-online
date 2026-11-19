@@ -2379,7 +2379,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The description is cut at 420 characters (300 in container windows) and the "When worn" list at 10 effects.
 - A player notices: Long item descriptions and effect lists are truncated in tips.
 - Where: `crates/mao-client/src/gear.rs:220`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Settled by INV-005: the tip no longer has the client's own 420-character description; it is the original's (GUI.dll FUN_10042193), whose text leaves the description out on most pages.
 
 #### `INV-035` Tradeskill result named by its low template
 
