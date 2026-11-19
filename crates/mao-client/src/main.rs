@@ -936,8 +936,15 @@ fn add_statels(db: &ResourceDatabase, model: &mut Model, statels: &[mao_formats:
                         part.material.textures = vec![(0xf6954, *texture)];
                     }
                 }
-                // (the parts that move go apart, drawn each frame; not the plants' leaves and grass, which sway in the shader)
-                if !plant_meshes.contains(&s.mesh) && anims.iter().flatten().any(|a| a.moves()) {
+                // (a plant's texture is cut out, see `Material::foliage`; it moves only by its mesh's own animation, as any mesh)
+                if plant_meshes.contains(&s.mesh) {
+                    plants += 1;
+                    for part in &mut m.parts {
+                        part.material.foliage = true;
+                    }
+                }
+                // (the parts that move go apart, drawn each frame)
+                if anims.iter().flatten().any(|a| a.moves()) {
                     let mut kept = Vec::new();
                     let mut apart = Vec::new();
                     for (part, anim) in m.parts.into_iter().zip(anims) {
@@ -953,12 +960,6 @@ fn add_statels(db: &ResourceDatabase, model: &mut Model, statels: &[mao_formats:
                         eprintln!("animated mesh {} at {:?}: {}", s.mesh, s.position, info.join(", "));
                     }
                     moving.insert((s.mesh, overrides.clone()), apart);
-                }
-                if plant_meshes.contains(&s.mesh) {
-                    plants += 1;
-                    for part in &mut m.parts {
-                        part.material.foliage = true;
-                    }
                 }
                 let start = model.parts.len();
                 model.parts.extend(m.parts);

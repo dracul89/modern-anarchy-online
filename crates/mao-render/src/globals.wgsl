@@ -29,11 +29,9 @@ struct Globals {
     // ambient light's colour.
     script_sun: vec4<f32>,
     script_ambient: vec4<f32>,
-    // For the motion buffer (temporal anti-aliasing): this frame's view and projection without the jitter, the last frame's,
-    // and the player and time the plants bent by then.
+    // For the motion buffer (temporal anti-aliasing): this frame's view and projection without the jitter, and the last frame's.
     current_vp: mat4x4<f32>,
     previous_vp: mat4x4<f32>,
-    previous_player: vec4<f32>,
     // x: the textures' mip bias (the logarithm of the drawing scale: 0 at the window's size, -1 at a half).
     detail: vec4<f32>,
 }

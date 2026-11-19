@@ -79,8 +79,8 @@ pub struct Material {
     /// texture stages: stage 0 `COLOROP ADD, COLORARG1 TEXTURE|ALPHAREPLICATE, COLORARG2 DIFFUSE, ALPHAOP DISABLE`, stage 1
     /// `MODULATE TEXTURE, CURRENT`: the "lightedge"/"shadowtech" materials of the city buildings). Implies `ignore_alpha`.
     pub alpha_lights: bool,
-    /// Plants (trees, bushes, grass ...): the renderer sways them in the wind
-    /// and bends them away from the player.
+    /// Plants (trees, bushes, grass ...), told by the mesh's file name: the renderer cuts their texture out at half alpha
+    /// rather than blending it (`mao_render`'s `blend_of`).
     pub foliage: bool,
     /// How the pixels are blended (render state 27, with 19 and 20 for the factors).
     pub blend: Blend,

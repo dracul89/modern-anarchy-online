@@ -174,7 +174,7 @@ struct Globals {
     /// The sun's view and projection (the shadow map's).
     light_vp: [f32; 16],
     light: [f32; 4],
-    /// The player (world, Z up) and the time in seconds (plants bend away from it).
+    /// The player (world, Z up) and the time in seconds (the water's waves).
     player: [f32; 4],
     /// The eye and where the area's fog starts.
     eye: [f32; 4],
@@ -197,11 +197,9 @@ struct Globals {
     /// The effect scripts' ground light colour (w: 1 when given) and ambient colour.
     script_sun: [f32; 4],
     script_ambient: [f32; 4],
-    /// For the motion buffer (temporal anti-aliasing): this frame's view and projection without the jitter, the last frame's,
-    /// and the player and time the plants bent by then.
+    /// For the motion buffer (temporal anti-aliasing): this frame's view and projection without the jitter, and the last frame's.
     current_vp: [f32; 16],
     previous_vp: [f32; 16],
-    previous_player: [f32; 4],
     /// x: the textures' mip bias ([`mip_bias`]).
     detail: [f32; 4],
 }
@@ -501,7 +499,7 @@ pub struct Scene {
     follow: Vec<GpuPart>,
     pub center: Vec3,
     pub radius: f32,
-    /// Where the player stands (world, Z up): plants near it bend away.
+    /// Where the player stands (world, Z up): the sun's shadow map is drawn round it.
     pub player: Option<Vec3>,
     /// The view distance: the far plane an area's fog is drawn in from (`.1`); the effect scripts' fogged sky draws fade
     /// over the two (a view that wants none keeps the default).
@@ -1460,9 +1458,9 @@ pub struct Renderer {
     timer: Option<GpuTimer>,
     /// The last frame time the card reported (milliseconds; none until one is read back or where it can't be measured).
     pub gpu_ms: Option<f32>,
-    /// Frames drawn (the jitter's place in its sequence), and the last frame's unjittered view and projection and player.
+    /// Frames drawn (the jitter's place in its sequence), and the last frame's unjittered view and projection.
     frame: u32,
-    previous: Option<(Mat4, [f32; 4])>,
+    previous: Option<Mat4>,
     /// The sprite sheets uploaded so far, by number, as the bind group the particle pass uses, and the plain white one dots use.
     sprites: HashMap<u16, wgpu::BindGroup>,
     sprite_layout: wgpu::BindGroupLayout,
@@ -1636,7 +1634,7 @@ impl Renderer {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("mesh"), bind_group_layouts: &[Some(&globals_layout), Some(&part_layout), Some(&records_layout), Some(&shadow_layout)], immediate_size: 0 });
         let depth_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("depth"), bind_group_layouts: &[Some(&globals_layout), Some(&part_layout), Some(&records_layout)], immediate_size: 0 });
         let attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Unorm8x4];
-        // The shadow pass: depth only, from the sun, plants bending as in the main pass.
+        // The shadow pass: depth only, from the sun.
         let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shadow"),
             layout: Some(&depth_layout),
@@ -1856,12 +1854,11 @@ impl Renderer {
             let key = part.material.textures.first().copied();
             let view = key.and_then(|(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| { note_see_through(&self.see_through, (kind, instance), &t); upload_blocks(gpu, &t, self.compress_textures, false) })).clone());
             let (base_vertex, first_index) = (vertices.len() as i32, indices.len() as u32);
-            let (mut lo, mut hi, mut height) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN), 0.0f32);
+            let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
             for v in &part.vertices {
                 vertices.push(GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour });
                 lo = lo.min(Vec3::from(v.position));
                 hi = hi.max(Vec3::from(v.position));
-                height = height.max(v.position[1]);
             }
             indices.extend_from_slice(&part.indices);
             let m = Mat4::from_cols_array(&world);
@@ -1875,7 +1872,7 @@ impl Renderer {
             let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
             let d = part.material.diffuse;
             let material = &part.material;
-            let mut uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
+            let mut uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, 0.0, 0.0], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
             blend_by_texture(&mut uniform, material, see_through);
             let bind = texture_bind(&gpu.device, &self.part_layout, &self.sampler, &self.white, &self.binds, key, view.as_ref());
             parts.push(GpuPart {
@@ -1970,7 +1967,6 @@ impl Renderer {
             first_index: u32,
             count: u32,
             view: Option<wgpu::TextureView>,
-            height: f32,
             bounds: (Vec3, Vec3),
             id: u32,
             bind: TextureBind,
@@ -1996,15 +1992,13 @@ impl Renderer {
                 v.extend(part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour }));
                 i.extend_from_slice(&part.indices);
                 let view = part.material.textures.first().and_then(|&(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| { let t0 = std::time::Instant::now(); let r = texture(kind, instance).map(|t| { note_see_through(&self.see_through, (kind, instance), &t); upload_blocks(gpu, &t, self.compress_textures, false) }); tex_time += t0.elapsed(); tex_count += 1; r }).clone());
-                // A plant's height (in its own Y-up space) sets how it bends.
-                let height = part.vertices.iter().map(|v| v.position[1]).fold(0.0f32, f32::max);
                 let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
                 for v in &part.vertices {
                     lo = lo.min(Vec3::from(v.position));
                     hi = hi.max(Vec3::from(v.position));
                 }
                 let bind = texture_bind(&gpu.device, &self.part_layout, &self.sampler, &self.white, &self.binds, part.material.textures.first().copied(), view.as_ref());
-                Some(Packed { pack, base_vertex, first_index, count: part.indices.len() as u32, view, height, bounds: (lo, hi), id: next_id(), bind })
+                Some(Packed { pack, base_vertex, first_index, count: part.indices.len() as u32, view, bounds: (lo, hi), id: next_id(), bind })
             });
             geo_time += geo_started.elapsed();
         }
@@ -2031,7 +2025,7 @@ impl Renderer {
                 .iter()
                 .filter_map(|&(index, world)| {
                     let packed = geometry.get(&index)?.as_ref()?;
-                    let (view, height, (lo, hi)) = (&packed.view, &packed.height, packed.bounds);
+                    let (view, (lo, hi)) = (&packed.view, packed.bounds);
                     let (vb, vertex_id, ib, index_id) = buffers.get(packed.pack)?;
                     // A sphere around the part's box in the world.
                     let m = Mat4::from_cols_array(&world);
@@ -2045,7 +2039,7 @@ impl Renderer {
                     let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
                     let d = model.parts[index].material.diffuse;
                     let material = &model.parts[index].material;
-                    let mut uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
+                    let mut uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, 0.0, 0.0], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
                     blend_by_texture(&mut uniform, material, see_through);
                     Some(GpuPart { vertices: vb.clone(), vertex_id: *vertex_id, base_vertex: packed.base_vertex, indices: ib.clone(), index_id: *index_id, first_index: packed.first_index, index_count: packed.count, geometry: packed.id, characters: false, bind: packed.bind.clone(), center, radius, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default(), before: Default::default() })
                 })
@@ -2313,13 +2307,12 @@ impl Renderer {
             _ => (0.0, 1.0, [0.0; 3], 0.0),
         };
         let player_now = [player.x, player.y, player.z, self.started.elapsed().as_secs_f32()];
-        let (previous_vp, previous_player) = self.previous.unwrap_or((unjittered, player_now));
-        self.previous = Some((unjittered, player_now));
+        let previous_vp = self.previous.unwrap_or(unjittered);
+        self.previous = Some(unjittered);
         let globals = Globals {
             view_proj: view_proj.to_cols_array(),
             current_vp: unjittered.to_cols_array(),
             previous_vp: previous_vp.to_cols_array(),
-            previous_player,
             detail: [if self.mip_bias { mip_bias(scale) } else { 0.0 }, 0.0, 0.0, 0.0],
             light_vp: light_vp.to_cols_array(),
             params: [self.shadows as u32 as f32, texel, water.map_or(0.0, |w| w.level), water.is_some() as u32 as f32],
@@ -2412,7 +2405,8 @@ impl Renderer {
             if k != usize::MAX && !lod_draw[k] {
                 continue;
             }
-            // Plants bend up to a couple of units out of their box.
+            // (a couple of units of slack round each part's sphere: until 2026-11-19 plants bent out of their boxes; kept so
+            // nothing that moved past its box since is cut at the screen's edge)
             if !sphere_visible(&planes, part.center + part.shift, part.radius + 2.0) {
                 continue;
             }
@@ -2705,8 +2699,7 @@ impl Renderer {
             let casters: Vec<&GpuPart> = scene.parts.iter().enumerate().filter(|(k, p)| lod_draw[*k] && (p.center + p.shift - focus).truncate().length() <= reach + p.radius).map(|(_, p)| p).collect();
             let small = casters.iter().filter(|p| p.radius < 1.0).count();
             let medium = casters.iter().filter(|p| p.radius >= 1.0 && p.radius < 3.0).count();
-            let foliage = casters.iter().filter(|p| p.uniform.flags[2] > 0.5).count();
-            eprintln!("shadow casters: {} ({} under 1 m, {} 1-3 m, {} foliage), extent {extent}", casters.len(), small, medium, foliage);
+            eprintln!("shadow casters: {} ({} under 1 m, {} 1-3 m), extent {extent}", casters.len(), small, medium);
             eprintln!("draw groups: {} playfield draws from {} meshes ({} repeated), {} overlay, {} follow", sources.values().sum::<usize>(), sources.len(), many, scene.overlay.len(), scene.follow.len());
         }
         self.stats = Stats { parts, drawn, shadow_drawn, calls, times: [("", std::time::Duration::ZERO); 5] };

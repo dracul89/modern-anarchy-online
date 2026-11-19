@@ -5,7 +5,7 @@ struct Part {
     model: mat4x4<f32>,
     colour: vec4<f32>,
     // x: 1 when the part has a texture (alpha-tested); y: 1 to ignore the
-    // texture's alpha; z: 1 for foliage; w: the part's height (foliage).
+    // texture's alpha; z, w: not used.
     flags: vec4<f32>,
     // Where the part was the last frame (its model matrix then), and x: 1 when it animates in ways the matrices don't show.
     previous_model: mat4x4<f32>,
@@ -46,40 +46,14 @@ struct VertexOut {
     @location(6) @interpolate(flat) part: u32,
 }
 
-// Plants move: a slow sway in the wind (more towards the top) and a bend
-// away from the player when it walks through them. The base stays put.
-fn bend(world: vec3<f32>, base: f32, player: vec4<f32>, tall: f32) -> vec3<f32> {
-    let height = max(tall, 0.3);
-    let up = clamp((world.z - base) / height, 0.0, 1.0);
-    let weight = up * up;
-    let t = player.w;
-    let phase = world.x * 0.31 + world.y * 0.23;
-    let sway = vec2<f32>(sin(t * 1.6 + phase), cos(t * 1.25 + phase * 1.4)) * (0.03 * min(height, 8.0)) * weight;
-    var offset = sway;
-    let away = world.xy - player.xy;
-    let distance = length(away);
-    let reach = 3.0;
-    if distance < reach && abs(world.z - player.z) < 4.0 {
-        let push = 1.0 - distance / reach;
-        // Tall trees hardly give; low plants lie over.
-        let give = min(height * 0.9, 1.5) * min(1.0, 3.0 / height);
-        offset = offset + normalize(away + vec2<f32>(0.0001, 0.0)) * (push * give * weight);
-    }
-    return vec3<f32>(world.xy + offset, world.z - 0.15 * length(offset) * weight);
-}
-
 @vertex
 fn vs_main(v: VertexIn, @builtin(instance_index) instance: u32) -> VertexOut {
     var out: VertexOut;
     let model = parts[instance].model;
     let previous_model = parts[instance].previous_model;
     let flags = parts[instance].flags;
-    var world = (model * vec4<f32>(v.position, 1.0)).xyz;
-    var before = (previous_model * vec4<f32>(v.position, 1.0)).xyz;
-    if flags.z > 0.5 {
-        world = bend(world, model[3].z, globals.player, flags.w);
-        before = bend(before, previous_model[3].z, globals.previous_player, flags.w);
-    }
+    let world = (model * vec4<f32>(v.position, 1.0)).xyz;
+    let before = (previous_model * vec4<f32>(v.position, 1.0)).xyz;
     out.part = instance;
     out.clip = globals.view_proj * vec4<f32>(world, 1.0);
     out.now = globals.current_vp * vec4<f32>(world, 1.0);

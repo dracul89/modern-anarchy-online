@@ -502,7 +502,7 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
             }
         }
     }
-    // `MAO_PLAYER=x,y,z` (world, Z up) puts a player in the scene: plants near it bend away.
+    // `MAO_PLAYER=x,y,z` (world, Z up) puts a player in the scene: the sun's shadow map is drawn round it.
     if let Some(v) = std::env::var("MAO_PLAYER").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
         if let [x, y, z] = v[..] {
             scene.player = Some(mao_render::glam::Vec3::new(x, y, z));
@@ -2076,7 +2076,7 @@ impl ApplicationHandler for App {
                         for t in self.hud.nameplates.iter_mut().filter(|t| t.own) {
                             (t.at[0], t.at[1]) = (px, pz);
                         }
-                        // The player's feet: plants bend away from them.
+                        // The player's feet: the sun's shadow map is drawn round them.
                         w.scene.player = Some(mao_render::glam::Vec3::new(px, pz, y));
                         // The game's camera: the original's steered vehicle (see `camera.rs`), looking at the head, in the
                         // server's frame; the terrain stands in for its lines of sight.
