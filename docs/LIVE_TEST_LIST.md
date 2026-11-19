@@ -1053,6 +1053,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Open a corpse, right click an item: nothing; left click it: it is taken. Right click an item in a chest: it is taken.
 - [ ] Hover a weapon, an armour piece, an implant and a stack of ammunition in the inventory: the name in its rarity colour, then the info page's lines without the name repeated; compare with the original's tips in the reference shots.
 - [ ] Destroy a backpack item from its menu: it leaves a moment later, with no "Item deleted" line. Try a bag with items in it (opened once): the game's refusal.
+- [ ] Combine two items whose result changes name with quality (a tradeskill with a QL range): move the slider: the result's name follows.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

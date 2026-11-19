@@ -21,8 +21,8 @@
 //! lowest and the highest quality; 1 and 300 before a result).
 //!
 //! Left out: the build feedback's text signal (GlobalSignals +0x1d8, FUN_100de45e) and +0x1d4, whose senders were not
-//! traced; the result's name is its low template's (the original names the quality's interpolated item); Escape
-//! (`esc_tradeskill`).
+//! traced; Escape (`esc_tradeskill`). The result is named by the item the chosen quality makes of its two templates
+//! (`derived::item_at`), as the original names the quality's item.
 
 use std::sync::{Arc, Mutex};
 
@@ -212,9 +212,11 @@ impl TradeskillWindow {
         for (name, v) in labels {
             set_text(tree, root, name, &format!("QL {v}"));
         }
-        // (the result's line, FUN_100df105)
-        self.texts[RESULT_TEXT] = match &self.result {
-            Some(r) => mao_formats::ldb::format(&text("ResultWillBeXY"), &[mao_formats::ldb::Arg::Int(chosen as i64), mao_formats::ldb::Arg::Text(&r.name)]),
+        // (the result's line, FUN_100df105: named by the item the chosen quality makes of the two templates, as
+        // `N3Msg_GetName` names an item of that quality; the low template's name without the game's database)
+        let result_name = self.result.as_ref().map(|r| crate::net::item_db().and_then(|db| crate::derived::item_at(&db, r.low, r.high, chosen as u32)).map_or_else(|| r.name.clone(), |(_, it)| it.name));
+        self.texts[RESULT_TEXT] = match &result_name {
+            Some(name) => mao_formats::ldb::format(&text("ResultWillBeXY"), &[mao_formats::ldb::Arg::Int(chosen as i64), mao_formats::ldb::Arg::Text(name)]),
             None => self.texts[RESULT_TEXT].clone(),
         };
         for (name, t) in ["SrcFeedback", "DstFeedback", "ResultFeedback", "BuildFeedback"].iter().zip(&self.texts) {
@@ -230,7 +232,7 @@ impl TradeskillWindow {
                 crate::gui::itemslot::set_item(tree, id, item);
             }
         }
-        let result = self.result.as_ref().and_then(|r| r.icon.as_ref().map(|icon| crate::gui::itemslot::SlotItem { texture: gear.texture(ctx, icon), name: r.name.clone() }));
+        let result = self.result.as_ref().and_then(|r| r.icon.as_ref().map(|icon| crate::gui::itemslot::SlotItem { texture: gear.texture(ctx, icon), name: result_name.clone().unwrap_or_else(|| r.name.clone()) }));
         if let Some(id) = tree.find(root, "ResultIconSlot") {
             crate::gui::itemslot::set_item(tree, id, result);
         }

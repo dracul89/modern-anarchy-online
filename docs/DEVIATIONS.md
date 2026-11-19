@@ -2370,7 +2370,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Names the result by its low template's name for every quality; the two signals were not traced.
 - A player notices: The "Result will be QL n name" line and the result slot's name show the lowest quality's item name, which may differ at higher quality.
 - Where: `crates/mao-client/src/tradeskill.rs:24`; `docs/GUI_DLL_PARITY.md:90`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): GUI.dll FUN_100df105 (checked: `GameData::ACGItem_t(low, high, ql)`, `N3Msg_CreateDummyItemID`, then `N3Msg_GetName` fed into `ResultWillBeXY`) names the result by the item the chosen quality makes of the two templates. The client named every quality by the low template; now `derived::item_at(low, high, quality)` gives the name, for the line and the result slot. Test: the tradeskill tests build (no game-data test of a pair whose names differ).
 
 #### `INV-036` Wear refusal ignores the page
 

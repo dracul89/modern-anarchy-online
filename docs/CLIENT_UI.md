@@ -7273,3 +7273,7 @@ The original's item tip (GUI.dll FUN_10042193) has the item's name in its rarity
 ### Destroying an item (INV-025)
 
 The original's `N3Msg_DeleteItem` (0x1001c864) asks the server and the item goes when the server answers; it refuses to destroy a worn item or a bag with something in it, with the game's lines. The client now does the same; it no longer takes the item out before the answer or says "Item deleted".
+
+### The tradeskill result's name (INV-035)
+
+The tradeskill window's "Result will be QL n ..." line names the item the chosen quality makes (GUI.dll FUN_100df105: a dummy item of the two templates at that quality, then its name), so a result whose higher qualities have another name reads so as the slider moves. The client now does the same.

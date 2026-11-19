@@ -116,6 +116,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A right click on a corpse's item no longer takes it, as in the original; click it instead.
 - Item tips show what the original's show: the name in its rarity colour and the item's info (damage, modifiers, locations ...) under it.
 - Destroying an item waits for the server; a bag with something in it is refused with the game's line.
+- The tradeskill window names the result as it will be at the chosen quality.
 
 ### The launcher
 
