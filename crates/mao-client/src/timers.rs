@@ -320,8 +320,12 @@ impl TimerBars {
 
 /// Gamecode FUN_1005141d: a nano's cast time in seconds for the caster — the nano's ItemDelay (294) less the caster's
 /// initiative share (NanoProwessInitiative, 149: half of it up to 1200, a sixth above, `(skill - 1200) / 6 + 600`) and its
-/// AggDef (51), all in hundredths; no less than 0, nor than the nano's stat 523 when it has one.
+/// AggDef (51), all in hundredths; no less than 0, nor than the nano's stat 523 when it has one; nothing at all for a nano
+/// that [`instant_cast`]s.
 pub fn cast_seconds(nano: &dyn Fn(u32) -> Option<i64>, player: &dyn Fn(u32) -> i64) -> f32 {
+    if instant_cast(nano) {
+        return 0.0;
+    }
     let init = player(149);
     let share = if init < 0x4b1 { init as f32 * 0.5 } else { (init - 0x4b0) as f32 / 6.0 + 600.0 };
     let delay = nano(294).unwrap_or(1234567890) as f32;
@@ -336,6 +340,12 @@ pub fn cast_seconds(nano: &dyn Fn(u32) -> Option<i64>, player: &dyn Fn(u32) -> i
         }
     }
     t
+}
+
+/// A nano cast at once whatever its times and the caster's skill (FUN_1005141d 0x10051591: the nano's flag test, vtable
+/// +0x14 with 0x80000, FUN_10003d5b on its +0x4c, the flags its stat 0 holds; the time and the cast's end both made 0).
+pub fn instant_cast(nano: &dyn Fn(u32) -> Option<i64>) -> bool {
+    nano(0).is_some_and(|f| f & 0x80000 != 0)
 }
 
 #[cfg(test)]
@@ -470,5 +480,15 @@ mod tests {
             51 => 50,
             _ => 0,
         }), 2.0);
+        // (a nano whose flags hold 0x80000 is cast at once, whatever its times: its least too)
+        let instant = |k: u32| match k {
+            0 => Some(0x80000),
+            294 => Some(300),
+            523 => Some(50),
+            _ => None,
+        };
+        assert_eq!(cast_seconds(&instant, &|_| 0), 0.0);
+        assert!(instant_cast(&instant));
+        assert!(!instant_cast(&least));
     }
 }

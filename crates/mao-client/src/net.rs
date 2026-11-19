@@ -732,8 +732,8 @@ fn takes_time_to_cast(attack_time: Option<i64>) -> bool {
 /// second) less what the caster's nano initiative takes off (stat 149: half of it up to 1200, a sixth of what is above
 /// and 600) less the caster's aggression setting (stat 51, -100 defensive to 100 aggressive: a second either way), not
 /// under nothing and not under the nano's own least (stat 523, where it has one: 1234567890 is none). Nothing: the cast
-/// is run at once and the caster never takes its casting stance. (Not followed: the nano's flag 0x80000, which makes
-/// the time nothing whatever the stats.)
+/// is run at once and the caster never takes its casting stance. (The nano's flag 0x80000, which makes the time nothing
+/// whatever the stats, is taken before: `timers::instant_cast`.)
 fn cast_seconds(attack_time: i64, least: Option<i64>, initiative: i64, aggression: i64) -> f32 {
     let off = if initiative <= 1200 { initiative as f32 * 0.5 } else { (initiative - 1200) as f32 / 6.0 + 600.0 };
     let mut seconds = (attack_time as f32 / 100.0 - off / 100.0 - aggression as f32 / 100.0).max(0.0);
@@ -3267,7 +3267,8 @@ impl World {
                     // The caster plays its casting animation (at itself or at someone), when the nano takes time to cast.
                     // (one's own by its time with the initiative and the aggression setting taken off, `cast_seconds`;
                     // anyone else's, whose skill is not known here, by the nano's time alone)
-                    let attack = nano_stat(nano, 294);
+                    // (a nano flagged 0x80000 has no time at all, anyone's: `timers::instant_cast`)
+                    let attack = nano_stat(nano, 294).filter(|_| !crate::timers::instant_cast(&|k| nano_stat(nano, k)));
                     let own_seconds = (caster == self.own).then(|| {
                         let shown = crate::derived::shown(&self.stats, &self.item_mods);
                         attack.map_or(0.0, |t| if t > 0 { cast_seconds(t, nano_stat(nano, 523), shown.get(&149).copied().unwrap_or(0), self.stats.get(&51).copied().unwrap_or(0)) } else { 0.0 })

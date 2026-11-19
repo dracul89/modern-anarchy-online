@@ -7686,3 +7686,7 @@ The original lets every movement pass a gate first (`N3Msg_MovementChanged` 0x10
 ### The set-stat spell's build and profession (CMB-032)
 
 The original's set-stat spell (0xcf22, Gamecode FUN_100a4f8a) leaves eight stats alone except on a character, where the `Fatness` (47) is set by FUN_1003e464, which also has the body remade, and the `Profession` (60) by FUN_10056552, which then sets stats 10 and 0x25 to 1. The client does the same for its own character; its body takes the new build at once.
+
+### Nanos cast at once by their flag (NAN-020)
+
+The original's cast time (Gamecode FUN_1005141d) is nothing, whatever the nano's times and the caster's skill, for a nano whose flags (stat 0) hold 0x80000 (the test at 0x10051591 through the nano's vtable +0x14, FUN_10003d5b). The client follows it (`timers::instant_cast`): such a nano shows no cast bar and no casting stance, one's own or anyone's. Others' cast times are still the nano's own time, since their initiative and aggression are not sent.
