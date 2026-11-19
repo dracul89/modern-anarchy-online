@@ -516,9 +516,23 @@ fn save_ignored(list: &std::collections::BTreeSet<String>) {
 /// How many lines are kept.
 const KEEP: usize = 600;
 
+/// How a fading chat line is drawn `age_ms` after it came (`ChatTextView_c`'s frame timer, GUI.dll FUN_100926f6):
+/// `None` once it is older than the delay and the fade time together (the line is taken away), else its alpha, the
+/// time left over the fade time, below 1 only once the delay is past. A fade time of 0 changes no alpha. The two are
+/// whole milliseconds, the settings' seconds times 1000 cut (FUN_1008f8e7).
+pub fn fade_alpha(age_ms: i64, delay_ms: i64, time_ms: i64) -> Option<f32> {
+    if age_ms > delay_ms + time_ms {
+        return None;
+    }
+    if time_ms <= 0 {
+        return Some(1.0);
+    }
+    Some((((delay_ms + time_ms - age_ms) as f64 / time_ms as f64) as f32).min(1.0))
+}
+
 /// The lines of a chat window's selected groups, in a scroll view `height` tall that stays at its end.
-/// With `fade` (the delay and the time, in seconds) a line older than the delay is drawn fainter, to nothing once
-/// the time is over; `born` is when each line came.
+/// With `fade` (the delay and the time, in seconds) a line older than the delay is drawn fainter, and not at all once
+/// the time is over ([`fade_alpha`]); `born` is when each line came.
 #[allow(clippy::too_many_arguments)]
 fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std::time::Instant], pane: Option<&Pane>, only: Option<&str>, height: f32, fade: Option<(f32, f32)>, clicks: &mut Vec<crate::gui::controls::LinkClick>) {
     let now = std::time::Instant::now();
@@ -534,7 +548,14 @@ fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std:
     let stamps = pane.is_some_and(|p| p.timestamps);
     crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(height).min_scrolled_height(height).auto_shrink([false, false]).stick_to_bottom(true), |ui| {
         for (k, line) in lines.iter().enumerate().filter(|(_, l)| line_shows(l, pane, only)) {
-            let faint = fade.zip(born.get(k)).map_or(1.0, |((delay, time), came)| (1.0 - (now.duration_since(*came).as_secs_f32() - delay) / time.max(0.01)).clamp(0.0, 1.0));
+            let ms = |seconds: f32| (seconds as f64 * 1000.0) as i64;
+            let faint = match fade.zip(born.get(k)) {
+                Some(((delay, time), came)) => match fade_alpha(now.duration_since(*came).as_millis() as i64, ms(delay), ms(time)) {
+                    Some(alpha) => alpha,
+                    None => continue,
+                },
+                None => 1.0,
+            };
             // (set for each line: the setting stays on the view for what is drawn after)
             if fade.is_some() {
                 ui.set_opacity(faint);
@@ -1870,12 +1891,6 @@ impl ChatWindow {
         ctx.memory(|m| m.has_focus(bar_id(frame))) || (main && self.focus_next) || self.focus_frame.as_deref() == Some(frame)
     }
 
-    /// Whether a frame's window is active: typed in, about to be, or under the pointer.
-    fn frame_active(&self, ctx: &egui::Context, name: &str, frame: &str, main: bool) -> bool {
-        let typing = self.frame_typing(ctx, frame, main);
-        typing || ctx.memory(|m| m.area_rect(egui::Id::unique(name))).zip(ctx.input(|i| i.pointer.hover_pos())).is_some_and(|(rect, at)| rect.contains(at))
-    }
-
     /// A frame of chat windows inside its window on screen: the tabs (none when `bare`), the shown window's lines and
     /// its input bar. `n` is the frame's number, 0 the chat window itself.
     #[allow(clippy::too_many_arguments)]
@@ -1889,15 +1904,14 @@ impl ChatWindow {
             shown = lead;
         }
         let area = ui.max_rect();
-        let name = if main { "Chat".to_string() } else { format!("Chat:{frame}") };
-        let active = self.frame_active(ctx, &name, frame, main);
         let typing = ctx.memory(|m| m.has_focus(bar_id(frame))) || (main && self.focus_next) || self.focus_frame.as_deref() == Some(frame);
         let look = self.panes.get(shown).map(|p| p.look).unwrap_or_default();
         // (the input bar: none with `is_textinput_enabled` off, and with `hide_input_when_inactive` only while typing;
         // Enter still starts a line in the chat window itself)
         let bar = (look.input && (!look.hide_input || typing)) || (main && self.focus_next);
-        // (`is_message_fading_enabled`: while the window is not active a line fades once it is `ChatTextFadeDelay` old)
-        let fade = (look.fade && !active).then_some(self.fade_times);
+        // (`is_message_fading_enabled`: a line fades once it is `ChatTextFadeDelay` old, whether the window is active or
+        // not: FUN_10098f99 and FUN_1009b4ff switch the fading by that setting alone, FUN_1009002a)
+        let fade = look.fade.then_some(self.fade_times);
         let below = if bar { 41.0 } else { 4.0 };
         if bare {
             let height = (ui.available_height() - below).max(40.0);
@@ -2418,6 +2432,14 @@ mod tests {
         assert_eq!(w.outs, vec![Out::CharDist(50)]);
         assert_eq!(w.run("/viewdist"), None);
         assert_eq!(w.lines.last().unwrap().text, "Error: too few arguments.");
+    }
+
+    /// FUN_100926f6: a line keeps its alpha through the delay, fades over the fade time, and is gone after both; a
+    /// fade time of 0 only takes it away.
+    #[test]
+    fn a_fading_line_goes_by_the_original_timer() {
+        assert_eq!((fade_alpha(0, 8000, 300), fade_alpha(8000, 8000, 300), fade_alpha(8150, 8000, 300), fade_alpha(8300, 8000, 300), fade_alpha(8301, 8000, 300)), (Some(1.0), Some(1.0), Some(0.5), Some(0.0), None));
+        assert_eq!((fade_alpha(8000, 8000, 0), fade_alpha(8001, 8000, 0)), (Some(1.0), None));
     }
 
     #[test]

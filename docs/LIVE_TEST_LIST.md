@@ -1187,6 +1187,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] With the chat connection lost (e.g. the network cable out for a moment), type a line in vicinity and a tell; after "Connected to the chat server again." both go out.
 - [ ] Right after logging in, vicinity or group lines from characters not yet named show no hex number (only the text, or the group and the text).
 - [ ] `/viewdist 60` then open the options: the view distance slider shows 60 % and the world is seen to about 600 m; `/chardist 40` shows characters out to 40 m; `/viewdist` alone says the too-few-arguments error.
+- [ ] A chat window with "fade messages" on: lines fade about 8 s after they come, also while typing in that window or with the mouse over it.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

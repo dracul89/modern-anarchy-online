@@ -7866,3 +7866,7 @@ The chat library's id-to-name map gives an empty name for a character it has not
 ### /viewdist, /chardist and /char&viewdist (CHT-031)
 
 GUI.dll FUN_100b69a7 sets the `ViewDistance` preference to the number times 0.01, FUN_100b68dc the `DisplayCharViewDistance` value, and FUN_100b6a54 both; nothing is said and nothing is limited, and with too few pieces an error line is written (FUN_1009bad0). The client now does the same: `/viewdist 60` is the option window's 60 % (600 m), `/chardist 40` 40 m (anything outside 5 to 80 is 70, as N3.dll maps it), and the option window shows the new values.
+
+### Fading chat lines (CHT-034)
+
+GUI.dll's ChatTextView_c fades a line by its frame timer (FUN_100926f6): `ChatTextFadeDelay` and `ChatTextFadeTime` in whole milliseconds (FUN_1008f8e7), the alpha the time left over the fade time once the delay is past, and the line taken away after both. The fading follows the window's "fade messages" setting alone, typed in or not. The client now does the same; before, it did not fade a window that was under the pointer or typed in.

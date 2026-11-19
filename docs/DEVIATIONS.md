@@ -4159,7 +4159,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: while a window is not active, lines fade after the delay over the fade time, by the client's own reading of the option names
 - A player notices: fade may differ
 - Where: `crates/mao-client/src/chatwindow.rs:1516`; `crates/mao-client/src/ui.rs:1122`; `docs/CLIENT_UI.md:391`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Read: ChatView_c (GUI.dll FUN_10090d87) holds the `ChatTextFadeDelay` and `ChatTextFadeTime` values; FUN_1008f8e7 reads each as a double times 1000 (`FMUL [0x101ae300]`, then `_ftol2`) into whole milliseconds and hands them to its ChatTextView_c (FUN_100939c9: 0 and 0 stop the fading and show the whole text view again, scrolled to its end). ChatTextView_c's frame timer FUN_100926f6 takes a line away once `now > came + delay + time` and otherwise sets its alpha to `(came + delay + time - now) / time` when that is below 1 (no alpha at all with a fade time of 0). The fading is switched by the window's `is_message_fading_enabled` alone (FUN_10098f99, FUN_1009b4ff → FUN_1009002a): nothing looks at whether the window is active. The client's formula was the same; now the times are whole milliseconds as the original cuts them, a line past both is not drawn at all, a fade time of 0 only takes lines away, and the client's own "only while the window is not active" is gone. Test: `chatwindow::tests::a_fading_line_goes_by_the_original_timer`.
 - Looked at, left (2026-11-19, overnight): How FadingTextView_c uses ChatTextFadeDelay/Time was not read; needs the view's code. Left.
 
 #### `CHT-035` Command list is drawn and completed in the client's own way
