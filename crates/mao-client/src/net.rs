@@ -8234,6 +8234,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut velocity = [0.0f32; 2];
         let mut pushed = 0i8;
         let mut walk_toggle_seen = 0u8;
+        // (the forward, back and sidestep keys as last seen, for the tip a seated character's movement key raises)
+        let mut move_keys_seen = (false, false, 0i8);
         let mut target_told = false;
         // (the heading the last movement message carried: `CheckMotionUpdate` reports a turn of more than 0.17 rad since)
         let mut sent_heading = 0.0f32;
@@ -10678,8 +10680,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // any movement key stood it up here). It turns on the spot and does not move: in the original's table of
             // movement transitions (Gamecode FUN_1006cb58) only the sit toggle's `LeaveSit` (0x25) ends the sit mode, the
             // turns (cases 9 to 0xe) are taken in any mode, and the sit mode's vehicle has the lowest top speed there is
-            // (FUN_1006f9eb gives mode 8 the constant the walking modes use as their floor). What a jump does seated was
-            // not read; it does nothing here.
+            // (FUN_1006f9eb gives mode 8 the constant the walking modes use as their floor). The gate every movement
+            // passes first, `N3Msg_MovementChanged` asking `CharMovementStatus_t`'s slot 3 (FUN_1006c6f4), refuses in the
+            // sit mode (8) the moves and sidesteps (1 to 8) and the jump (0xf), and takes the turns (9 to 0xe) and the
+            // getting up (0x25): nothing is sent and nothing moves.
+            // (each press and release of forward, back or a sidestep in the sit mode raises the tip event
+            // `OnMovementWhileSitting`: GUI.dll `SlotMovementForward` 0x100289f5 and its twins send AFCM 0xe3,
+            // `MovementWhileSittingMessage` 0x1002888f; sleeping and lounging are modes 0xb and 0xc, no tip there)
+            let move_keys = (keys.forward, keys.back, keys.strafe);
+            if sitting && move_keys != move_keys_seen && !state.resting.contains_key(&own) {
+                crate::tips::trigger("OnMovementWhileSitting", "");
+            }
+            move_keys_seen = move_keys;
             if sitting {
                 (keys.forward, keys.back, keys.strafe, keys.jump) = seated_keys(keys.forward, keys.back, keys.strafe, keys.jump);
             }
