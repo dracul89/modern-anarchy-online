@@ -3359,10 +3359,10 @@ fn hash(k: u32, salt: u32) -> f32 {
 /// its start colour to its end colour while growing from its start size to its end size.
 pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -> Vec<Particle> {
     let mut out = Vec::new();
-    let life = e.life.clamp(0.1, 6.0);
+    let life = e.life;
     let first = ((age - life).max(0.0) * e.rate).floor() as u32;
     let last = (age.min(active) * e.rate).floor() as u32;
-    for k in first..=last.min(first + 400) {
+    for k in first..=last {
         let born = k as f32 / e.rate.max(1.0);
         let a = age - born;
         if !(0.0..life).contains(&a) {
@@ -3375,22 +3375,13 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
         let speed = e.speed.0 + hash(k, 3) * (e.speed.1 - e.speed.0);
         let direction = [azimuth.cos() * elevation.cos(), azimuth.sin() * elevation.cos(), elevation.sin()];
         let mix = |a: f32, b: f32| a + (b - a) * t;
-        // (a dense cloud of big sprites would add up to white: its strength drops with how much of a square metre it covers)
-        let middle = 0.5 * (e.size.0 + e.size.1);
-        let cover = e.rate * life * middle * middle;
-        let share = (1.5 / cover.max(1.5)).min(1.0);
-        let colour = [mix(e.start[1], e.end[1]), mix(e.start[2], e.end[2]), mix(e.start[3], e.end[3]), mix(e.start[0], e.end[0]) * share];
-        // a little scatter round the origin so the particles of a still emitter do not sit on one point
-        let jitter = |salt| (hash(k, salt) - 0.5) * 0.12;
+        // (the template's own colours, sizes and life: no dimming of dense clouds, no scatter and no limits of the client's own)
+        let colour = [mix(e.start[1], e.end[1]), mix(e.start[2], e.end[2]), mix(e.start[3], e.end[3]), mix(e.start[0], e.end[0])];
         out.push(sprite(
             e.material,
             t,
-            [
-                origin[0] + direction[0] * speed * a + jitter(4),
-                origin[1] + direction[1] * speed * a + jitter(5),
-                origin[2] + direction[2] * speed * a + 0.5 * e.gravity * a * a + jitter(6),
-            ],
-            mix(e.size.0, e.size.1).max(0.04),
+            [origin[0] + direction[0] * speed * a, origin[1] + direction[1] * speed * a, origin[2] + direction[2] * speed * a + 0.5 * e.gravity * a * a],
+            mix(e.size.0, e.size.1),
             colour,
         ));
     }
@@ -4731,5 +4722,11 @@ broken line
         assert!(emitter_particles(&e, [0.0; 3], 3.0, 0.3).is_empty());
         // the same time gives the same particles
         assert_eq!(emitter_particles(&e, [1.0, 2.0, 3.0], 0.4, 1.0), emitter_particles(&e, [1.0, 2.0, 3.0], 0.4, 1.0));
+        // a dense cloud of big sprites keeps the template's own alpha, and a particle just born sits on the origin
+        let dense = Emitter { rate: 200.0, size: (2.0, 2.0), ..emitter() };
+        let born = emitter_particles(&dense, [1.0, 2.0, 3.0], 0.0, 1.0);
+        assert_eq!(born.len(), 1);
+        assert_eq!(born[0].colour[3], 1.0);
+        assert_eq!(born[0].position, [1.0, 2.0, 3.0]);
     }
 }

@@ -7436,3 +7436,7 @@ The original's only fog is the area's (`VisualFog_t`: linear from the near plane
 ### Plants no longer sway or bend (RND-187)
 
 The client's own plant motion (a sway in the wind, stronger towards the top, and a bend away from the player within 3 units, both in the shader) is gone. As in the original, which has no plant flag, a tree, bush or grass moves only by its mesh's own animation, which the client now plays for plant meshes as for any other. Plants are still told by their mesh's file name, for their cut-out texture only (RND-002).
+
+### Generic particle emitter draws its template's own numbers (RND-191)
+
+The generic emitter (kinds 1003 and 1005-1008, used by the `MAO_CAST` preview) used to dim dense clouds by their coverage, scatter particles round their origin and clamp life, size and count. It now draws the template's own life, rate, sizes and colours, as the original's emitters run by their template.

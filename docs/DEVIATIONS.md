@@ -8523,7 +8523,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: alpha scaled down by the square-metre coverage of the cloud; 0.12 m jitter; life clamped 0.1-6 s; size min 0.04; at most 400 particles
 - A player notices: dense particle clouds look dimmer and softer than the template says
 - Where: `crates/mao-client/src/effects.rs:3347`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): `effects::emitter_particles` (the generic emitter of kinds 1003 and 1005-1008) no longer dims a dense cloud's alpha by its square-metre coverage, scatters each particle up to 0.06 m round the origin, clamps the life to 0.1-6 s, keeps sizes at least 0.04 or stops at 400 particles: it draws the template's own life, rate, sizes and colours. The original's emitters run by their template (no such rules were found in it; the entry's Original line is "not stated"), and a template that makes a dense cloud is drawn as the original draws it. Note: this generic emitter is reached only by the `MAO_CAST` preview in viewer.rs, so players see no change. Test: `effects::tests::an_emitter_makes_its_rate_of_particles_that_fade_and_grow` (now also: a dense cloud keeps the template's alpha, a new particle sits on the origin), 2 emitter tests pass; no new warnings.
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the dimming, jitter and clamps change the generic emitter's look away from the template's own numbers; if a template makes a cloud too dense, that is how the original draws it.
 
 #### `RND-192` Hit effect fade-in and fade-out added
