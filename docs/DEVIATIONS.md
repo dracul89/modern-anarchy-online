@@ -5006,7 +5006,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Always writes the English long date, "Sunday, November 15, 2026".
 - A player notices: Players with another system language see an English date.
 - Where: `crates/mao-client/src/cityterminal.rs:117`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): UpkeepDateView's text is strftime("%#x", localtime(...)). No module of the game calls setlocale (checked every DLL's and the executables' imports: only msvcp100.dll imports it), so the C runtime stays in the "C" locale, whose %x long date is English ("Sunday, November 15, 2026") on every system; the catalog's "long date of the user's locale" does not hold. The '#' flag drops the day's leading zero, which the client padded ("November 05"); cityterminal.rs long_date now writes the day plain. Test: cityterminal::tests::the_long_date (now also 2026-11-05 -> "Thursday, November 5, 2026").
 
 #### `WIN-051` Deposit to Market closes silently when nothing is deposited
 

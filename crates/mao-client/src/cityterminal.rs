@@ -125,12 +125,13 @@ pub enum Command {
 /// input is one small value a frame).
 pub static BUILDS: std::sync::Mutex<Vec<Build>> = std::sync::Mutex::new(Vec::new());
 
-/// The next bill's date as the original writes it (`strftime("%#x")`, the long date of the user's locale: here the
-/// English one, "Sunday, November 15, 2026").
+/// The next bill's date as the original writes it: `strftime("%#x")` of the local time, the C runtime's long date. No
+/// module of the game calls `setlocale` (only msvcp100.dll imports it), so the runtime stays in the "C" locale, whose
+/// long date is "Sunday, November 15, 2026" whatever the system's language; `#` drops the day's leading zero.
 pub fn long_date(unix: i64) -> String {
     let Ok(utc) = time::OffsetDateTime::from_unix_timestamp(unix) else { return String::new() };
     let local = time::UtcOffset::local_offset_at(utc).map_or(utc, |o| utc.to_offset(o));
-    format!("{}, {} {:02}, {}", local.weekday(), local.month(), local.day(), local.year())
+    format!("{}, {} {}, {}", local.weekday(), local.month(), local.day(), local.year())
 }
 
 /// What a tab shows: a view of its own, or the house view in one of its modes.
@@ -699,5 +700,7 @@ mod tests {
         // (noon UTC of 2026-11-15, a Sunday, is the same day in every zone a player's clock is likely in)
         let text = long_date(1_794_744_000);
         assert!(text.ends_with(", 2026") && text.contains("November"), "{text}");
+        // (`%#x`: no leading zero on a day under 10; noon UTC of 2026-11-05, a Thursday)
+        assert_eq!(long_date(1_793_880_000), "Thursday, November 5, 2026");
     }
 }

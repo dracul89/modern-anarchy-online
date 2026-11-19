@@ -7185,3 +7185,7 @@ The original's text renderer (`TextRenderer_c::MouseDown` 0x10163bcd) acts on a 
 ### Colour codes follow GUIColors.xml on every skin (WIN-002)
 
 The original's `LoadGUIColors` (GUI.dll 0x1006c13d) turns GUIColors.xml's six colours, Default, Selected, Hover, Text, TextSelected and TextHover, into colour codes 1 to 6, whatever the skin; tabs show white text when open and black otherwise (FUN_101462d8). The client now draws code 1 in the skin's Default and code 6 in its TextHover on dark skins too (it used the border colour and Hover there), and inactive tab text is black on every skin.
+
+### City controller's bill date (WIN-050)
+
+The original writes the next bill's date with `strftime("%#x")`; the game never sets a C locale, so it is always the English long date, without a leading zero on the day ("Thursday, November 5, 2026"). The client writes the same.
