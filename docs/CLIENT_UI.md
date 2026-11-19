@@ -2023,7 +2023,7 @@ The skin is now a stack of folders searched in order: the `gui_dir` setting (`[i
 
 ## Windows in the original's chrome (`chrome.rs`)
 
-Every window of the interface (17: inventory, stats, skills, NCU, nano programs, perks, friends, missions, mail and message, shop, loot, help, actions, Whom-Pah, options, chat) is made by `chrome::window(ctx, palette, name, title, &mut open, |w| w.<size/place>, |ui| ...)` instead of `egui::Window` directly. With the skin's pictures the window has no egui title bar: it is drawn with the original's frame pieces (`GFX_GUI_WINDOW3_BORDER_*`: thin top and sides, rounded bottom corners; greyscale masks tinted with the theme's border colour, as the original tints them from `GUIColors.xml`), a translucent panel fill, the title inside the frame at the top left, and the original's pin and close buttons (`GFX_GUI_WINDOW_PIN`, `GFX_GUI_WINDOW_CLOSE_X`, with their hover and pressed pictures) at the top right. Dragging anywhere on the window moves it (egui 0.37's own fallback for a window without a title bar); the frame is drawn under the content from the window's rectangle of the previous frame. The pin does what the original's does: a pinned window is left open by Escape (`chrome::pinned`, read by `Ui::close_with_escape`). Without the pictures the plain egui window is used as before. The windows' ids are unchanged, so `layout.ini` positions carry over. Checked offscreen (stats, chat, inventory, options; both themes); dragging and the pin not yet tried live. Not done: the launcher's windows, the original's titles where ours differ (Mission, Wear), tabs/buttons in the original's art, the question-mark button.
+Every window of the interface (17: inventory, stats, skills, NCU, nano programs, perks, friends, missions, mail and message, shop, loot, help, actions, Whom-Pah, options, chat) is made by `chrome::window(ctx, palette, name, title, &mut open, |w| w.<size/place>, |ui| ...)` instead of `egui::Window` directly. With the skin's pictures the window has no egui title bar: it is drawn with the original's frame pieces (`GFX_GUI_WINDOW3_BORDER_*`: thin top and sides, rounded bottom corners; greyscale masks tinted with the theme's border colour, as the original tints them from `GUIColors.xml`), a translucent panel fill, the title inside the frame at the top left, and the original's pin and close buttons (`GFX_GUI_WINDOW_PIN`, `GFX_GUI_WINDOW_CLOSE_X`, with their hover and pressed pictures) at the top right. Dragging anywhere on the window moves it (egui 0.37's own fallback for a window without a title bar); the frame is drawn under the content from the window's rectangle of the previous frame. The pin was read as keeping a window open on Escape until 2026-11-18; it is the window's fade switch, as the original's ("Windows fade, the pin, and the \"?\" button"). Without the pictures the plain egui window is used as before. The windows' ids are unchanged, so `layout.ini` positions carry over. Checked offscreen (stats, chat, inventory, options; both themes); dragging and the pin not yet tried live. Not done: the launcher's windows, the original's titles where ours differ (Mission, Wear), tabs/buttons in the original's art, the question-mark button.
 
 **Scroll bars.** Every scrolling list of the windows (the 17 `egui::ScrollArea`s) goes through `chrome::scroll(ui, palette, area, |ui| ...)`, which hides egui's bar and draws the one the original's scroll views make (`ScrollView_c::_UpdateScrollBars`, GUI.dll 0x10142b68: a `ScrollBar_c` with `GFX_GUI_SIMPLE_SB_UP`, `_DOWN` and `_SLIDER_VERT`, no track, a point right of the content, as wide as its arrows), tinted with the border colour. It behaves as `ScrollBar_c` does: the knob's length is the visible share of the length between the arrows, at least 8 points (`_CalcKnobSizeAndPos` 0x10141ab9, `chrome::knob`); an arrow scrolls 5 points and repeats after half a second every 0.08 s while held (`MouseDown` 0x101411fe, `SlotRepeatTimer` 0x10141d21); a click above or below the knob scrolls 20 points (the steps are 0.05 and 0.2 of the 0..100 range the scroll view makes the bar with); the knob drags (`MouseMove` 0x101416a0). The wheel stays egui's. The bar shows only when the content does not fit. Checked offscreen (Skills, both skins); not yet tried live. The sprite ids are `DynamicID_t` numbers: the AFCM drop-in's name table (`dropin/afcm/src/table.rs`) in order, so 0x177 `GFX_GUI_SIMPLE_SB_DOWN`, 0x17b `_SLIDER_VERT`, 0x17c `_UP` (the default `ScrollBar_c` art, 0x38–0x3b `GFX_GUI_BUTTON_ARROW*` and 0x174/0x175 `GFX_GUI_SCROLLBAR_EMPTY/FILLED`, is for bars made on their own).
 
@@ -6864,3 +6864,26 @@ Not ported:
 - the camera's default mode, which is `CAMERA_3RD_LOCK` in the game's `CharPrefs.xml` and `trail` here (the user's).
 
 The middle button's camera reset is this client's own; the original resets with Numpad 5 only.
+
+### Windows fade, the pin, and the "?" button (WIN-114)
+
+- **Windows fade** (`chrome::fade_level`). When the pointer leaves a window (and no mouse button is held), the window
+  fades to 0.3 over a second, starting two seconds later. When the pointer comes back it goes solid over 0.2 s.
+  - Source: `WindowController_c::HandleMouseMoved` (0x1015867f) and `FadeWindows` (0x1015831b); `Window::FadeTo` and
+    `UpdateFadeLevel` move the level linearly.
+  - The message boxes do not fade (`FadeWindows` leaves a modal window alone).
+  - The chat windows keep their own look (`chrome::keep_solid`): their fading is their own and was not read.
+- **The pin is the fade switch, nothing else.**
+  - GUI.dll's `WndBorder::GetPinButtonState` (0x10159181) is asked only by `Window::_CanFade` and the saving.
+  - A pinned window stays solid. Setting or taking off the pin turns the window solid over 0.2 s.
+  - The pins are kept in `pins.ini` (the original's `WindowPinButtonState`).
+  - The frame menu gains "Autofade Window", checked while the window fades; choosing it turns the pin.
+  - **Escape now closes a pinned window as well.** Until today the client's pin meant "left open by Escape", which the
+    original has no rule for.
+- **The "?" button** is on the nine windows the original gives a help page (`WndBorder::SetHelpFile`, 0x1015b139;
+  `chrome::HELP_PAGES`): perks, pet, LFT, laser target, vehicle select, signup terminal, research, skills and teleport
+  target. It opens the page from `cd_image/text/help/` in the info view (`GFX_GUI_WINDOW_QUESTIONMARK`, its tip
+  `InfoAboutThisWindow`).
+
+Left: docking windows as tabs of one frame (`DockTabbedWindow`, the `DockAreas` files). That is a window tree and saved
+layouts of its own.

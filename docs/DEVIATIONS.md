@@ -5087,6 +5087,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Windows cannot be docked into tab groups, never auto-fade, have no help button; look differs.
 - Where: `docs/GUI_DLL_PARITY.md:32`; `docs/CLIENT_UI.md:2028`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18): windows fade when the pointer leaves them (0.3 after 2 s over 1 s, solid over 0.2 s: FadeWindows), the pin is the fade switch alone and kept in pins.ini, the frame menu has Autofade Window, Escape closes pinned windows too, and the nine windows with a help page have the "?" button opening it. Left: docking windows as tabs of one frame (DockTabbedWindow, DockAreas); the chat windows' own fading.
 
 #### `WIN-115` A locked perk action click is ignored without the wait line
 

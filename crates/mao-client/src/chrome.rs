@@ -5,26 +5,150 @@
 //! dragging anywhere on the window moves it (egui's own fallback without a title bar). Without the pictures it is the plain
 //! egui window it was.
 //!
-//! A pinned window (the pin button, as in the original) is left open by Escape; `pinned` tells `Ui::close_with_escape`. Each
-//! window starts where the player left it (`layout.rs`), and closes the next time it is shown after Escape asked ([`close_soon`]).
+//! A window fades when the pointer leaves it and comes back when it returns, unless its pin is down (the original's
+//! autofade, [`fade_level`]). Each window starts where the player left it (`layout.rs`), and closes the next time it is
+//! shown after Escape asked ([`close_soon`]).
 
 use std::sync::Mutex;
 
 use crate::theme::Palette;
 
-/// The windows whose pin is down, by their name.
-static PINNED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// The windows whose pin is down, by their name (none until the file is read: `pins.ini` beside the settings, one name a
+/// line; the original keeps it per window as `WindowPinButtonState`, Window::SaveWndConfig). The pin is the window's fade
+/// switch, nothing else: GUI.dll's `WndBorder::GetPinButtonState` (0x10159181) is asked only by `Window::_CanFade` and
+/// the saving. Until 2026-11-18 a pinned window was the one Escape left open, which the original has no rule for.
+static PINNED: Mutex<Option<Vec<String>>> = Mutex::new(None);
 
-pub fn pinned(name: &str) -> bool {
-    PINNED.lock().unwrap().iter().any(|n| n == name)
+fn pins_path() -> std::path::PathBuf {
+    crate::settings::Settings::path().with_file_name("pins.ini")
 }
 
-fn set_pinned(name: &str, on: bool) {
+pub fn pinned(name: &str) -> bool {
     let mut list = PINNED.lock().unwrap();
+    list.get_or_insert_with(|| std::fs::read_to_string(pins_path()).map(|t| t.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect()).unwrap_or_default()).iter().any(|n| n == name)
+}
+
+/// The pin set or taken off (the button, or the frame menu's "Autofade Window"): the window goes solid over 0.2 s
+/// (`WndBorder::SetPinButtonState`, 0x1015b23a: `FadeTo(1.0, 0, 200000)`), and the list is kept.
+fn set_pinned(name: &str, on: bool) {
+    pinned(name);
+    let mut guard = PINNED.lock().unwrap();
+    let list = guard.get_or_insert_with(Vec::new);
     list.retain(|n| n != name);
     if on {
         list.push(name.to_string());
     }
+    if std::env::var_os("MAO_UI_PREVIEW").is_none() {
+        let _ = std::fs::write(pins_path(), list.join("\n") + "\n");
+    }
+    drop(guard);
+    fade_to(name, 1.0, 0.0, 0.2);
+}
+
+/// A window's fading (`Window::FadeTo`, 0x10155b1e, run by `Window::UpdateFadeLevel`, 0x1015591b): from a level to another,
+/// linearly over a time, starting after a wait; and whether the pointer was over it last frame.
+#[derive(Clone, Copy)]
+struct Fade {
+    from: f32,
+    to: f32,
+    start: std::time::Instant,
+    duration: f32,
+    hovered: bool,
+}
+
+static FADES: Mutex<Vec<(String, Fade)>> = Mutex::new(Vec::new());
+
+/// The windows that keep their own look (the chat windows: their fading is their own, `chatwindow.rs`).
+static SOLID: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// A window that never autofades (a chat frame).
+pub fn keep_solid(name: &str) {
+    let mut list = SOLID.lock().unwrap();
+    if !list.iter().any(|n| n == name) {
+        list.push(name.to_string());
+    }
+}
+
+fn level_of(fade: &Fade, now: std::time::Instant) -> f32 {
+    if now <= fade.start {
+        return fade.from;
+    }
+    let done = if fade.duration <= 0.0 { 1.0 } else { (now - fade.start).as_secs_f32() / fade.duration };
+    fade.from + (fade.to - fade.from) * done.min(1.0)
+}
+
+/// A window's level now (1: solid).
+pub fn fade_level(name: &str) -> f32 {
+    let now = std::time::Instant::now();
+    FADES.lock().unwrap().iter().find(|f| f.0 == name).map_or(1.0, |f| level_of(&f.1, now))
+}
+
+fn fade_to(name: &str, to: f32, delay: f32, duration: f32) {
+    let now = std::time::Instant::now();
+    let mut fades = FADES.lock().unwrap();
+    let hovered = fades.iter().find(|f| f.0 == name).is_some_and(|f| f.1.hovered);
+    let from = fades.iter().find(|f| f.0 == name).map_or(1.0, |f| level_of(&f.1, now));
+    fades.retain(|f| f.0 != name);
+    fades.push((name.to_string(), Fade { from, to, start: now + std::time::Duration::from_secs_f32(delay), duration, hovered }));
+}
+
+/// Whether a window may fade (`Window::_CanFade`, 0x10154b4d: its pin is not down; `WindowController_c::FadeWindows` also
+/// leaves a modal window alone: the message boxes here).
+fn can_fade(name: &str) -> bool {
+    !pinned(name) && !DIALOGS.contains(&name) && !SOLID.lock().unwrap().iter().any(|n| n == name)
+}
+
+/// The pointer's going in or out of a window, seen after it was drawn (`WindowController_c::HandleMouseMoved` 0x1015867f →
+/// `FadeWindows` 0x1015831b, while no mouse button is held): the one it left fades to 0.3 over a second after two, the one it
+/// came into goes solid over 0.2 s.
+fn note_hover(ctx: &egui::Context, name: &str, layer: egui::LayerId) {
+    if ctx.input(|i| i.pointer.any_down()) {
+        return;
+    }
+    let hovered = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|p| ctx.layer_id_at(p) == Some(layer));
+    let before = FADES.lock().unwrap().iter().find(|f| f.0 == name).is_some_and(|f| f.1.hovered);
+    if hovered != before {
+        if hovered {
+            fade_to(name, 1.0, 0.0, 0.2);
+        } else if can_fade(name) {
+            fade_to(name, 0.3, 2.0, 1.0);
+        }
+        let mut fades = FADES.lock().unwrap();
+        match fades.iter_mut().find(|f| f.0 == name) {
+            Some(f) => f.1.hovered = hovered,
+            None => fades.push((name.to_string(), Fade { from: 1.0, to: 1.0, start: std::time::Instant::now(), duration: 0.0, hovered })),
+        }
+    }
+    // (a fade under way, or one waiting to start, is drawn as it goes)
+    let now = std::time::Instant::now();
+    if let Some((_, f)) = FADES.lock().unwrap().iter().find(|f| f.0 == name) {
+        let end = f.start + std::time::Duration::from_secs_f32(f.duration);
+        if now < end {
+            ctx.request_repaint_after(if now < f.start { f.start - now } else { std::time::Duration::from_millis(30) });
+        }
+    }
+}
+
+/// The windows that have a "?" button, and the help page each opens (`WndBorder::SetHelpFile`, 0x1015b139, called for these
+/// nine windows; the button sends `file://<page>` to the info view, `WndBorder::SlotHelpButton`, which finds it under
+/// `cd_image/text/help/`).
+pub const HELP_PAGES: &[(&str, &str)] = &[
+    ("Perks", "The Perks Window.html"),
+    ("PetWindow", "The Pet Window.html"),
+    ("LFT", "The LFT Window.html"),
+    ("LaserTarget", "The laser target window.html"),
+    ("MechSelect", "The Mech Select window.html"),
+    ("SignupTerminal", "The signup terminal window.html"),
+    ("Research", "The Research window.html"),
+    ("Skills", "The Skill Window.html"),
+    ("TeleportTarget", "The teleport target window.html"),
+];
+
+/// The help pages asked for by a "?" button, for the info view.
+static HELP_ASKED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+pub fn take_help() -> Vec<String> {
+    std::mem::take(&mut *HELP_ASKED.lock().unwrap())
 }
 
 /// The windows Escape asked to close (`Ui::close_with_escape`): each closes the next time it is shown, as its close button would
@@ -42,8 +166,8 @@ pub fn close_soon(name: &str) {
 /// `BorderButton_c` of `GFX_GUI_WINDOW_ICON_I` in the border's first place), which shows the window's menu under
 /// itself, five below its bottom (FUN_1015aa2f): the entries the window's view puts in, then "Autofade Window"
 /// and "Close Window" (FUN_1015b34f). Here a window that has entries of its own takes the press ([`frame_menu`])
-/// and shows them with [`close_entry`] after them; for any other the frame shows the one entry itself. "Autofade
-/// Window" is not there: this client's windows do not fade.
+/// and shows them with [`close_entry`] after them; for any other the frame shows its own two, "Autofade Window" (checked
+/// while the window fades, `1 - pin`: `SlotFadeMenuEntry` 0x1015b2ed turns the pin) and "Close Window".
 static FRAME_ASKED: Mutex<Option<(String, egui::Pos2, Option<u64>)>> = Mutex::new(None);
 
 thread_local! {
@@ -382,7 +506,10 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     let mut close = false;
     let title = title.to_string();
     let name = name.to_string();
+    let level = fade_level(&name);
     let shown = build(egui::Window::new(title.as_str()).title_bar(false).collapsible(false).frame(frame)).id(id).show(ctx, |ui| {
+        // (the window's fade over its frame and all it holds: `UpdateFadeLevel` multiplies the view's alpha)
+        ui.multiply_opacity(level);
         let painter = ui.painter().clone();
         // the frame goes under the content: its place in the paint list is kept, it is drawn once the size is known
         let under = painter.add(egui::Shape::Noop);
@@ -419,12 +546,15 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         let stale = FRAME_ASKED.lock().unwrap().as_ref().filter(|(n, _, frame)| *n == name && frame.is_none_or(|f| f < ctx.cumulative_frame_nr())).map(|(_, at, _)| *at);
         if let Some(at) = stale {
             *FRAME_ASKED.lock().unwrap() = None;
-            FRAME_POPUP.with(|p| *p.borrow_mut() = Some((name.clone(), menu_at(ctx, at, &[(close_entry(), true)]))));
+            let autofade = crate::gui::xml::ldb_named(10000, "AutofadeWindow", "Autofade Window");
+            FRAME_POPUP.with(|p| *p.borrow_mut() = Some((name.clone(), menu_marked(ctx, at, &[(autofade, true, Some(!pinned(&name))), (close_entry(), true, None)]))));
         }
         let mut own = FRAME_POPUP.with(|p| p.borrow_mut().take_if(|(n, _)| *n == name)).map(|(_, popup)| popup);
         if own.is_some() {
-            if menu(ctx, palette, "frame-menu", &mut own) == Some(0) {
-                close = true;
+            match menu(ctx, palette, "frame-menu", &mut own) {
+                Some(0) => set_pinned(&name, !pinned(&name)),
+                Some(1) => close = true,
+                _ => {}
             }
             if let Some(popup) = own {
                 FRAME_POPUP.with(|p| *p.borrow_mut() = Some((name.clone(), popup)));
@@ -434,12 +564,14 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         let mut x = outer.right() - RIGHT as f32 - 15.0;
         // (a dockable window has a third button: into the rollup area down the right edge, `rollup.rs`)
         let dockable = crate::rollup::DOCKABLE.contains(&name.as_str());
-        let buttons_left = x - 17.0 * if dockable { 2.0 } else { 1.0 } - 3.0;
+        let help = HELP_PAGES.iter().find(|h| h.0 == name).map(|h| h.1);
+        let buttons_left = x - 17.0 * (1.0 + dockable as u8 as f32 + help.is_some() as u8 as f32) - 3.0;
         let title_room = egui::Rect::from_min_max(outer.min, egui::pos2(buttons_left.max(outer.left()), outer.bottom()));
         crate::font::text(ctx, &painter.with_clip_rect(title_room.intersect(painter.clip_rect())), egui::pos2(title_left, outer.top() + 5.0), &title, 15.0, accent);
-        for (button, what) in [("CLOSE_X", "close"), ("PIN", "pin"), ("ROLLUP_COLLAPSE", "dock")] {
-            if what == "dock" && !dockable {
-                break;
+        // (`WndBorder::CreateBorderIcons`, 0x1015ae85: close, the pin and, for a window with a help page, the question mark)
+        for (button, what) in [("CLOSE_X", "close"), ("PIN", "pin"), ("QUESTIONMARK", "help"), ("ROLLUP_COLLAPSE", "dock")] {
+            if (what == "dock" && !dockable) || (what == "help" && help.is_none()) {
+                continue;
             }
             let rect = egui::Rect::from_min_size(egui::pos2(x, outer.top() + 5.0), egui::vec2(15.0, 15.0));
             let response = ui.interact(rect, id.with(what), egui::Sense::click());
@@ -458,13 +590,15 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
                 match what {
                     "pin" => set_pinned(&name, !down),
                     "dock" => crate::rollup::dock(&name),
+                    "help" => HELP_ASKED.lock().unwrap().extend(help.map(|page| format!("file://{page}"))),
                     _ => close = true,
                 }
             }
             response.on_hover_text(match what {
-                "pin" => "Pinned: stays open when Escape closes the windows",
-                "dock" => "Dock in the column at the right edge",
-                _ => "Close",
+                "pin" => crate::gui::xml::ldb_named(10000, "ToggleWindowFading", "Window fading on or off"),
+                "help" => crate::gui::xml::ldb_named(10000, "InfoAboutThisWindow", "About this window"),
+                "dock" => "Dock in the column at the right edge".to_string(),
+                _ => crate::gui::xml::ldb_named(10000, "Close", "Close"),
             });
             x -= 17.0;
         }
@@ -472,6 +606,9 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     });
     if close {
         *open = false;
+    }
+    if let Some(r) = &shown {
+        note_hover(ctx, &name, r.response.layer_id);
     }
     shown
 }

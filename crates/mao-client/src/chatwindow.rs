@@ -1697,6 +1697,7 @@ impl ChatWindow {
                 crate::chrome::bare_window(ctx, palette, &name, solid, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, true, &mut clicks, &mut menu_at));
             } else {
                 let open = if n == 0 { &mut open } else { &mut stays };
+                crate::chrome::keep_solid(&name);
                 crate::chrome::window(ctx, palette, &name, "Chat", open, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, false, &mut clicks, &mut menu_at));
             }
             out = out.or(sent);

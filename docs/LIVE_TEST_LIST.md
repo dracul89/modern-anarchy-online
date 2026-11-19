@@ -995,6 +995,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] `/pet` lines (2026-11-18): `/pet <name> follow` moves only that pet; `/pet attack` all; `/pet social wave`; with no pet the game's line
 - [ ] Run speed (2026-11-18): a character with high attributes runs without rubber-banding back; compare a run's length with the original
 - [ ] Mouse look (2026-11-18): turning speed as the original's at the same sensitivity; hold right, press left, let go of left: the look ends; A/D strafe while a left-button look moves
+- [ ] Window fading (2026-11-18): a window fades two seconds after the mouse leaves it and comes back at once; a pinned one stays; the pin survives a restart; Escape closes a pinned window; "?" on Skills opens its help page
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

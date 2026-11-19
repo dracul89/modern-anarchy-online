@@ -460,13 +460,14 @@ pub fn escape_option(name: &str, loot_kind: Option<u32>, trading: bool) -> Optio
     }))
 }
 
-/// The windows of [`ESCAPABLE`] Escape closes: those whose option (`esc`) is set, or that need none, and whose pin is not down.
-pub fn escape_closes(loot_kind: Option<u32>, trading: bool, esc: &dyn Fn(&str) -> bool, pinned: impl Fn(&str) -> bool) -> Vec<&'static str> {
+/// The windows of [`ESCAPABLE`] Escape closes: those whose option (`esc`) is set, or that need none. (A pinned window
+/// closed too: the pin is the fading's switch alone. Until 2026-11-18 it kept a window open.)
+pub fn escape_closes(loot_kind: Option<u32>, trading: bool, esc: &dyn Fn(&str) -> bool) -> Vec<&'static str> {
     ESCAPABLE
         .iter()
         .chain(crate::chrome::DIALOGS)
         .copied()
-        .filter(|name| escape_option(name, loot_kind, trading).is_some_and(|option| option.is_none_or(esc)) && !pinned(name))
+        .filter(|name| escape_option(name, loot_kind, trading).is_some_and(|option| option.is_none_or(esc)))
         .collect()
 }
 
@@ -709,14 +710,14 @@ impl Ui {
             Some(_) => store.is_some_and(|s| s.get_bool(name)),
             None => esc_default(name),
         };
-        for name in escape_closes(None, self.shop.partner.is_some(), &esc, crate::chrome::pinned) {
+        for name in escape_closes(None, self.shop.partner.is_some(), &esc) {
             crate::chrome::close_soon(name);
         }
         // (the containers' windows, each by its own name: a corpse's by `esc_corpses`, a chest's by `esc_chests`)
         for window in self.bag_windows.values().filter(|w| w.open && !w.own) {
             if let (Some(Some(option)), Some(temp)) = (escape_option("loot", window.kind(), false), window.temp) {
                 let name = format!("TempContainer_{temp}");
-                if esc(option) && !crate::chrome::pinned(&name) {
+                if esc(option) {
                     crate::chrome::close_soon(&name);
                 }
             }
@@ -724,10 +725,7 @@ impl Ui {
         // (one's own backpacks, each a window of its own: `esc_backpacks`, FUN_100ccefe)
         if esc("esc_backpacks") {
             for (identity, _) in self.bag_windows.iter().filter(|(_, w)| w.open && w.own) {
-                let name = format!("Container_{}x{}", identity.0, identity.1);
-                if !crate::chrome::pinned(&name) {
-                    crate::chrome::close_soon(&name);
-                }
+                crate::chrome::close_soon(&format!("Container_{}x{}", identity.0, identity.1));
             }
         }
         if esc("esc_tips") {
@@ -1221,6 +1219,10 @@ impl Ui {
                 egui::DragAndDrop::set_payload(&ctx, hotbar::Action::Macro { id, name });
             }
             requests.chat.extend(chat_window.outs.drain(..));
+            // (a window's "?" button: its help page, `chrome::HELP_PAGES`)
+            for url in crate::chrome::take_help() {
+                info_view.show_url(&url);
+            }
             for url in chat_window.links.drain(..) {
                 info_view.show_url(&url);
             }
@@ -2999,7 +3001,7 @@ mod tests {
     /// windows, nor the windows that read none.
     #[test]
     fn escape_closes_by_the_original_options() {
-        let closes = escape_closes(None, false, &esc_default, |_| false);
+        let closes = escape_closes(None, false, &esc_default);
         for name in ["Options", "Help", "Option panel", "Shop", "perk-dialog", "team-invite", "Perks", "Research", "Missions", "PlanetMap", "Info", "Wear", "Inspect", "Tradeskill", "Raid", "LFT", "CityTerminal"] {
             assert!(closes.contains(&name), "{name}");
         }
@@ -3011,22 +3013,22 @@ mod tests {
         assert_eq!(escape_option("loot", Some(0xc749), false), Some(Some("esc_chests")));
         // (the raid, team search and city windows by theirs)
         let no_raid = |name: &str| name != "esc_raid";
-        assert!(!escape_closes(None, false, &no_raid, |_| false).contains(&"Raid"));
-        assert!(escape_closes(None, false, &no_raid, |_| false).contains(&"LFT"));
+        assert!(!escape_closes(None, false, &no_raid).contains(&"Raid"));
+        assert!(escape_closes(None, false, &no_raid).contains(&"LFT"));
         assert_eq!(escape_option("loot", None, false), None);
         // (a trade with a player by `esc_trades`, a shop by `esc_shops`)
         assert_eq!(escape_option("Shop", None, true), Some(Some("esc_trades")));
         assert_eq!(escape_option("Shop", None, false), Some(Some("esc_shops")));
         let no_trades = |name: &str| name != "esc_trades";
-        assert!(!escape_closes(None, true, &no_trades, |_| false).contains(&"Shop"));
-        assert!(escape_closes(None, false, &no_trades, |_| false).contains(&"Shop"));
-        // (an option turned on in the options closes that window too; a pinned window stays)
-        assert!(escape_closes(None, false, &|_| true, |_| false).contains(&"Inventory"));
-        assert!(!escape_closes(None, false, &|_| true, |n| n == "Research").contains(&"Research"));
+        assert!(!escape_closes(None, true, &no_trades).contains(&"Shop"));
+        assert!(escape_closes(None, false, &no_trades).contains(&"Shop"));
+        // (an option turned on in the options closes that window too)
+        assert!(escape_closes(None, false, &|_| true).contains(&"Inventory"));
+        assert!(escape_closes(None, false, &|_| true).contains(&"Research"));
         // (every window Escape may close names an option of LoginPrefs.xml, or is the client's own)
         for name in ESCAPABLE.iter().chain(crate::chrome::DIALOGS) {
             assert!(escape_option(name, Some(crate::loot::CORPSE), false).is_some(), "{name}");
         }
-        assert!(escape_closes(None, false, &|_| true, |_| false).contains(&"remove-friend"));
+        assert!(escape_closes(None, false, &|_| true).contains(&"remove-friend"));
     }
 }

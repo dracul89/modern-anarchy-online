@@ -80,6 +80,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The shortcut bars are the original's now: up to ten bars (set in the client's settings) of ten slots and ten pages each.
   1 to 0 press the primary bar's slots, Shift+1 to 0 pick its page and Alt+1 to 0 pick the primary bar. The smart hotbars
   are still there as a setting.
+- Windows fade when the mouse leaves them, as in the original; the pin keeps a window solid (and the frame menu's
+  "Autofade Window" does the same). Escape closes pinned windows too now.
+- The windows that have a help page in the game (skills, perks, pets, research and others) have its "?" button.
 
 ### Items
 
