@@ -3713,16 +3713,24 @@ impl World {
         if m.kind == 0x206b4b73 && m.identity.1 == self.own {
             // (its `Message` is packed, `~&` and base-85 words naming a text.mdb text and its arguments: LDB.dll's
             // `RemoteFormat` unpacks it)
-            let packed = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data).ok().and_then(|p| match p.value.get("Message") {
+            let parsed = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data).ok();
+            let packed = parsed.as_ref().and_then(|p| match p.value.get("Message") {
                 Some(mao_net::schema::Value::Str(t)) if t.starts_with("~&") => Some(t.clone()),
                 _ => None,
             });
+            // (`FormatFeedbackIIR_t`, Gamecode FUN_10039557 -> FUN_1005aff0, by its last word: 1 is the tradeskill window's
+            // build text alone, GlobalSignals +0x1d8 into FUN_100de45e, and not the chat)
+            let kind = parsed.as_ref().and_then(|p| p.value.get("Unknown2")).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
             let text = match (packed, crate::feedback::texts()) {
                 (Some(t), Some(texts)) => Some(mao_formats::ldb::remote(texts, &t)).filter(|t| !t.is_empty()),
                 _ => mao_net::n3::feedback_text(&m.data),
             };
             if let Some(text) = text {
-                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, text));
+                if kind == 1 {
+                    crate::tradeskill::push_event(crate::tradeskill::Event::Feedback(text));
+                } else {
+                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, text));
+                }
             }
         }
         if m.kind == 0x3710256c {

@@ -20,8 +20,10 @@
 //! quality is `(max - min + 1) * share / 100 + min`, held to `max` (FUN_100def2d, which also labels "QL n" the chosen, the
 //! lowest and the highest quality; 1 and 300 before a result).
 //!
-//! Left out: the build feedback's text signal (GlobalSignals +0x1d8, FUN_100de45e) and +0x1d4, whose senders were not
-//! traced; Escape (`esc_tradeskill`). The result is named by the item the chosen quality makes of its two templates
+//! The build text also takes the server's `FormatFeedback` lines of kind 1 (its last word; `FormatFeedbackIIR_t`, Gamecode
+//! FUN_10039557 -> FUN_1005aff0 emits them on GlobalSignals +0x1d8 into FUN_100de45e, and not to the chat: "You need at
+//! least ..." and the like at a combine). The window's other global slot, +0x1d4, is `ret 8` (0x100de45b), nothing.
+//! Left out: Escape (`esc_tradeskill`). The result is named by the item the chosen quality makes of its two templates
 //! (`derived::item_at`), as the original names the quality's item.
 
 use std::sync::{Arc, Mutex};
@@ -42,6 +44,9 @@ pub enum Event {
     Requirement(u32, i32),
     /// The result's lowest and highest quality, its templates, and its name and icon (its low template's).
     Result { min: i32, max: i32, low: u32, high: u32, name: String, icon: Option<Arc<Icon>> },
+    /// A `FormatFeedback` of kind 1 (Gamecode FUN_1005aff0 emits it on GlobalSignals +0x1d8): the build text
+    /// (FUN_100de45e).
+    Feedback(String),
 }
 
 /// What the window asks the connection to send.
@@ -169,6 +174,7 @@ impl TradeskillWindow {
                 crate::craftguide::learned_need(&name(src), ql(src), &name(dst), ql(dst), &skill, value);
                 self.texts[BUILD_TEXT] = format(&text("YouNeedAtLeastSkill"), &[Arg::Int(value as i64), Arg::Text(&skill), Arg::Text(&skill), Arg::Int(own)]);
             }
+            Event::Feedback(line) => self.texts[BUILD_TEXT] = line,
             Event::Result { min, max, low, high, name: result, icon } => {
                 crate::craftguide::learned_result(&name(src), &name(dst), &result, min, max);
                 let name = result;
@@ -342,5 +348,13 @@ mod tests {
         w.clear(true);
         assert_eq!(take_commands(), vec![Command::Source(Some(0x5a)), Command::Target(Some(0x5b)), Command::Source(None), Command::Target(None)]);
         assert!(w.result.is_none() && w.source.is_none());
+    }
+
+    /// FUN_100de45e: a kind-1 `FormatFeedback` is the build text.
+    #[test]
+    fn a_feedback_line_is_the_build_text() {
+        let mut w = TradeskillWindow::default();
+        w.apply(Event::Feedback("You need at least 10 in Breaking and Entry.".into()), &[], &Default::default());
+        assert_eq!(w.texts[BUILD_TEXT], "You need at least 10 in Breaking and Entry.");
     }
 }

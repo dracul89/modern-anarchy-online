@@ -144,6 +144,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Item and nano pages list more of their effects: casts (with a link to the nano), procs, damage and healing, nano drain, faction changes, perk locks, anchors and more.
 - Walking away from the bank or from a corpse you are looting now closes its window, as in the original.
 - Item pages show the shop's price (from a shop), insurance cost, a building's upkeep and size, a tower's type, fixtures, and an NF crystal's formula.
+- A combine's "you need at least ..." lines from the server show in the tradeskill window's build text, not in the chat, as in the original.
 
 ### The launcher
 

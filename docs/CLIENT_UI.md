@@ -7774,3 +7774,7 @@ The original's notification window takes the frame its saved `NotificationWindow
 ### Labels on XML power bars (WIN-137)
 
 A `PowerBar` element's `label` is written centred over the bar, and `left_label` with `right_label` at its two ends, in font 5 (the original's `PowerbarView_c::SetLabel` 0x1013f37c and `SetLabels` 0x1013f593: text views between stretching spacers). No skin of the game's gives these; a custom skin's XML windows now show them.
+
+### The tradeskill window's build text from the server (WIN-148)
+
+The server's `FormatFeedback` lines (`FormatFeedbackIIR_t`) carry a kind in their last word: kind 1 is not a chat line in the original but the tradeskill window's build text (Gamecode FUN_1005aff0 emits it on GlobalSignals +0x1d8, `TradeSkillView_c` FUN_100de45e sets `BuildFeedback`): the "you need at least ..." lines of a combine. The client now puts them there (`tradeskill::Event::Feedback`) instead of the chat; the other kinds stay in the chat. The window's other global slot (+0x1d4) does nothing in the original.
