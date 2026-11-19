@@ -43,9 +43,9 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | | all | done | part done | looked at, left | left by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 46 | 7 | 0 | 1 | 0 | **0** |
-| **medium** | 158 | 6 | 4 | 0 | 0 | 0 | **148** |
-| **low** | 725 | 14 | 10 | 8 | 0 | 0 | **693** |
-| **all** | 937 | 66 | 21 | 8 | 1 | 0 | **841** |
+| **medium** | 158 | 15 | 8 | 22 | 0 | 16 | **97** |
+| **low** | 725 | 41 | 13 | 216 | 0 | 26 | **429** |
+| **all** | 937 | 102 | 28 | 238 | 1 | 42 | **526** |
 
 ### By area
 
@@ -62,12 +62,12 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | Chat and commands (`CHT`) | 80 | 4 | 0 | 0 | 0 | 0 | **76** |
 | Windows and interface (`WIN`) | 180 | 16 | 5 | 1 | 0 | 0 | **158** |
 | Camera (`CAM`) | 13 | 1 | 0 | 0 | 0 | 0 | **12** |
-| Rendering and world (`RND`) | 194 | 7 | 1 | 0 | 0 | 0 | **186** |
+| Rendering and world (`RND`) | 194 | 20 | 4 | 158 | 0 | 12 | **0** |
 | Sound and music (`SND`) | 17 | 1 | 0 | 0 | 0 | 0 | **16** |
-| Launcher, login, character creation (`LCH`) | 51 | 2 | 2 | 0 | 0 | 0 | **47** |
-| Settings and files (`SET`) | 54 | 3 | 0 | 0 | 0 | 0 | **51** |
-| Network and protocol (`NET`) | 13 | 1 | 0 | 0 | 0 | 0 | **12** |
-| Other (`OTH`) | 21 | 1 | 1 | 0 | 0 | 0 | **19** |
+| Launcher, login, character creation (`LCH`) | 51 | 17 | 4 | 23 | 0 | 7 | **0** |
+| Settings and files (`SET`) | 54 | 8 | 2 | 27 | 0 | 17 | **0** |
+| Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 0 | 2 | **0** |
+| Other (`OTH`) | 21 | 3 | 1 | 13 | 0 | 4 | **0** |
 
 ### High weight not finished
 
@@ -214,80 +214,97 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 - `CAM-006` Mouse turn, zoom speed and wheel step are fixed numbers (GUESS)
 
-**Rendering and world** (25)
+**Rendering and world** (15)
 
-- `RND-001` Client's own sky and light when the scripts give none (OWN-RULE)
-- `RND-002` Plants kept cut out at half alpha instead of blended (OWN-RULE)
-- `RND-004` Spell flight 0.45 s and landing 1.4 s are the client's own timings (OWN-RULE)
-- `RND-005` Statels farther than 50 radii not drawn (OWN-RULE)
-- `RND-006` Terrain keeps slope lighting and shadow map instead of the original's flat-lit ground (OWN-RULE)
-- `RND-022` Attach points use fixed figures for a standing body, not the posed skeleton (SIMPLIFIED)
-- `RND-023` Buff ring ribbon drawn as sprites, clocks tied to 30 frames per second (SIMPLIFIED)
-- `RND-024` Flat grey floor under interiors whose ground is not read (SIMPLIFIED)
-- `RND-025` Flat water sheet where a playfield has no water triangles (SIMPLIFIED)
-- `RND-026` Map: ground picture shrunk and averaged (SIMPLIFIED)
-- `RND-027` Name tags hidden by a line-of-sight test through the surfaces, a fourth of them per frame (SIMPLIFIED)
-- `RND-028` Player body and head mesh names listed for seven breed/sex pairs only (SIMPLIFIED)
-- `RND-098` Atlas of Rubi-Ka map coordinates measured (GUESS)
-- `RND-099` Shadowlands sky still wrong, cause not found (GUESS)
-- `RND-124` Statel effects limited to 150 units of the eye (SAFETY)
-- `RND-139` Effect locators: bone, weapon and mesh attractors; effect mesh details not drawn (MISSING)
-- `RND-140` Statel zones of the second layout are not read (MISSING)
-- `RND-141` Statels' own matrix (second flag layout) not applied (MISSING)
-- `RND-142` Worn meshes: the original's two hiding modes not ported (MISSING)
-- `RND-183` Anti-aliasing, anisotropic filtering, mips and hemisphere light (ADDITION)
-- `RND-184` Coloured boxes stand in for characters with no model (ADDITION)
-- `RND-185` Distance haze when the area has no fog (ADDITION)
-- `RND-186` Name plates are the client's own (ADDITION)
-- `RND-187` Plants sway in the wind and bend away from the player (ADDITION)
-- `RND-188` Real sun shadows from the playfield's props, shadow-map options (ADDITION)
+- `RND-001` Client's own sky and light when the scripts give none (OWN-RULE) - looked at, left
+- `RND-002` Plants kept cut out at half alpha instead of blended (OWN-RULE) - looked at, left
+- `RND-004` Spell flight 0.45 s and landing 1.4 s are the client's own timings (OWN-RULE) - looked at, left
+- `RND-006` Terrain keeps slope lighting and shadow map instead of the original's flat-lit ground (OWN-RULE) - looked at, left
+- `RND-022` Attach points use fixed figures for a standing body, not the posed skeleton (SIMPLIFIED) - looked at, left
+- `RND-023` Buff ring ribbon drawn as sprites, clocks tied to 30 frames per second (SIMPLIFIED) - looked at, left
+- `RND-024` Flat grey floor under interiors whose ground is not read (SIMPLIFIED) - looked at, left
+- `RND-026` Map: ground picture shrunk and averaged (SIMPLIFIED) - looked at, left
+- `RND-027` Name tags hidden by a line-of-sight test through the surfaces, a fourth of them per frame (SIMPLIFIED) - looked at, left
+- `RND-098` Atlas of Rubi-Ka map coordinates measured (GUESS) - looked at, left
+- `RND-099` Shadowlands sky still wrong, cause not found (GUESS) - looked at, left
+- `RND-139` Effect locators: bone, weapon and mesh attractors; effect mesh details not drawn (MISSING) - part done
+- `RND-140` Statel zones of the second layout are not read (MISSING) - looked at, left
+- `RND-141` Statels' own matrix (second flag layout) not applied (MISSING) - part done
+- `RND-142` Worn meshes: the original's two hiding modes not ported (MISSING) - looked at, left
 
 **Sound and music** (1)
 
 - `SND-002` Indoors the zone is always 0 (music, district info) (SIMPLIFIED)
 
-**Launcher, login, character creation** (9)
+**Launcher, login, character creation** (4)
 
-- `LCH-001` Launcher is its own window and process that starts the game (OWN-RULE)
-- `LCH-002` Launcher settings pages keep their names but have this client's own contents (OWN-RULE)
-- `LCH-003` Loading screen picture is tinted blue; zoning also shows it (OWN-RULE)
-- `LCH-004` Wide window keeps the 4:3 view height in the login hall and character creation (OWN-RULE)
-- `LCH-009` A new character is not logged straight in; the list is fetched again (SIMPLIFIED)
-- `LCH-038` No progress window between Play and the loading screen; the loading screen goes up at the press of Play (MISSING)
-- `LCH-043` An account with no characters is sent back to the form (ADDITION)
-- `LCH-044` Character screen figure is dressed from a remembered look (looks.ini) (ADDITION)
-- `LCH-045` Logging out (/camp) restarts the launcher and logs in again (ADDITION)
+- `LCH-001` Launcher is its own window and process that starts the game (OWN-RULE) - looked at, left
+- `LCH-002` Launcher settings pages keep their names but have this client's own contents (OWN-RULE) - looked at, left
+- `LCH-003` Loading screen picture is tinted blue; zoning also shows it (OWN-RULE) - part done
+- `LCH-004` Wide window keeps the 4:3 view height in the login hall and character creation (OWN-RULE) - looked at, left
 
-**Settings and files** (14)
+**Settings and files** (5)
 
-- `SET-001` Chat window layout kept in chatwindows.ini (OWN-RULE)
-- `SET-002` Hotbars saved in hotbar.ini (OWN-RULE)
-- `SET-003` New windows start at the original client's frame, scaled; another character's layout used (OWN-RULE)
-- `SET-004` Original chat font is a setting (OWN-RULE)
-- `SET-005` Window places, sizes and open windows kept in the client's own ini files (OWN-RULE)
-- `SET-026` Some default keys are assumed, not read from the original (GUESS)
-- `SET-032` Original's key editor not ported; Key bindings tab leads to the client's own settings (MISSING)
-- `SET-038` Character draw distance and auto-loot settings (ADDITION)
-- `SET-039` Frame limit, background limit and vsync choice (ADDITION)
-- `SET-040` Interface size setting (ADDITION)
-- `SET-041` Item finder files of what was seen (ADDITION)
-- `SET-042` Own graphics and display options (presets, scale, FSR, shadows, monitor, distances) (ADDITION)
-- `SET-043` Themes, skin folders and the built-in palette (ADDITION)
-- `SET-044` Window modes with F11 / Alt+Enter and a chosen monitor (ADDITION)
+- `SET-001` Chat window layout kept in chatwindows.ini (OWN-RULE) - looked at, left
+- `SET-002` Hotbars saved in hotbar.ini (OWN-RULE) - looked at, left
+- `SET-003` New windows start at the original client's frame, scaled; another character's layout used (OWN-RULE) - part done
+- `SET-005` Window places, sizes and open windows kept in the client's own ini files (OWN-RULE) - looked at, left
+- `SET-032` Original's key editor not ported; Key bindings tab leads to the client's own settings (MISSING) - looked at, left
 
 **Network and protocol** (1)
 
-- `NET-003` Organisation and many other messages built from the decompile only (GUESS)
+- `NET-003` Organisation and many other messages built from the decompile only (GUESS) - looked at, left
 
-**Other** (2)
+**Other** (1)
 
-- `OTH-006` Tradeskill guide is a reading of prose, not a recipe table (GUESS)
-- `OTH-018` Help assistant: a small language model run inside the client (ADDITION)
+- `OTH-006` Tradeskill guide is a reading of prose, not a recipe table (GUESS) - looked at, left
 
 ### Additions waiting for your call
 
 "Your call": a client addition read overnight; its entry recommends keeping or removing it.
 
+- `RND-183` (medium) Anti-aliasing, anisotropic filtering, mips and hemisphere light: Addition: recommend KEEP: anti-aliasing, anisotropic filtering and mips are display-quality settings with no rule of the original's to break (its DirectX 7 devi
+- `RND-184` (medium) Coloured boxes stand in for characters with no model: Addition: recommend KEEP: the original has a model for every character (its fallback is `unfinished-breed.cir`, see RND-028), so the boxes only show where this 
+- `RND-185` (medium) Distance haze when the area has no fog: Addition: recommend REMOVE: the original's only fog is the area's VisualFog_t; with none it draws clear to its far clip, so the haze is a look of the client's o
+- `RND-186` (medium) Name plates are the client's own: Addition: recommend KEEP: the original's name tags are VisualSprite_t in the world (HandleNametags 0x100268ee); until those are ported (RND-027) the client's pl
+- `RND-187` (medium) Plants sway in the wind and bend away from the player: Addition: recommend REMOVE: the original has no plant flag and moves plants only through their meshes' own animations; the sway and the bend away from the playe
+- `RND-188` (medium) Real sun shadows from the playfield's props, shadow-map options: Addition: recommend KEEP: it is an option and `shadows` off gives the original's blob shadows only (GfxVisualSimpleShadow_c); suggest it default to off if the o
+- `RND-189` (low) Drawing scale with FSR 1 upscaling and a mip bias: Addition: recommend KEEP: a performance option for slow machines that defaults to full scale; it does not change the picture's content.
+- `RND-190` (low) Frame limiter and background frame rate: Addition: recommend KEEP: frame limiting is a machine setting with no rule of the original's to break.
+- `RND-191` (low) Generic emitter: dense clouds dimmed, jitter and clamps: Addition: recommend REMOVE: the dimming, jitter and clamps change the generic emitter's look away from the template's own numbers; if a template makes a cloud t
+- `RND-192` (low) Hit effect fade-in and fade-out added: Addition: recommend REMOVE: the original's hit effects end as their own controls fade them; an extra fade in and out changes their look.
+- `RND-193` (low) Textures block-compressed on the card, on by default: Addition: recommend KEEP: compression saves video memory and is a launcher option; the original's DX7 device also took compressed (DXT) textures where the files
+- `RND-194` (low) View distance and character distance settings: Addition: recommend KEEP: the original has a view distance setting of its own in its options; the character distance is a performance option.
+- `LCH-043` (medium) An account with no characters is sent back to the form: Addition: recommend REMOVE: the original goes to the character screen for every character list (GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179: reply 0xe ->
+- `LCH-044` (medium) Character screen figure is dressed from a remembered look (looks.ini): Addition: recommend KEEP: no store of looks was found in the original (GUI.dll's login strings name only the creation meshes for `LoginWorld_c`; the list's `Cha
+- `LCH-046` (low) "No heads found" message in creation: Addition: recommend KEEP: it shows only when the game's files have none of the breed's head meshes, where the original would have offered no head and sent a cre
+- `LCH-048` (low) Game folder is looked for in usual install places: Addition: recommend KEEP: the original runs from inside its own folder and never needs to find it; the client is installed apart from the game, so looking in th
+- `LCH-049` (low) Launcher has its own backgrounds (night sky, own picture) and a news-page switch: Addition: recommend KEEP: the default (`background = game`) is the original's own pictures; the night sky and an own picture only show when chosen. The news-pag
+- `LCH-050` (low) Launcher Visual page adds frame limit, shadows, monitor, presets: Addition: recommend KEEP: the Visual page's added rows are the wgpu counterparts of the original's Direct3D choices (see SET-042), which have no meaning here.
+- `LCH-051` (low) Launcher window hidden at start, web view moved in after load: Addition: recommend KEEP: nothing a player sees differs from the original but the missing white flash of an empty web view; it is how a WebView2 child is shown 
+- `SET-038` (medium) Character draw distance and auto-loot settings: Addition: recommend KEEP: the character draw distance is the original's own (`/chardist`, registered by GUI.dll FUN_100bb3e0), only reached here also from a set
+- `SET-039` (medium) Frame limit, background limit and vsync choice: Addition: recommend KEEP: the original's only frame control is its fixed cap and the `/framerate` counter (`FramerateView_t`); a limit, a background limit and t
+- `SET-040` (medium) Interface size setting: Addition: recommend KEEP: the original has no interface scale (no scale string in GUI.dll), and at today's resolutions its 1024x768-sized windows are unreadably
+- `SET-041` (medium) Item finder files of what was seen: Addition: recommend KEEP: the item finder is one of the client's own tools the user asked for (memory "MAO own tools"); its files are only written beside the cl
+- `SET-042` (medium) Own graphics and display options (presets, scale, FSR, shadows, monitor, distances): Addition: recommend KEEP: the original's graphics settings are Direct3D 7 device, colour depth and texture choices that have no meaning for wgpu (LCH-002); the 
+- `SET-043` (medium) Themes, skin folders and the built-in palette: Addition: recommend KEEP: the default theme is `original` (the game's own skin and GUIColors.xml); the AOU themes and other folders only apply when chosen.
+- `SET-044` (medium) Window modes with F11 / Alt+Enter and a chosen monitor: Addition: recommend KEEP, but note: Alt+Enter is one of the original's three chat keys (GUI.dll's key table at 0x101aab28: `COMMAND_TEXT_INPUT_START_TEXT_INPUT`
+- `SET-045` (low) Account file with last-played character first: Addition: recommend KEEP the pre-selection, which is the original's own (`CharSelectWindow_c::SlotCharListReceived` 0x1000ebd5 selects the row of the value `Sel
+- `SET-046` (low) AutoAFK controlled by /setoption: Addition: recommend KEEP: `/setoption` is the original's own command for setting any distributed value, and `AutoAFK` is one (LoginPrefs.xml), so the original's
+- `SET-047` (low) Client brings its own PlanetMap folder: Addition: recommend KEEP: the game's own PlanetMap folder is still read; the client's folder only adds maps (memory: they reached the real folder 2026-11-15) wi
+- `SET-048` (low) Crash log, run markers and error box: Addition: recommend KEEP: the crash log, run markers and error box only show where the client fails, which is where the original would have shown its own crash 
+- `SET-049` (low) Extra key actions of the client: Addition: recommend KEEP, with one note: Alt+Enter (CycleWindowMode) is one of the original's chat-input keys in GUI.dll's key table (see SET-044); the other ex
+- `SET-050` (low) Game folder is a setting with Browse picker and auto-detection: Addition: recommend KEEP: the client lives apart from the game's folder (LCH-048), so it needs to be told or to find where the game is.
+- `SET-051` (low) Game log written to game-log.txt: Addition: recommend KEEP: a log file beside the settings that a player never has to look at; it carries nothing of the account.
+- `SET-052` (low) Option panel folder list uses egui widgets with a "Client settings" link: Addition: recommend KEEP: the folder list is the original's (its folders and pages from the option panel files); the "Client settings" link is the only way from
+- `SET-053` (low) Pet window, planet map and camera settings in mao.ini: Addition: recommend KEEP: the settings themselves are the original's (`PetWindowConfig`, `PlanetMapIndexFile`, `PreferredCameraMode`); only where they are kept 
+- `SET-054` (low) Tradeskill guide keeps a record of what the window said: Addition: recommend KEEP: the tradeskill guide is one of the client's own tools; the window itself still shows each answer as the original does.
+- `NET-012` (low) Help assistant: hosted model and guide crawler: Addition: recommend KEEP: off by default, and the hosted model and the guide crawler only run when the player sets them up; the original game never contacts the
+- `NET-013` (low) Protocol read by a schema generated from SmokeLounge/AOSharp definitions: Addition: recommend KEEP: the schema is how the client reads and writes messages, not something a player sees; where the original's own readers have been read t
+- `OTH-018` (medium) Help assistant: a small language model run inside the client: Addition: recommend KEEP: the help assistant is one of the client's own tools the user asked for; the model is fetched only on request and runs only while the w
+- `OTH-019` (low) Help assistant: crafting texts as a source: Addition: recommend KEEP: part of the client's own help assistant; the texts are the game's own books and descriptions.
+- `OTH-020` (low) Linux and macOS builds exist: Addition: recommend KEEP: other platforms change nothing for the Windows client.
+- `OTH-021` (low) Screenshot key saves a PNG with a notes file: Addition: recommend KEEP the notes file (the user's tool for finding places and meshes); the original's screenshot key saves a picture too, so only the .txt bes
 
 Low weight: see the counts above and each area's lists below.
 <!-- /status -->
@@ -519,62 +536,62 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Rendering and world**
 
-- [ ] `RND-183` Anti-aliasing, anisotropic filtering, mips and hemisphere light
-- [ ] `RND-184` Coloured boxes stand in for characters with no model
-- [ ] `RND-185` Distance haze when the area has no fog
-- [ ] `RND-186` Name plates are the client's own
-- [ ] `RND-187` Plants sway in the wind and bend away from the player
-- [ ] `RND-188` Real sun shadows from the playfield's props, shadow-map options
-- [ ] `RND-189` Drawing scale with FSR 1 upscaling and a mip bias
-- [ ] `RND-190` Frame limiter and background frame rate
-- [ ] `RND-191` Generic emitter: dense clouds dimmed, jitter and clamps
-- [ ] `RND-192` Hit effect fade-in and fade-out added
-- [ ] `RND-193` Textures block-compressed on the card, on by default
-- [ ] `RND-194` View distance and character distance settings
+- [ ] `RND-183` Anti-aliasing, anisotropic filtering, mips and hemisphere light **(your call)**
+- [ ] `RND-184` Coloured boxes stand in for characters with no model **(your call)**
+- [ ] `RND-185` Distance haze when the area has no fog **(your call)**
+- [ ] `RND-186` Name plates are the client's own **(your call)**
+- [ ] `RND-187` Plants sway in the wind and bend away from the player **(your call)**
+- [ ] `RND-188` Real sun shadows from the playfield's props, shadow-map options **(your call)**
+- [ ] `RND-189` Drawing scale with FSR 1 upscaling and a mip bias **(your call)**
+- [ ] `RND-190` Frame limiter and background frame rate **(your call)**
+- [ ] `RND-191` Generic emitter: dense clouds dimmed, jitter and clamps **(your call)**
+- [ ] `RND-192` Hit effect fade-in and fade-out added **(your call)**
+- [ ] `RND-193` Textures block-compressed on the card, on by default **(your call)**
+- [ ] `RND-194` View distance and character distance settings **(your call)**
 
 **Launcher, login, character creation**
 
-- [ ] `LCH-043` An account with no characters is sent back to the form
-- [ ] `LCH-044` Character screen figure is dressed from a remembered look (looks.ini)
-- [ ] `LCH-045` Logging out (/camp) restarts the launcher and logs in again
-- [ ] `LCH-046` "No heads found" message in creation
-- [ ] `LCH-047` Character list shows free slots and offers New Character only while one is free
-- [ ] `LCH-048` Game folder is looked for in usual install places
-- [ ] `LCH-049` Launcher has its own backgrounds (night sky, own picture) and a news-page switch
-- [ ] `LCH-050` Launcher Visual page adds frame limit, shadows, monitor, presets
-- [ ] `LCH-051` Launcher window hidden at start, web view moved in after load
+- [ ] `LCH-043` An account with no characters is sent back to the form **(your call)**
+- [ ] `LCH-044` Character screen figure is dressed from a remembered look (looks.ini) **(your call)**
+- [x] `LCH-045` Logging out (/camp) restarts the launcher and logs in again **(done)**
+- [ ] `LCH-046` "No heads found" message in creation **(your call)**
+- [x] `LCH-047` Character list shows free slots and offers New Character only while one is free **(done)**
+- [ ] `LCH-048` Game folder is looked for in usual install places **(your call)**
+- [ ] `LCH-049` Launcher has its own backgrounds (night sky, own picture) and a news-page switch **(your call)**
+- [ ] `LCH-050` Launcher Visual page adds frame limit, shadows, monitor, presets **(your call)**
+- [ ] `LCH-051` Launcher window hidden at start, web view moved in after load **(your call)**
 
 **Settings and files**
 
-- [ ] `SET-038` Character draw distance and auto-loot settings
-- [ ] `SET-039` Frame limit, background limit and vsync choice
-- [ ] `SET-040` Interface size setting
-- [ ] `SET-041` Item finder files of what was seen
-- [ ] `SET-042` Own graphics and display options (presets, scale, FSR, shadows, monitor, distances)
-- [ ] `SET-043` Themes, skin folders and the built-in palette
-- [ ] `SET-044` Window modes with F11 / Alt+Enter and a chosen monitor
-- [ ] `SET-045` Account file with last-played character first
-- [ ] `SET-046` AutoAFK controlled by /setoption
-- [ ] `SET-047` Client brings its own PlanetMap folder
-- [ ] `SET-048` Crash log, run markers and error box
-- [ ] `SET-049` Extra key actions of the client
-- [ ] `SET-050` Game folder is a setting with Browse picker and auto-detection
-- [ ] `SET-051` Game log written to game-log.txt
-- [ ] `SET-052` Option panel folder list uses egui widgets with a "Client settings" link
-- [ ] `SET-053` Pet window, planet map and camera settings in mao.ini
-- [ ] `SET-054` Tradeskill guide keeps a record of what the window said
+- [ ] `SET-038` Character draw distance and auto-loot settings **(your call)**
+- [ ] `SET-039` Frame limit, background limit and vsync choice **(your call)**
+- [ ] `SET-040` Interface size setting **(your call)**
+- [ ] `SET-041` Item finder files of what was seen **(your call)**
+- [ ] `SET-042` Own graphics and display options (presets, scale, FSR, shadows, monitor, distances) **(your call)**
+- [ ] `SET-043` Themes, skin folders and the built-in palette **(your call)**
+- [ ] `SET-044` Window modes with F11 / Alt+Enter and a chosen monitor **(your call)**
+- [ ] `SET-045` Account file with last-played character first **(your call)**
+- [ ] `SET-046` AutoAFK controlled by /setoption **(your call)**
+- [ ] `SET-047` Client brings its own PlanetMap folder **(your call)**
+- [ ] `SET-048` Crash log, run markers and error box **(your call)**
+- [ ] `SET-049` Extra key actions of the client **(your call)**
+- [ ] `SET-050` Game folder is a setting with Browse picker and auto-detection **(your call)**
+- [ ] `SET-051` Game log written to game-log.txt **(your call)**
+- [ ] `SET-052` Option panel folder list uses egui widgets with a "Client settings" link **(your call)**
+- [ ] `SET-053` Pet window, planet map and camera settings in mao.ini **(your call)**
+- [ ] `SET-054` Tradeskill guide keeps a record of what the window said **(your call)**
 
 **Network and protocol**
 
-- [ ] `NET-012` Help assistant: hosted model and guide crawler
-- [ ] `NET-013` Protocol read by a schema generated from SmokeLounge/AOSharp definitions
+- [ ] `NET-012` Help assistant: hosted model and guide crawler **(your call)**
+- [ ] `NET-013` Protocol read by a schema generated from SmokeLounge/AOSharp definitions **(your call)**
 
 **Other**
 
-- [ ] `OTH-018` Help assistant: a small language model run inside the client
-- [ ] `OTH-019` Help assistant: crafting texts as a source
-- [ ] `OTH-020` Linux and macOS builds exist
-- [ ] `OTH-021` Screenshot key saves a PNG with a notes file
+- [ ] `OTH-018` Help assistant: a small language model run inside the client **(your call)**
+- [ ] `OTH-019` Help assistant: crafting texts as a source **(your call)**
+- [ ] `OTH-020` Linux and macOS builds exist **(your call)**
+- [ ] `OTH-021` Screenshot key saves a PNG with a notes file **(your call)**
 
 ## Movement
 
