@@ -535,11 +535,14 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
             for (effect, at) in crate::STATEL_EFFECTS.lock().unwrap().iter() {
                 if let Some(v) = g.visual(effect.id).map(|v| v.with_overrides(effect.colour, effect.radius)) {
                     scene.particles.extend(crate::effects::placed_particles(&v, *at, age, [e.x, e.y, e.z]));
+                    scene.shells.extend(crate::effects::placed_shells(&v, *at, age, [e.x, e.y, e.z], (camera.target - e).to_array()));
                 }
             }
-            eprintln!("statel effects: {} sparks", scene.particles.len() - before);
+            eprintln!("statel effects: {} sparks, {} shells", scene.particles.len() - before, scene.shells.len());
             let mut tried = std::collections::HashSet::new();
             load_sprites(&mut renderer, &gpu, textures, &scene.particles, &mut tried);
+            let sheets: Vec<mao_render::Particle> = scene.shells.iter().map(|s| mao_render::Particle { sprite: s.sprite, ..mao_render::Particle::dot([0.0; 3], 0.0, [0.0; 4]) }).collect();
+            load_sprites(&mut renderer, &gpu, textures, &sheets, &mut tried);
         }
     }
     // `MAO_FALLS=<seconds>` (with `MAO_GFX`): the fall effect at the playfield's waterfalls' feet, that long in.
@@ -2441,6 +2444,7 @@ impl ApplicationHandler for App {
                         let (age, eye) = (began.elapsed().as_secs_f32(), w.camera.eye());
                         sparks.extend(crate::effects::placed_particles(visual, *at, age, [eye.x, eye.y, eye.z]));
                         shells.extend(crate::effects::visual_ground_shells(visual, *at, age, &ground));
+                        shells.extend(crate::effects::placed_shells(visual, *at, age, [eye.x, eye.y, eye.z], (w.camera.target - eye).to_array()));
                         shaking = shaking.max(crate::effects::shake(visual, *at, age, eye_now));
                     }
                     // (the waterfalls' feet: the fall effect at each, an environment effect, hidden past 80 units from the eye as
@@ -2456,6 +2460,7 @@ impl ApplicationHandler for App {
                             for (i, at) in places.iter().enumerate() {
                                 if (at[0] - eye.x).powi(2) + (at[1] - eye.y).powi(2) + (at[2] - eye.z).powi(2) < reach * reach {
                                     sparks.extend(crate::effects::placed_particles(visual, *at, age + (i % 16) as f32 * 0.37, [eye.x, eye.y, eye.z]));
+                                    shells.extend(crate::effects::placed_shells(visual, *at, age + (i % 16) as f32 * 0.37, [eye.x, eye.y, eye.z], (w.camera.target - eye).to_array()));
                                 }
                             }
                         }

@@ -327,6 +327,21 @@ fn a_cast_effect_has_its_emitters() {
     assert!(flares.iter().all(|f| f.rate == 16.0 && f.material == 15));
 }
 
+/// The veins the meshes' `eff_universal` connectors name (12200 the Shadowlands' vein meshes, 96003 the Whom-Pah pillar's)
+/// are kind 3014, `_GfxControlVein_t`, each with the fire 12205 made at its foot.
+#[test]
+fn the_connectors_veins_are_veins_with_their_fire() {
+    use mao_formats::gfx::Visual;
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let gfx = mao_formats::gfx::Gfx::parse(&std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap()).unwrap();
+    for (id, strands, flags) in [(12200, 10, 0x10203), (96003, 6, 0x203)] {
+        let Some(Visual::Meta(parts)) = gfx.visual(id) else { panic!("{id}") };
+        let [Visual::Vein(v), Visual::Fire(_)] = &parts[..] else { panic!("{id}: {parts:?}") };
+        assert_eq!((v.strands, v.segments, v.material, v.flags, v.child), (strands, 30, 48, flags, 12205));
+        assert!(v.duration < 0.0 && v.life > 360000.0 && v.height == 4.0);
+    }
+}
+
 #[test]
 fn effect_classes_come_to_visuals() {
     use mao_formats::gfx::Visual;

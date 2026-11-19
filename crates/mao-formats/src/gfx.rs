@@ -1226,6 +1226,55 @@ impl Trail2 {
     }
 }
 
+/// A kind-3014 template as `_GfxControlVein_t` reads it (Gamecode FUN_10103396 the constructor; FUN_10103026 the words,
+/// FUN_10102e1a the `GfxVisualVein` (displaysystem `gfxvein.rs`) and its first state, FUN_10102c87 the run): word 0 the flags
+/// (0x100 the texture turned along the strands, 0x200 added unless 0x8000, 0x1000 the place follows the locator, 0x4000 the
+/// place on the ground, 0x10000 the strands sway), word 8 the duration, word 9 the material, word 10 the strands, words 11
+/// and 12 summed the time it runs, word 14 the segments of a strand, words 15 and 16 the texture across and along, word 17
+/// the first strand's height (`SetHeight`: each step on 1.3 times the last), words 18 and 19 the width at the bottom and at
+/// the top, word 20 the sway, words 24–27 the four colours (`SetColor0` to `SetColor3`, ARGB), word 28 an effect made at
+/// the place with it. (Word 29, an effect made at the place's x and z halved, is 0 in every template; words 13 and 21–23
+/// are read and not used.)
+#[derive(Clone, Debug, PartialEq)]
+pub struct Vein {
+    pub flags: u32,
+    pub duration: f32,
+    pub material: i32,
+    pub strands: i32,
+    pub life: f32,
+    pub segments: i32,
+    pub across: f32,
+    pub along: f32,
+    pub height: f32,
+    pub widths: (f32, f32),
+    pub sway: f32,
+    pub colours: [u32; 4],
+    pub child: i32,
+}
+
+impl Vein {
+    pub fn read(r: &Record) -> Option<Vein> {
+        if r.payload.len() < 30 {
+            return None;
+        }
+        Some(Vein {
+            flags: r.int(0) as u32,
+            duration: r.float(8),
+            material: r.int(9),
+            strands: r.int(10),
+            life: r.float(11) + r.float(12),
+            segments: r.int(14),
+            across: r.float(15),
+            along: r.float(16),
+            height: r.float(17),
+            widths: (r.float(18), r.float(19)),
+            sway: r.float(20),
+            colours: [r.int(24) as u32, r.int(25) as u32, r.int(26) as u32, r.int(27) as u32],
+            child: r.int(28),
+        })
+    }
+}
+
 /// A kind-3030 template as `GfxControlGroundGrid_t` reads it (FUN_1010eebc; FUN_1010ebbd the words, FUN_1010e951 the
 /// `GfxVisualGroundGrid` (displaysystem `gfxground.rs`) and its first points, FUN_1010e704 the run): word 0 the flags (0x200
 /// added unless 0x400, 0x800 laid once where it began, 0x2000 / 0x4000 a wave lifting the points / scaling their alpha, 0x8000
@@ -2301,6 +2350,8 @@ pub enum Visual {
     EffectMesh(EffectMesh),
     /// Four crossed ribbons along the attach point's recent frames (kind 3039, `GfxControlTrail2_t`).
     Trail2(Trail2),
+    /// A bundle of swaying strands climbing from the point (kind 3014, `_GfxControlVein_t`: the Shadowlands' veins).
+    Vein(Vein),
     /// Rocks thrown up from the point, falling and bouncing on the ground (kind 1029, `_GfxControlVulcanRocks_t`).
     VulcanRocks(VulcanRocks),
     /// A pool of billboard particles in one of the visual's kinds (kind 3024, `GfxControlBParticle_t`).
@@ -2528,6 +2579,14 @@ impl Gfx {
             3025 => EffectMesh::read(r).map(Visual::EffectMesh),
             3000 => ShockWave::read(r).map(Visual::ShockWave),
             3039 => Trail2::read(r).map(Visual::Trail2),
+            // (the effect of word 28 is made at the vein's place as it starts, an effect of its own: `CreateEffect2`)
+            3014 => {
+                let vein = Vein::read(r)?;
+                match (vein.child != 0 && vein.child != id).then(|| self.visual(vein.child)).flatten() {
+                    Some(child) => Some(Visual::Meta(vec![Visual::Vein(vein), child])),
+                    None => Some(Visual::Vein(vein)),
+                }
+            }
             1029 => VulcanRocks::read(r).map(Visual::VulcanRocks),
             3024 => BParticle::read(r).map(Visual::BParticle),
             1025 => Tracer5::read(r).map(Visual::Tracer5),

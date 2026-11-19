@@ -1783,6 +1783,233 @@ pub fn crazycone_shells(c: &mao_formats::gfx::CrazyCone, at: [f32; 3], t: f32, g
         .collect()
 }
 
+/// The vein's spline (displaysystem `gfxvein.rs`, FUN_10004145): the shape's numbers.
+const VEIN_SHAPE: [f64; 12] = [1.0, 0.4, 0.3, 1.3, 0.3, 1.9, 1.7, 2.1, 1.3, 3.1, 2.7, 0.99999994];
+
+/// FUN_100041ff: the Cox-de Boor basis `N(i, k)` at `t` over `knots`.
+fn vein_basis(i: i32, k: i32, knots: &[i32], t: f64) -> f64 {
+    let n = |j: i32| knots[j as usize];
+    if k == 1 {
+        return if (n(i) as f64) <= t && (n(i + 1) as f64) > t { 1.0 } else { 0.0 };
+    }
+    let (first, last) = (n(i + k - 1) == n(i), n(i + k) == n(i + 1));
+    if first && last {
+        return 0.0;
+    }
+    let right = || vein_basis(i + 1, k - 1, knots, t) * ((n(i + k) as f64 - t) / (n(i + k) - n(i + 1)) as f64);
+    let left = || vein_basis(i, k - 1, knots, t) * ((t - n(i) as f64) / (n(i + k - 1) - n(i)) as f64);
+    if first {
+        right()
+    } else if last {
+        left()
+    } else {
+        left() + right()
+    }
+}
+
+/// The vein's cross-section at the time `t` (FUN_10004484, then FUN_100043c3): nine control points circling at their own
+/// rates (the last three the first three again), and `count` points along the clamped uniform B-spline of order 4 through
+/// them, the last the last control point.
+pub fn vein_spline(t: f32, count: usize) -> Vec<[f64; 2]> {
+    let c = VEIN_SHAPE;
+    let t = t as f64;
+    let swell = |a: f64| (a.sin() * 0.5 + 0.5) * c[11] + c[2];
+    let (half, q) = (0.5 * c[0], c[0] * 0.8660249710083008);
+    let r1 = swell(c[8] * t);
+    let r3 = swell(c[10] * t);
+    let mut p = [
+        [(c[5] * t).sin() * c[1] + c[0], (c[5] * t).cos() * c[1]],
+        [r1 * 0.5, r1 * 0.8660249710083008],
+        [(c[6] * t).sin() * c[1] - half, (c[6] * t).cos() * c[1] + q],
+        [-swell(c[9] * t), 0.0],
+        [(c[7] * t).sin() * c[1] - half, (c[7] * t).cos() * c[1] - q],
+        [0.5 * r3, r3 * -0.8660249710083008],
+        [0.0; 2],
+        [0.0; 2],
+        [0.0; 2],
+    ];
+    (p[6], p[7], p[8]) = (p[0], p[1], p[2]);
+    let (last, order) = (8i32, 4i32);
+    let knots: Vec<i32> = (0..=last + order).map(|j| if j < order { 0 } else if j <= last { j - order + 1 } else { last - order + 2 }).collect();
+    if count < 2 {
+        return vec![p[last as usize]; count];
+    }
+    let step = (last - order + 2) as f64 / (count - 1) as f64;
+    let mut out = Vec::with_capacity(count);
+    let mut u = 0.0f64;
+    for _ in 0..count - 1 {
+        let mut point = [0.0f64; 2];
+        for i in 0..=last {
+            let w = vein_basis(i, order, &knots, u);
+            point[0] += p[i as usize][0] * w;
+            point[1] += p[i as usize][1] * w;
+        }
+        out.push(point);
+        u += step;
+    }
+    out.push(p[last as usize]);
+    out
+}
+
+/// `GfxVisualVein::SetHeight(h)`: the strands' heights, the first at 0, the next at `h`, each step on 1.3 times the last.
+pub fn vein_heights(h: f32, strands: usize) -> Vec<f32> {
+    let mut heights = vec![0.0f32; strands + 1];
+    let (mut v, mut step) = (h, h);
+    for height in heights.iter_mut().skip(1) {
+        *height = v;
+        step *= 1.2999999523162842;
+        v += step;
+    }
+    heights
+}
+
+/// The vein's gradients (FUN_1002db0e and FUN_1002dc61): for each of the `strands + 1` levels, from `bottom` at level 0
+/// towards `top` (level k at k over strands + 1), the colour's channels (truncated) and its alpha (0 to 255, not truncated).
+fn vein_gradient(bottom: u32, top: u32, strands: usize) -> Vec<([f32; 3], f32)> {
+    let n = (strands + 1) as f32;
+    let byte = |c: u32, shift: u32| ((c >> shift) & 0xff) as f32;
+    (0..=strands)
+        .map(|k| {
+            let f = k as f32 / n;
+            let g = 1.0 - f;
+            let mix = |shift: u32| byte(bottom, shift) * g + byte(top, shift) * f;
+            ([mix(16).trunc(), mix(8).trunc(), mix(0).trunc()], mix(24))
+        })
+        .collect()
+}
+
+/// `_GfxControlVein_t`'s strands (kind 3014) `t` seconds in at `at` (world, Z up), seen from `eye` looking along `look`, as
+/// FUN_10102c87 runs its `GfxVisualVein` and that draws it (displaysystem `gfxvein.rs`: FUN_1002def9 the strands,
+/// FUN_1002d79f the second pass, FUN_1002e6d1 the draw). Nothing once its time (words 11 and 12) is spent, or past its
+/// duration. Each frame the run sets the heights (word 17, `SetHeight`), the widths at the bottom and the top (words 18 and
+/// 19) and the texture's offsets (the age along, three times the age back across). The strands' cross-section is the spline
+/// at the time for the first level and a fifth of a second earlier a level for the rest, scaled by the width at the level
+/// and by `ln(d / 36.79)` past 100 units from the eye (the heights too), swayed (flag 0x10000) by `(sin a + 0.3 sin b, cos a
+/// + 0.3 cos b)` times the bottom width, the sway (word 20) × 0.03, the height and `1 − level / strands`, with `a = 0.07 h +
+/// 3.1 t` and `b = 0.13 h + 2.7 t`; each point's alpha is the square of how squarely its cross-section point lies along the
+/// view across (the first level's none), times the first gradient's alpha (word 25's at the bottom towards word 24's), its
+/// colour the first gradient's. Drawn twice: then turned about the up axis by the time and shrunk by 0.7 twice, coloured by
+/// the second gradient (word 27's towards word 26's). Added (flag 0x200 without 0x8000) or blended by alpha. The locator's
+/// following (0x1000) and the ground (0x4000) are not played: the client places the vein once.
+pub fn vein_shells(v: &mao_formats::gfx::Vein, at: [f32; 3], t: f32, eye: [f32; 3], look: [f32; 3]) -> Vec<Shell> {
+    if t < 0.0 || t >= v.life || (v.duration > 0.0 && t > v.duration) || v.strands < 1 || v.segments < 1 {
+        return Vec::new();
+    }
+    let (count, segments) = (v.strands as usize, v.segments as usize);
+    // (the spline's points: 1.2 times the segments, from a tenth of them on)
+    let points = (segments as f32 * 1.2000000476837158) as usize;
+    let mut offset = (segments as f32 * 0.10000000149011612) as usize;
+    if offset + segments > points {
+        offset = points - segments;
+    }
+    let heights = vein_heights(v.height, count);
+    let first = vein_gradient(v.colours[1], v.colours[0], count);
+    let second = vein_gradient(v.colours[3], v.colours[2], count);
+    let d = ((at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2)).sqrt();
+    let fade = if d > 100.0 { (d / 36.787944117).ln() } else { 1.0 };
+    // The view across (FUN_1002def9: the world's -z through the view without its translation, flattened, normalised, its x
+    // turned round): in the game's axes (Y up) the view's third row is (right.z, up.z, look.z), right being up × look.
+    let look = [look[0], look[2], look[1]];
+    let length = (look[0] * look[0] + look[1] * look[1] + look[2] * look[2]).sqrt().max(1e-9);
+    let look = look.map(|c| c / length);
+    let level = look[0].hypot(look[2]);
+    let right_z = if level > 0.0 { -look[0] / level } else { 0.0 };
+    let mut r = [-right_z, -look[2]];
+    if r[0] == 0.0 {
+        r[0] = 1.0;
+    } else {
+        let n = r[0].hypot(r[1]);
+        r = [r[0] / n, r[1] / n];
+    }
+    r[0] = -r[0];
+    // (each level's sway; none unless the strands sway)
+    let mut sway = vec![[0.0f32; 2]; count + 1];
+    if v.flags & 0x10000 != 0 {
+        for (k, s) in sway.iter_mut().enumerate() {
+            let h = heights[k];
+            let a = h * 0.07 + t * 3.1;
+            let b = h * 0.13 + t * 2.7;
+            let w = (1.0 - k as f32 / count as f32) * (v.sway * 0.03);
+            let scale = v.widths.0 * w * h;
+            *s = [(a.sin() + b.sin() * 0.3) * scale, (a.cos() + b.cos() * 0.3) * scale];
+        }
+    }
+    // (each level's points, index 0 the last again; the first level's alphas all 0)
+    let row = segments + 1;
+    let mut px = vec![[0.0f32; 2]; (count + 1) * row];
+    let mut pa = vec![0.0f32; (count + 1) * row];
+    let mut kept = [0.0f32; 2];
+    for s in 0..=count {
+        let spline = vein_spline(t - s as f32 * 0.20000000298023224, points);
+        let base = s * row;
+        for j in 1..=segments {
+            // (`GetPoint` leaves the last point where the index is past the end)
+            if let Some(p) = spline.get(offset + j) {
+                kept = [p[0] as f32, p[1] as f32];
+            }
+            px[base + j] = kept;
+            if s > 0 {
+                let d = (r[1] * kept[1] + kept[0] * r[0]).abs().min(1.0);
+                pa[base + j] = d * d;
+            }
+        }
+        px[base] = px[base + segments];
+        pa[base] = pa[base + segments];
+    }
+    let (u0, v0) = (t, t * -3.0);
+    let turned = v.flags & 0x100 != 0;
+    let step = if turned { v.along } else { v.across } / segments as f32;
+    // (the strands' vertices in the vein's own frame, Y up: each level's points to the next level's)
+    let mut strips: Vec<Vec<([f32; 3], [f32; 2], usize, f32)>> = Vec::with_capacity(count);
+    for s in 0..count {
+        let (f0, f1) = (s as f32 / count as f32, (s + 1) as f32 / count as f32);
+        let w0 = ((1.0 - f0) * v.widths.0 + f0 * v.widths.1) * fade;
+        let w1 = ((1.0 - f1) * v.widths.0 + f1 * v.widths.1) * fade;
+        let (base, next) = (s * row, (s + 1) * row);
+        let mut strip = Vec::with_capacity(2 * row);
+        for j in 0..=segments {
+            let off = step * j as f32;
+            let (uva, uvb) = if turned { ([u0, v0 + off], [u0 + v.across, v0 + off]) } else { ([u0 + off, s as f32 * v.along + v0], [u0 + off, v.along * (s + 1) as f32 + v0]) };
+            let a = [px[base + j][0] * w0 + sway[s][0], heights[s] * fade, px[base + j][1] * w0 + sway[s][1]];
+            let b = [px[next + j][0] * w1 + sway[s + 1][0], heights[s + 1] * fade, px[next + j][1] * w1 + sway[s + 1][1]];
+            strip.push((a, uva, s, (first[s].1 * pa[base + j]).trunc()));
+            strip.push((b, uvb, s + 1, (pa[next + j] * first[s + 1].1).trunc()));
+        }
+        strips.push(strip);
+    }
+    let (sin, cos) = t.sin_cos();
+    let mut vertices = Vec::new();
+    for pass in 0..2 {
+        for strip in &strips {
+            let shell: Vec<ShellVertex> = strip
+                .iter()
+                .map(|&(p, uv, level, alpha)| {
+                    let (p, rgb) = if pass == 0 {
+                        (p, first[level].0)
+                    } else {
+                        let (a, b) = (p[0] * 0.7, p[2] * 0.7);
+                        ([(a * sin - b * cos) * 0.7, p[1], (a * cos + b * sin) * 0.7], second[level].0)
+                    };
+                    // (the game's Y up is the world's Z)
+                    ShellVertex { position: [at[0] + p[0], at[1] + p[2], at[2] + p[1]], uv, colour: [rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, alpha / 255.0] }
+                })
+                .collect();
+            vertices.extend(strip_triangles(&shell));
+        }
+    }
+    vec![Shell { sprite: v.material.max(0) as u16, additive: v.flags & 0x200 != 0 && v.flags & 0x8000 == 0, vertices }]
+}
+
+/// The shells of an effect made alone at a place `at` (world, Z up) `t` seconds in, seen from `eye` looking along `look`: a
+/// vein's strands, or those of a bundle's parts.
+pub fn placed_shells(v: &Visual, at: [f32; 3], t: f32, eye: [f32; 3], look: [f32; 3]) -> Vec<Shell> {
+    match v {
+        Visual::Vein(vein) => vein_shells(vein, at, t, eye, look),
+        Visual::Meta(children) => children.iter().flat_map(|c| placed_shells(c, at, t, eye, look)).collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// A triangle strip's vertices as a list of triangles.
 fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
     let mut out = Vec::with_capacity(strip.len().saturating_sub(2) * 3);
@@ -3065,6 +3292,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
         // (crossed strips and cones: see `tparticle_shells`, `skyflash_shells`)
         Visual::TParticle(_) | Visual::SkyFlash(_) | Visual::CrazyCone(_) | Visual::Spiral2(_) | Visual::TParticle2 { .. } | Visual::GroundGrid(_) => Vec::new(),
+        // (strips climbing from the point: see `vein_shells`)
+        Visual::Vein(_) => Vec::new(),
         Visual::Fire(f) => fire_particles(f, feet, 0.0, time),
         // (it shakes the camera: see `shake`)
         Visual::GroundShake { .. } => Vec::new(),
@@ -3266,6 +3495,8 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
         Visual::Fire(f) => if f.duration >= 0.0 { (600.0, f.duration.max(0.05), 1) } else { (600.0, 600.0, -1) },
         Visual::GroundShake { duration, .. } => (600.0, duration.max(0.05), 1),
         Visual::GroundGrid(g) => if g.duration > 0.0 { (600.0, g.duration, 1) } else { (600.0, 600.0, -1) },
+        // (a vein runs its time, words 11 and 12, or its duration when that is shorter)
+        Visual::Vein(v) => (600.0, if v.duration > 0.0 { v.duration.min(v.life) } else { v.life }.max(0.05), 1),
         Visual::Spiral2(s) => if s.duration > 0.0 { (600.0, s.duration, 1) } else { (600.0, 600.0, -1) },
         Visual::TParticle2 { particles, .. } => pulse_timing(&Visual::BParticles(particles.clone())),
         // (a nano makes sprites until a life before its duration, and its last ones live out their lives; for ever without one)
@@ -3387,6 +3618,51 @@ pub fn emitter_particles(e: &Emitter, origin: [f32; 3], age: f32, active: f32) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_vein_s_strands_climb_and_fade_as_its_visual_draws_them() {
+        // (the heights: 0, then h, each step on 1.3 times the last)
+        let h = vein_heights(4.0, 3);
+        assert_eq!(h.len(), 4);
+        for (a, b) in h.iter().zip([0.0, 4.0, 9.2, 15.96]) {
+            assert!((a - b).abs() < 1e-4, "{h:?}");
+        }
+        // (the clamped spline starts at its first control point and ends at its last, the third again)
+        let t = 0.7f32;
+        let p = vein_spline(t, 36);
+        assert_eq!(p.len(), 36);
+        let t64 = t as f64;
+        assert!((p[0][0] - ((1.9 * t64).sin() * 0.4 + 1.0)).abs() < 1e-9 && (p[0][1] - (1.9 * t64).cos() * 0.4).abs() < 1e-9);
+        assert!((p[35][0] - ((1.7 * t64).sin() * 0.4 - 0.5)).abs() < 1e-9 && (p[35][1] - ((1.7 * t64).cos() * 0.4 + 0.8660249710083008)).abs() < 1e-9);
+        let v = mao_formats::gfx::Vein { flags: 0x10203, duration: -1.0, material: 48, strands: 4, life: 100.0, segments: 10, across: 4.0, along: 0.2, height: 2.0, widths: (3.0, 0.5), sway: 0.2, colours: [0x0000_7ed6, 0xff00_00ff, 0x0000_7ed6, 0xff00_60ff], child: 0 };
+        let shells = vein_shells(&v, [10.0, 20.0, 5.0], 1.5, [10.0, 0.0, 6.0], [0.0, 1.0, 0.0]);
+        assert_eq!(shells.len(), 1);
+        let s = &shells[0];
+        // (two passes of four strips of 11 pairs, each strip 20 triangles; added, the template's material)
+        assert_eq!(s.vertices.len(), 2 * 4 * 20 * 3);
+        assert!(s.additive && s.sprite == 48);
+        // (the bottom level stands at the place's height and has no alpha; the top is the fourth height up, the gradient's
+        // alpha there 255 × 1/5 at most; the bottom colour is the second word's, blue)
+        let top = vein_heights(2.0, 4)[4];
+        for q in &s.vertices {
+            let up = q.position[2] - 5.0;
+            assert!(up >= -1e-4 && up <= top + 1e-3, "{:?}", q.position);
+            if up.abs() < 1e-4 {
+                assert_eq!(q.colour[3], 0.0);
+            }
+            if (up - top).abs() < 1e-3 {
+                assert!(q.colour[3] <= 51.0 / 255.0 + 1e-6);
+            }
+        }
+        assert!(s.vertices.iter().any(|q| q.colour[2] == 1.0 && q.colour[0] == 0.0));
+        // (blended by alpha when opaque, flag 0x8000; nothing once its time is spent)
+        assert!(!vein_shells(&mao_formats::gfx::Vein { flags: 0x8203, ..v.clone() }, [0.0; 3], 1.0, [0.0, -5.0, 0.0], [0.0, 1.0, 0.0])[0].additive);
+        assert!(vein_shells(&v, [0.0; 3], 100.0, [0.0, -5.0, 0.0], [0.0, 1.0, 0.0]).is_empty());
+        // (past 100 units from the eye the strands grow by ln(d / 36.79): at e³ × 36.79 three times as tall)
+        let far = vein_shells(&v, [0.0, 0.0, 0.0], 1.5, [0.0, 36.787944117 * 20.085536923, 0.0], [0.0, -1.0, 0.0]);
+        let highest = far[0].vertices.iter().map(|q| q.position[2]).fold(f32::MIN, f32::max);
+        assert!((highest - 3.0 * top).abs() < 1e-2, "{highest} {top}");
+    }
 
     #[test]
     fn the_fall_s_mist_spreads_along_x_and_drifts_along_minus_z() {
