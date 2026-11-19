@@ -104,11 +104,9 @@ pub fn heads(breed: i32, sex: i32, shadowlands: bool, find: &dyn Fn(&str) -> Opt
 
 /// FUN_10123cdc's verdict on a name, as the text `StartServerCreation` shows (category 600): 4 to 12 characters, letters,
 /// digits only at the end and from the fifth character on, nothing else; the case is the client's to set (see [`proper`]).
+/// An empty name is a wrong length here: `MustEnterName` is for the field left empty ([`checked_name`]).
 pub fn name_problem(name: &str) -> Option<&'static str> {
     let chars: Vec<char> = name.chars().collect();
-    if name.is_empty() {
-        return Some("MustEnterName");
-    }
     if !(4..=12).contains(&chars.len()) {
         return Some("NameMustBeBetween3And13Chars");
     }
@@ -128,9 +126,25 @@ pub fn name_problem(name: &str) -> Option<&'static str> {
     None
 }
 
-/// The name in the case the original wants (a capital, then small letters: FUN_10123cdc's code 3).
+/// The name as `StartServerCreation` makes it before it is checked (FUN_10124093): the first character of the typed text
+/// in capitals and the others in small letters (so FUN_10123cdc's code 3 never comes), then every character that is not
+/// a letter or a digit dropped (FUN_10123bbb). The case goes by the place in the typed text: a dropped first character
+/// leaves the name in small letters.
 pub fn proper(name: &str) -> String {
-    name.chars().enumerate().map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect()
+    name.chars().enumerate().map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).filter(|c| c.is_ascii_alphanumeric()).collect()
+}
+
+/// `NameScene_t::StartServerCreation` 0x1012015d: the typed text empty is `MustEnterName`; else it is made [`proper`] and
+/// checked ([`name_problem`]); the name to send, or the text that refuses it.
+pub fn checked_name(typed: &str) -> Result<String, &'static str> {
+    if typed.is_empty() {
+        return Err("MustEnterName");
+    }
+    let name = proper(typed);
+    match name_problem(&name) {
+        Some(problem) => Err(problem),
+        None => Ok(name),
+    }
 }
 
 /// The text (category 600) for a refusal code of the login server (`NameScene_t::SetState` 0x1011fc0f); none for a
@@ -878,8 +892,11 @@ impl Creating {
                     let finish = canvas.button("finish", &pictures("RK"), place::FINISH, !busy, ("NameButtonFinish", "Finish_AreteLanding")) || (canvas.live && !busy && edited.lost_focus() && canvas.ui.input(|i| i.key_pressed(egui::Key::Enter)));
                     if finish {
                         // (`StartServerCreation`: the name checked first, then sent)
-                        self.name = proper(self.name.trim());
-                        match name_problem(&self.name) {
+                        let checked = checked_name(&self.name);
+                        if let Ok(name) = &checked {
+                            self.name = name.clone();
+                        }
+                        match checked.err() {
                             Some(problem) => {
                                 self.message = plain_text(&text(problem));
                                 sounds.push(if problem == "MustEnterName" { "SM_Sandy_CC_Name" } else { "SM_Sandy_CC_Nick" });
@@ -1055,6 +1072,13 @@ mod tests {
         assert_eq!(name_problem("Sadle22"), None);
         assert_eq!(name_problem("Sad-lee"), Some("NameMustBeAlphanum"));
         assert_eq!(proper("sADLEE"), "Sadlee");
+        // (FUN_10124093: letters and digits only, the case by the place in the typed text)
+        assert_eq!(proper("sad-lee"), "Sadlee");
+        assert_eq!(proper(" sadlee"), "sadlee");
+        assert_eq!(checked_name(""), Err("MustEnterName"));
+        assert_eq!(checked_name("---"), Err("NameMustBeBetween3And13Chars"));
+        assert_eq!(checked_name("sad lee"), Ok("Sadlee".to_string()));
+        assert_eq!(checked_name("sad2lee"), Err("DigitsAtEndAfter4"));
         assert_eq!(plain_text("An Agent&#8217;s life &amp; more"), "An Agent\u{2019}s life & more");
         assert_eq!(plain_text("Difficulty: <FONT color=\"#ffff00\"> High </FONT><br>The Bureaucrat"), "Difficulty:  High 
 The Bureaucrat");

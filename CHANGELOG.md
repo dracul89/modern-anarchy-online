@@ -144,6 +144,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Play shows the progress window until the character is logged in, then the loading screen, as in the original; if it takes longer than the game's dimension time-out you are back at the login.
 - Deleting a character needs its name typed exactly as it is written, capitals included, as in the original.
 - The loading screen's picture is shown in its own colours, as in the original (it was tinted blue).
+- Character creation leaves out spaces and signs typed in a name and fixes its capitals, as the original does, instead of refusing it.
 
 ### Graphics
 

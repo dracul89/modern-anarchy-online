@@ -7061,3 +7061,7 @@ The character list ends with three numbers: the slots, the expansion flags and a
 ### The loading screen's picture in its own colours (LCH-003)
 
 The original's loading screen (GUI.dll `ServerLogin3DModule_t::SetupScreen` 0x10017331) shows `ai_loading_login.png`, or `welcome_to_rubika.jpg` after a creation, as it is, scaled to the display. The client had tinted it blue; it now shows the pictures in their own colours. The screen over a zoning is still the client's own.
+
+### A new character's name is made as the original makes it (LCH-018)
+
+The original's Finish (GUI.dll `NameScene_t::StartServerCreation` 0x1012015d) says `MustEnterName` for an empty field; otherwise it makes the name itself (FUN_10124093): the first typed character a capital, the rest small, and everything that is not a letter or digit left out (so "sad-lee" becomes "Sadlee"), and only then checks its length and digits. The client now does the same, where it used to refuse such a name as not alphanumeric.

@@ -8377,7 +8377,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the client sets capital then small letters itself before sending
 - A player notices: names forced to Capital-then-lower
 - Where: `crates/mao-client/src/charcreate.rs:94`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original sets the case itself too: GUI.dll `NameScene_t::StartServerCreation` 0x1012015d refuses an empty field (`MustEnterName`), then runs FUN_10124093 on the text: the character at place 0 `toupper`, every other `tolower`, and every one that is not a letter or digit (FUN_10123bbb) dropped; only then FUN_10123cdc judges it (its code 3, the case, can no longer come and is not refused). The client did the case but trimmed spaces instead of dropping every other character, and said `MustEnterName` for a name that became empty. Now `charcreate::proper` drops non-alphanumerics after setting the case by the place in the typed text, and `charcreate::checked_name` is `StartServerCreation`'s order (empty field first, then the made name's length / digit / letter checks); the creation screen and the `net ... create` command use it. Test: `charcreate::tests::the_rules`.
 
 #### `LCH-019` News page in WebView2, can be switched off, links open in the system browser
 

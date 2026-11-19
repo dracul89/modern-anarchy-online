@@ -11743,10 +11743,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         // original's `CreateCharacter`), the head the n-th the breed may have.
         [game, word, name, breed, prof, head, height, width] if word == "create" => {
             let (b, s) = crate::charcreate::breed_and_sex(breed.parse().map_err(|_| "bad breed")?).ok_or("the breed choice is 1 to 7")?;
-            let name = crate::charcreate::proper(name);
-            if let Some(problem) = crate::charcreate::name_problem(&name) {
-                return Err(crate::charcreate::text(problem));
-            }
+            let name = crate::charcreate::checked_name(name).map_err(crate::charcreate::text)?;
             let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
             let index = mao_formats::instances::Instances::parse(&db.get(mao_formats::resource::Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no instance index")?).map_err(|_| "the instance index is cut short")?;
             // (every head the game has for the breed: the server says whether the account may have it)
