@@ -6369,7 +6369,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: rotations mixed by weighted sum (the shorter way) and renormalised, translations lerped; not a true slerp
 - A player notices: slightly different turn speed mid-fade between animations
 - Where: `crates/mao-formats/src/catmesh.rs:326`; `crates/mao-formats/src/animstack.rs:421`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): CATAnimBlend_t's mode 3 slerps a track's two rotations by the blend's weight (FUN_10050586 with FUN_10053d0b: the shorter way, linearly when within 1e-6) and lerps the translations (FUN_1005063c); the weight comes from FUN_10072562. The animation stack's `mix` (animstack.rs) and CatMesh::pose_blend (catmesh.rs) used a renormalised weighted sum; both now call catanim::slerp, the existing port of FUN_10053d0b. Test: animstack::tests::blends_slerp_the_rotation (a quarter blend to a half turn is 45 degrees; the old sum gave 36.9).
 
 #### `RND-031` Attractor looked up by part of its name
 

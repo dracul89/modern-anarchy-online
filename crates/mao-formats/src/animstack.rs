@@ -418,22 +418,26 @@ impl Stack {
     }
 }
 
-/// A blend's track in mode 3: the rotations slerped and the translations lerped by the weight.
+/// A blend's track in mode 3 (CATAnimBlend_t, FUN_10050586 and FUN_1005063c): the rotations slerped the shorter way
+/// (FUN_10053d0b, linearly within 1e-6) and the translations lerped by the weight.
 fn mix(a: ([f32; 4], [f32; 3]), b: ([f32; 4], [f32; 3]), weight: f32) -> ([f32; 4], [f32; 3]) {
-    let (ra, rb) = (a.0, b.0);
-    let dot: f32 = (0..4).map(|i| ra[i] * rb[i]).sum();
-    let sign = if dot < 0.0 { -1.0 } else { 1.0 };
-    let mut r = [0.0f32; 4];
-    for i in 0..4 {
-        r[i] = ra[i] * (1.0 - weight) + rb[i] * sign * weight;
-    }
-    let length = r.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
-    (r.map(|v| v / length), [0, 1, 2].map(|i| a.1[i] * (1.0 - weight) + b.1[i] * weight))
+    (crate::catanim::slerp(a.0, b.0, weight), [0, 1, 2].map(|i| a.1[i] * (1.0 - weight) + b.1[i] * weight))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A blend a quarter of the way from no turn to a half turn about z turns 45 degrees, as the slerp gives it (a
+    /// weighted sum renormalised gave 36.9).
+    #[test]
+    fn blends_slerp_the_rotation() {
+        let half = [0.0, 0.0, 1.0, 0.0];
+        let (r, t) = mix(([0.0, 0.0, 0.0, 1.0], [0.0; 3]), (half, [2.0, 0.0, 0.0]), 0.25);
+        let angle = 2.0 * r[2].atan2(r[3]);
+        assert!((angle - std::f32::consts::FRAC_PI_4).abs() < 1e-5, "{angle}");
+        assert!((t[0] - 0.5).abs() < 1e-6);
+    }
 
     /// A walk's two steps (at 100 and 600 ms of a 1 s loop) each fire once a lap, the lap's end wrapping round.
     #[test]

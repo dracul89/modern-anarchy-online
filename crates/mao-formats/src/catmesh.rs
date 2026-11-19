@@ -346,17 +346,10 @@ impl CatMesh {
     /// rotation and translation blended, so a change of animation doesn't pop.
     pub fn pose_blend(&self, a: &crate::catanim::CatAnim, ta: f32, b: &crate::catanim::CatAnim, tb: f32, weight: f32) -> Vec<BoneMatrix> {
         self.pose_with(&|bone| {
-            let (ra, rb) = (a.rotation(bone, ta), b.rotation(bone, tb));
-            // The shorter way round, then normalised.
-            let dot: f32 = (0..4).map(|i| ra[i] * rb[i]).sum();
-            let sign = if dot < 0.0 { -1.0 } else { 1.0 };
-            let mut r = [0.0f32; 4];
-            for i in 0..4 {
-                r[i] = ra[i] * (1.0 - weight) + rb[i] * sign * weight;
-            }
-            let length = r.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
+            // (slerped the shorter way, FUN_10053d0b, as CATAnimBlend_t's mode 3 does, FUN_10050586)
+            let r = crate::catanim::slerp(a.rotation(bone, ta), b.rotation(bone, tb), weight);
             let (ta_, tb_) = (a.translation(bone, ta), b.translation(bone, tb));
-            (r.map(|v| v / length), [0, 1, 2].map(|i| ta_[i] * (1.0 - weight) + tb_[i] * weight))
+            (r, [0, 1, 2].map(|i| ta_[i] * (1.0 - weight) + tb_[i] * weight))
         })
     }
 

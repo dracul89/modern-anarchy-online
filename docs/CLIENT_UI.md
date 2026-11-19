@@ -7001,3 +7001,7 @@ An effect's attach point 1000-1018 is a bone of the posed body in the original (
 ### Statels of the second flag layout sheared (RND-141)
 
 A statel whose flags have bit 0 is turned about Y, stretched along X and sheared: N3.dll's FUN_1002777a gives it an anim matrix (scale (1, 1/s, 1/s), then y plus p × x with p = (v / 630 / 211) / 100 − 1.25 of the packed v), which the frame applies before its scale s × C, turn and place. The client read only the turn and the stretch; it now applies the shear too (Statel::matrix).
+
+### Animation cross-fades slerp (RND-030)
+
+When one animation fades into another, the original's CATAnimBlend_t (FUN_10050586) turns each bone by a slerp of the two rotations at the blend's weight (FUN_10053d0b) and moves it by a straight mix of the two positions (FUN_1005063c). The client now does the same in its animation stack and in pose_blend; it used a renormalised weighted sum, which turned a little slower mid-fade.
