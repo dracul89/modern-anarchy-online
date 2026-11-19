@@ -8250,6 +8250,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::private_leave_packet(owner))?;
                                     }
                                 }
+                                // (FUN_100852e8: one's own group, when it is there, is disbanded with packet 54 and the
+                                // chat library's own "left" action for it [FUN_1016d66a]; the group goes from the
+                                // windows either way [`ChatGUIModule_c::RemoveGroup`], with no line)
+                                Out::PrivateDisband => {
+                                    if let Some(group) = private.remove(&own) {
+                                        chat.send(&mao_net::chat::private_disband_packet())?;
+                                        crate::chatgroups::forget(&group);
+                                    }
+                                }
                                 // (a line to a private group the character is in goes there)
                                 Out::Channel { name, text } if private.values().any(|n| n.eq_ignore_ascii_case(&name)) => {
                                     if let Some((&owner, _)) = private.iter().find(|(_, n)| n.eq_ignore_ascii_case(&name)) {

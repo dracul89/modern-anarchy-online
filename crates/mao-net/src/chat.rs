@@ -341,6 +341,11 @@ fn tell_of_kind(target: u32, text: &str, kind: u8) -> Vec<u8> {
 }
 
 /// Joins the private chat group of the character who invited (52).
+/// Disbanding one's own private group: packet 54 with nothing in it (GUI.dll FUN_1016d66a, `FUN_1016c7ee(0x36)`).
+pub fn private_disband_packet() -> Vec<u8> {
+    framed(54, Vec::new())
+}
+
 pub fn private_join_packet(owner: u32) -> Vec<u8> {
     framed(52, owner.to_be_bytes().to_vec())
 }
@@ -606,6 +611,8 @@ mod tests {
     fn friends_are_added_and_removed() {
         assert_eq!(buddy_add_packet(598325, false), hex("0028000700092135000101"));
         assert_eq!(buddy_remove_packet(598325), hex("0029000400092135"));
+        // (disbanding one's own private group: packet 54, empty)
+        assert_eq!(private_disband_packet(), hex("00360000"));
     }
 
     #[test]

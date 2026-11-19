@@ -16,8 +16,8 @@
 //!
 //! The chat windows here are the tabs of the client's chat window (`chatgroups::Pane`). "Log messages" turns the
 //! client's one chat log on and off (the original logs each window by itself); there is no log window to show. Not
-//! here: a window row's own menu (its style), and disbanding one's own private group. The right button on a private
-//! group's row opens its menu (FUN_100a1102): "Leave %s".
+//! here: a window row's own menu (its style). The right button on a private group's row opens its menu
+//! (FUN_100a1102): "Disband %s", only for one's own group, and "Leave %s", only for another's.
 
 use crate::chatgroups::{self, Pane};
 use crate::gui::host::Signal;
@@ -141,6 +141,10 @@ pub struct ChatConfig {
     popup: Option<crate::gui::popup::PopupMenu>,
     /// The private groups the player chose to leave, for the chat window to send.
     pub leaves: Vec<String>,
+    /// The player chose to disband their own private group (FUN_100a0e34).
+    pub disband: bool,
+    /// The character's own name: its private group is the one named so.
+    pub own: String,
 }
 
 impl ChatConfig {
@@ -242,14 +246,22 @@ impl ChatConfig {
         if let Some((k, at)) = right_clicked
             && let Some(group) = self.listed.get(k).filter(|g| chatgroups::is_private(g))
         {
+            // (FUN_100a1102: "Disband %s" taken only for the character's own group, "Leave %s" only for another's)
+            let own = group.eq_ignore_ascii_case(&self.own);
+            let disband = crate::gui::xml::ldb_named(10001, "DisbandChatGrp", "Disband %s").replace("%s", group);
             let label = crate::gui::xml::ldb_named(10001, "LeaveChatGrp", "Leave %s").replace("%s", group);
-            self.popup = Some(crate::chrome::menu_at(ctx, at, &[(label, true)]));
+            self.popup = Some(crate::chrome::menu_at(ctx, at, &[(disband, own), (label, !own)]));
             self.menu = Some(group.clone());
         }
-        if crate::chrome::menu(ctx, palette, "chat-group-menu", &mut self.popup).is_some()
+        if let Some(entry) = crate::chrome::menu(ctx, palette, "chat-group-menu", &mut self.popup)
             && let Some(group) = self.menu.take()
         {
-            self.leaves.push(group);
+            // (FUN_100a0e34 disbands, FUN_100a0e95 leaves)
+            if entry == 0 {
+                self.disband = true;
+            } else {
+                self.leaves.push(group);
+            }
         }
         if self.popup.is_none() {
             self.menu = None;

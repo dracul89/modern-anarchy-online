@@ -7878,3 +7878,7 @@ GUI.dll's script loader (FUN_100b1517) cuts the command line with Utils.dll's `S
 ### Sent lines and how many lines a chat window shows (CHT-042)
 
 The original keeps the last 200 lines sent for the arrow keys (FUN_1008f5b5: a line sent again leaves its old place and goes last), and each chat view shows at most its last 200 lines (ChatTextView_c, FUN_10091d8c). The client now does both; its one shared list of 600 lines behind the windows stays.
+
+### Disbanding one's own private group (CHT-060)
+
+The original's menu on a private group's row in the chat settings (GUI.dll FUN_100a1102) offers "Disband" for the character's own group and "Leave" for another's; disbanding sends the chat server packet 54 and takes the group out of the windows (FUN_100852e8). The client now has both entries; before, it offered only "Leave", for any group.

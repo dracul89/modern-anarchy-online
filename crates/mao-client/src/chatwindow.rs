@@ -283,6 +283,8 @@ pub enum Out {
     PrivateDecline { owner: u32 },
     /// Leave a private chat group, by its name.
     PrivateLeave { name: String },
+    /// Disband the character's own private chat group.
+    PrivateDisband,
     /// Sit down to log out / leave the client (handled by the window, not sent to the chat server).
     Camp,
     /// Show or hide the performance overlay (`/perf`).
@@ -2243,11 +2245,15 @@ impl ChatWindow {
         if self.popup.is_none() {
             self.menu = None;
         }
+        self.config.own = self.names.own.clone();
         if self.config.show(ctx, palette, &mut self.panes, &mut self.tab, &mut self.log) {
             chatgroups::save(&self.panes);
         }
         for name in self.config.leaves.drain(..) {
             self.outs.push(Out::PrivateLeave { name });
+        }
+        if std::mem::take(&mut self.config.disband) {
+            self.outs.push(Out::PrivateDisband);
         }
         // an invitation to a private chat group: the original's question (FUN_100a76c9) with its list of the chat windows
         // to put the group in

@@ -299,6 +299,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - With "fade messages" on, chat lines fade away even while the window is under the mouse or being typed in, as in the original.
 - A script's arguments in double quotes are one word (quotes kept), as in the original.
 - The arrow keys recall the last 200 lines sent, and a line sent again moves to the newest place; a chat window shows its last 200 lines.
+- The chat settings can disband your own private chat group (right button on its row), as in the original.
 
 ### Movement
 
