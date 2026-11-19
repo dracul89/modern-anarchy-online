@@ -11332,14 +11332,26 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.loots.retain(|l| l.identity.0 != crate::loot::BANK);
                     state.loot_changed = true;
                 }
-                // (a corpse or chest open, not one's own, more than 5 m away (FUN_1005a1e7): closed and the server told,
-                // `CharacterAction` 0x8e naming it (FUN_1003f8fc's first branch))
+                // (a corpse or chest open, not one's own, out of reach (FUN_1005a1e7: more than 5 m away, or in a dungeon in
+                // another room behind a shut door): closed and the server told, `CharacterAction` 0x8e naming it
+                // (FUN_1003f8fc's first branch))
                 let own_corpse = state.corpses.get(&own).copied();
+                let now = Instant::now();
+                let open = |n: u8| state.doors_open.get(&n).is_some_and(|until| *until > now);
+                let rooms_join = |at: [f32; 3]| {
+                    interior.as_ref().is_none_or(|i| {
+                        let own_room = i.room_at(position, room_state.current);
+                        match (own_room, own_room.and_then(|r| i.room_at(at, Some(r)))) {
+                            (Some(a), Some(b)) => room_state.reach_through(a, b, &open),
+                            _ => true,
+                        }
+                    })
+                };
                 let away: Vec<(u32, u32)> = state
                     .loots
                     .iter()
                     .filter(|l| matches!(l.identity.0, 0xc76a | 0xc749) && Some(l.identity.1) != own_corpse)
-                    .filter(|l| state.objects.get(&l.identity.1).is_some_and(|&at| !trade_in_reach(position, own_sphere.unwrap_or(NO_MESH_SPHERE), at, NO_MESH_SPHERE)))
+                    .filter(|l| state.objects.get(&l.identity.1).is_some_and(|&at| !trade_in_reach(position, own_sphere.unwrap_or(NO_MESH_SPHERE), at, NO_MESH_SPHERE) || !rooms_join(at)))
                     .map(|l| l.identity)
                     .collect();
                 for identity in away {
