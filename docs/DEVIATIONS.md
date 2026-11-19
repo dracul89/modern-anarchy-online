@@ -1295,7 +1295,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only the AttackInfo/health line and keys done; the rest not ported (no death-music or resurrection code found in crates/)
 - A player notices: no death music, no resurrection text
 - Where: `docs/ORIGINAL_AUDIT.md:51`; `docs/CLIENT_UI.md:733`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): Done with what was left. The input stop: while the own character is dead no key, mouse button, wheel step, pointer move or typed character is taken and the pointer is off, until the character is in play again, as the original (there is no timer in it; the eight seconds were its capture's). The resurrection shock: stat 247 at 5000 with the resurrection's line, counted down by the client 27 every two seconds, lowering every shown skill and ability by shock * base / 10000 meanwhile, with its end's line. Not ported: the AFK timer stopped while dead. The resurrection message is in no capture; a death that sticks would keep the input off (the window's close button still works).
 - Done in part (2026-11-18): ported: the death's reason from the four other messages that carry it (`SpecialAttackInfo`, `HealthDamage`, `ShieldAttack`, `ReflectAttack`: the capture's own death, by a nano program, was told nothing) and from `CharacterAction` 0x99, which is that and nothing else; and the resurrection message (`ResurrectIIR_t`, in no capture): health, nano, the shock's line from level 15. Nothing to port: the death music mode is an empty function in the original. Left on purpose: the windows' reaction, which is not what the line above says (`DeadMessage` is the character object going at every zoning; what the original does at a death is stop all input for some eight seconds, which here could leave a stuck death with no way out). Not ported: the resurrection shock itself (stat 247).
 
 ## NPCs and creatures

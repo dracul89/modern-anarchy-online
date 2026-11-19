@@ -949,6 +949,9 @@ These were written before this list; some may have been seen working since witho
   stops just behind the character. Set the mouse wheel to "No effect": the wheel does nothing over the world. In
   first person, look down: no body unless "Show my character in first person view" is on. Zoom right up to the
   character in third person: it turns slightly see-through. Tell me what looks wrong.
+- [ ] Dying (2026-11-18): let Maotesttwo die: for the seconds the character lies there, keys, mouse and typing do
+  nothing and the pointer is gone; all of it comes back when the character stands at the reclaim. **Tell me at
+  once if it does not come back** (the window's close button still works).
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

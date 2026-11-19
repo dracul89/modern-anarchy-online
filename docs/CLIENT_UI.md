@@ -6187,3 +6187,40 @@ panel's own values.
 
 Not seen running: no offscreen picture has a camera near a body. Tests: the camera's zoom test (the switch
 off), `the_own_body_fades_near_the_camera`.
+
+### What was left of one's own death (DTH-014)
+
+**The input stop.** Read exactly now (it was left on purpose before, for fear of a death that sticks; the user named
+the entry again):
+
+- The death state's constructor (`CharDie_t`, Gamecode FUN_1007b803) stops the character's moving and fighting and,
+  for the player's own, tells the interface to take no input (FUN_1003eb6f -> the notifier's kind 9 ->
+  `FlowControlModule_t::DisableUserInputMessage`, GUI.dll 0x100286e2): `InputConfig_t`'s flag is set, the AFK timer
+  stops and the pointer is switched off.
+- With the flag, `InputConfig_t::FrameProcess` (0x1001b253) drops the frame's whole input: keys, mouse buttons,
+  the wheel, typed characters, clicks on windows. (Two key chords pass, Alt and Shift+Ctrl+Alt with keys that
+  were not identified.)
+- Nothing ends it but the character being in play again after the server has moved it (`AliveMessage`) or a
+  resurrection (FUN_1003ec1f). **There is no timer.** The "eight seconds" are the original's capture: 7.8 s from
+  the killing blow to the client's own `0x98`, with nothing sent in between, then the server's teleport.
+- No window is closed and nothing is shown for it; the death's own effect (3000) and the health set to 1 once the
+  death has played out were known.
+
+Here (`net::INPUT_STOPPED`, `viewer.rs` `window_event`): while the own character is dead every key, mouse button,
+wheel step and pointer move is dropped before the interface or the world sees it, the pointer is hidden, what was
+held is let go, and it ends when the character is alive again (a playfield message, or health above the dead
+one's: the two places that already ended the death). **If a death ever sticks, so does this**: the window's own
+close button still works. Not ported: the AFK timer stopped meanwhile.
+
+**The resurrection shock** (stat 247):
+- Set to 5000 when a character of level 15 or more is brought back where it lies, with its line (FUN_1003ec1f ->
+  FUN_1006411f). Counted down by the client itself: 27 every two seconds (the character's frame function
+  FUN_1005b55d on the game clock's ping), some six minutes, and at 0 the line `Feedback_YouFeelOkAgain`.
+- Meanwhile every shown skill (stats 100 to 168) and ability (16 to 21) is less `shock * base / 10000`, cut to a
+  whole number, `base` being its value before the modifiers (FUN_10064b51, through which the shown reads go): half
+  at the start. And no vehicle is ordered (already in `vehicles.rs`).
+
+Here: `derived::SHOCK`, `shock_penalty` (in `shown` and `shown_one`, so the windows and the requirement checks
+have it), `shock_step`, `World::tick_shock`. The resurrection message is in no capture (the ordinary return after
+a death is a teleport), so the shock will only ever come from another player's resurrection.
+Tests: `the_shock_takes_its_share_of_skills_and_abilities`.

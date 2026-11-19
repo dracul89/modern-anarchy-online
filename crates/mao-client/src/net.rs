@@ -579,6 +579,8 @@ struct World {
     /// The keys the character holds (stat 195 of each item's template), and what they were read for: the items' count
     /// and ids added up, so that they are read again when the items change.
     held_keys: (u64, Vec<u32>),
+    /// When the resurrection shock was last counted down (`tick_shock`).
+    shock_at: Option<Instant>,
     /// The playfield's own door props (`static_props`' keys) and their numbers: a door the server announces takes the
     /// number's slot with its own id, and the table's prop still swings and goes with that door.
     door_props: BTreeMap<u32, u8>,
@@ -1074,6 +1076,15 @@ pub fn org_command(command: u8, targeted: bool, text: String) {
     let at = if targeted { crate::orgboxes::At::Target } else { crate::orgboxes::At::Nobody };
     ORG_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push((command, at, text, false));
 }
+
+/// The player's own character is dead: no input is taken until it is alive again. The original's death state turns
+/// the input off as it begins (`CharDie_t`'s constructor, Gamecode FUN_1007b803 -> FUN_1003eb6f ->
+/// `DisableUserInputMessage`, GUI.dll 0x100286e2: `InputConfig_t`'s flag, by which its frame drops every key, mouse
+/// button, wheel step and typed character, 0x1001b253; and the pointer is switched off) and nothing gives it back but
+/// the character being in play again after the server has moved it (`AliveMessage`) or a resurrection
+/// (FUN_1003ec1f). There is no timer in it: in the original's capture of a death the client sends nothing for the
+/// 7.8 seconds until its own `0x98`.
+pub static INPUT_STOPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The original's `LockEquipment` value (a character's preference, false in the game's `CharPrefs.xml`), which the
 /// interface keeps up to date: while it is on nothing is put on or taken off (`equipment_locked`).
@@ -2041,6 +2052,27 @@ impl World {
                     }
                 }
             }
+        }
+    }
+
+    /// The resurrection shock counted down: every two seconds (the game clock's ping, by which the character's frame
+    /// function FUN_1005b55d does it) 27 less, and at its end the line `Feedback_YouFeelOkAgain`.
+    fn tick_shock(&mut self, now: Instant) {
+        let shock = self.stats.get(&crate::derived::SHOCK).copied().unwrap_or(0);
+        if shock <= 0 {
+            self.shock_at = None;
+            return;
+        }
+        let since = *self.shock_at.get_or_insert(now);
+        if now.duration_since(since) < Duration::from_secs(2) {
+            return;
+        }
+        self.shock_at = Some(since + Duration::from_secs(2));
+        let left = crate::derived::shock_step(shock);
+        self.stats.insert(crate::derived::SHOCK, left);
+        self.stats_changed = true;
+        if left == 0 {
+            self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_YouFeelOkAgain")));
         }
     }
 
@@ -3349,8 +3381,9 @@ impl World {
         // stands again (every animation dropped for its stance's own; one's own input is given back, the death's
         // effect ends), and one's own from level 15 is told the resurrection shock's line. No capture or log has
         // the message: the ordinary return after a death is a teleport and a new announcement. From the code alone.
-        // Not ported: the shock itself (stat 247 set to 5000 and counted down, lowering the skills meanwhile and
-        // refusing vehicles; its end's line `Feedback_YouFeelOkAgain`), and the wait for the death to play out.
+        // With the line the shock is set (stat 247 to 5000, FUN_1006411f), which the game loop counts down and which
+        // lowers the skills and refuses vehicles meanwhile (`derived::shock_penalty`, `World::tick_shock`).
+        // Not ported: the wait for the death to play out.
         if m.kind == 0x445f2a0b && m.data.len() >= 9 {
             let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap()) as i32 as i64;
             let (id, health, nano) = (m.identity.1, word(1), word(5));
@@ -3366,6 +3399,7 @@ impl World {
                 self.stats.insert(214, nano);
                 self.stats_changed = true;
                 if self.stats.get(&54).copied().unwrap_or(0) >= 15 {
+                    self.stats.insert(crate::derived::SHOCK, 5000);
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_ResurrectionShockFillsYourBody")));
                 }
             }
@@ -8206,6 +8240,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             // (the death's course: the white once the death has played out, and three seconds on the word to the server,
             // which sets the character down where it comes back to life)
+            // (dead, the original takes no input at all: `INPUT_STOPPED`)
+            INPUT_STOPPED.store(state.own_dead, std::sync::atomic::Ordering::Relaxed);
             match own_death.step(state.own_dead, characters.as_ref().and_then(|c| c.death_played(own)), Instant::now()) {
                 DeathStep::Whiten => crate::whiteout::begin(),
                 DeathStep::Tell => {
@@ -10399,6 +10435,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 last_overlay = Instant::now();
                 let built = Instant::now();
                 state.tick_doors(position);
+                state.tick_shock(Instant::now());
                 // (characters farther than the setting are not drawn; 0 draws all)
                 let reach = keys.char_distance;
                 // (by the distance in all three directions, as `n3VisualDynel_t::Run` measures it, N3.dll 0x100199c0)

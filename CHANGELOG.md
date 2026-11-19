@@ -61,6 +61,13 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The character you pick in the list is alive: it breathes, and now and then waves, bows, scratches its head, as in
   the original.
 
+### Fights
+
+- While your character lies dead the game takes no input, as the original: no keys, no clicks, no typing, until the
+  character is back.
+- Brought back by another player's resurrection (from level 15), your character is in resurrection shock: skills
+  and abilities are lowered, by half at first, and recover over about six minutes.
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher

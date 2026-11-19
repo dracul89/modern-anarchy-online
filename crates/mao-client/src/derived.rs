@@ -288,7 +288,33 @@ pub fn totals(parts: &BTreeMap<u32, Breakdown>) -> BTreeMap<u32, i64> {
 /// The shown stats: the stored ones plus the modifiers (stats without a stored value count from zero), and for the skills
 /// the trickle-down of the shown attributes.
 pub fn shown(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>) -> BTreeMap<u32, i64> {
-    totals(&breakdown(stored, modifiers, &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new()))
+    let mut shown = totals(&breakdown(stored, modifiers, &BTreeMap::new(), &BTreeMap::new(), &BTreeMap::new()));
+    // (under the resurrection shock the skills and the abilities are less: `shock_penalty`)
+    if stored.get(&SHOCK).is_some_and(|s| *s > 0) {
+        for (stat, value) in shown.iter_mut() {
+            *value -= shock_penalty(stored, *stat, *value - modifiers.get(stat).copied().unwrap_or(0));
+        }
+    }
+    shown
+}
+
+/// The resurrection shock's stat: 5000 when a character of level 15 or more is brought back where it lies, counted
+/// down by the client itself.
+pub const SHOCK: u32 = 0xf7;
+
+/// What the resurrection shock takes off a skill or an ability (Gamecode FUN_10064b51, which every shown read of a
+/// stat goes through: FUN_10064d46, FUN_10065a92): while the shock is above 0, a skill (stats 100 to 168) or an
+/// ability (16 to 21) is less `shock * base / 10000`, cut to a whole number, `base` being its value before the
+/// modifiers. Half of it at the shock's start.
+pub fn shock_penalty(stored: &BTreeMap<u32, i64>, stat: u32, base: i64) -> i64 {
+    let shock = stored.get(&SHOCK).copied().unwrap_or(0);
+    if shock > 0 && ((100..=168).contains(&stat) || (16..=21).contains(&stat)) { shock * base / 10000 } else { 0 }
+}
+
+/// The shock a tick later (the character's frame function FUN_1005b55d, on the game clock's ping every two
+/// seconds): 27 less, not under 0.
+pub fn shock_step(shock: i64) -> i64 {
+    (shock - 27).max(0)
 }
 
 /// One stat's shown value, as [`shown`] has it, without working out all the others: the original's read of a stat in
@@ -300,9 +326,13 @@ pub fn shown_one(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>, st
     match crate::trickle_data::WEIGHTS.iter().find(|w| w.0 == stat).filter(|_| attributes.iter().any(|&a| a > 0)) {
         Some((_, weights)) => {
             let unknown = if modifiers.contains_key(&stat) { 0 } else { DEFAULT_SKILL };
-            stored.get(&stat).copied().unwrap_or(unknown) + bonus + trickle(weights, &attributes)
+            let base = stored.get(&stat).copied().unwrap_or(unknown) + trickle(weights, &attributes);
+            base + bonus - shock_penalty(stored, stat, base)
         }
-        None => stored.get(&stat).copied().unwrap_or(0) + bonus,
+        None => {
+            let base = stored.get(&stat).copied().unwrap_or(0);
+            base + bonus - shock_penalty(stored, stat, base)
+        }
     }
 }
 
@@ -333,6 +363,22 @@ pub fn modifiers_without(db: &ResourceDatabase, modifiers: &BTreeMap<u32, i64>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The resurrection shock lowers skills and abilities by its share of their value before the modifiers, and
+    /// counts down by 27.
+    #[test]
+    fn the_shock_takes_its_share_of_skills_and_abilities() {
+        let stored: BTreeMap<u32, i64> = [(SHOCK, 5000), (17, 200), (27, 900)].into_iter().collect();
+        let modifiers: BTreeMap<u32, i64> = [(17, 30)].into_iter().collect();
+        // (an ability: half of its 200 at the shock's start, the modifier untouched; health is no skill)
+        assert_eq!(shown_one(&stored, &modifiers, 17), 200 + 30 - 100);
+        assert_eq!(shown_one(&stored, &modifiers, 27), 900);
+        assert_eq!(shown(&stored, &modifiers).get(&17), Some(&130));
+        assert_eq!((shock_penalty(&stored, 100, 301), shock_penalty(&stored, 168, 10), shock_penalty(&stored, 169, 10), shock_penalty(&stored, 15, 10)), (150, 5, 0, 0));
+        let calm: BTreeMap<u32, i64> = [(17, 200)].into_iter().collect();
+        assert_eq!(shown_one(&calm, &modifiers, 17), 230);
+        assert_eq!((shock_step(5000), shock_step(27), shock_step(5)), (4973, 0, 0));
+    }
 
     /// `MAO_GAME`: the Belt Component Platform between the Ti-200X (level 20) and the 300X (level 40): at 30 it has
     /// the low template's name, deck places and a price between the two; at 40 it is the 300X itself.

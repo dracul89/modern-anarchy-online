@@ -1279,6 +1279,22 @@ impl ApplicationHandler for App {
             self.focused = *focused;
         }
         let Some(w) = self.state.as_mut() else { return };
+        // (dead: every key, mouse button, wheel step and pointer move is dropped and the pointer is off, until the
+        // character is alive again: `net::INPUT_STOPPED`. What was held when it began is let go, and nothing is
+        // held when it ends. The window itself can still be closed.)
+        let stopped = self.live.is_some() && crate::net::INPUT_STOPPED.load(std::sync::atomic::Ordering::Relaxed);
+        if stopped != self.input_stopped {
+            self.input_stopped = stopped;
+            self.held.clear();
+            self.buttons = [false; 2];
+            self.mouse_look = (0.0, 0.0);
+            self.wheel = 0.0;
+            self.autorun = false;
+            w.window.set_cursor_visible(!stopped);
+        }
+        if stopped && matches!(event, WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. } | WindowEvent::CursorMoved { .. } | WindowEvent::Ime(_)) {
+            return;
+        }
         if let Some(ui) = w.ui.as_mut() {
             // The key the options window waits for goes to it, not to the interface.
             let capturing = ui.rebinding.is_some() && matches!(event, WindowEvent::KeyboardInput { .. });
