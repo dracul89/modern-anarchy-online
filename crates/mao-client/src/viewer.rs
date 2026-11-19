@@ -2351,6 +2351,17 @@ impl ApplicationHandler for App {
                     let mut tints: std::collections::HashMap<u32, ([f32; 4], bool, bool)> = std::collections::HashMap::new();
                     let terrain = self.ground.clone();
                     let ground = |x: f32, y: f32| terrain.as_ref().map(|(t, o)| t.height_at(x, y, t.height_scale) + o);
+                    // (the playfield the toggles test: its number and its record's first flag word, `RDBPlayfield_t` +0x1c
+                    // and +0x50, read once per playfield)
+                    let toggle_playfield = {
+                        static READ: std::sync::Mutex<(u32, u32)> = std::sync::Mutex::new((u32::MAX, 0));
+                        let mut read = READ.lock().unwrap();
+                        if read.0 != self.hud.playfield {
+                            let record = self.textures.db().get(mao_formats::resource::Id { kind: mao_formats::playfield::KIND, instance: self.hud.playfield }).ok().flatten();
+                            *read = (self.hud.playfield, record.as_deref().and_then(mao_formats::playfield::flag_words).map_or(0, |w| w[0]));
+                        }
+                        *read
+                    };
                     for (id, own, at, heading, body, auras) in &self.auras {
                         let feet = if *own && self.hud.position.is_some() { own_feet } else { *at };
                         let heading = if *own { self.heading } else { *heading };
@@ -2380,7 +2391,7 @@ impl ApplicationHandler for App {
                             if let Some(age) = self.pulses.tick(*id, *nano, period, life, plays, time) {
                                 // (its toggles started by the vehicle's motion, the times as the effect's)
                                 let motion = crate::effects::Motion { moving: motion.moving, started: motion.started.map(|s| age - (time - s)) };
-                                let resolved = crate::effects::resolve_toggles(aura, age, &motion);
+                                let resolved = crate::effects::resolve_toggles(aura, age, &motion, toggle_playfield);
                                 let aura = &resolved;
                                 let c = posed.get_or_insert_with(|| body_at(feet));
                                 if let Some(c) = c {

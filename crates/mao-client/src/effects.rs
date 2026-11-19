@@ -2798,19 +2798,27 @@ pub struct Motion {
     pub started: Option<f32>,
 }
 
+/// The toggle's playfield test (FUN_101125ed) for the current playfield, `playfield` its number and its record's first flag
+/// word (`RDBPlayfield_t` +0x1c and +0x50, `playfield::flag_words`'s first): the flags must meet the toggle's mask (any
+/// playfield when the mask is 0); then with flag 0x800 a playfield not in the list passes, without it only one in the list.
+pub fn toggle_passes(flags: u32, mask: u32, places: &[i32], playfield: (u32, u32)) -> bool {
+    if mask != 0 && playfield.1 & mask == 0 {
+        return false;
+    }
+    let listed = places.iter().any(|&p| p as u32 == playfield.0);
+    if flags & 0x800 != 0 { !listed } else { listed }
+}
+
 /// An effect `age` seconds in with its toggles (kind 3036, `GfxControlToggle_t`, FUN_10112952) resolved by `motion`: each
-/// toggle whose playfield test passes (the client knows no playfield flags or ids here: it passes with flag 0x800, as if the
-/// playfield were none of those listed and met the mask, and not without it) becomes its child started at the toggle's start
-/// (0) or, with flag 0x2000, when the vehicle last began to move forward (`motion.started`, in the effect's time; none before
-/// that, and with 0x8000 none while it is not moving); else it is dropped.
-pub fn resolve_toggles(v: &Visual, age: f32, motion: &Motion) -> Visual {
+/// toggle whose playfield test passes ([`toggle_passes`] on `playfield`, the current playfield's number and first flag word)
+/// becomes its child started at the toggle's start (0) or, with flag 0x2000, when the vehicle last began to move forward
+/// (`motion.started`, in the effect's time; none before that, and with 0x8000 none while it is not moving); else it is
+/// dropped.
+pub fn resolve_toggles(v: &Visual, age: f32, motion: &Motion, playfield: (u32, u32)) -> Visual {
     match v {
         Visual::Toggle { child, flags, mask, places } => {
-            // (without flag 0x800 an empty list passes nothing and a list passes only its playfields, which the client does not
-            // know here; with it every playfield not listed passes, and the flags' mask is taken as met)
-            let _ = (mask, places);
-            let passes = flags & 0x800 != 0;
-            let child = resolve_toggles(child, age, motion);
+            let passes = toggle_passes(*flags, *mask, places, playfield);
+            let child = resolve_toggles(child, age, motion, playfield);
             if !passes {
                 return Visual::Meta(Vec::new());
             }
@@ -2823,7 +2831,7 @@ pub fn resolve_toggles(v: &Visual, age: f32, motion: &Motion) -> Visual {
                 _ => Visual::Meta(Vec::new()),
             }
         }
-        Visual::Meta(children) => Visual::Meta(children.iter().map(|c| resolve_toggles(c, age, motion)).collect()),
+        Visual::Meta(children) => Visual::Meta(children.iter().map(|c| resolve_toggles(c, age, motion, playfield)).collect()),
         other => other.clone(),
     }
 }
@@ -4167,19 +4175,25 @@ mod tests {
         // (template 72412: the hoverbike's puff as it moves off, again at each start; 72416 its stream, stopped with the bike)
         let puff = Visual::Toggle { child: Box::new(child.clone()), flags: 0x2c03, mask: 0, places: Vec::new() };
         let stream = Visual::Toggle { child: Box::new(child), flags: 0xac03, mask: 0, places: Vec::new() };
+        let pf = (655, 0);
         let still = Motion { moving: false, started: None };
-        assert!(visual_particles(&resolve_toggles(&puff, 5.0, &still), [0.0; 3], 5.0, Reach::Small).is_empty());
+        assert!(visual_particles(&resolve_toggles(&puff, 5.0, &still, pf), [0.0; 3], 5.0, Reach::Small).is_empty());
         let off = Motion { moving: true, started: Some(4.6) };
-        let p = resolve_toggles(&puff, 5.0, &off);
+        let p = resolve_toggles(&puff, 5.0, &off, pf);
         assert!(matches!(&p, Visual::Delayed(_, start) if (start - 4.6).abs() < 1e-5));
         assert_eq!(visual_particles(&p, [0.0; 3], 5.0, Reach::Small).len(), 1);
         // (the puff plays out after a stop; the stream does not)
         let stopped = Motion { moving: false, started: Some(4.6) };
-        assert_eq!(visual_particles(&resolve_toggles(&puff, 5.0, &stopped), [0.0; 3], 5.0, Reach::Small).len(), 1);
-        assert!(visual_particles(&resolve_toggles(&stream, 5.0, &stopped), [0.0; 3], 5.0, Reach::Small).is_empty());
-        // (a list of playfields without flag 0x800 never passes here)
-        let only = Visual::Toggle { child: Box::new(Visual::Meta(Vec::new())), flags: 0, mask: 0, places: vec![4001] };
-        assert_eq!(resolve_toggles(&only, 1.0, &off), Visual::Meta(Vec::new()));
+        assert_eq!(visual_particles(&resolve_toggles(&puff, 5.0, &stopped, pf), [0.0; 3], 5.0, Reach::Small).len(), 1);
+        assert!(visual_particles(&resolve_toggles(&stream, 5.0, &stopped, pf), [0.0; 3], 5.0, Reach::Small).is_empty());
+        // (a list of playfields without flag 0x800 passes only on them, FUN_101125ed)
+        let only = Visual::Toggle { child: Box::new(Visual::Meta(vec![Visual::Meta(Vec::new())])), flags: 0, mask: 0, places: vec![4001] };
+        assert_eq!(resolve_toggles(&only, 1.0, &off, pf), Visual::Meta(Vec::new()));
+        assert_eq!(resolve_toggles(&only, 1.0, &off, (4001, 0)), Visual::Meta(vec![Visual::Meta(Vec::new())]));
+        // (with 0x800 every playfield but the listed; a mask the playfield's first flag word must meet)
+        assert!(toggle_passes(0x800, 0, &[4001], pf) && !toggle_passes(0x800, 0, &[4001], (4001, 0)));
+        assert!(!toggle_passes(0x800, 2, &[], pf) && toggle_passes(0x800, 2, &[], (655, 6)));
+        assert!(!toggle_passes(0, 0, &[], pf));
     }
 
     #[test]

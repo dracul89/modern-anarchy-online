@@ -6922,6 +6922,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: toggled effects may show in the wrong playfields
 - Where: `crates/mao-client/src/effects.rs:2775`; `docs/ORIGINAL_AUDIT.md:296`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The playfield test is ported: GfxControlToggle_t's run (Gamecode FUN_10112952) starts its child only when FUN_101125ed passes: the current playfield record's first flag word (RDBPlayfield_t +0x50, playfield::flag_words()[0]) must meet the toggle's mask (any playfield when the mask is 0), then with flag 0x800 the playfield's number (+0x1c) must not be in the toggle's list, without it it must be. New effects::toggle_passes; resolve_toggles takes the current playfield (number, flag word), which the viewer reads once per playfield. Before, only toggles with 0x800 ever passed, so effects listed for given playfields never showed there. Left: the restart under 0x400 without 0x2000 and the delayed children. Test: effects::tests::a_toggle_starts_its_child_as_the_vehicle_moves_off (extended).
 
 #### `RND-092` Tracer4 cords: hashed flips and jitter, sprite ribbon, no locator travel
 

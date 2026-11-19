@@ -146,6 +146,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Far campfires, chimneys and lamps keep their fire, smoke and halo out to the view distance instead of only within 150 m.
 - Effect meshes and trails attached to a body part (an arm, a leg, the spine) now show there.
 - Some placed objects stored with a slant (ramps and tilted pieces of the second statel layout) now lean as in the original instead of standing level.
+- Effects that the game shows only on certain playfields now appear there.
 
 ## 0.1.6 (2026-11-18)
 
