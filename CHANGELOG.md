@@ -107,6 +107,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   (`cycle a|w`, `social <name>`, `chat`, `script`), as in the original, and says when you have no pet.
 - A mission's item (Arete's "Plant a Bug" recording device and the like) now comes into your inventory.
 - Items placed by hand in the inventory and backpacks are remembered for each character on its own.
+- An item let go on an empty spot of the wear window goes to its own place on that page.
 
 ### The launcher
 

@@ -64,6 +64,13 @@ const WEAR_TABS: [WearTab; 4] = [
     WearTab { name: "Social", base: 48, cells: FULL_CELLS, label_base: 100, picture: "GFX_GUI_WEARVIEW_BG1" },
 ];
 
+/// The wear place an item let go on a cell of a page goes to (GUI.dll FUN_100e220f): the cell's own place (FUN_100ce01d),
+/// else, on a cell that is no place, the item's own place, its stat 0x58, on that page. Whether it may be worn there
+/// is asked next (`N3Msg_IsItemPossibleToWear`: `World::wear_refusal`).
+fn wear_drop_place(tab: &WearTab, cell: (usize, usize), own_place: impl FnOnce() -> u32) -> u32 {
+    tab.base + tab.cells.iter().find(|c| (c.1, c.2) == cell).map_or_else(own_place, |c| c.0)
+}
+
 /// One grid in its own small view tree.
 struct GridView {
     tree: Tree,
@@ -726,10 +733,14 @@ impl ItemWindows {
                             // frame's menu button)
                             wear_menu_at = Some(at);
                         }
-                        // (an item let go over a wear cell is worn there; not a split, FUN_100e220f)
-                        if dragged.is_some() && released && split == 0 && let Some(cell) = multilist::cell_at(tree, list, response.rect.min, at) {
-                            let tab = &WEAR_TABS[t];
-                            drop_on = tab.cells.iter().find(|c| (c.1, c.2) == cell).map(|c| tab.base + c.0);
+                        // (an item let go over a wear cell is worn there; over a cell of the grid that is no place, at
+                        // the item's own place on the page, its stat 0x58 (FUN_100e220f: FUN_100ce01d finds no place
+                        // for the cell, then `N3Msg_GetSkill(item, 0x58)`); not a split)
+                        if let (Some(from), true, 0) = (dragged, released, split)
+                            && let Some(cell) = multilist::cell_at(tree, list, response.rect.min, at)
+                        {
+                            let own_place = || by_slot.get(&from).and_then(|i| crate::net::item_template_stat(i.item_id, 0x58)).unwrap_or(0);
+                            drop_on = Some(wear_drop_place(&WEAR_TABS[t], cell, own_place));
                         }
                     }
                 });
@@ -956,6 +967,17 @@ impl ItemWindows {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_100e220f: a cell that is a place takes the item there; a cell of the grid that is none, the item's own place
+    /// (stat 0x58) on that page.
+    #[test]
+    fn an_item_let_go_on_a_wear_cell() {
+        let implants = &WEAR_TABS[2];
+        assert_eq!(wear_drop_place(implants, (1, 4), || panic!("not asked")), 32 + 13);
+        assert_eq!(wear_drop_place(implants, (0, 4), || 6), 32 + 6);
+        assert_eq!(wear_drop_place(&WEAR_TABS[0], (1, 0), || 3), 15);
+        assert_eq!(wear_drop_place(&WEAR_TABS[1], (2, 9), || 0), 16);
+    }
 
     /// FUN_100cc855 and FUN_100e220f: a plain right click uses the item in hand on the other, Shift in the
     /// inventory combines two of its items, and nothing comes of an item on itself.

@@ -1043,6 +1043,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Open the mail window, widen the Subject column and sort by Sent; close it and reopen (and restart): widths and sort are kept.
 - [ ] Turn on the score bars in the Stats window's menu: each shows "score / next rank's score" (2000 for a score of 0) and fills accordingly.
 - [ ] Place items by hand with one character, log in with another: the second keeps its own layout; back on the first, its layout is as it was left.
+- [ ] Drag an implant onto an empty corner cell of the implant page: it goes to its own implant place.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

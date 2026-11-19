@@ -7225,3 +7225,7 @@ The original's Stats window fills the duel, solo and team score bars over the ne
 ### Item cells kept per character (INV-019)
 
 The original keeps where each item stands in the inventory and in each backpack in files of the character's own folder (GUI.dll FUN_100ccefe / FUN_100cac66, `item_position_map`). The client's `places.ini` now keeps a line per item with the character first (`<character> <type> <instance> <place> <cell>`), so two characters no longer share one layout; older lines without a character are kept as nobody's. A cell is still counted along the rows of the window, not as the original's column and row.
+
+### An item let go on an empty wear cell (INV-020)
+
+GUI.dll FUN_100e220f: an item let go on a cell of a wear page that is no wear place (the implant page's corners, for one) goes to the item's own place on that page, its stat 0x58, and the wear check (`N3Msg_IsItemPossibleToWear`) is asked as for any wear place. The client now does the same (`invwindows::wear_drop_place`); before, such a drop did nothing. The item is still not kept in hand after a refusal, and there is no "no" pointer.

@@ -2229,6 +2229,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A wrong drop empties the hand and prints a refusal instead of leaving the item in hand; no "no" pointer.
 - Where: `crates/mao-client/src/invwindows.rs:516`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The wear check before the move was already ported (`World::wear_refusal`, Gamecode `N3Msg_IsItemPossibleToWear` 0x10026c57, asked in net.rs before a move to a wear place is sent; a refusal is told and the window puts the item back). Ported now: an item let go on a cell of a wear page that is not a place goes to the item's own place on that page, its stat 0x58 (GUI.dll FUN_100e220f: FUN_100ce01d finds no place, then `N3Msg_GetSkill(item, 0x58)`); before, such a drop did nothing. `invwindows::wear_drop_place`, test `an_item_let_go_on_a_wear_cell`. Left: on a refusal the original leaves the item in hand (the drag is not accepted) and shows the "no" pointer over cells that cannot take it (FUN_100e1ded); both need the wear check in the window's own frame, while the client's check runs in the network thread with the character's state.
 
 #### `INV-021` Loot windows keep the server's place order instead of sorting by name
 
