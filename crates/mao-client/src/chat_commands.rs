@@ -142,10 +142,14 @@ pub enum Parsed {
     /// `/ignore <name>`, `/ignore list`, or `/ignore` alone for the target (FUN_100bafeb): hide a character's tells
     /// and channel lines.
     Ignore { name: String },
-    /// `/viewdist [n]`: how far the world is seen (alone: the setting).
-    ViewDist { distance: Option<u32> },
-    /// `/chardist [n]`: how far characters are drawn (0: all).
-    CharDist { distance: Option<u32> },
+    /// `/viewdist <percent>` (GUI.dll FUN_100b69a7): the `ViewDistance` preference, the number (`atof`) times 0.01;
+    /// none when nothing follows the command.
+    ViewDist { share: Option<f32> },
+    /// `/chardist <n>` (FUN_100b68dc): the `DisplayCharViewDistance` value (`atol`); none when nothing follows.
+    CharDist { distance: Option<i32> },
+    /// A command given fewer pieces than it wants: "Error: To few arguments" in the original's words (FUN_1009bad0 in
+    /// colour 0x51).
+    TooFewArguments,
     /// `/follow`: walk after the current target (again: stop).
     Follow,
     /// `/inspect <a character's number>` (GUI.dll FUN_100b280d): ask for what that character wears. The info page's
@@ -232,8 +236,8 @@ pub enum Parsed {
     RaidCommand { text: String },
     /// `/bank <open|close|info>` (Gamecode FUN_1003fe10): its first word.
     Bank { word: String },
-    /// `/char&viewdist <characters> <view>` (GUI.dll FUN_100b6a54): both distances.
-    BothDist { characters: u32, view: u32 },
+    /// `/char&viewdist <characters> <percent>` (GUI.dll FUN_100b6a54): both distances, as `/chardist` and `/viewdist`.
+    BothDist { characters: i32, share: f32 },
     /// A line for the organization channel.
     Org { text: String },
     /// Plain speech or /say, /shout, /whisper, /me: vicinity chat.
@@ -436,6 +440,70 @@ pub const PIECES: &[(&str, i32)] = &[
     ("filter", 3), ("waypoint", 4), ("inspect", 2), ("emote", 2), ("gfx", 3), ("tower", 2),
 ];
 
+/// C's `atol`: blanks, a sign and the digits at the start of `text`; 0 when there are none. (A number past the 32 bits
+/// is held at their ends here.)
+pub fn atol(text: &str) -> i32 {
+    let t = text.trim_start();
+    let (negative, digits) = match t.as_bytes().first() {
+        Some(b'-') => (true, &t[1..]),
+        Some(b'+') => (false, &t[1..]),
+        _ => (false, t),
+    };
+    let n = digits.bytes().take_while(u8::is_ascii_digit).fold(0i64, |n, d| (n * 10 + (d - b'0') as i64).min(1 << 32));
+    (if negative { -n } else { n }).clamp(i32::MIN as i64, i32::MAX as i64) as i32
+}
+
+/// C's `atof`: the longest number at the start of `text` (blanks, a sign, digits with a point, an exponent); 0 when
+/// there is none.
+pub fn atof(text: &str) -> f64 {
+    let t = text.trim_start().as_bytes();
+    let mut end = 0;
+    if matches!(t.first(), Some(b'+' | b'-')) {
+        end = 1;
+    }
+    let digits = |from: usize| from + t[from..].iter().take_while(|b| b.is_ascii_digit()).count();
+    let whole = digits(end);
+    let mut last = whole;
+    let mut any = whole > end;
+    if t.get(whole) == Some(&b'.') {
+        let fraction = digits(whole + 1);
+        any |= fraction > whole + 1;
+        last = fraction;
+    }
+    if !any {
+        return 0.0;
+    }
+    if matches!(t.get(last), Some(b'e' | b'E')) {
+        let mut e = last + 1;
+        if matches!(t.get(e), Some(b'+' | b'-')) {
+            e += 1;
+        }
+        let exponent = digits(e);
+        if exponent > e {
+            last = exponent;
+        }
+    }
+    std::str::from_utf8(&t[..last]).ok().and_then(|n| n.parse().ok()).unwrap_or(0.0)
+}
+
+/// `/viewdist`'s number as the `ViewDistance` preference: a float times the float 0.01 (FUN_100b69a7's
+/// `_DAT_101bb800`).
+pub fn view_share(text: &str) -> f32 {
+    atof(text) as f32 * 0.01f64 as f32
+}
+
+/// The client's view distance for the original's `ViewDistance` preference: a share of 1000, the camera's far plane,
+/// not under 50.2 (N3.dll 0x1001fc91), as the option window maps it.
+pub fn view_distance_metres(share: f32) -> f32 {
+    (share * 1000.0).max(50.2)
+}
+
+/// The client's character distance for the original's `DisplayCharViewDistance`: 5 to 80 as it is, 70 for anything
+/// else (N3.dll 0x1001f964), as the option window maps it.
+pub fn char_distance_metres(value: i32) -> f32 {
+    if (5..=80).contains(&value) { value as f32 } else { 70.0 }
+}
+
 pub fn parse(line: &str) -> Parsed {
     let line = line.trim();
     if line.is_empty() {
@@ -535,13 +603,11 @@ pub fn parse(line: &str) -> Parsed {
         "born" => Parsed::Born,
         "team" => Parsed::TeamCommand { words: text.split_whitespace().map(str::to_lowercase).collect() },
         "bank" => Parsed::Bank { word: text.split_whitespace().next().unwrap_or("").to_lowercase() },
-        "char&viewdist" => {
-            let mut numbers = text.split_whitespace().map(|t| t.parse::<u32>().ok());
-            match (numbers.next().flatten(), numbers.next().flatten()) {
-                (Some(characters), Some(view)) => Parsed::BothDist { characters, view },
-                _ => Parsed::Usage("/char&viewdist <character distance> <view distance>"),
-            }
-        }
+        // (FUN_100b6a54: the first piece by `atol`, the rest of the line by `atof`; fewer than three pieces, an error)
+        "char&viewdist" => match text.split_once(char::is_whitespace) {
+            Some((characters, view)) => Parsed::BothDist { characters: atol(characters), share: view_share(view) },
+            None => Parsed::TooFewArguments,
+        },
         "setoption" | "option" => {
             let mut words = text.split_whitespace();
             Parsed::SetOption { name: words.next().unwrap_or("").to_string(), value: words.next().unwrap_or("").to_string() }
@@ -559,8 +625,10 @@ pub fn parse(line: &str) -> Parsed {
                 _ => Parsed::Usage("/waypoint <x> <z>"),
             }
         }
-        "chardist" => Parsed::CharDist { distance: text.split_whitespace().next().and_then(|t| t.parse().ok()) },
-        "viewdist" => Parsed::ViewDist { distance: text.split_whitespace().next().and_then(|t| t.parse().ok()) },
+        // (FUN_100b68dc, FUN_100b69a7: all after the command is one piece, read as C's `atol` / `atof` read it, with no
+        // limits; nothing after it is too few pieces)
+        "chardist" => Parsed::CharDist { distance: (!text.is_empty()).then(|| atol(text)) },
+        "viewdist" => Parsed::ViewDist { share: (!text.is_empty()).then(|| view_share(text)) },
         "quit" => Parsed::Quit,
         "befriend" => {
             if text.is_empty() {
@@ -846,8 +914,10 @@ mod tests {
         assert!(matches!(parse("/fxscript"), Parsed::Usage(_)));
         assert_eq!(parse("/selectself"), Parsed::SelectSelf);
         assert_eq!(parse("/setoption vsync on"), Parsed::SetOption { name: "vsync".into(), value: "on".into() });
-        assert_eq!(parse("/viewdist 600"), Parsed::ViewDist { distance: Some(600) });
-        assert_eq!(parse("/viewdist"), Parsed::ViewDist { distance: None });
+        assert_eq!(parse("/viewdist 60"), Parsed::ViewDist { share: Some(60.0 * 0.01f32) });
+        assert_eq!(parse("/viewdist 250 more"), Parsed::ViewDist { share: Some(250.0 * 0.01f32) });
+        assert_eq!(parse("/viewdist"), Parsed::ViewDist { share: None });
+        assert_eq!((parse("/chardist 40"), parse("/chardist x"), parse("/chardist")), (Parsed::CharDist { distance: Some(40) }, Parsed::CharDist { distance: Some(0) }, Parsed::CharDist { distance: None }));
         assert_eq!(parse("/QUIT"), Parsed::Quit);
         assert_eq!(parse("/befriend Abc"), Parsed::Befriend { name: "Abc".into() });
         assert_eq!(parse("/befriend"), Parsed::Usage("/befriend <name>"));
@@ -897,7 +967,12 @@ mod tests {
         assert_eq!(parse("/team Loot ALPHA"), Parsed::TeamCommand { words: vec!["loot".into(), "alpha".into()] });
         assert_eq!(parse("/team"), Parsed::TeamCommand { words: vec![] });
         assert_eq!(parse("/tower info"), Parsed::Unsupported("tower".into()));
-        assert_eq!(parse("/char&viewdist 50 600"), Parsed::BothDist { characters: 50, view: 600 });
+        assert_eq!(parse("/char&viewdist 50 60"), Parsed::BothDist { characters: 50, share: 60.0 * 0.01f32 });
+        assert_eq!(parse("/char&viewdist 50"), Parsed::TooFewArguments);
+        // (C's readings of a number)
+        assert_eq!((atol(" -12abc"), atol("abc"), atol("99999999999")), (-12, 0, i32::MAX));
+        assert_eq!((atof("1.5e2x"), atof(".5"), atof("-"), atof("7."), atof("2e")), (150.0, 0.5, 0.0, 7.0, 2.0));
+        assert_eq!((view_distance_metres(0.6), view_distance_metres(0.0), char_distance_metres(40), char_distance_metres(0), char_distance_metres(81)), (600.0, 50.2, 40.0, 70.0, 70.0));
         // (a script file's name is not a command of the list: the chat window looks for the file)
         assert_eq!(parse("/aou_about"), Parsed::Unknown("aou_about".into()));
         assert_eq!(parse("/AFK"), Parsed::Afk { text: String::new() });

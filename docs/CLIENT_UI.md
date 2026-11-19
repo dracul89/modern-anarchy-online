@@ -7862,3 +7862,7 @@ LDBformat::Feed prints each `%` piece of a game text with snprintf and the piece
 ### A speaker whose name is not known yet (CHT-028)
 
 The chat library's id-to-name map gives an empty name for a character it has not been told about (GUI.dll FUN_10014b93), and the line writer FUN_1009bc20 then writes neither name nor ": ". The client now shows such a vicinity line as its text alone and a group line as the group and the text, instead of the speaker's id in hex.
+
+### /viewdist, /chardist and /char&viewdist (CHT-031)
+
+GUI.dll FUN_100b69a7 sets the `ViewDistance` preference to the number times 0.01, FUN_100b68dc the `DisplayCharViewDistance` value, and FUN_100b6a54 both; nothing is said and nothing is limited, and with too few pieces an error line is written (FUN_1009bad0). The client now does the same: `/viewdist 60` is the option window's 60 % (600 m), `/chardist 40` 40 m (anything outside 5 to 80 is 70, as N3.dll maps it), and the option window shows the new values.

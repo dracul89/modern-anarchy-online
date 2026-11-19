@@ -4128,7 +4128,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: view distance clamped to 200-4000, character distance to at most 4000; own lines "View distance ..., characters up to ... away."
 - A player notices: values over the limits are cut
 - Where: `crates/mao-client/src/chatwindow.rs:1265`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original has no limits and no lines: GUI.dll FUN_100b69a7 (`/viewdist`) sets the `ViewDistance` preference to `atof` of everything after the command times the float 0.01 (`_DAT_101bb800`, a double 0.01), FUN_100b68dc (`/chardist`) sets the `DisplayCharViewDistance` value to `atol` of it, and FUN_100b6a54 (`/char&viewdist`, three pieces) does both, the first piece by `atol` and the rest by `atof`; with too few pieces each writes "Error: To few arguments" (FUN_1009bad0, colour 0x51), here in the client's words "Error: too few arguments.". The client now parses as C's atol/atof do, sets the original's two values in the stored settings (so the option window shows them), and its own distances from them the way the option window already maps them (view: share × 1000, not under 50.2, N3.dll 0x1001fc91; characters: 5 to 80 as given, else 70, N3.dll 0x1001f964). The client's 200–4000 clamp and its own "Usage" lines are gone. `/viewdist` now takes the original's percentage (60 = 600 m), not metres. Tests: `chat_commands::tests` (parse, atol, atof, the two mappings) and `chatwindow::tests` (`/char&viewdist`, the error line).
 - Looked at, left (2026-11-19, overnight): GUI.dll FUN_100b6a54's limits and lines were not read through tonight, and the distances map onto the client's own view-distance settings (RND-194). Left.
 
 #### `CHT-032` AFK box answers use fixed English lines

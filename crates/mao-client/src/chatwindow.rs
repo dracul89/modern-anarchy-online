@@ -317,10 +317,10 @@ pub enum Out {
     SelectSelf,
     /// Set a client setting (empty name: say the list).
     SetOption { name: String, value: String },
-    /// The view distance to set (a command line's `/viewdist n`).
-    ViewDist(u32),
-    /// The character draw distance to set (0: all).
-    CharDist(u32),
+    /// The original's `ViewDistance` preference to set (a command line's `/viewdist n`: n times 0.01).
+    ViewDist(f32),
+    /// The original's `DisplayCharViewDistance` value to set (`/chardist n`).
+    CharDist(i32),
 }
 
 /// The menus of a chat window (FUN_100abb98 and the ones under it).
@@ -1647,9 +1647,9 @@ impl ChatWindow {
             Parsed::Bug => None,
             Parsed::Nothing => None,
             // (FUN_100b6a54: both distances, set without a word)
-            Parsed::BothDist { characters, view } => {
-                self.outs.push(Out::CharDist(characters.min(4000)));
-                Some(Out::ViewDist(view.clamp(200, 4000)))
+            Parsed::BothDist { characters, share } => {
+                self.outs.push(Out::CharDist(characters));
+                Some(Out::ViewDist(share))
             }
             // (`/afk`: FUN_100b82a7)
             Parsed::Afk { text } => {
@@ -1681,15 +1681,12 @@ impl ChatWindow {
                 crate::charinfo::ask_equipment(id);
                 None
             }
-            // (FUN_100b69a7, FUN_100b68dc: the distance set without a word)
-            Parsed::ViewDist { distance: Some(d) } => Some(Out::ViewDist(d.clamp(200, 4000))),
-            Parsed::CharDist { distance: Some(d) } => Some(Out::CharDist(d.min(4000))),
-            Parsed::CharDist { distance: None } => {
-                self.push(Line::new(Kind::System, "Usage: /chardist <distance, 0 for all>"));
-                None
-            }
-            Parsed::ViewDist { distance: None } => {
-                self.push(Line::new(Kind::System, "Usage: /viewdist <200 to 4000>"));
+            // (FUN_100b69a7, FUN_100b68dc: the value set without a word and without limits; with nothing after the
+            // command, the error line FUN_1009bad0 writes in colour 0x51)
+            Parsed::ViewDist { share: Some(share) } => Some(Out::ViewDist(share)),
+            Parsed::CharDist { distance: Some(d) } => Some(Out::CharDist(d)),
+            Parsed::CharDist { distance: None } | Parsed::ViewDist { share: None } | Parsed::TooFewArguments => {
+                self.push(Line::new(Kind::System, "Error: too few arguments."));
                 None
             }
             Parsed::Ignore { name } => {
@@ -2417,8 +2414,10 @@ mod tests {
         assert_eq!(w.run("/tower info"), None);
         assert!(w.lines.last().unwrap().text.contains("not carried out"));
         assert_eq!(w.run("/dvalue AutoAFK"), Some(Out::DValue { name: "AutoAFK".into(), value: None }));
-        assert_eq!(w.run("/char&viewdist 50 9000"), Some(Out::ViewDist(4000)));
+        assert_eq!(w.run("/char&viewdist 50 9000"), Some(Out::ViewDist(9000.0 * 0.01f32)));
         assert_eq!(w.outs, vec![Out::CharDist(50)]);
+        assert_eq!(w.run("/viewdist"), None);
+        assert_eq!(w.lines.last().unwrap().text, "Error: too few arguments.");
     }
 
     #[test]

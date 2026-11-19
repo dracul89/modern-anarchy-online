@@ -270,6 +270,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The logout bar and the attack/nano/item timer bars use the skin's timer bar pictures, with their label on the bar, as in the original.
 - Popup menus too long for the screen show a scroll bar, as in the original.
 - A selected row in the game's lists (friends, mission, list-mode programs and the like) is filled with the original's solid light blue, no longer a pale tint.
+- /viewdist takes the original's percentage (/viewdist 60 = 600 m) and /chardist the original's value, with no limits of the client's own; the option window follows them.
 
 ### Chat
 

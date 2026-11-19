@@ -3041,12 +3041,20 @@ impl ApplicationHandler for App {
                             }
                             crate::chatwindow::Out::Inspect => self.keys.inspect = self.keys.inspect.wrapping_add(1),
                             crate::chatwindow::Out::Follow => self.keys.follow = self.keys.follow.wrapping_add(1),
-                            crate::chatwindow::Out::ViewDist(d) => {
-                                self.settings.view_distance = d as f32;
+                            // (`/viewdist`, `/chardist`: the original's preference and value set, which the option
+                            // window shows, and this client's distances from them as the option window maps them)
+                            crate::chatwindow::Out::ViewDist(share) => {
+                                if let Some(cc) = ui.control_center.as_mut() {
+                                    cc.store.set_user("ViewDistance", crate::gui::variant::Variant::Float(share));
+                                }
+                                self.settings.view_distance = crate::chat_commands::view_distance_metres(share);
                                 self.settings.save();
                             }
                             crate::chatwindow::Out::CharDist(d) => {
-                                self.settings.char_distance = d as f32;
+                                if let Some(cc) = ui.control_center.as_mut() {
+                                    cc.store.set_user("DisplayCharViewDistance", crate::gui::variant::Variant::Int32(d));
+                                }
+                                self.settings.char_distance = crate::chat_commands::char_distance_metres(d);
                                 self.settings.save();
                             }
                             crate::chatwindow::Out::Vicinity { kind, text } => crate::net::speak(kind, text, Vec::new()),
