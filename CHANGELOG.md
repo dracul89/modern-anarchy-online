@@ -42,6 +42,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The inspect window has its own "Labels On Top".
 - The battlestation's signup terminal has its window: your place in the queue, the side, Sign up and Leave queue.
   (Built from the original's code alone: it has not met a server yet.)
+- The vehicles window (Shift+V): the vehicles your side has researched, with their descriptions, Order Vehicle and
+  Leave vehicle. (Built from the original's code alone: ordering has not met a server yet.)
 
 ### Items
 

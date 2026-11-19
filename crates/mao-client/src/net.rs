@@ -2106,9 +2106,11 @@ impl World {
                 self.browser = Some(crate::browser::Request { mode: crate::browser::Mode::Market, headers });
             }
             Some(8) => self.open_windows.push("mail"),
-            // (the battlestation's signup terminal: kind 3 has no test of the character in FUN_1002e2fe. Kinds 4, 5
-            // and 7, the laser target, the airstrike and the vehicles, have windows this client has not.)
+            // (the battlestation's signup terminal: kind 3 has no test of the character in FUN_1002e2fe. Kinds 4 and
+            // 5, the laser target and the airstrike, have a window this client has not. Kind 7, the vehicles, is for
+            // a character whose stat 389 has bit 0x20.)
             Some(3) => self.open_windows.push("signup"),
+            Some(7) if self.stats.get(&389).copied().unwrap_or(0) & 0x20 != 0 => self.open_windows.push("vehicles"),
             _ => {}
         }
     }
@@ -8169,6 +8171,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let _ = match command {
                     crate::research::Command::Request => connection.send(&n3::research_request(own)),
                     crate::research::Command::SetStat(stat, value) => connection.send(&n3::set_stat(own, stat, value)),
+                };
+            }
+            // The vehicles window's request for the global research and its orders (`SpawnMech`).
+            for command in crate::vehicles::take_commands() {
+                eprintln!("vehicles: {command:?}");
+                let _ = match command {
+                    crate::vehicles::Command::Research => connection.send(&n3::research_request(own)),
+                    crate::vehicles::Command::Spawn(vehicle) => connection.send(&n3::spawn_mech(own, vehicle)),
                 };
             }
             for command in crate::tradeskill::take_commands() {

@@ -221,6 +221,15 @@ pub fn queue_action(character: u32, code: u8, side: u32) -> Frame {
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `SpawnMech` (`464d000a`, Gamecode's `SpawnMechIIR_t`, made by FUN_10079d57 for `N3Msg_ActivateMech`; its reader
+/// FUN_10079c1d takes one number): the vehicle ordered, a finished global research goal's number, or 0 to leave the
+/// vehicle the character sits in. From the decompile alone: none is in a capture.
+pub fn spawn_mech(character: u32, vehicle: u32) -> Frame {
+    let mut data = vec![0u8];
+    data.extend_from_slice(&vehicle.to_be_bytes());
+    Message { kind: 0x464d000a, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `QueueUpdate` (`2c2f061c`, Gamecode's `QueueUpdateIIR_t`: its reader FUN_10131ddd takes one number after the
 /// header's byte): the character's place in the battlestation's queue, below 0 when it is in it already.
 pub const QUEUE_UPDATE: u32 = 0x2c2f061c;
@@ -2593,6 +2602,9 @@ mod entity_tests {
         assert_eq!(queue_place(&word(&[0, 0xff, 0xff, 0xff, 0xff])), Some(-1));
         assert_eq!(queue_place(&word(&[0, 0])), None);
         assert_eq!(queue_place(&Message { kind: 0x5e477770, identity: (CHARACTER, 7), data: vec![0; 5] }), None);
+        // (a vehicle ordered: the header's byte and the goal's number)
+        let frame = spawn_mech(7, 0xc80);
+        assert_eq!(frame.body[frame.body.len() - 5..], [0, 0, 0, 0x0c, 0x80]);
     }
     /// A corpse's own look, from a captured announcement (a creature's remains): its CAT mesh, the body's scale, its
     /// turn, and the texture overrides after the dead one's second identity; its five clothes are all empty.

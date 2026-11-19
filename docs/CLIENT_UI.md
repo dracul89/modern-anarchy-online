@@ -6071,7 +6071,7 @@ the mail). Kinds 4, 5 and 7 are only opened for a character whose stat 389 has b
 |---|---|---|---|---|
 | Signup terminal | `SignupTerminal_c` FUN_100f499a, `Views/SignupTerminal.xml` | kind 3 | CharacterAction 0xfe (how the character stands), 0xfd (join, the side as the second parameter, after `SetStat` of 0x29c), 0xff (leave); `QueueUpdate` `2c2f061c` with the place | **ported**, `signup.rs` |
 | Laser target, airstrike | `LaserTarget_c` FUN_100f2e32 (one class, the mode from the kind), `Views/LaserTarget.xml`: a list "Player Name", "Area", "Level Range" | kinds 4 and 5 | CharacterAction 0x100 (refresh), 0x102 (orbital attack), 0x103 (airstrike) on the chosen row's identity (0xc73d, row); `LaserTagList` `2933154f` | not done: the list's record was not read to the end (which number is which column), and no terminal of these kinds was looked for |
-| Vehicles | FUN_100f3e80, `Views/MechSelect.xml`, `esc_vehicle` | kind 7, the control center's vehicle button (Shift+V, `OpenVehicleWindowMessage`) | a button for each finished global research goal whose item is a vehicle; `SpawnMech` `464d000a` with the perk | not done |
+| Vehicles | FUN_100f3e80, `Views/MechSelect.xml`, `esc_vehicle` | kind 7, the control center's vehicle button (Shift+V, `OpenVehicleWindowMessage`) | a button for each finished global research goal whose item is a vehicle; `SpawnMech` `464d000a` with the perk | **ported** the same evening, `vehicles.rs` (below) |
 | Tower build menu | `TowerBuildMenuView_c` FUN_1005cb45, made in code, `esc_towerbuildmenu` | the map control's Build and War buttons (FUN_100ec95f, FUN_100ec9f3) | an item dropped in; a check (CharacterAction 0xaf by the reader's reading) and `BuildTower`, whose message is in no decompile at hand; the answer's texts are Gamecode FUN_10129b8f's | not done: the exchange is unknown |
 | Battlestation | `BattlestationView_c` FUN_100f8967, made in code from four pictures and the points' places | the server's `ArriveAtBs` `540e3b27`; closed by `BattleOver` `4b062919` | `SendScore` `44483b3a`, the points' places | not done: needs a battle's own state |
 
@@ -6085,3 +6085,43 @@ character itself. The window's three lines are English in the program and are in
 read: what a change of the drop-down does by itself. Looked at offscreen (`MAO_UI_PREVIEW=signup`,
 `MAO_SIGNUP_PLACE=<n>`). **A guess in all of it: that a server answers these as the decompile reads.**
 Tests: `signing_up_needs_a_side_and_a_good_name`, `the_queues_actions_and_its_word`.
+
+### The vehicles window (OTH-010, the second of its windows)
+
+The user, after the survey: "Yes, vehicles". Read here in the original (GUI.dll's mech select, FUN_100f3e80; the
+two handlers the export lacks by disassembly; Gamecode's `N3Msg_ActivateMech`):
+
+- **What opens it**: the control center's vehicle button and its key (`OpenVehicleWindowMessage`, Shift+V) turn
+  the module on, and a used terminal of window kind 7 does for a character whose stat 389 has bit 0x20. Turned
+  on, the module (FUN_1002ef9c) makes the window only when more than 20 seconds have gone since a vehicle was
+  ordered (`mech_ordered`), `N3Msg_CanUseMech` holds (outside, and a playfield that allows vehicles; each says its
+  line otherwise) and the character's stat 0x213 has not bit 0.
+- **The list** (FUN_100f3b73): a button for each finished global research goal
+  (`N3Msg_GetCompletedGlobalResearchGoals`) whose item's stat 177 has 0x200, labelled with the goal's name, with
+  the item's icon as its picture, alive when the character meets the goal's criteria, all one width. The game's
+  data has six such goals: the window on the research preview's data (every captured global goal finished) lists
+  Personal Mechanized Vehicle, Anti-Personnel Turret, Anti-Vehicular Battery, Mechanized Scout Vehicle, Mechanized
+  Assault Vehicle and PMV Obsidian Edition.
+- **A click on one** (LAB_100f3a51): chosen (the button's name is the goal's number), `VehicleInfo` shows
+  `N3Msg_GetPerkDescription` of it, "Order Vehicle" comes alive. "Leave vehicle" stands in its place when the
+  character's stat 0x296 is not 0 as the window is made.
+- **"Order Vehicle"** (LAB_100f3931): `N3Msg_ActivateMech` of the one chosen, and the server's time kept as
+  `mech_ordered`. **"Leave vehicle"** (FUN_100f3a36): `N3Msg_ActivateMech(0)` and the window's close.
+- **`N3Msg_ActivateMech`** (Gamecode 0x10027250, FUN_10079c50): while a lock on 0x296 runs nothing is sent and the
+  wait is said (FUN_10064847, the line that names nothing). A vehicle then needs the character outside
+  (`Feedback_MustBeOutside`), not falling (`Feedback_YouCantDoThisWhileFalling`), in a playfield that allows
+  vehicles (`Feedback_MechCantBeOrdered`), not in resurrection shock (stat 0xf7,
+  `Feedback_NotWhileInResurrectionShock`), and one whose record's flags have 0x100 a battlestation or the
+  organisation's own tower area (`Feedback_OnlyInOwnLCArea`). Then `SpawnMech` (`464d000a`: the header's byte and
+  the goal's number, FUN_10079d57 and its reader FUN_10079c1d) is sent; 0 leaves the vehicle.
+
+Here (`vehicles.rs`; `mao_net::n3::spawn_mech`; `PerkRecord::more_flags`): the window from its view file with the
+list from `research::Model::finished_global`, the description `Model::description`, the criteria
+`perks::meets_perk`; Shift+V (`open_vehicle_window`, which was bound to nothing) and terminals of kind 7. Asked
+before an order: the lock and the resurrection shock, and before the window is made the 20 seconds and stat
+0x213. **Left to the server**: whether the character is outside, falling, where vehicles are allowed, in its own
+tower area; this client cannot tell those, so it sends the order and the server answers. Not there: the buttons'
+pictures, the control center's own vehicle button. **A guess in all of it: that a server takes `SpawnMech` as the
+decompile reads it**; none was ever captured.
+Looked at offscreen (`MAO_UI_PREVIEW=vehicles`). Tests: `an_order_waits_for_its_lock_and_for_the_shock_to_pass`,
+`the_window_is_not_made_right_after_an_order`, `the_queues_actions_and_its_word` (the message's bytes).

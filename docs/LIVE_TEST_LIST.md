@@ -939,6 +939,10 @@ These were written before this list; some may have been seen working since witho
 - [ ] The battlestation's signup terminal (2026-11-18): use one: the window should come up with your place in the
   queue. Sign up with a side, leave the queue. Send me the log either way: it says "battlestation queue: ..." for
   what was asked and for the server's answer; nothing of this was ever captured.
+- [ ] The vehicles window (2026-11-18): Shift+V outdoors: the window lists the vehicles your side's global research
+  has finished (greyed where you lack the requirements). Choose one: its description shows. Order it if you like,
+  and Leave vehicle after. Send me the log either way ("vehicles: Spawn(...)" and whatever the server says next):
+  nothing of this was ever captured.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

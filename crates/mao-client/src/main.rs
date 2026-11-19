@@ -133,6 +133,7 @@ mod mailmessage;
 mod tips;
 mod team;
 mod signup;
+mod vehicles;
 mod teleport;
 mod pets;
 mod tradeskill;
@@ -1986,7 +1987,9 @@ fn run(args: &[String]) -> Result<(), String> {
                         window.select_tab(std::env::var("MAO_PERK_TAB").ok().and_then(|t| t.parse().ok()).unwrap_or(0));
                         *hud.perks_preview.lock().unwrap() = Some(window);
                     }
-                    if preview.as_deref() == Some("research") {
+                    // (MAO_UI_PREVIEW=vehicles: the vehicles window on the research preview's data, every captured global
+                    // goal finished)
+                    if preview.as_deref() == Some("research") || preview.as_deref() == Some("vehicles") {
                         let (stats, perks, global) = research::preview_data();
                         hud.perk_state = perks::PerkState { catalog: perks::catalog(&db), owned: Vec::new(), server_offset: 0 };
                         hud.stats.extend(stats);

@@ -52,6 +52,8 @@ pub struct PerkRecord {
     pub criteria: Vec<(u32, i32, u32)>,
     /// The template's flags (stat 30), which `CanWear` reads.
     pub item_flags: u32,
+    /// The template's stat 177 (`N3Msg_GetPerkItemStat`: 0x200 marks a research goal that is a vehicle).
+    pub more_flags: u32,
     /// `N3Msg_GetUseByString` and the modifiers (`N3Msg_GetModifierString` of lists 14 and 0), for the tip.
     pub use_by: Option<String>,
     pub modifiers: String,
@@ -94,6 +96,7 @@ pub fn catalog(db: &ResourceDatabase) -> Arc<Catalog> {
                     let criteria = actions.iter().find(|a| a.kind == 6).map(|a| a.criteria.clone()).unwrap_or_default();
                     let modifiers = data.as_deref().map(|d| modifiers(db, d, parsed.as_ref())).unwrap_or_default();
                     let item_flags = parsed.as_ref().and_then(|p| p.stat(30)).unwrap_or(0);
+                    let more_flags = parsed.as_ref().and_then(|p| p.stat(177)).unwrap_or(0);
                     Some(PerkRecord {
                         id,
                         prev,
@@ -104,6 +107,7 @@ pub fn catalog(db: &ResourceDatabase) -> Arc<Catalog> {
                         description: parsed.map(|p| p.description).unwrap_or_default(),
                         criteria,
                         item_flags,
+                        more_flags,
                         use_by: crate::gui::criteria::use_by(&actions),
                         modifiers,
                     })
@@ -708,7 +712,7 @@ mod tests {
     use super::*;
 
     fn record(id: u32, prev: u32, flags: u32, professions: u32, name: &str, criteria: Vec<(u32, i32, u32)>) -> PerkRecord {
-        PerkRecord { id, prev, flags, professions, total: 0, name: name.into(), description: String::new(), criteria, item_flags: 0x10000005, use_by: None, modifiers: String::new() }
+        PerkRecord { id, prev, flags, professions, total: 0, name: name.into(), description: String::new(), criteria, item_flags: 0x10000005, more_flags: 0, use_by: None, modifiers: String::new() }
     }
 
     fn sample() -> Catalog {

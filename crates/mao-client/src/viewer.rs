@@ -1492,6 +1492,12 @@ impl ApplicationHandler for App {
                                 ui.perks.open = !ui.perks.open;
                             }
                         }
+                        // (`OpenVehicleWindowMessage`: the vehicles window, when the module would make it)
+                        Action::VehicleWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.vehicles.toggle(&self.hud.stats);
+                            }
+                        }
                         Action::TradeskillWindow if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.tradeskill.open = !ui.tradeskill.open;
