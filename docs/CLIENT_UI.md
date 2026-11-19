@@ -7249,3 +7249,7 @@ GUI.dll's general item page (FUN_1003882b) shows, after the modifiers, the effec
 ### A trade needs the partner within reach (INV-055)
 
 Gamecode's `N3Msg_TradeStart` (0x10019148) starts a trade only when the two characters' bodies are within 5 m of each other (FUN_1005a1e7: centre to centre less both radii), else it says the target is out of range. The client now does the same before it sends the trade's Open. The dungeon's room-and-door test is not ported.
+
+### Requirements "On Self" judged in the wear and use checks (INV-056)
+
+Gamecode's requirement evaluator changes whose stats it reads by the apply-on operators, through FUN_10001fba: "On Self" is the character itself, "On User", "On Target" and "On Secondary Item" other objects, and anything else nothing. The client's checks before wearing or using an item now know "On Self" (before, such a list could not be judged and was let through) and fail a list with "On Fight Target", as the original's picker has no case for it. The user, target and secondary item are still not known.

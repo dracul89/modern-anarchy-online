@@ -111,6 +111,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Item and nano pages show skill locks (with your own lock time), stat sets and lock reductions.
 - Item pages show the effects on nearby friends and foes and the personal effects, and armour and implants show the skills they are used with.
 - Starting a trade with a player too far away says the target is out of range, as the original does.
+- Wear and use checks now judge requirements written "on self" instead of letting them through.
 
 ### The launcher
 

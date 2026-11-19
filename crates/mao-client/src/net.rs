@@ -1221,6 +1221,9 @@ impl crate::requirements::Context for World {
     fn has_perk(&self, character: crate::requirements::Holder, perk: u32) -> Option<bool> {
         self.is_own(character).then(|| self.perks.contains(&perk))
     }
+    fn pick(&self, holder: crate::requirements::Holder, which: i32) -> Option<Option<crate::requirements::Holder>> {
+        world_pick(holder, which)
+    }
     fn flying(&self, character: crate::requirements::Holder) -> Option<bool> {
         Some(if character.1 == self.own { self.own_flying } else { self.flying.contains(&character.1) })
     }
@@ -1253,6 +1256,19 @@ fn playfield_forbids_flying(db: &ResourceDatabase, playfield: u32) -> bool {
     record.as_deref().and_then(mao_formats::playfield::flag_words).is_some_and(|w| w[2] & 0x80000 != 0)
 }
 
+/// FUN_10001fba, the requirements' holder picker on a character, as far as the world knows it: `which` 1 ("On Self",
+/// and 0x25 with 1) is the holder itself; 2 the holder's user (`Beholder_t` +0x3c), 3 its target (+0x1d0's +0x5c, or
+/// +0x44 while its +0x21c flag is up) and 4 its secondary item (the identity in its stats 0x52 and 0x53) are not kept
+/// here: unknown; any other finds nothing. (The picked one must be in the holder's playfield and not gone, which the
+/// holder itself always is.)
+fn world_pick(holder: crate::requirements::Holder, which: i32) -> Option<Option<crate::requirements::Holder>> {
+    match which {
+        1 => Some(Some(holder)),
+        2..=4 => None,
+        _ => Some(None),
+    }
+}
+
 /// The world judged with another modifier map: the character as it will be with a worn item taken off
 /// (`derived::modifiers_without`).
 struct Stripped<'a> {
@@ -1269,6 +1285,9 @@ impl crate::requirements::Context for Stripped<'_> {
     }
     fn has_perk(&self, character: crate::requirements::Holder, perk: u32) -> Option<bool> {
         self.world.has_perk(character, perk)
+    }
+    fn pick(&self, holder: crate::requirements::Holder, which: i32) -> Option<Option<crate::requirements::Holder>> {
+        world_pick(holder, which)
     }
     fn flying(&self, character: crate::requirements::Holder) -> Option<bool> {
         self.world.flying(character)
@@ -14452,6 +14471,19 @@ mod door_tests {
         w.approach_doors.insert(3);
         w.tick_doors([10.0, 0.0, 21.0], NO_MESH_SPHERE);
         assert!(w.doors_open.contains_key(&3));
+    }
+
+    /// FUN_10001fba in the world: "On Self" is the character, "On Fight Target" finds nothing (the list fails), the
+    /// target, user and secondary item are not known.
+    #[test]
+    fn the_world_picks_the_holder_on_self() {
+        let mut w = World { own: 7, ..World::default() };
+        w.stats.insert(54, 10);
+        let own = (crate::requirements::CHARACTER, 7);
+        assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x13), (54, 5, 2)], own, &w), Ok(true));
+        assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x13), (54, 50, 2)], own, &w), Ok(false));
+        assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x6e), (54, 5, 2)], own, &w), Ok(false));
+        assert!(crate::requirements::evaluate(&[(0, 0, 0x12), (54, 5, 2)], own, &w).is_err());
     }
 
     /// FUN_1005a1e7: a trade starts while the two bodies are within 5 m of each other, sphere to sphere.
