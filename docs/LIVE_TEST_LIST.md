@@ -1170,6 +1170,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Select text in an info window and in an XML window's text field: the selection is light grey with the text readable over it.
 - [ ] In a Notum Wars playfield, turn the map's Info (land control) on, open Build and put a tower item in: a light grey circle shows just in front of the character and follows its turns; it goes when the menu closes.
 - [ ] At a mission booth, ask for missions and right-click an offer: "Look at Mission" shows its page (text, pay, reward items) in the info view; "Upload to map" marks its place again and says so. Take a mission with tips on: a mission tip may show.
+- [ ] With a character whose original layout moved or sized the notification window, notifications show in that frame; without one, in the top third.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

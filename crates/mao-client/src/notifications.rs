@@ -62,6 +62,15 @@ pub fn spell_line(spell: &mao_formats::spell::Spell, ending: bool, on_own: bool,
     told.then(|| spell.string(0).to_string())
 }
 
+/// The window's name here: the original's `NotificationWindowConfig` frame is kept under it (`aoprefs.rs`).
+const WINDOW: &str = "NotificationWindow";
+
+/// The window's frame: the saved one when there is one, else the whole width and the top third of the screen
+/// (FUN_1000b9df: the display's height over 3).
+fn window_frame(screen: egui::Rect, saved: Option<egui::Rect>) -> egui::Rect {
+    saved.unwrap_or_else(|| egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), screen.height() / 3.0)))
+}
+
 /// Markup as plain text (the view's HTML: its tags are not drawn).
 fn plain(markup: &str) -> String {
     let mut out = String::new();
@@ -80,7 +89,10 @@ fn plain(markup: &str) -> String {
 /// The window: its lines from the bottom of its frame up (the top third of the screen), each at its alpha. `framed`
 /// (`NotificationWindowVisibility`) draws the window's tab and background as well.
 pub fn draw(ctx: &egui::Context, screen: egui::Rect, framed: bool, palette: &crate::theme::Palette) {
-    let frame = egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), screen.height() / 3.0));
+    // (the frame `Window::LoadWndConfig` takes from the saved `NotificationWindowConfig`, FUN_1000ba68: the original's
+    // layout for this character, `aoprefs.rs`, scaled to the screen; else the top third, FUN_1000b9df)
+    let saved = crate::layout::saved(WINDOW).zip(crate::layout::original_size(WINDOW)).map(|(at, size)| egui::Rect::from_min_size(at, size));
+    let frame = window_frame(screen, saved);
     let lines: Vec<(String, f32)> = {
         let mut lines = LINES.lock().unwrap_or_else(|e| e.into_inner());
         lines.retain(|(_, at)| alpha(at.elapsed().as_secs_f32()).is_some());
@@ -128,6 +140,15 @@ pub fn draw(ctx: &egui::Context, screen: egui::Rect, framed: bool, palette: &cra
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_1000ba68 / FUN_1000b9df: the saved frame, else the top third of the screen.
+    #[test]
+    fn the_window_takes_its_saved_frame() {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 900.0));
+        assert_eq!(window_frame(screen, None), egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 300.0)));
+        let saved = egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(500.0, 200.0));
+        assert_eq!(window_frame(screen, Some(saved)), saved);
+    }
 
     /// FUN_100081e8 with FUN_1000be0e's times: full for 5 s, then fading over 3 s, then gone.
     #[test]

@@ -7766,3 +7766,7 @@ While the tower build menu holds an item, the original's playfield map (with its
 ### The mission booth's offer menu and the new-mission tip (WIN-134)
 
 A right click on an offer in the mission booth's window opens the original's menu (`MissionSelectionView_c`, GUI.dll FUN_100d0f79): "Look at Mission" shows the offer's page in the info view (FUN_100d042b: its text, pay and reward items, as the journal's page of a mission), and "Upload to map", when the offer names a place, puts that place on the map and the compass again (FUN_100d08be). A new mission is reported to the tips of the day as "OnReceiveMission" (`SlotGotNewMission` 0x100c742e), as the original does before it uploads the mission's place.
+
+### The notification window's place (WIN-136)
+
+The original's notification window takes the frame its saved `NotificationWindowConfig` keeps (FUN_1000ba68, `Window::LoadWndConfig`), else the whole width and the top third of the screen (FUN_1000b9df). The client now reads that frame from the original's layout for the character (`aoprefs.rs`), scaled to the screen, as it does for the other windows. Links in the lines (clickable by default in the original, FUN_1000bbaa) are not ported yet.

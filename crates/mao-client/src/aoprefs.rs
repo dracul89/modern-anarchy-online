@@ -47,6 +47,7 @@ const NAMES: &[(&str, &str)] = &[
     ("TeamViewConfig", "Team"),
     ("RaidConfig", "Raid"),
     ("MissionSelectionViewConfig", "Missions"),
+    ("NotificationWindowConfig", "NotificationWindow"),
 ];
 
 /// The `Prefs` folders of the original's installs: `MAO_AO_PREFS`, else each `%LOCALAPPDATA%/Funcom/Anarchy
