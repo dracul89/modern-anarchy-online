@@ -5172,7 +5172,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The twelve bands are written into the code.
 - A player notices: None visible unless the database differs.
 - Where: `crates/mao-client/src/factions.rs:20`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The loader was found: Gamecode FUN_100c6914 (run at start) takes every identity of type 0xf4265 (ResourceDatabase_t::GetIdentityVec), reads each record's stream (FUN_100c255d → FUN_100c24b8: low, high, then two length-prefixed strings) and puts low/high into the map PTR_DAT_102c4c8c keyed by instance (FUN_100c25b4); N3Msg_GetFactionRange (FUN_100c246b) and FUN_100c2427 walk that map, the band's place (from 1) choosing the title in Gamecode's own table. The client now reads the bands from the game's database once it is open (`factions::bands_of`, ordered by instance, the low and high after the record's 12-byte header) instead of the twelve pairs written into factions.rs; only Gamecode's title table stays in the code. Tests: `bands_are_read_from_the_database` (MAO_GAME: twelve contiguous bands, 0 is Neutral, -1 Indifferent) and `bands_and_fill_as_the_original` (on a given band list).
 - Looked at, left (2026-11-19, overnight): N3Msg_GetFactionRange (Gamecode FUN_100c246b) walks a map (PTR_DAT_102c4c8c) of [low, high] pairs that Gamecode fills from the 0xf4265 records at start; the client's twelve BANDS (factions.rs:24) are those records' values, so nothing a player sees differs. Reading them at run time needs the loader's record layout (the function that fills PTR_DAT_102c4c8c was not found tonight); left for that reading, which would also take the copied numbers out of the code.
 
 #### `WIN-054` Inbox Delete unchanged from before

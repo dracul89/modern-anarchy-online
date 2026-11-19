@@ -20,35 +20,57 @@ use crate::theme::Palette;
 /// The bars' stats and the factions' short names (Gamecode FUN_10035eaf).
 const FACTIONS: [(u32, &str); 7] = [(566, "Guardian"), (567, "Followers"), (568, "Operators"), (569, "Unredeemed"), (570, "Devoted"), (571, "Conservers"), (572, "Redeemed")];
 
-/// The bands (the database's 0xf4265 records 1 to 12: low, high) and their titles (Gamecode FUN_10035eaf's third table,
-/// which `GetFactionTitle` reads by the band's place).
-const BANDS: [(i64, i64, &str); 12] = [
-    (-50000, -30001, "Dreaded"),
-    (-30000, -18001, "Hated"),
-    (-18000, -10001, "Enemy"),
-    (-10000, -5001, "Wanted"),
-    (-5000, -1001, "Disliked"),
-    (-1000, -1, "Indifferent"),
-    (0, 999, "Neutral"),
-    (1000, 4999, "Liked"),
-    (5000, 9999, "Ally"),
-    (10000, 17999, "Friend"),
-    (18000, 29999, "Close friend"),
-    (30000, 50000, "Family"),
-];
+/// The bands' titles (Gamecode FUN_10035eaf's third table, which `GetFactionTitle` reads by the band's place).
+const TITLES: [&str; 12] = ["Dreaded", "Hated", "Enemy", "Wanted", "Disliked", "Indifferent", "Neutral", "Liked", "Ally", "Friend", "Close friend", "Family"];
+
+/// The bands as Gamecode reads them at start (FUN_100c6914): each of the database's 0xf4265 records (FUN_100c24b8: its
+/// low and high, then two strings) in a map by instance, so a band's place is its record's among them.
+pub fn bands_of(db: &mao_formats::resource::ResourceDatabase) -> Vec<(i64, i64)> {
+    let mut ids: Vec<mao_formats::resource::Id> = db.ids().map(|ids| ids.flatten().filter(|i| i.kind == 0xf4265).collect()).unwrap_or_default();
+    ids.sort();
+    ids.into_iter()
+        .filter_map(|id| {
+            let data = db.get(id).ok()??;
+            // (after the object's type, instance and revision)
+            let word = |at: usize| data.get(at..at + 4).map(|b| i64::from(i32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+            Some((word(12)?, word(16)?))
+        })
+        .collect()
+}
+
+static BANDS: std::sync::Mutex<Option<Vec<(i64, i64)>>> = std::sync::Mutex::new(None);
+
+/// The bands, read once the game's database is open (none before).
+fn bands() -> Vec<(i64, i64)> {
+    let mut kept = BANDS.lock().unwrap();
+    if kept.is_none()
+        && let Some(db) = crate::net::item_db()
+    {
+        *kept = Some(bands_of(&db));
+    }
+    kept.clone().unwrap_or_default()
+}
 
 /// `N3Msg_GetFactionRange` (Gamecode FUN_100c246b): the band a standing is in, and its title; outside them all, the
 /// caller's -50000 to 50000 and Gamecode's "Missing FactionTitle".
 pub fn band(standing: i64) -> (i64, i64, String) {
-    match BANDS.iter().position(|b| b.0 <= standing && standing <= b.1) {
-        Some(k) => (BANDS[k].0, BANDS[k].1, BANDS[k].2.to_string()),
+    band_in(&bands(), standing)
+}
+
+fn band_in(bands: &[(i64, i64)], standing: i64) -> (i64, i64, String) {
+    match bands.iter().position(|b| b.0 <= standing && standing <= b.1) {
+        Some(k) => (bands[k].0, bands[k].1, TITLES.get(k).map_or_else(|| format!("Missing FactionTitle: {}", k + 1), |t| t.to_string())),
         None => (-50000, 50000, "Missing FactionTitle: -1".to_string()),
     }
 }
 
 /// How full a bar is: the standing's share of its band, the other way below 0.
 pub fn fill(standing: i64) -> f32 {
-    let (low, high, _) = band(standing);
+    fill_in(&bands(), standing)
+}
+
+fn fill_in(bands: &[(i64, i64)], standing: i64) -> f32 {
+    let (low, high, _) = band_in(bands, standing);
     let share = (standing - low) as f32 / (high - low) as f32;
     if standing < 0 { 1.0 - share } else { share }
 }
@@ -161,15 +183,27 @@ mod tests {
 
     #[test]
     fn bands_and_fill_as_the_original() {
-        assert_eq!(band(0).2, "Neutral");
-        assert_eq!(band(-1).2, "Indifferent");
-        assert_eq!(band(18000).2, "Close friend");
-        assert_eq!(band(50000).2, "Family");
+        // (two bands: below 0 and from 0)
+        let bands = [(-1000, -1), (0, 999)];
+        assert_eq!(band_in(&bands, 0), (0, 999, "Hated".to_string()));
+        assert_eq!(band_in(&bands, -1).2, "Dreaded");
+        assert_eq!(band_in(&bands, 5000).2, "Missing FactionTitle: -1");
         // (the share of the band; below 0 the other way)
-        assert_eq!(fill(0), 0.0);
-        assert_eq!(fill(999), 1.0);
-        assert_eq!(fill(-1), 0.0);
-        assert_eq!(fill(-1000), 1.0);
-        assert!((fill(30000 + 10000) - 0.5).abs() < 1e-6);
+        assert_eq!(fill_in(&bands, 0), 0.0);
+        assert_eq!(fill_in(&bands, 999), 1.0);
+        assert_eq!(fill_in(&bands, -1), 0.0);
+        assert_eq!(fill_in(&bands, -1000), 1.0);
+    }
+
+    /// WIN-053: the bands are the game database's 0xf4265 records, twelve, one after the other from the lowest standing.
+    #[test]
+    fn bands_are_read_from_the_database() {
+        let Ok(game) = std::env::var("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let bands = bands_of(&db);
+        assert_eq!(bands.len(), TITLES.len());
+        assert!(bands.windows(2).all(|w| w[0].1 + 1 == w[1].0));
+        assert_eq!(band_in(&bands, 0).2, "Neutral");
+        assert_eq!(band_in(&bands, -1).2, "Indifferent");
     }
 }

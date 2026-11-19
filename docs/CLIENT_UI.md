@@ -7806,3 +7806,7 @@ In the original a window is moved only by pressing in the strip under its top bo
 ### Bitmap fonts at the original's line height and advances (WIN-040)
 
 The original reads each `.fnt` as 255 glyph rectangles and a width table (`FontSystem_t::FontSystem_t` 0x1012eef1, each entry plus one); a font's height is the rectangle of 'a' (`FontInfo_t` +0xff0), used as each word's height with no gap (`TextRenderer_c::_UpdateWordSizes` 0x1015dab9), and a character advances by its table entry (`FontInfo_t::GetGlyphWidth` 0x1012eada, -1 above 0xff). The client drew the bitmap fonts with the glyph height plus 4 and advanced by each rectangle's width; it now uses the original's height (9 for the chat and tooltip fonts, 12 for the shell font) and the width table, and draws glyphs from the line's top.
+
+### Faction bands from the game database (WIN-053)
+
+Gamecode reads the faction bands at start from the database's 0xf4265 records (FUN_100c6914, FUN_100c24b8: low, high and two texts each) into a map by instance, which `N3Msg_GetFactionRange` (FUN_100c246b) walks; a band's place picks its title from Gamecode's own table. The client's faction window now reads the same records from the game's database instead of twelve bands written into its code.
