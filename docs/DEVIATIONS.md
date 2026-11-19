@@ -5284,7 +5284,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the menu is cut to that height and clipped; no scroll view or bar
 - A player notices: a very long menu cannot be scrolled
 - Where: `crates/mao-client/src/gui/popup.rs:72`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): PopupMenu_c::Go (0x1013c13a) holds the menu in a scroll view whose vertical bar is on auto; ScrollView_c::_UpdateScrollBars (0x10142b68) makes the bar (a ScrollBar_c of GFX_GUI_SIMPLE_SB_UP / _DOWN / _SLIDER_VERT) at the view's right, and ScrollView_c::CalculatePreferredSize (0x10142a4b) widens the view by the bar's width and one while it is there. gui/popup.rs (which already scrolled by the wheel and kept the highlighted entry in view) now draws that bar when the entries are taller than their room (the menu one bar wider), with the original's knob (chrome::knob, `_CalcKnobSizeAndPos`): an arrow scrolls 5 (held, again after 0.5 s every 0.08 s), a press beside the knob 20, the knob drags, and a press on the bar no longer reaches the menu's choose-on-release (in the original the bar takes the mouse itself). The steps are the ones the client's other scroll bar (chrome::scroll) uses for ScrollBar_c. Pictures untinted (WIN-018). No unit test (drawing and pointer); the popup tests pass.
 - Looked at, left (2026-11-19, overnight): PopupMenu_c puts its entries in a ScrollView with the vertical bar on auto and caps its height at the screen's less 100; gui/popup.rs draws its own entries and already caps the height. Adding the scroll view means moving the popup's drawing into the client's ScrollView control (gui/scrolling.rs) with its bar art; worth doing with WIN-078's scroll bar work, left tonight.
 
 #### `WIN-065` RadioButton drawn as a check box with radio pictures

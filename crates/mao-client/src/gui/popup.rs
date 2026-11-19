@@ -43,7 +43,10 @@
 //! letters, and highlights the first entry whose label begins with it, letters' case and leading slashes aside.
 //!
 //! The wheel scrolls a menu taller than its room, and the highlighted entry is kept in view (`MakeItemVisible`
-//! 0x1013b8f6); no scroll bar is drawn.
+//! 0x1013b8f6). Such a menu has its scroll view's vertical bar (`ScrollView_c::_UpdateScrollBars` 0x10142b68: a
+//! `ScrollBar_c` of `GFX_GUI_SIMPLE_SB_UP`, `_DOWN` and `_SLIDER_VERT` at the view's right, and the view a bar's width
+//! and one wider, `CalculatePreferredSize` 0x10142a4b): an arrow scrolls 5 (held, again after half a second every
+//! 0.08 s), a press above or below the knob 20, the knob drags; a press on it chooses nothing.
 
 use std::time::{Duration, Instant};
 
@@ -171,6 +174,9 @@ pub struct PopupMenu {
     typed: Option<Instant>,
     /// How far the entries are scrolled up.
     scroll: f32,
+    /// The scroll bar being pressed: its part (1 the up arrow, 2 the down, 3 the knob, 4 beside it), where the knob was
+    /// grabbed below its top, and when an arrow repeats.
+    bar_press: Option<(u8, f32, Instant)>,
     anchor: Option<Anchor>,
     /// The slider being dragged: its entry and where its knob was grabbed (from the knob's left).
     grabbed: Option<(usize, f32)>,
@@ -353,7 +359,10 @@ impl PopupMenu {
         let screen = ctx.content_rect();
         let room = (screen.height() - 100.0 - 2.0 * INSET - t - b).max(h);
         let shown = total.min(room);
-        let outer = egui::vec2(width + MARGIN + 2.0 * INSET + l + r, shown + 2.0 * INSET + t + b);
+        // (the scroll bar, when the entries are taller than their room)
+        let arrows = env.skin.and_then(|s| Some((s.get(super::scroll::UP)?.size, s.get(super::scroll::DOWN)?.size)));
+        let bar_width = arrows.filter(|_| total > shown).map_or(0.0, |(up, _)| up.x);
+        let outer = egui::vec2(width + MARGIN + if bar_width > 0.0 { bar_width + 1.0 } else { 0.0 } + 2.0 * INSET + l + r, shown + 2.0 * INSET + t + b);
         // (a sub-menu stands by its entry; `MoveInsideScreen`)
         let wanted = match self.anchor {
             Some(a) => egui::pos2(sub_left((a.left, a.right), outer.x, (screen.left(), screen.right()), a.leftwards), a.top),
@@ -364,6 +373,7 @@ impl PopupMenu {
         self.rect = Some(rect);
         let first = egui::pos2(rect.left() + l + INSET, rect.top() + t + INSET);
         let view = egui::Rect::from_min_size(first, egui::vec2(width + MARGIN, shown));
+        let bar = (bar_width > 0.0).then(|| egui::Rect::from_min_size(egui::pos2(view.right() + 1.0, view.top()), egui::vec2(bar_width, shown)));
         self.scroll = self.scroll.clamp(0.0, (total - shown).max(0.0));
         let scroll = self.scroll;
         let entry_rect = |k: usize| egui::Rect::from_min_size(egui::pos2(first.x, first.y + tops[k] - scroll), egui::vec2(width, heights[k]));
@@ -396,7 +406,48 @@ impl PopupMenu {
 
         // The buttons, whichever: a press in the menu, and the letting go that chooses.
         let (down, up) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.any_released()));
-        if down && inside && frame > self.opened + 1 {
+        let overflow = (total - shown).max(0.0);
+        let bar_parts = bar.zip(arrows).map(|(bar, (up_size, down_size))| {
+            let (k0, k1) = crate::chrome::knob(bar.top(), bar.bottom(), up_size.y, down_size.y, shown / total, if overflow > 0.0 { self.scroll / overflow } else { 0.0 });
+            (bar, egui::Rect::from_min_size(bar.min, up_size), egui::Rect::from_min_size(egui::pos2(bar.left(), bar.bottom() - down_size.y), down_size), egui::Rect::from_min_max(egui::pos2(bar.left(), k0), egui::pos2(bar.right(), k1)))
+        });
+        let on_bar = bar.zip(pointer).is_some_and(|(b, p)| inside && b.contains(p));
+        if let Some((bar, up_rect, down_rect, knob_rect)) = bar_parts {
+            if down && on_bar && frame > self.opened + 1 {
+                let p = pointer.unwrap_or(bar.center());
+                self.bar_press = Some(if knob_rect.contains(p) {
+                    (3, p.y - knob_rect.top(), now)
+                } else if up_rect.contains(p) {
+                    self.scroll -= 5.0;
+                    (1, 0.0, now + Duration::from_millis(500))
+                } else if down_rect.contains(p) {
+                    self.scroll += 5.0;
+                    (2, 0.0, now + Duration::from_millis(500))
+                } else {
+                    self.scroll += if p.y < knob_rect.top() { -20.0 } else { 20.0 };
+                    (4, 0.0, now)
+                });
+            } else if let (Some((part, grab, due)), Some(p)) = (self.bar_press, pointer) {
+                if part == 3 {
+                    // (the knob's top over the room it moves in)
+                    let (start, end) = (bar.top() + up_rect.height(), bar.bottom() - down_rect.height() - 1.0 - (knob_rect.height() - 1.0));
+                    if end > start {
+                        self.scroll = overflow * (p.y - grab - start) / (end - start);
+                    }
+                } else if (part == 1 || part == 2) && now >= due {
+                    if (if part == 1 { up_rect } else { down_rect }).contains(p) {
+                        self.scroll += if part == 1 { -5.0 } else { 5.0 };
+                    }
+                    self.bar_press = Some((part, 0.0, now + Duration::from_millis(80)));
+                }
+                ctx.request_repaint();
+            }
+            self.scroll = self.scroll.clamp(0.0, overflow).floor();
+        }
+        if up && self.bar_press.take().is_some() {
+            self.pressed = false;
+        }
+        if down && inside && !on_bar && frame > self.opened + 1 {
             self.pressed = true;
             let knob_at = |k: usize, value: f64, min: f64, max: f64| {
                 let t = track(k);
@@ -492,6 +543,12 @@ impl PopupMenu {
                 super::controls::nine_slice(&p, &pieces, rect, egui::Color32::WHITE);
             } else {
                 painter.rect_filled(rect, 0.0, egui::Color32::from_gray(30));
+            }
+            if let (Some(skin), Some((_, up_rect, down_rect, knob_rect))) = (env.skin, bar_parts) {
+                // (the bar's pictures as they are: nothing colours a `ScrollBar_c`)
+                skin.draw_in(painter, super::scroll::UP, up_rect, egui::Color32::WHITE);
+                skin.draw_in(painter, super::scroll::DOWN, down_rect, egui::Color32::WHITE);
+                skin.draw_in(painter, super::scroll::KNOB, knob_rect, egui::Color32::WHITE);
             }
             let clip = painter.with_clip_rect(view.intersect(rect.shrink2(egui::vec2(l, t))));
             for (k, e) in self.entries.iter().enumerate() {
