@@ -10,10 +10,12 @@
 //! is in hand; with a split count in hand an empty cell splits the stack (`N3Msg_SplitItem`) and an occupied one ends
 //! the drag.
 //!
-//! Here the cells are kept in `places.ini` beside `mao.ini`, a line an item: `<type> <instance> <place> <cell>`, the
-//! container's identity (zeros for the inventory), the item's place in it as the server numbers it, and its cell.
-//! A cell is counted along the rows (this client's grids take as many columns as their window is wide, and show the
-//! cells in that order), where the original keeps a column and a row.
+//! Here the cells are kept in `places.ini` beside `mao.ini`, a line an item: `<character> <type> <instance> <place>
+//! <cell>`, the character whose they are (the original's files are in the character's own folder,
+//! `InventoryGUIModule_c::GetInventoryConfigPath`), the container's identity (zeros for the inventory), the item's
+//! place in it as the server numbers it, and its cell. A line of an older file without the character is kept as
+//! character 0's (no character's). A cell is counted along the rows (this client's grids take as many columns as their
+//! window is wide, and show the cells in that order), where the original keeps a column and a row.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
@@ -25,7 +27,15 @@ pub const INVENTORY: Key = (0, 0);
 /// A container's cells: each item's place and the cell it stands in.
 pub type Cells = BTreeMap<u32, usize>;
 
-static PLACES: Mutex<Option<BTreeMap<Key, Cells>>> = Mutex::new(None);
+/// The cells of every character's containers, by character and container.
+pub type Places = BTreeMap<(u32, Key), Cells>;
+
+static PLACES: Mutex<Option<Places>> = Mutex::new(None);
+
+/// The character playing, whose cells are read and changed (0 before one is known).
+fn character() -> u32 {
+    crate::layout::character().unwrap_or(0)
+}
 
 fn path() -> std::path::PathBuf {
     crate::settings::Settings::path().with_file_name("places.ini")
@@ -36,32 +46,42 @@ fn kept() -> bool {
     !cfg!(test) && std::env::var_os("MAO_NO_LAYOUT").is_none() && std::env::var_os("MAO_UI_PREVIEW").is_none()
 }
 
-/// `places.ini`: a line an item, `<type> <instance> <place> <cell>`.
-pub fn parse(text: &str) -> BTreeMap<Key, Cells> {
-    let mut out: BTreeMap<Key, Cells> = BTreeMap::new();
+/// `places.ini`: a line an item, `<character> <type> <instance> <place> <cell>` (an older line without the character:
+/// character 0's).
+pub fn parse(text: &str) -> Places {
+    let mut out: Places = BTreeMap::new();
     for line in text.lines() {
         let words: Vec<&str> = line.split_whitespace().collect();
-        if let [kind, instance, place, cell] = words[..]
+        let (character, words) = match words.len() {
+            5 => (words[0].parse().ok(), &words[1..]),
+            4 => (Some(0), &words[..]),
+            _ => (None, &words[..]),
+        };
+        if let (Some(character), [kind, instance, place, cell]) = (character, words)
             && let (Ok(kind), Ok(instance), Ok(place), Ok(cell)) = (kind.parse(), instance.parse(), place.parse(), cell.parse())
         {
-            out.entry((kind, instance)).or_default().insert(place, cell);
+            out.entry((character, (kind, instance))).or_default().insert(place, cell);
         }
     }
     out
 }
 
-pub fn render(places: &BTreeMap<Key, Cells>) -> String {
-    places.iter().flat_map(|((kind, instance), cells)| cells.iter().map(move |(place, cell)| format!("{kind} {instance} {place} {cell}\n"))).collect()
+pub fn render(places: &Places) -> String {
+    places
+        .iter()
+        .flat_map(|((character, (kind, instance)), cells)| cells.iter().map(move |(place, cell)| format!("{character} {kind} {instance} {place} {cell}\n")))
+        .collect()
 }
 
-fn with<R>(f: impl FnOnce(&mut BTreeMap<Key, Cells>) -> R) -> R {
+fn with<R>(f: impl FnOnce(&mut Places) -> R) -> R {
     let mut places = PLACES.lock().unwrap_or_else(|e| e.into_inner());
     let places = places.get_or_insert_with(|| if kept() { std::fs::read_to_string(path()).map(|t| parse(&t)).unwrap_or_default() } else { BTreeMap::new() });
     f(places)
 }
 
-/// Changes a container's cells; the file is written when they are no longer what they were.
+/// Changes a container's cells (the character playing's); the file is written when they are no longer what they were.
 fn change<R>(key: Key, f: impl FnOnce(&mut Cells) -> R) -> R {
+    let key = (character(), key);
     with(|places| {
         let before = places.get(&key).cloned().unwrap_or_default();
         let out = f(places.entry(key).or_default());
@@ -84,9 +104,9 @@ pub fn arrange(key: Key, items: &[u32], room: usize, awaited: Option<(u32, usize
     })
 }
 
-/// The cells remembered for a container, as they are.
+/// The cells remembered for a container (the character playing's), as they are.
 pub fn remembered(key: Key) -> Cells {
-    with(|places| places.get(&key).cloned().unwrap_or_default())
+    with(|places| places.get(&(character(), key)).cloned().unwrap_or_default())
 }
 
 /// Puts the item of a place into a cell ([`move_to`]).
@@ -314,13 +334,16 @@ mod tests {
 
     #[test]
     fn the_file_is_a_line_an_item() {
-        let mut places: BTreeMap<Key, Cells> = BTreeMap::new();
-        places.insert(INVENTORY, cells(&[(64, 3), (70, 0)]));
-        places.insert((51017, 77), cells(&[(2, 20)]));
+        let mut places: Places = BTreeMap::new();
+        places.insert((7, INVENTORY), cells(&[(64, 3), (70, 0)]));
+        places.insert((7, (51017, 77)), cells(&[(2, 20)]));
+        places.insert((9, INVENTORY), cells(&[(64, 5)]));
         let text = render(&places);
-        assert_eq!(text, "0 0 64 3\n0 0 70 0\n51017 77 2 20\n");
+        assert_eq!(text, "7 0 0 64 3\n7 0 0 70 0\n7 51017 77 2 20\n9 0 0 64 5\n");
         assert_eq!(parse(&text), places);
-        assert!(parse("junk\n0 0 64\n0 0 x 1\n0 0 64 3 9\n").is_empty());
+        // (a line of an older file, without the character: no character's)
+        assert_eq!(parse("0 0 64 3\n"), [((0, INVENTORY), cells(&[(64, 3)]))].into_iter().collect());
+        assert!(parse("junk\n0 0 64\n0 0 x 1\n1 0 0 64 3 9\nx 0 0 64 3\n").is_empty());
     }
 
     #[test]

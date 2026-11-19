@@ -106,6 +106,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - `/pet` takes pet names before the command (`/pet Rex guard`, `/pet all attack`) and the commands with an argument
   (`cycle a|w`, `social <name>`, `chat`, `script`), as in the original, and says when you have no pet.
 - A mission's item (Arete's "Plant a Bug" recording device and the like) now comes into your inventory.
+- Items placed by hand in the inventory and backpacks are remembered for each character on its own.
 
 ### The launcher
 

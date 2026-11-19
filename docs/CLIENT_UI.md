@@ -7221,3 +7221,7 @@ The original's mail window keeps its list's column widths and sort in `MailWindo
 ### Score bars fill toward the next rank (WIN-141)
 
 The original's Stats window fills the duel, solo and team score bars over the next PvP rank's score (`N3Msg_GetPVPScoreForRank(rank + 1)`, GUI.dll FUN_1008049c; Gamecode FUN_1003ea89: (2500^(1/9))^(rank-1) x 20 x 100 in float steps, rank 1 at 2000 and rank 10 at 4,999,900). The client now gives those bars the same maximum; they showed only the number before.
+
+### Item cells kept per character (INV-019)
+
+The original keeps where each item stands in the inventory and in each backpack in files of the character's own folder (GUI.dll FUN_100ccefe / FUN_100cac66, `item_position_map`). The client's `places.ini` now keeps a line per item with the character first (`<character> <type> <instance> <place> <cell>`), so two characters no longer share one layout; older lines without a character are kept as nobody's. A cell is still counted along the rows of the window, not as the original's column and row.

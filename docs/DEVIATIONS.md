@@ -2219,6 +2219,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Cell layouts change with window width and are shared across characters.
 - Where: `crates/mao-client/src/places.rs:15`; `crates/mao-client/src/places.rs:13`; `docs/CLIENT_UI.md:3621`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The cells of items placed by hand are now kept per character: `places.ini` lines lead with the character (`layout::character()`), as the original keeps `Inventory.xml` / `Containers/Container_<type>x<instance>.xml` in the character's own folder (GUI.dll FUN_100ccefe reads `item_position_map`, FUN_100cac66 writes it, both under `InventoryGUIModule_c::GetInventoryConfigPath`). Lines of an older file without the character are kept as character 0's (no one's). Left: the cell is still one number counted along the rows where the original keeps a column and a row; doing that means the grids' own layout (the original's MultiListView keeps IPoints and does not reflow with the window), a larger change to `multilist` than this entry is worth tonight. Test `places::tests::the_file_is_a_line_an_item`.
 
 #### `INV-020` Item dropped on a wear cell is sent without the original's drop handling
 
