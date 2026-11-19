@@ -35,8 +35,11 @@
 //!   movement is handed the action 0x1d (`SwitchToFlyModeTransitionAction_t`, FUN_1006cb58's case: mode 7), or 0x27
 //!   (`LeaveFlyModeTransitionAction_t`) when the list is ending. Ported: [`Outcome::Fly`]. (It first makes a crawling,
 //!   sitting, sleeping or lounging character get up, 0x28 / 0x29 / 0x2a / 0x25: not ported.)
-//! * Not ported (rare in the captures): 0xcf4c (FUN_100a7c79: state
-//!   flag of stat 0x49), 0xcf44 (FUN_100a7aa2: stat 0x167), 0xcf7d (FUN_100a83d8: feedback lines), 0xcf35 (FUN_100a517a, an
+//! * 0xcf4b (FUN_100a7bd4) and 0xcf4c (FUN_100a7c79): on a character, the flags of stat 0x49 added to its state flags (stat
+//!   224, FUN_10044aac) or taken away (FUN_10044c71): 0xcf4b adds them as it begins and takes them away as its list ends,
+//!   0xcf4c the other way round. Ported: [`Outcome::Flags`]. (With stat 0x19 set the begun spell also queues its undoing for
+//!   later, FUN_1002dfc8 → FUN_10059e90's events 0x40 / 0x80: not ported.)
+//! * Not ported (rare in the captures): 0xcf44 (FUN_100a7aa2: stat 0x167), 0xcf7d (FUN_100a83d8: feedback lines), 0xcf35 (FUN_100a517a, an
 //!   item's modify), and 0xcf16 runs (left out).
 //! * 0xcfff (FUN_100a9af8): its string 0 told in the notification window (`GlobalSignals_c` +0x298), see
 //!   [`crate::notifications`]. Ported: [`Outcome::Text`]. None of the captures has one.
@@ -114,6 +117,9 @@ pub enum Outcome {
     /// 0xcf92 (FUN_100a8107) on a character: it switches to fly mode (movement action 0x1d) when the spell is applied and
     /// leaves it (0x27) when the list ends.
     Fly { begin: bool },
+    /// 0xcf4b (FUN_100a7bd4) or 0xcf4c (FUN_100a7c79) on a character: the flags (the spell's stat 0x49) added to its state flags
+    /// (stat 224, [`StateFlags::add`]) or taken away ([`StateFlags::remove`]).
+    Flags { mask: u32, add: bool },
 }
 
 /// What the spell runner needs to know of the world besides the criteria's stats.
@@ -238,6 +244,8 @@ pub fn fire(run: &mut Run, scene: &dyn Scene, now: f64) -> Vec<Outcome> {
         0xcfff if !run.ending => vec![Outcome::Text { spell: spell.clone() }],
         // (FUN_100a8107: on a `SimpleChar_t` only; 0x1d, or 0x27 from an ending list)
         mao_formats::item::FLY_SPELL if run.on.0 == crate::requirements::CHARACTER => vec![Outcome::Fly { begin: !run.ending }],
+        // (FUN_100a7bd4 and FUN_100a7c79: on a `SimpleChar_t` only, the run's bit 0 of +0x24 telling the ending)
+        0xcf4b | 0xcf4c if run.on.0 == crate::requirements::CHARACTER => vec![Outcome::Flags { mask: spell.stat(0x49) as u32, add: (spell.kind == 0xcf4b) != run.ending }],
         // (FUN_100a95c7: on a character, FUN_100aa80d; stat 0x167 `MonsterData` also has its mesh taken anew, FUN_10052686,
         // not ported)
         0xcf76 if run.on.0 == crate::requirements::CHARACTER && spell.stat(0) > 0 => vec![Outcome::TempStat { stat: spell.stat(0) as u32, value: spell.stat(39), begin: !run.ending }],
@@ -334,8 +342,10 @@ impl StateFlags {
         StateFlags { counts, bits: stat }
     }
 
-    /// FUN_10044aac.
-    pub fn add(&mut self, mask: u32) {
+    /// FUN_10044aac. The bits that came on (its `uVar7`, the old bits against the new: a bit coming on as 0x2000000 does takes
+    /// its character out of fly mode).
+    pub fn add(&mut self, mask: u32) -> u32 {
+        let before = self.bits;
         for b in 0..32 {
             if mask & 1 << b != 0 {
                 self.counts[b] = self.counts[b].wrapping_add(1);
@@ -344,6 +354,7 @@ impl StateFlags {
                 }
             }
         }
+        self.bits ^ before
     }
 
     /// FUN_10044c71.
@@ -595,14 +606,16 @@ mod tests {
                             Outcome::Text { .. } => "text",
                             Outcome::Fly { begin: true } => "fly",
                             Outcome::Fly { begin: false } => "fly ends",
+                            Outcome::Flags { add: true, .. } => "flags on",
+                            Outcome::Flags { add: false, .. } => "flags off",
                         })
                         .or_default() += 1;
                 }
             }
         }
         assert_eq!(lists, 4128);
-        // (the two flights of the 08:42 capture: a Banshee's and a Wraith's program begun and ended)
-        assert_eq!(tally, [("effect", 576), ("stun", 720), ("stun ends", 716), ("stat", 36), ("fly", 2), ("fly ends", 2)].into_iter().collect());
+        // (the two flights of the 08:42 capture: a Banshee's and a Wraith's program begun and ended, each with its 0xcf4c)
+        assert_eq!(tally, [("effect", 576), ("stun", 720), ("stun ends", 716), ("stat", 36), ("fly", 2), ("fly ends", 2), ("flags off", 2), ("flags on", 2)].into_iter().collect());
     }
 
     /// 0xcf82 (the duel buffs' "Stun") and 0xcf22.
@@ -625,6 +638,11 @@ mod tests {
         assert!(!flags.can_move());
         flags.stun(false, true);
         assert_eq!(flags.bits, 6);
+        // (FUN_10044aac tells the bits that came on; a count still above zero does not come on again)
+        assert_eq!(flags.add(0x2000002), 0x2000000);
+        assert_eq!(flags.add(0x2000000), 0);
+        flags.remove(0x2000000);
+        assert_eq!(flags.bits, 0x2000006);
         let set = list(vec![spell(0xcf22, 1, 0, 2, &[(0, 689), (39, 5)])], false);
         assert_eq!(run(&set, set.target, &w, &mut Queue::default(), 0.0), vec![((0xc350, 1), Outcome::SetStat { stat: 689, value: 5 })]);
         // (the profession is not set this way)
@@ -646,8 +664,9 @@ mod tests {
     #[test]
     fn the_fly_spell() {
         let fly = |ending: bool| list(vec![spell(0xcf35, 1, 0, 1, &[(0, 156), (39, 800)]), spell(0xcf4c, 1, 0, 1, &[(73, 2), (25, 0)]), spell(0xcf92, 1, 0, 1, &[])], ending);
-        assert_eq!(shown(&fly(false)), vec![Outcome::Fly { begin: true }]);
-        assert_eq!(shown(&fly(true)), vec![Outcome::Fly { begin: false }]);
+        // (its 0xcf4c takes the state flag 2 away as it begins and gives it back as it ends)
+        assert_eq!(shown(&fly(false)), vec![Outcome::Flags { mask: 2, add: false }, Outcome::Fly { begin: true }]);
+        assert_eq!(shown(&fly(true)), vec![Outcome::Flags { mask: 2, add: true }, Outcome::Fly { begin: false }]);
         let mut q = Queue::default();
         assert!(run(&fly(false), (0xc73d, 7), &World::default(), &mut q, 0.0).is_empty() && q.runs.is_empty());
     }

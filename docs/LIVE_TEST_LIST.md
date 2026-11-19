@@ -1102,6 +1102,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] A Whom-Pah pillar on Rubi-Ka shows its blue beam climbing from the top, with a small fire at its foot.
 - [ ] A Shadowlands vein (e.g. playfield 4885) shows its swaying blue strands; compare with an original screenshot.
 - [ ] An ICC shuttle (script ship) leaves an engine trail behind it as it flies.
+- [ ] Fly with a jetpack, then take it off and put it on again: flight comes back after an ended flight only by that.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

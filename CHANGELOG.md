@@ -243,6 +243,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Creatures near death run slower, as players do.
 - A character without Shadowlands no longer gets a message box at the Jobe whompah booth; as in the original, nothing happens.
 - The /sit command is gone (the original has none); use the X key to sit down and stand up.
+- Flight now also ends where the original ends it: near certain Notum Wars tower sites, when the server's action or a state flag says so, and for a jetpack or a program as well.
 
 ### Nanos
 

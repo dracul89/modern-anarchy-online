@@ -107,6 +107,21 @@ pub fn apply_update(towers: &mut Vec<Tower>, site: (u32, u32), planted: Option<T
     }
 }
 
+/// Whether a site of a class is among the four sites nearest a place within 40 m (FUN_1012a2e6: `LandControl_t`'s tree of
+/// the sites by their places, which FUN_1012a2a8 asks for at most 4 within `DAT_101673f0` = 40.0, the distance taken in three
+/// dimensions, FUN_1012a644; each entry found is the list node whose +0x38 is the site's `TowerClass`). A flyer near a class-5
+/// site leaves fly mode (FUN_100450c0). (The tree's search, FUN_1012ace1, is taken as the nearest four; how its pruning
+/// treats sites past the fourth was not followed.)
+pub fn class_near(towers: &[Tower], at: [f32; 3], class: i32) -> bool {
+    let mut near: Vec<(f32, i32)> = towers
+        .iter()
+        .map(|t| (((t.position[0] - at[0]).powi(2) + (t.position[1] - at[1]).powi(2) + (t.position[2] - at[2]).powi(2)).sqrt(), t.class))
+        .filter(|&(d, _)| d <= 40.0)
+        .collect();
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    near.iter().take(4).any(|&(_, c)| c == class)
+}
+
 /// The houses' blob of a `PlayfieldAllCities` message (FUN_101304f8: an `i16` length, then the bytes).
 pub fn all_cities(data: &[u8]) -> Option<Vec<u8>> {
     let n = u16::from_be_bytes(data.get(1..3)?.try_into().ok()?) as usize;
@@ -225,6 +240,21 @@ mod tests {
         apply_update(&mut list, site, None);
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].site, (0xc354, 3));
+    }
+
+    #[test]
+    fn a_class_is_looked_for_among_the_four_nearest_within_40_m() {
+        let site = |x: f32, class: i32| Tower { site: (0xc354, x as u32), tower: (0xc350, 0), position: [x, 0.0, 0.0], mesh: 0, destroyed_mesh: 0, scale: 1.0, side: 0, class };
+        assert!(class_near(&[site(30.0, 5)], [0.0, 10.0, 0.0], 5));
+        // (the height counts: 30 along and 30 up is 42 m)
+        assert!(!class_near(&[site(30.0, 5)], [0.0, 30.0, 0.0], 5));
+        assert!(!class_near(&[site(10.0, 1)], [0.0; 3], 5));
+        // (four nearer sites hide a fifth)
+        let mut list: Vec<Tower> = (1..=4).map(|i| site(i as f32, TURRET)).collect();
+        list.push(site(20.0, 5));
+        assert!(!class_near(&list, [0.0; 3], 5));
+        list.remove(0);
+        assert!(class_near(&list, [0.0; 3], 5));
     }
 
     /// The start of the user's log of 2026-11-15 (playfield 6010, 80 houses in 2007 bytes; the log kept 28 of them):

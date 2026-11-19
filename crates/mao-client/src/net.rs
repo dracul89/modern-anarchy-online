@@ -364,6 +364,10 @@ struct World {
     /// The part of `own_flying` that comes from the running programs (the others are a worn item's and the server's
     /// spell list: the game loop joins them).
     nano_flying: bool,
+    /// One's own flight from a program or a worn item was ended by what ends fly mode in the original (`end_flight`: the
+    /// character action 0xac, a class-5 tower site near, the state flag 0x2000000): it stays ended until neither has the
+    /// flying spell any more, as the original's would until a new list switched fly mode on again.
+    flight_cut: bool,
     /// The other characters in fly mode (7): announced so (the movement mode in a player's full update), switched to
     /// it by a spell list of the server's (spell 0xcf92, `spelllist::Outcome::Fly`) or by the wear list of an item
     /// they put on in view (`others_wear`), until the list ends, the item comes off, they are announced otherwise,
@@ -1698,6 +1702,16 @@ impl World {
                     }
                 }
                 crate::spelllist::Outcome::Effect { effect, seconds } => self.spell_effects_made.push((on.1, effect, seconds)),
+                crate::spelllist::Outcome::Flags { mask, add } => {
+                    let start = if on.1 == self.own { self.stats.get(&224).map_or(6, |&v| v as u32) } else { 0 };
+                    let flags = self.state_flags.entry(on.1).or_insert_with(|| crate::spelllist::StateFlags::new(start));
+                    if !add {
+                        flags.remove(mask);
+                    } else if flags.add(mask) & 0x2000000 != 0 {
+                        // (FUN_10044aac: the flag 0x2000000 coming on takes a character in fly mode out of it, the 0x27)
+                        self.end_flight(on.1);
+                    }
+                }
                 crate::spelllist::Outcome::Stun { begin, npc } => {
                     // (FUN_1004496c starts the counts from stat 224; one's own taken as 6, free to move, when the server did not
                     // send it — a safety of this client's)
@@ -1741,6 +1755,37 @@ impl World {
     /// list said so (`flying`).
     fn flies(&self, id: u32) -> bool {
         if id == self.own { self.own_flying } else { self.flying.contains(&id) }
+    }
+
+    /// FUN_10045020 (and FUN_10044aac's own 0x27): a character in fly mode leaves it. One's own leaves the server's list's
+    /// flight and the one the client reads from its programs and worn items alike (`flight_cut`).
+    fn end_flight(&mut self, id: u32) {
+        if !self.flies(id) {
+            return;
+        }
+        self.flying.remove(&id);
+        if id == self.own {
+            self.flight_cut = true;
+        }
+    }
+
+    /// FUN_100450c0, on each player character's game tick (FUN_1005b55d, not for an NPC; here each pass): one in fly mode
+    /// with a class-5 tower site among the four sites nearest it within 40 m leaves fly mode (FUN_10045020). One's own is
+    /// taken at `own_at`, the game loop's place.
+    fn tower_flight_ends(&mut self, own_at: [f32; 3]) {
+        let Some(towers) = self.towers.get(&self.tower_playfield) else { return };
+        let mut ended = Vec::new();
+        if self.own_flying && mao_net::landcontrol::class_near(towers, own_at, 5) {
+            ended.push(self.own);
+        }
+        for &id in &self.flying {
+            if id != self.own && self.names.get(&id).is_some_and(|n| n.1) && self.position_of(id).is_some_and(|p| mao_net::landcontrol::class_near(towers, p, 5)) {
+                ended.push(id);
+            }
+        }
+        for id in ended {
+            self.end_flight(id);
+        }
     }
 
     /// One's own character cannot move: a stun took both of its state flags 2 and 4 (`N3Msg_MouseMovement`, FUN_1006bd94).
@@ -3257,12 +3302,8 @@ impl World {
                         self.bags_changed = true;
                     }
                 }
-                // (0xac, FUN_1005d61f's case 0x3e, FUN_10045020: a character in fly mode leaves it. No capture has one.
-                // Here it ends a flight a spell list of the server's began; one's own from a worn item or a program is
-                // worked out anew each pass and stays.)
-                0xac => {
-                    self.flying.remove(&m.identity.1);
-                }
+                // (0xac, FUN_1005d61f's case 0x3e, FUN_10045020: a character in fly mode leaves it. No capture has one.)
+                0xac => self.end_flight(m.identity.1),
                 _ => {}
             }
         }
@@ -10452,16 +10493,23 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // the same spell itself: in a running program (`nano_flying`) or in the wear event of something worn, a Ganimedes
             // jetpack or a Yalmaha (`item::worn_grants_flight`; the worn places are those under the backpack's first, 64).
             // (by the places the server has agreed to, not by a move still asked: `worn_flight`)
+            state.tower_flight_ends(position);
             let worn_flight = worn_flight(&state.worn, &state.moves_asked, &mut |template| {
                 *flight_items.entry(template).or_insert_with(|| gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten().is_some_and(|d| mao_formats::item::worn_grants_flight(&d)))
             });
             // (`MAO_FORCE_FLY=1`: flight without a program or an item, to try the flying itself on a character that has neither)
             let worn_flight = worn_flight || std::env::var_os("MAO_FORCE_FLY").is_some();
-            let listed_flight = state.flying.contains(&own);
-            if (state.nano_flying || worn_flight || listed_flight) != state.own_flying {
-                eprintln!("flight: {} (the server's spell list {}, a program {}, a worn item {})", if state.own_flying { "off" } else { "on" }, listed_flight, state.nano_flying, worn_flight);
+            // (what ended a flight of these, `end_flight`, holds until neither has the spell; then the next one flies again)
+            if !state.nano_flying && !worn_flight {
+                state.flight_cut = false;
             }
-            state.own_flying = state.nano_flying || worn_flight || listed_flight;
+            let worn_flight = worn_flight && !state.flight_cut;
+            let nano_flying = state.nano_flying && !state.flight_cut;
+            let listed_flight = state.flying.contains(&own);
+            if (nano_flying || worn_flight || listed_flight) != state.own_flying {
+                eprintln!("flight: {} (the server's spell list {}, a program {}, a worn item {})", if state.own_flying { "off" } else { "on" }, listed_flight, nano_flying, worn_flight);
+            }
+            state.own_flying = nano_flying || worn_flight || listed_flight;
             let flying = state.own_flying;
             // (the speeds the original moves at, from the character's RunSpeed and health; fly mode has its own, forwards,
             // backwards and sideways alike, whatever the walk/run toggle says)
@@ -13866,6 +13914,50 @@ mod door_tests {
         assert!(!w.own_stunned());
         w.spell_outcomes(vec![(me, crate::spelllist::Outcome::SetStat { stat: 689, value: 3 }), ((crate::requirements::CHARACTER, 5), crate::spelllist::Outcome::SetStat { stat: 690, value: 1 })]);
         assert_eq!((w.stats.get(&689), w.stats.get(&690)), (Some(&3), None));
+    }
+
+    /// What ends fly mode besides the list's ending (FUN_10045020): the state flag 0x2000000 coming on (FUN_10044aac), a
+    /// class-5 tower site near (FUN_100450c0), the character action 0xac; one's own flight from a worn item stays ended
+    /// until the item no longer gives it.
+    #[test]
+    fn the_ways_flight_ends() {
+        let mut w = World { own: 0x7b1a0021, ..World::default() };
+        let me = (crate::requirements::CHARACTER, w.own);
+        w.stats.insert(224, 6);
+        // (one's own, flying from something worn: the game loop's `own_flying`)
+        w.own_flying = true;
+        w.spell_outcomes(vec![(me, crate::spelllist::Outcome::Flags { mask: 0x2, add: true })]);
+        assert!(!w.flight_cut);
+        w.spell_outcomes(vec![(me, crate::spelllist::Outcome::Flags { mask: 0x2000000, add: true })]);
+        assert!(w.flight_cut);
+        // (another player, flying by a list: the flag ends it; already on, it ends nothing more)
+        let other = 0x7b1a0030;
+        w.names.insert(other, ("Someone".into(), true));
+        w.flying.insert(other);
+        w.spell_outcomes(vec![((crate::requirements::CHARACTER, other), crate::spelllist::Outcome::Flags { mask: 0x2000000, add: true })]);
+        assert!(!w.flying.contains(&other));
+        w.flying.insert(other);
+        w.spell_outcomes(vec![((crate::requirements::CHARACTER, other), crate::spelllist::Outcome::Flags { mask: 0x2000000, add: true })]);
+        assert!(w.flying.contains(&other));
+        // (a tower site of class 5 near ends a player's flight, not an NPC's)
+        let npc = 0x40;
+        w.names.insert(npc, ("Creature".into(), false));
+        w.flying.insert(npc);
+        w.entities.insert(other, ([100.0, 0.0, 100.0], 0));
+        w.entities.insert(npc, ([100.0, 0.0, 100.0], 0));
+        w.tower_playfield = 655;
+        let site = mao_net::landcontrol::Tower { site: (0xc354, 1), tower: (0xc350, 2), position: [120.0, 0.0, 100.0], mesh: 0, destroyed_mesh: 0, scale: 1.0, side: 0, class: 5 };
+        w.towers.insert(655, vec![site]);
+        w.flight_cut = false;
+        w.tower_flight_ends([500.0, 0.0, 500.0]);
+        assert!(!w.flight_cut && !w.flying.contains(&other) && w.flying.contains(&npc));
+        w.tower_flight_ends([110.0, 0.0, 100.0]);
+        assert!(w.flight_cut);
+        // (not flying, nothing is cut)
+        w.flight_cut = false;
+        w.own_flying = false;
+        w.end_flight(w.own);
+        assert!(!w.flight_cut);
     }
 
     /// The Arete Landing capture's team: the invitation from Nihiltech (0x7b1a0022), both members, a health update, then
