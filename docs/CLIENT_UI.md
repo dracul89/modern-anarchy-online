@@ -7081,3 +7081,7 @@ The original keeps a failed login's page in its Browser window until that window
 ### The game clock before the server's word (OTH-001)
 
 The original's game clock starts at midnight of day 0 (Gamecode `GameTime_t::GameTime_t` 0x1000afdb) and runs from there until the server's `GameTime` message sets it. The client does the same now, where it used to start from the real clock at the game's pace.
+
+### The creation's choices are kept between runs (LCH-013)
+
+The original keeps the breed, profession, head, height, build and name chosen in a character creation among its preferences (`CCSelected...`, read back by `CharCreateModule_t::InitialiseMessage` 0x1011bdaa) and starts afresh only after a character has been made (`WasCharacterCreated`). The client keeps them in `creation.ini` beside its settings: a creation left with Back starts with the same choices the next time the launcher runs, and making a character resets them.

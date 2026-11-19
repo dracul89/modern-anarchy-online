@@ -502,7 +502,9 @@ impl Launcher {
         }
         if new_character {
             if let Stage::Characters(list) = &self.stage {
-                self.stage = Stage::Create(self.kept_creation.take().unwrap_or_default(), list.clone());
+                // (a creation left in this run goes on where it was; else the choices kept from before, as the original's
+                // `CCSelected...` values)
+                self.stage = Stage::Create(self.kept_creation.take().unwrap_or_else(|| Box::new(crate::charcreate::kept_choices())), list.clone());
             }
         }
         // (making a character: the four steps; made, it is played)
@@ -525,6 +527,7 @@ impl Launcher {
         }
         if left {
             if let Stage::Create(creating, list) = std::mem::replace(&mut self.stage, Stage::Form) {
+                crate::charcreate::keep_choices(&creating);
                 self.kept_creation = Some(creating);
                 self.stage = Stage::Characters(list);
             }
@@ -532,6 +535,7 @@ impl Launcher {
         // (made: the new character is played at once, as `Client_t::ProcessMessage`'s 0x11 reads its id and calls
         // `LoginCharacter` [Interfaces.dll 0x10002ee3], the list not fetched again)
         if let Some(name) = made {
+            crate::charcreate::forget_choices();
             let _ = std::fs::write(account_path(), render_account(self.user.trim(), &name, &self.accounts));
             self.selected = Some(name.clone());
             self.chosen = Some(name);

@@ -1019,6 +1019,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] (if it can be provoked: Play a character already logged in elsewhere) the login form comes back with the error page above it
 - [ ] Fail a login (wrong password), log in rightly, press Back at the character list: the error page is over the login again until closed
 - [ ] Entering a playfield: the sky is right once the server's time comes (a moment of night before it, as in the original)
+- [ ] Start a creation, pick a breed and profession, Back, quit the launcher, start it again, New Character: the same choices are there
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

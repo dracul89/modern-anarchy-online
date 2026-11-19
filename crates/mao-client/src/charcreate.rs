@@ -297,6 +297,54 @@ pub struct Creating {
     rehearsal: bool,
 }
 
+/// The creation's choices as the original keeps them between runs: `IndependentPrefs_t`'s `CCSelectedBreed`,
+/// `CCSelectedProfession`, `CCSelectedHead`, `CCSelectedHeight`, `CCSelectedSize` and `CCSelectedName`, set as they are
+/// chosen and read back by `CharCreateModule_t::InitialiseMessage` 0x1011bdaa, which first puts them back to their
+/// starting values (0, 0, 0, 1, 1, "") when `WasCharacterCreated` is set (`NameScene_t::SetState` 0x1007 sets it
+/// once a character was made). Here in `creation.ini` beside the settings.
+fn choices_path() -> std::path::PathBuf {
+    crate::settings::Settings::path().with_file_name("creation.ini")
+}
+
+/// The choices as `creation.ini`'s lines.
+pub fn render_choices(c: &Creating) -> String {
+    format!("breed = {}\nprofession = {}\nhead = {}\nheight = {}\nsize = {}\nname = {}\n", c.breed, c.profession, c.head, c.height, c.build, c.name)
+}
+
+/// A creation starting from `creation.ini`'s choices (the starting values for what the file does not have).
+pub fn parse_choices(text: &str) -> Creating {
+    let mut c = Creating::default();
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let value = value.trim();
+        match key.trim() {
+            "breed" => c.breed = value.parse().unwrap_or(c.breed),
+            "profession" => c.profession = value.parse().unwrap_or(c.profession),
+            "head" => c.head = value.parse().unwrap_or(c.head),
+            "height" => c.height = value.parse().unwrap_or(c.height),
+            "size" => c.build = value.parse().unwrap_or(c.build),
+            "name" => c.name = value.to_string(),
+            _ => {}
+        }
+    }
+    c
+}
+
+/// A new creation with the choices kept from before.
+pub fn kept_choices() -> Creating {
+    std::fs::read_to_string(choices_path()).map_or_else(|_| Creating::default(), |t| parse_choices(&t))
+}
+
+/// Keeps the creation's choices for the next time.
+pub fn keep_choices(c: &Creating) {
+    let _ = std::fs::write(choices_path(), render_choices(c));
+}
+
+/// A character was made: the next creation starts from the beginning (`WasCharacterCreated`).
+pub fn forget_choices() {
+    keep_choices(&Creating::default());
+}
+
 impl Default for Creating {
     fn default() -> Self {
         Creating {
@@ -997,6 +1045,16 @@ impl Creating {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The choices kept between runs are read back as written; what the file lacks starts as the original's.
+    #[test]
+    fn the_choices_are_kept() {
+        let c = Creating { breed: 3, profession: 12, head: 4, height: 2, build: 0, name: "Someone".into(), ..Creating::default() };
+        let back = parse_choices(&render_choices(&c));
+        assert_eq!((back.breed, back.profession, back.head, back.height, back.build, back.name.as_str()), (3, 12, 4, 2, 0, "Someone"));
+        let fresh = parse_choices("");
+        assert_eq!((fresh.breed, fresh.profession, fresh.head, fresh.height, fresh.build, fresh.name.as_str()), (0, 0, 0, 1, 1, ""));
+    }
 
     /// The profession text area's height: 156 pixels at 480 lines, 0.4 of the display's growth beyond.
     #[test]

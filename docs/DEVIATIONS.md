@@ -8332,7 +8332,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: keeps them in memory for the launcher's run; lost when it is closed
 - A player notices: creation restarts after the launcher is closed
 - Where: `crates/mao-client/src/launcher.rs:214`; `CHANGELOG.md:47`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original keeps the creation's choices in `IndependentPrefs_t` (`CCSelectedBreed`, `CCSelectedProfession`, `CCSelectedHead`, `CCSelectedHeight`, `CCSelectedSize`, `CCSelectedName`), which outlive the program; GUI.dll `CharCreateModule_t::InitialiseMessage` 0x1011bdaa reads them back and first resets them to 0, 0, 0, 1, 1 and "" when `WasCharacterCreated` is set (set by `NameScene_t::SetState` 0x1007 once a character was made). The client now keeps them in `creation.ini` beside the settings: written when the creation is left (Back), read when New Character starts a creation (a creation left in the same run still goes on where it was), and reset when a character is made (`charcreate::keep_choices`, `kept_choices`, `forget_choices`). Test: `charcreate::tests::the_choices_are_kept`. The choices are written on leaving rather than at each click (the original sets each value as it is chosen); the difference shows only if the launcher is killed in the middle of a creation.
 
 #### `LCH-014` Creation picking uses figure boxes; head point is the figure's top less 0.12
 
