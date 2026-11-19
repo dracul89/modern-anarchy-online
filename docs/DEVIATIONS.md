@@ -1822,7 +1822,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: when the sections do not read, the first 12 pairs after the header are taken as stats and animations are found by the count word 2018
 - A player notices: a creature with an odd record may get a wrong mesh or animation
 - Where: `crates/mao-formats/src/npc.rs:14`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The data pass the overnight reader asked for was run: all 1470 records of type 0xfde97 in the game's database read in Gamecode FUN_1004de5d's order (the stats FUN_1002e7d9, the animations FUN_1007db83, the sounds FUN_1007dc1e), so the client's heuristic fallback (the first 12 pairs as stats, animations found by the count word 2018) was never taken on the game's data. It is removed: `Template::parse` now returns the sections' reading or None, as the original has no other reading. The pass stays as a data test, `every_template_reads_by_its_sections` (MAO_GAME), and the Waste Collector unit test's abridged record now counts its two actions as two (it had kept the full count of 17 and passed only through the fallback).
 - Looked at, left (2026-11-19, overnight): The client reads a template's sections in FUN_1004de5d's order and falls back to its heuristic only when they do not read; the records that fall back were not listed tonight, so it is not known whether the fallback is ever taken on the game's data or what the original makes of those records. Needs a pass over every 0xfde97 record (a data test) to find them.
 
 #### `NPC-025` Other characters' polymorph form ends by a 30 s timeout; their movement names not done

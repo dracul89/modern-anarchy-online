@@ -7834,3 +7834,7 @@ The original's pet window (`PetWindow_c`, FUN_1007e9d7) puts its options on the 
 ### A corpse's name read from its announcement's fields (NPC-022)
 
 The original reads a corpse's announcement (`CorpseFullUpdateIIR_t`, Gamecode FUN_1009fa4c through FUN_100a1661) field by field: the dynel's identity, its place and turn, a word, an identity, two bytes, the stats, then the name as a length and its bytes. The client found the name by scanning the message for the first string that looked like one; it now reads it at its place.
+
+### NPC templates read only as the original reads them (NPC-024)
+
+Gamecode reads a creature's template (type 0xfde97) section by section (FUN_1004de5d). The client had a second, guessing reader for records that did not read so; a pass over all 1470 of the game's templates found none, so the guess is gone and the pass is kept as a test.

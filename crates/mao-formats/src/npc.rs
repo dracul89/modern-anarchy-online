@@ -11,10 +11,6 @@ use crate::appearance::Action;
 
 /// The object type of an NPC template.
 pub const TEMPLATE: u32 = 0xfde97;
-/// A count of one, the way the lists count (1009 × 2): the heuristic reader of an odd record looks for it.
-const ANIMATION: u32 = 2018;
-/// How many pairs after the header the heuristic reader takes as stats.
-const STATS: usize = 12;
 
 /// A list's count, counted as 1009 × (count + 1).
 fn count(word: u32) -> Option<usize> {
@@ -39,28 +35,14 @@ pub struct Template {
 }
 
 impl Template {
+    /// The record read in FUN_1004de5d's order; None when it does not read so (no record of the game's does: every one of
+    /// the 0xfde97 records reads by its sections, `every_template_reads_by_its_sections`).
     pub fn parse(data: &[u8]) -> Option<Template> {
         let words: Vec<u32> = data.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
         if words.len() < 6 || words[0] != TEMPLATE {
             return None;
         }
-        if let Some(t) = Self::parse_sections(&words) {
-            return Some(t);
-        }
-        let mut template = Template::default();
-        for pair in words[4..].chunks_exact(2).take(STATS) {
-            match pair[0] {
-                12 => template.mesh = Some(pair[1]),
-                64 => template.head = Some(pair[1]),
-                _ => {}
-            }
-        }
-        for at in 4..words.len().saturating_sub(2) {
-            if words[at + 1] == ANIMATION && !template.animations.iter().any(|a| a.0 == words[at]) {
-                template.animations.push((words[at], words[at + 2]));
-            }
-        }
-        Some(template)
+        Self::parse_sections(&words)
     }
 
     /// The record read as FUN_1004de5d reads it (None when its layout is not that).
@@ -211,10 +193,10 @@ mod tests {
         w.iter().flat_map(|x| x.to_le_bytes()).collect()
     }
 
-    /// The Waste Collector's template, abridged from the game data.
+    /// The Waste Collector's template, abridged from the game data (two of its actions, counted as two).
     #[test]
     fn waste_collector() {
-        let data = words(&[TEMPLATE, 0x4532, 1_000_000, 15, 23, 8072, 12, 0x43a4, 421, 3, 2, 100_000, 0, 0, 224, 32775, 197, 0, 41, 0, 14, 19, 18162, 100, 2018, 17327, 120, 2018, 17321]);
+        let data = words(&[TEMPLATE, 0x4532, 1_000_000, 15, 23, 8072, 12, 0x43a4, 421, 3, 2, 100_000, 0, 0, 224, 32775, 197, 0, 41, 0, 14, 19, 1009 * 3, 100, 2018, 17327, 120, 2018, 17321]);
         let t = Template::parse(&data).unwrap();
         assert_eq!(t.mesh, Some(0x43a4));
         assert_eq!(t.animation(Action::Walk), Some(17327));
@@ -247,5 +229,18 @@ mod tests {
         assert_eq!(t.start_candidates(Action::Run, 9), vec![(100, 0x27cf)]);
         assert_eq!(t.sounds, vec![(0x1e, 0x8ee1_3fa5)]);
         assert_eq!(t.sound(0x1e, 3), Some(0x8ee1_3fa5));
+    }
+
+    /// NPC-024: every template of the game's database reads in FUN_1004de5d's order (MAO_GAME; skipped without).
+    #[test]
+    fn every_template_reads_by_its_sections() {
+        let Ok(game) = std::env::var("MAO_GAME") else { return };
+        let db = crate::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let mut all = 0;
+        for id in db.ids().unwrap().flatten().filter(|i| i.kind == TEMPLATE) {
+            all += 1;
+            assert!(Template::parse(&db.get(id).unwrap().unwrap()).is_some(), "template {} does not read", id.instance);
+        }
+        assert!(all > 1000);
     }
 }
