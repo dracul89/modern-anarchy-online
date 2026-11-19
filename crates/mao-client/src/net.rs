@@ -7931,9 +7931,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut velocity = [0.0f32; 2];
         let mut pushed = 0i8;
         let mut walk_toggle_seen = 0u8;
-        // (the movement mode told the server on entering a playfield: it keeps the last one it heard, even from another session,
-        // and checks the reports against that mode's speed)
-        let mut mode_told = false;
         let mut target_told = false;
         // (the heading the last movement message carried: `CheckMotionUpdate` reports a turn of more than 0.17 rad since)
         let mut sent_heading = 0.0f32;
@@ -8658,7 +8655,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     airborne = false;
                     rise = 0.0;
                     state.entities.insert(own, (position, 0));
-                    mode_told = false;
                     state.swimming.clear();
                     body_reset = true;
                     jumping = false;
@@ -8678,7 +8674,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // from its death in the playfield it died in stood there for the server until the next login: no
                     // health told, no heal, no logging off. The user's Maowild, 2026-11-17, twice.)
                     eprintln!("set down in the same playfield: ready");
-                    mode_told = false;
                     if connection.send(&n3::ready(own)).is_err() {
                         break;
                     }
@@ -10337,15 +10332,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             let walk = keys.forward as i8 - keys.back as i8;
             // The walk/run toggle (`MOVEMENT_TOGGLEWALK`): the mode changes and the server hears the switch (0x18, 0x19).
-            if keys.walk_toggle != walk_toggle_seen || !mode_told {
+            if keys.walk_toggle != walk_toggle_seen {
                 // (walk and run are among the actions fly mode marks unusable: the key says so and changes nothing)
-                if keys.walk_toggle != walk_toggle_seen && state.own_flying {
+                if state.own_flying {
                     pending_messages.push(crate::feedback::plain("Feedback_ActionIsNotAvailable"));
-                } else if keys.walk_toggle != walk_toggle_seen {
+                } else {
                     state.own_walking = !state.own_walking;
                 }
                 walk_toggle_seen = keys.walk_toggle;
-                mode_told = true;
                 send(&mut connection, if state.own_walking { movement::WALK_MODE } else { movement::RUN_MODE }, heading, position, &mut sent);
             }
             // (what the pairs' tiles follow: `actions::shown_number`)

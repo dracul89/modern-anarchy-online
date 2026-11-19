@@ -869,7 +869,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: sends mode 0x19/0x18 on entering every playfield so the server does not pull back a running character
 - A player notices: none visible
 - Where: `docs/CLIENT_UI.md:2862`; `crates/mao-client/src/net.rs:7201`; `crates/mao-client/src/net.rs:8666`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): Removed the client's own walk/run announcement (movement 0x19 run / 0x18 walk) sent on entering every playfield and after being set down in the same playfield (`mode_told` in net.rs's movement loop); the walk/run toggle key still sends the switch when pressed. As the original: across the captures (several zonings) its own movement messages hold no 0x18/0x19 on arrival (types sent: 1-4, 9-15, 22, 30, 36). The reason it was added (the server, remembering a walk mode from an earlier session, pulled a running character back) must be checked live now that it is gone. Tests: `walk` (8 pass).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original never sends the walk/run mode on entering a playfield: across all captures (several zonings) its own movement messages hold no type 0x18 or 0x19 at all (types sent: 1-4, 9-15, 22, 30, 36), so the client sends messages the original does not. Whether the server then pulls a running character back (the client's reason) should be checked live once it is gone.
 
 ## Combat

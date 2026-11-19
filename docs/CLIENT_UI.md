@@ -7417,3 +7417,7 @@ The client's own "This account has no characters." on the login form is gone. As
 ### No expansion message at the Jobe booth (ZON-024)
 
 The client's own box "You must have the expansion pack..." at a Jobe booth is gone. As the original, a character without Shadowlands who steps into the booth gets no message (the server answers the try with nothing); the original says `Feedback_YouMustHaveExpansionpack1` only as a criterion's failure line (Gamecode FUN_1000556a).
+
+### Walk/run mode not announced on arrival (MOV-033)
+
+The client no longer tells the server its walk or run mode on entering each playfield; as the original, the mode goes out only when the player switches it (the walk/run key or tile). This replaces the note that the client tells the mode (0x19 run, or 0x18) on entering every playfield.
