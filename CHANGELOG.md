@@ -166,6 +166,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - /ignore follows the original: /ignore alone ignores your target, /ignore list shows who is ignored, and the messages are the game's own.
 
+### Movement
+
+- Other characters' walk and run animations follow their walk/run mode instead of their measured speed.
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher

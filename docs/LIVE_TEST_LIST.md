@@ -1021,6 +1021,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Entering a playfield: the sky is right once the server's time comes (a moment of night before it, as in the original)
 - [ ] Start a creation, pick a breed and profession, Back, quit the launcher, start it again, New Character: the same choices are there
 - [ ] /ignore with a player targeted ignores them (game text "Ignoring character ..."); /ignore list shows them; /ignore on your own name is refused
+- [ ] Another player toggles walk (the walk key) near you: their walk animation shows even when the server's reports make them look fast; creatures on paths walk/run as before.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

@@ -642,7 +642,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: for other characters (and morphs) a measured speed over 2.2 is a run, else a walk (walking 1.5, running from 3 backwards or 5)
 - A player notices: another's walk/run animation may be wrong at in-between speeds
 - Where: `crates/mao-client/src/net.rs:5372-5377`; `crates/mao-client/src/net.rs:3748`; `docs/CLIENT_UI.md:2124`; `docs/ORIGINAL_AUDIT.md:57`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Other characters now walk or run by their movement mode, as FUN_1006c370 picks animations by the mode (FUN_10070a2f) and not by speed: the mode is taken from the announcement (EntityInfo move_mode 2 walk / 3 run), from the movements the server passes on (WALK_MODE 0x18 / RUN_MODE 0x19; the captures hold 3 such for others) and from a server path's walk/run byte (0x18/0x19). The old speed rule (over 2.2 is a run) is kept only for a character whose mode was never told. Also used for morphs and the back animations. Test: net::door_tests::others_walk_or_run_by_their_mode.
 
 #### `MOV-006` Doors checked on the character's own steps
 

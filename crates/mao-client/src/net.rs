@@ -267,6 +267,10 @@ struct World {
     strafing: BTreeMap<u32, i8>,
     /// Whether a character is moving backwards (its own: the back key; the others: the move against their facing).
     backing: BTreeMap<u32, bool>,
+    /// Whether another character walks (true) or runs (false), by its movement mode as the original keeps it: the
+    /// mode it was announced in (2 walk, 3 run) and the switches the server passes on (`WALK_MODE` 0x18, `RUN_MODE`
+    /// 0x19); FUN_1006c370 picks the walk or run animations by that mode, not by the speed.
+    walk_modes: BTreeMap<u32, bool>,
     /// The programs running on the other characters, each with the time it had left (milliseconds) when that was
     /// told, and when: those a character's full update lists, those the server starts on it while it is in view
     /// (`CharacterAction` 0x62 for the character: `program_started`), until the server takes one off (`Buff`:
@@ -4066,6 +4070,16 @@ impl World {
                 } else {
                     self.path_runs.remove(&m.identity.1);
                 }
+                // (that byte is the walk or run mode's movement type, 0x18 or 0x19: the creature goes in that mode)
+                match p.value.get("Unknown1").and_then(mao_net::schema::Value::as_int) {
+                    Some(k) if k == mao_net::n3::PATH_WALK as i64 => {
+                        self.walk_modes.insert(m.identity.1, true);
+                    }
+                    Some(k) if k == mao_net::n3::PATH_RUN as i64 => {
+                        self.walk_modes.insert(m.identity.1, false);
+                    }
+                    _ => {}
+                }
                 let vector = |v: &mao_net::schema::Value| -> Option<[f32; 3]> {
                     let f = |n: &str| match v.get(n) {
                         Some(mao_net::schema::Value::Float(x)) => Some(*x as f32),
@@ -4520,6 +4534,16 @@ impl World {
                     None => {}
                 }
             }
+            // (walking or running, as announced)
+            match info.move_mode {
+                Some(2) => {
+                    self.walk_modes.insert(m.identity.1, true);
+                }
+                Some(3) => {
+                    self.walk_modes.insert(m.identity.1, false);
+                }
+                _ => {}
+            }
             // (a creature announced on the ground, or no longer; a player too, since its mode is read: one announced
             // sitting sits, where it stood until 2026-11-18)
             match info.move_mode {
@@ -4556,6 +4580,12 @@ impl World {
             }
             if m.identity.1 != self.own {
                 match kind {
+                    mao_net::n3::movement::WALK_MODE => {
+                        self.walk_modes.insert(m.identity.1, true);
+                    }
+                    mao_net::n3::movement::RUN_MODE => {
+                        self.walk_modes.insert(m.identity.1, false);
+                    }
                     mao_net::n3::movement::SWIM_MODE => {
                         self.swimming.insert(m.identity.1);
                     }
@@ -4615,6 +4645,16 @@ impl World {
             self.last_seen.insert(m.identity.1, Instant::now());
             e.0 = p;
             e.1 += 1;
+        }
+    }
+
+    /// Whether another character's movement plays the run animations rather than the walk ones: by its movement mode
+    /// where that is known (`walk_modes`, as FUN_1006c370 picks), else by its measured speed (over 2.2: walking is 1.5
+    /// a second, running from 3 backwards or 5).
+    fn runs(&self, id: u32, speed: f32) -> bool {
+        match self.walk_modes.get(&id) {
+            Some(&walking) => !walking,
+            None => speed > 2.2,
         }
     }
 
@@ -6563,8 +6603,8 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ if !moving => Action::Idle,
                 -1 => Action::StrafeLeft,
                 1 => Action::StrafeRight,
-                _ if world.backing.get(&id).copied().unwrap_or(false) => if speed > 2.2 { Action::RunBack } else { Action::WalkBack },
-                _ if speed > 2.2 => Action::Run,
+                _ if world.backing.get(&id).copied().unwrap_or(false) => if world.runs(id, speed) { Action::RunBack } else { Action::WalkBack },
+                _ if world.runs(id, speed) => Action::Run,
                 _ => Action::Walk,
             };
             if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.held_action(id), None, &[]) {
@@ -6596,8 +6636,9 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
             // The original's choice (FUN_1006c370): a sidestep plays walk-left/right, moving against the facing the back
             // animations; walking is 1.5 units a second and running from 3 (backwards) or 5, so 2.2 tells them apart.
-            // (one's own character runs or walks by its mode, as the original's FUN_1006c370 does; the others by their speed)
-            let running = if id == world.own { !world.own_walking } else { speed > 2.2 };
+            // (one's own character runs or walks by its mode, as the original's FUN_1006c370 does; the others by theirs too
+            // where it is known, else by their speed)
+            let running = if id == world.own { !world.own_walking } else { world.runs(id, speed) };
             // (a character running a vehicle program rides its board or bike)
             let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
             // (fly mode: one's own as the game loop has it; another's only when the server's spell list said so, `flying`.
@@ -13711,6 +13752,30 @@ mod door_tests {
         // (oneself leaving: the team and the raid are gone)
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000020000000000000c3507b1a002102a3b8ffffffffff0000") }.frame(1));
         assert!(crate::team::with(|t| t.members.is_empty() && t.raid.is_none() && t.others.iter().all(Vec::is_empty)));
+    }
+
+    /// Another character walks or runs by its movement mode (`WALK_MODE` 0x18 / `RUN_MODE` 0x19 as the server passes them
+    /// on, FUN_1006c370), whatever its speed; before any mode is known, by the speed.
+    #[test]
+    fn others_walk_or_run_by_their_mode() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (own, other) = (0x10, 0x20);
+        let mut w = World { own, ..World::default() };
+        assert!(w.runs(other, 4.0) && !w.runs(other, 1.5));
+        let mode = |k: u8| {
+            let mut d = hex("0018000000003f32e84e000000003f371b5b4561914842510f5b44447cb3000000000000000000000000");
+            d[1] = k;
+            Message { kind: n3::POSITION_UPDATE, identity: (0xc350, other), data: d }.frame(1)
+        };
+        w.add(&mode(n3::movement::WALK_MODE));
+        assert!(!w.runs(other, 4.0));
+        w.add(&mode(n3::movement::RUN_MODE));
+        assert!(w.runs(other, 1.5));
+        // (one's own goes by `own_walking`, not this)
+        let mut d = hex("0018000000003f32e84e000000003f371b5b4561914842510f5b44447cb3000000000000000000000000");
+        d[1] = n3::movement::WALK_MODE;
+        w.add(&Message { kind: n3::POSITION_UPDATE, identity: (0xc350, own), data: d }.frame(1));
+        assert!(!w.walk_modes.contains_key(&own));
     }
 
     /// The 16:55 capture's other players: Nihiltech (0x7b1a0022) sits and the server's 0x57 stands him up; he equips a weapon

@@ -7093,3 +7093,7 @@ The original's `/ignore` (GUI.dll FUN_100bafeb) takes one name, `list`, or nothi
 ### Back to the character list after a camp (LCH-045)
 
 The original's `LoginModule_c::SlotInitialize` 0x100123ee, called on the way back from the game, logs in again at once with the account and password it kept (`SlotLoginAccount`) instead of showing the login form; the client's launcher restart with `MAO_RELOGIN` does the same, so this is the original's behaviour, not an addition.
+
+### Others walk or run by their mode (MOV-005)
+
+The original picks another character's walk or run animations by its movement mode (FUN_1006c370 over FUN_10070a2f), not by how fast it goes. The client keeps that mode per character (`World::walk_modes`): from the announcement (mode 2 walk, 3 run), from the walk/run mode switches (0x18/0x19) the server passes on and from a server path's walk/run byte. Only a character whose mode was never told is still judged by its speed (over 2.2 a second is a run).
