@@ -7754,3 +7754,7 @@ Every tile of the Actions window and every action shortcut is pictured by its ac
 ### Which planet map the window shows (WIN-101)
 
 The original's planet map window (`PlanetMapView_c`, FUN_1004d92d) shows one map: the Shadowlands one (`ShadowlandMapIndexFile`) when bit 0 of the character's ExpansionPlayfield (stat 531) is set, else Rubi-Ka's (`PlanetMapIndexFile`). The game's own client sets that stat on entering a playfield, 1 for a playfield whose record marks it a Shadowlands one (Gamecode FUN_1005997f, `IsShadowlandPF` 0x10121e59). The client does the same (`planetmaps::expansion_playfield`, `window_kind`): in a Shadowlands dungeon the window now shows the Shadowlands map; before, a playfield on neither map showed Rubi-Ka's.
+
+### Selected text (WIN-103)
+
+The original's text views draw selected text on a light grey ground: `TextRenderer_c::_RenderString` (GUI.dll 0x101602bb) clears each selected glyph's cell to 0xc0c0c0 and draws the glyph over it in its own colour. The client's interface text views (reading and editing) now use that grey instead of a translucent blue. The client's band still runs to the view's edge on the middle lines of a selection, where the original shades only the glyphs.

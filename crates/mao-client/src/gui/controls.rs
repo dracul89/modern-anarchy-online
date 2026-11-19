@@ -755,6 +755,10 @@ pub fn markup_click(ui: &mut egui::Ui, palette: &Palette, text: &str, font: Font
     (height, click)
 }
 
+/// The ground of selected text: `TextRenderer_c::_RenderString` (GUI.dll 0x101602bb) clears each selected glyph's cell
+/// to 0xc0c0c0 before it draws the glyph in its own colour.
+const SELECTION: egui::Color32 = egui::Color32::from_rgb(0xc0, 0xc0, 0xc0);
+
 impl Control for TextView {
     fn class(&self) -> &'static str {
         "TextView"
@@ -786,7 +790,7 @@ impl Control for TextView {
         let mut shown = String::new();
         let mut runs: Vec<Run> = Vec::new();
         let selected = if reading { self.shown_selection() } else { None };
-        let shade = egui::Color32::from_rgba_unmultiplied(0x40, 0x70, 0xc0, 0xa0);
+        let shade = SELECTION;
         self.laid_width.set(width);
         *self.measure.borrow_mut() = m.clone();
         if let Some(hint) = &self.empty_hint {
@@ -815,7 +819,7 @@ impl Control for TextView {
             let left = p.rect.left() - shift;
             let top = p.rect.top() - self.scroll;
             let band = |x0: f32, x1: f32, y: f32, h: f32| egui::Rect::from_min_max(egui::pos2(left + x0, top + y), egui::pos2(left + x1, top + y + h));
-            let shade = egui::Color32::from_rgba_unmultiplied(0x40, 0x70, 0xc0, 0xa0);
+            let shade = SELECTION;
             if ay == by {
                 clip.rect_filled(band(ax, bx, ay, ah), 0.0, shade);
             } else {

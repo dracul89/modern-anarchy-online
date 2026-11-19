@@ -256,6 +256,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Zoning no longer shows the loading picture: the screen holds its last picture until the new area is drawn, and "Changing area" is said in the chat, as in the original.
 - Window art from the skin is drawn crisp (unfiltered), as in the original, instead of smoothed when scaled.
 - Reload and perk tiles show their own pictures, as in the original.
+- Selected text in the interface's text views is on the original's light grey.
 
 ### Chat
 
