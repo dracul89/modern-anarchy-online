@@ -999,6 +999,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Chat tab drag (2026-11-18): right-click a tab, left-click on another window's tab strip: it moves there before that tab; right-click again and left-click on empty space: a window of its own at the pointer; Escape lets go
 - [ ] Playfield map window (2026-11-18): the control center's Map menu opens it; the ground shows at the original's scale; drag and let go comes back; other players' squares by side; Client settings' own map brings the round map back
 - [ ] Mission item (2026-11-18): take "Plant a Bug" on Arete Landing: the recording device is in the inventory and can be used
+
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

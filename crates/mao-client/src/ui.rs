@@ -2885,7 +2885,7 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
         ui.heading("Interface");
         crate::chrome::checkbox(ui, palette, &mut settings.perf_overlay, "Show performance: frame rate, processor, memory and graphics card (/perf)");
         crate::chrome::checkbox(ui, palette, &mut settings.auto_loot, "Take everything from a corpse as soon as it opens");
-        crate::chrome::checkbox(ui, palette, &mut settings.own_map, "This client's own round corner map and overlay (O), beside the original's map window");
+        crate::chrome::checkbox(ui, palette, &mut settings.own_map, "The round corner map and its overlay (O); the square map window is in the Map menu either way");
         crate::chrome::checkbox(ui, palette, &mut settings.smart_hotbar, "Smart hotbars (this client's own: priority lists, queued presses) instead of the original's shortcut bars");
         if !settings.smart_hotbar {
             ui.horizontal(|ui| {

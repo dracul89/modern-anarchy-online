@@ -6950,3 +6950,10 @@ capture of the original (2026-10-30, lines 28144-28145) shows what comes before 
 `0xc73d` item owned by the character, with no place in the world, template 0x48379. The client took those messages only for
 terminals standing in the world. Now an item owned by the character and standing nowhere waits in the overflow at its
 first free place, and the move brings it in. Test: `a_mission_item_given_comes_into_the_inventory`, on the capture's bytes.
+
+### The round map by default again
+
+The user's word after the play test: "I want the square PF Map as an option and the circle PF Map as default". The round
+corner map and its overlay are on by default again (`round_map = on`). The original's square playfield map window opens from
+the control center's Map menu either way. The setting has a new name: the first one, `own_map`, had already been written as
+off by the build that made the square window the default.

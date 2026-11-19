@@ -87,6 +87,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   window's tabs to move it there, or anywhere else to give it a window of its own.
 - The map is the original's playfield map window (the control center's Map menu): north up, following you, dragged to
   look round, with the characters near by side. The client's round corner map and overlay are a setting now.
+- The round corner map is the default again; the original's square map window is in the control center's Map menu.
 
 ### Items
 
