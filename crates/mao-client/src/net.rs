@@ -243,7 +243,7 @@ struct World {
     /// Nano programs that landed: (target, nano id), to be drawn as glows.
     landed: Vec<(u32, u32)>,
     /// Casts to show the cast effect of: (caster, nano program).
-    cast_bursts: Vec<(u32, u32, u32)>,
+    cast_bursts: Vec<(u32, u32, u32, f32)>,
     /// When a character last cast a nano on itself, by (character, nano): the server repeats an aura's cast every few seconds.
     self_casts: std::collections::HashMap<(u32, u32), Instant>,
     /// The nanos the player asked to cast and when: those casts always show.
@@ -3024,18 +3024,23 @@ impl World {
                     let plays = self.nano_casts.cast(caster, target, nano, &|n, s| nano_stat(n, s));
                     self.cast_sounds.extend(plays.into_iter().map(|(id, delay, volume)| (caster, id, delay, volume)));
                     self.landed.push((target, nano));
-                    self.cast_bursts.push((caster, target, nano));
                     self.shots_pending.push((caster, target, nano));
                     // The caster plays its casting animation (at itself or at someone), when the nano takes time to cast.
                     // (one's own by its time with the initiative and the aggression setting taken off, `cast_seconds`;
                     // anyone else's, whose skill is not known here, by the nano's time alone)
                     let attack = nano_stat(nano, 294);
-                    let takes_time = if caster == self.own {
+                    let own_seconds = (caster == self.own).then(|| {
                         let shown = crate::derived::shown(&self.stats, &self.item_mods);
-                        attack.is_some_and(|t| t > 0 && cast_seconds(t, nano_stat(nano, 523), shown.get(&149).copied().unwrap_or(0), self.stats.get(&51).copied().unwrap_or(0)) > 0.0)
-                    } else {
-                        takes_time_to_cast(attack)
+                        attack.map_or(0.0, |t| if t > 0 { cast_seconds(t, nano_stat(nano, 523), shown.get(&149).copied().unwrap_or(0), self.stats.get(&51).copied().unwrap_or(0)) } else { 0.0 })
+                    });
+                    let takes_time = match own_seconds {
+                        Some(seconds) => seconds > 0.0,
+                        None => takes_time_to_cast(attack),
                     };
+                    // (the cast's effect lasts the cast: the casting state deletes it when the cast ends; one's own by its
+                    // time, anyone else's by the nano's own attack time)
+                    let lasts = own_seconds.unwrap_or_else(|| attack.filter(|_| takes_time).map_or(0.0, |t| t as f32 / 100.0));
+                    self.cast_bursts.push((caster, target, nano, lasts));
                     if takes_time {
                         self.socials.insert(caster, (if caster == target { "spell-self" } else { "spell-dir" }, Instant::now()));
                     }
@@ -10886,7 +10891,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     if let Some(g) = gfx.as_ref() {
                         let place = |id: u32| if id == own { Some(position) } else { state.position_of(id) };
                         let mut made: Vec<(u32, i32, f32)> = Vec::new();
-                        for &(caster, _, nano) in &state.cast_bursts {
+                        for &(caster, _, nano, _) in &state.cast_bursts {
                             made.extend(nano_stat(nano, 428).map(|e| (caster, e as i32, 0.0)));
                         }
                         for &(caster, target, nano) in &state.shots_pending {
@@ -11234,7 +11239,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     bursts: Some(
                         std::mem::take(&mut state.cast_bursts)
                             .into_iter()
-                            .filter_map(|(caster, target, nano)| {
+                            .filter_map(|(caster, _target, nano, lasts)| {
                                 let at = if caster == own { position } else { state.entities.get(&caster)?.0 };
                                 let cast = burst_cache
                                     .entry(nano)
@@ -11246,9 +11251,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     })
                                     .clone()?;
                                 let heading = state.rotations.get(&caster).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
-                                // (the effect lasts the cast: the casting animation the caster plays, at itself or at someone)
-                                let length = if caster == target { crate::effects::CAST_AT_SELF } else { crate::effects::CAST_AT_OTHER };
-                                Some(crate::effects::CastShow { feet: [at[0], at[2], at[1]], heading, cast, length })
+                                // (the effect lasts the cast, `_GfxControlSpell1_t` deleted by the casting state as it ends: the
+                                // cast's own time, NAN-002; an instant cast shows none)
+                                (lasts > 0.0).then_some(crate::effects::CastShow { feet: [at[0], at[2], at[1]], heading, cast, length: lasts })
                             })
                             .collect(),
                     ),

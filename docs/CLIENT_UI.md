@@ -7125,3 +7125,7 @@ The NCU window's type column follows FUN_1003f4cf: hostile 2, team 4, self only 
 ### Waiting for the new playfield (ZON-016)
 
 After the server's teleport the playfield is stopped (StopPlayfield) and the character stands still until the playfield message comes, with no timer, as in the original. The client used to let it move again after 30 s.
+
+### How long a cast's effect shows (NAN-002)
+
+The original's cast effect (the program's CastEffectType, a _GfxControlSpell1_t) is deleted by the casting state when the cast ends. The client shows it for the cast's own time: one's own by the cast time with initiative and the aggression setting taken off, another's by the nano's attack time; an instant cast shows none. It used to last the casting animation (1.2 s or 1.95 s).

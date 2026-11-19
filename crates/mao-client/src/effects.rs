@@ -532,10 +532,6 @@ pub struct CastShow {
     pub length: f32,
 }
 
-/// The length of the player cast animations: at someone (`spell-dir`: 1.17 to 1.23 s) and at oneself (`spell-self`: 1.9 to 2 s).
-pub const CAST_AT_OTHER: f32 = 1.2;
-pub const CAST_AT_SELF: f32 = 1.95;
-
 /// A flare's streaks `t` seconds into its run, emitted at `at` (world, Z up), stopped (no more particles) at `stop`, as
 /// `_GfxControlFlare_t` makes them (FUN_100ddc6d: up to `rate × elapsed` particles, FUN_100dd2eb each one) and
 /// `GfxVisualFlareType0` moves them: particle `k` born at `(k + 1) / rate` with a life from words 34–35 and a velocity from the
@@ -4578,7 +4574,7 @@ mod tests {
         let flare = |attach: i32| Flare { duration: -1.0, material: 15, rate: 16.0, width: (0.05, 0.1), colour_a: [1.0, 0.5, 0.4, 1.0], colour_b: [0.0, 0.5, 0.4, 1.0], gate: 0, azimuth: (0.0, 6.283), elevation: (-1.571, 1.571), speed: (0.35, 0.85), head: -0.3, tail: 1.0, life: (0.5, 1.0), attach, burst: 0 };
         // (template 46133: blue, phase 1 at 0–6 s, the beam at 4–5 s)
         let cast = Cast { material: 8, colour_a: [1.0, 0.2, 0.2, 1.0], colour_b: [0.0, 0.2, 0.2, 1.0], times: [0.0, 6.0, 8.0, 4.0, 5.0, 64.35, 70.0, 70.0, 80.0], flares: [Some(flare(2001)), Some(flare(2000))], released: false };
-        let show = CastShow { feet: [10.0, 20.0, 0.0], heading: 0.0, cast, length: CAST_AT_OTHER };
+        let show = CastShow { feet: [10.0, 20.0, 0.0], heading: 0.0, cast, length: 1.2 };
         // nothing before the first particle, then streaks round each hand in the cast's colour, fading as they go
         assert!(cast_particles(&show, 0.01).is_empty());
         let at = cast_particles(&show, 0.8);

@@ -2775,7 +2775,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Takes the cast to last as long as the casting animation it plays (1.2 s at someone, 1.95 s at oneself).
 - A player notices: Effect length can differ from the real cast time.
 - Where: `crates/mao-client/src/effects.rs:536`; `crates/mao-client/src/net.rs:9671`; `docs/CLIENT_UI.md:2309`; `docs/ORIGINAL_AUDIT.md:267`; `crates/mao-client/src/effects.rs:535`; `crates/mao-client/src/effects.rs:587`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The cast effect (_GfxControlSpell1_t, the program's CastEffectType) now lasts the cast, as the original's casting state deletes it when the cast ends: for one's own cast its time with initiative and aggression taken off (cast_seconds, FUN_1005141d's rule), for anyone else's the nano's own attack time (stat 294, as the casting stance already goes; their skills are not known, NAN-020); an instant cast shows no cast effect. It used the casting animation's length (1.2 s at someone, 1.95 s at oneself). No unit test (game-loop code); built.
 
 #### `NAN-003` Repeated aura self-casts are silent
 

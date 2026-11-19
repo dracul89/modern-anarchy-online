@@ -178,6 +178,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - The NCU in use no longer counts hostile nanos or heals running on the character.
 - The NCU window's list shows self-only nanos as such.
+- A nano's cast effect lasts as long as the cast itself; instant nanos show no cast effect.
 
 ## 0.1.6 (2026-11-18)
 
