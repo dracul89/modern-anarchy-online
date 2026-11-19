@@ -7173,3 +7173,7 @@ The original's mission window (GUI.dll FUN_100d10fc) labels its seven sliders' e
 ### Every window of the game's menus opens (WIN-031)
 
 The game's control-center menu scripts (ActionMenu/*.xml, ControlMenu_c FUN_10071d7d) name each window by its distributed value. The client now ties all of them to its windows, including the Team menu's Team entry (`team_view`), the Vehicle entry (`mechselect_window`) and Chat Config (`chat_group_window`) in the Help/Windows menu.
+
+### Character page: title and defender rank names (WIN-116)
+
+The original's character info page (GUI.dll FUN_1003482c) writes the profession title as its name from text.mdb 1060 (profession * 100 + title level, Gamecode `GetTitleStr` 0x10016185) followed by "(TitleLevel n)", always, and the defender rank as its name from text.mdb 1169 (alien level * 100, `N3Msg_GetAlienLevelString` 0x10016d9b). The client's page now does the same instead of showing bare numbers.

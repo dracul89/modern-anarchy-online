@@ -5614,6 +5614,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: /inspect info page is shorter than the original's; item pages in shops show no price
 - Where: `crates/mao-client/src/charinfo.rs:11`; `crates/mao-client/src/gui/iteminfo.rs:39`; `docs/LIVE_TEST_LIST.md:88`; `docs/CLIENT_UI.md:1611`; `docs/GUI_DLL_PARITY.md:77`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): Ported the two names: GUI.dll FUN_1003482c always writes the ProfessionTitle line (no condition) as GetTitleStr(N3Msg_GetSkill 368, N3Msg_GetSkill 37) followed by " (TitleLevel %d)" (FUN_1000b523 inserts the title before the formatted level), and GetTitleStr (Gamecode 0x10016185) is LDBface::GetTextPtr(1060, profession * 100 + title level); the DefenderRank line is N3Msg_GetAlienLevelString (Gamecode 0x10016d9b) = GetTextPtr(1169, stat 169 * 100). charinfo.rs now has title_name() and defender_rank() and shows the title line at title level 0 too. Left: the side experience bonus, the city, the PvP ranks' names, own tokens and veteran points, specializations and the account's items (each another Gamecode call whose data the client does not have from the info packet), and the item page's shop price (FUN_10031fda, needs the shop's price rules wired into iteminfo). Tests: charinfo::tests::the_page_follows_the_originals_order, charinfo::tests::titles_and_defender_ranks_are_the_games_texts (MAO_GAME).
 
 #### `WIN-117` Inline pictures (img) parsed but never sized or drawn
 
