@@ -7029,3 +7029,7 @@ N3's ReadGlobalData makes every global statel of a playfield, wherever it stands
 ### Far statels hidden past 50 radii (RND-005)
 
 DisplaySystem's LODManager::Process (globals at 0x100ae1a4) hides a statel mesh when its squared distance over its squared radius passes 2500, and swaps it for its low-detail mesh 6000 squared units beyond its radius (back under 4000); the client's renderer uses the same three numbers (LOD_CULL, LOD_FAR, LOD_NEAR). The original looks at 20 meshes a frame in turn and measures from the mesh's position and bounding radius; the client looks at all of them every frame, from the world box's centre and half diagonal.
+
+### A new character goes straight into the game (LCH-009)
+
+The original logs a character in as soon as the server says it was made (Interfaces.dll `Client_t::ProcessMessage` 0x10002a9e, message 0x11 at 0x10002ee3: the new id into `s_nCharID`, then `LoginCharacter`). The launcher now does the same: once the creation's walk to the shuttle has ended, the game starts for the new character (the welcome loading screen), without logging in again to fetch the character list first.

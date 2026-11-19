@@ -139,6 +139,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Login
 
 - Play on an inactive character asks to activate it first, or says no slot is free.
+- A character just created goes straight into the game, without the character list being fetched again first.
 
 ### Graphics
 

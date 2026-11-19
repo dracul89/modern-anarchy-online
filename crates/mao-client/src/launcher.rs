@@ -221,9 +221,6 @@ struct Launcher {
     chosen: Option<String>,
     /// Quit was pressed.
     quit: bool,
-    /// A character just made: once the list comes back with it, it is played (the original logs a new character straight in,
-    /// `Client_t::ProcessMessage`'s 0x11).
-    play_new: Option<String>,
     /// A creation that was left: its choices are there the next time (the original keeps them in its preferences).
     kept_creation: Option<Box<crate::charcreate::Creating>>,
     /// The character played is a new one (the loading screen's `welcome_to_rubika.jpg`).
@@ -375,12 +372,6 @@ impl Launcher {
                             self.selected = Some(name.clone());
                             self.chosen = Some(name);
                         }
-                        if let Some(name) = self.play_new.take().filter(|n| list.iter().any(|c| &c.name == n)) {
-                            let _ = std::fs::write(account_path(), render_account(self.user.trim(), &name, &self.accounts));
-                            self.selected = Some(name.clone());
-                            self.chosen = Some(name);
-                            self.new_character = true;
-                        }
                         self.stage = Stage::Characters(list);
                     }
                     Err(failure) => {
@@ -431,7 +422,7 @@ impl Launcher {
                 self.stage = Stage::Create(self.kept_creation.take().unwrap_or_default(), list.clone());
             }
         }
-        // (making a character: the four steps; made, the list is fetched again with it selected)
+        // (making a character: the four steps; made, it is played)
         let account = crate::charcreate::Account {
             user: self.user.trim().to_string(),
             password: self.password.clone(),
@@ -455,9 +446,13 @@ impl Launcher {
                 self.stage = Stage::Characters(list);
             }
         }
+        // (made: the new character is played at once, as `Client_t::ProcessMessage`'s 0x11 reads its id and calls
+        // `LoginCharacter` [Interfaces.dll 0x10002ee3], the list not fetched again)
         if let Some(name) = made {
-            self.play_new = Some(name);
-            self.log_in();
+            let _ = std::fs::write(account_path(), render_account(self.user.trim(), &name, &self.accounts));
+            self.selected = Some(name.clone());
+            self.chosen = Some(name);
+            self.new_character = true;
         }
         // While logging in, the progress window in the login window's place (`LoginModule_c::Show(1)`); cancelled or
         // timed out, back to the form (the answer, if it still comes, is not waited for).
@@ -465,7 +460,6 @@ impl Launcher {
             let palette = self.palette.clone();
             if self.progress.show(ctx, &palette) {
                 self.answer = None;
-                self.play_new = None;
                 self.stage = Stage::Form;
             }
         } else if !matches!(self.stage, Stage::Characters(_) | Stage::Create(..)) {
@@ -1030,7 +1024,6 @@ pub fn run(game: &str) -> Result<(), String> {
         start_error: None,
         window_error: None,
         chosen: None,
-        play_new: None,
         kept_creation: None,
         new_character: false,
         selected: None,

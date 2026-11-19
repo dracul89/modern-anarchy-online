@@ -8292,7 +8292,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: logs in again to fetch the list with the new character selected, then plays that name
 - A player notices: an extra login round-trip
 - Where: `crates/mao-client/src/launcher.rs:211`; `docs/CLIENT_UI.md:2824`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Checked the original: Interfaces.dll `Client_t::ProcessMessage` 0x10002a9e, system message 0x11 (0x10002ee3) reads the new character's id into `s_nCharID` and calls `LoginCharacter` 0x10001c5b at once. The launcher now starts the game for the character as soon as the creation's walk to the shuttle ends (`Outcome::Created`): it is written as the account's last character, picked and played with the new-character loading screen; the extra login that fetched the list again (and the `play_new` field) is gone. No unit test (the launcher's screen state has none); built.
 
 #### `LCH-010` A click does not skip the creation intro flight, only Escape
 
