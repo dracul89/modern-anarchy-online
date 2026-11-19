@@ -4789,7 +4789,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Docked in the rollup column it uses two buttons a row and four grid columns; free it uses one row and six columns.
 - A player notices: The layout does not follow the window's width.
 - Where: `crates/mao-client/src/nanoprograms.rs:290`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The school selector is laid out as SchoolSelector_c's FUN_100d6051 (run on its resize, FUN_100d7244): each button the size FUN_100d6df0 gave it (its preferred size less 8 by 2), left to right 6 apart, a button that would come within 3 of the selector's width starting a new row lower by its height and 5, and each finished row spread over the width (the room left shared out, each button moved by half a share plus a share for each before it). The grid no longer has the client's fixed 4 (docked) / 6 (free) columns: it takes as many as its width holds, as the original's RecalcCellCount. One departure kept on purpose: the selector asks for the widest button's width, not the widest row's (the original's preferred size), because asking for the row would stop the free window from ever narrowing. Test: `school_buttons_flow_in_rows_as_wide_as_the_selector` (`nanoprograms::flow`).
 - Looked at, left (2026-11-19, overnight): The original lays the school buttons in rows as wide as the window (`SchoolSelector_c`, FUN_100d6051) and the grid takes as many columns as fit; porting it means laying the buttons by width each frame and the grid's columns by the list's width, a layout change that was more than this entry's time.
 
 #### `WIN-017` Original's shortcut bar frames not used

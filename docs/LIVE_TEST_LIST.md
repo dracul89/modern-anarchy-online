@@ -1174,6 +1174,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Combine two items with a skill short (e.g. lock picks on a nano interface): the server's line shows in the tradeskill window's build text and not in the chat.
 - [ ] Set the mouse wheel option to scroll the side bar, dock enough windows in the rollup column to overflow it, and turn the wheel over the world: the column scrolls 40 a notch and the camera does not zoom; restart: the column is scrolled as it was left.
 - [ ] In an NPC chat with a long answer that wraps, click right of the first line's end and left of an indented line: the answer is chosen; a click below the last answer does nothing.
+- [ ] Nano programs window docked in the rollup and free: the school buttons wrap into rows spread over the width; widening the free window puts more buttons on a row and more columns in the grid; it can be narrowed again.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

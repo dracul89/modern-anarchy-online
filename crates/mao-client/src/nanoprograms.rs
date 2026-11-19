@@ -196,10 +196,8 @@ pub struct ProgramsWindow {
     /// The columns' widths and the list's sort, kept (`listview_config`; one for this client's one list, where the
     /// original has one for each school's).
     keeper: crate::gui::multilist::Keeper,
-    /// The school selector and the row views made for the docked layout; whether the docked layout is in force.
+    /// The school selector (its buttons laid by [`flow`]).
     selector: Option<crate::gui::view::Id>,
-    rows: Vec<crate::gui::view::Id>,
-    docked_layout: Option<bool>,
     /// The menu up (what each entry stands for and where it opened) and its picture.
     menu: Option<Vec<Vec<String>>>,
     popup: Option<crate::gui::popup::PopupMenu>,
@@ -216,6 +214,49 @@ pub struct ProgramsWindow {
     pub start: Option<(egui::Pos2, egui::Vec2)>,
 }
 
+/// `SchoolSelector_c`'s rows (FUN_100d6051): the buttons (their sizes) left to right, 6 apart; one that would reach
+/// within 3 of the `width` starts a new row, lower by its own height and 5; each row, once full, is spread over the width: the room left over it (the width less where the row ended, one past its
+/// last button) shared out, each button moved right by half a share and a share for each before it. The places, and
+/// the extent the rows reach (unspread).
+pub fn flow(sizes: &[(f32, f32)], width: f32) -> (Vec<(f32, f32)>, (f32, f32)) {
+    let mut places: Vec<(f32, f32)> = Vec::with_capacity(sizes.len());
+    let (mut x, mut y, mut count) = (0.0f32, 0.0f32, 0usize);
+    let mut extent = (-1.0f32, -1.0f32);
+    let spread = |places: &mut Vec<(f32, f32)>, x: f32, count: usize| {
+        let share = (width - x) / count as f32;
+        if share != 0.0 {
+            let mut at = share * 0.5;
+            let first = places.len() - count;
+            for p in &mut places[first..] {
+                p.0 += at.floor();
+                at += share;
+            }
+        }
+    };
+    for &(w, h) in sizes {
+        if count != 0 {
+            if width <= w + x + 3.0 {
+                spread(&mut places, x, count);
+                count = 0;
+                x = 0.0;
+                y += h + 1.0 + 4.0;
+            }
+            if count != 0 {
+                x += 5.0;
+            }
+        }
+        places.push((x, y));
+        extent.0 = extent.0.max(w + x);
+        extent.1 = extent.1.max(y + h);
+        count += 1;
+        x += w + 1.0;
+    }
+    if count != 0 {
+        spread(&mut places, x, count);
+    }
+    (places, extent)
+}
+
 thread_local! {
     /// The selector view `build` made last (handed to `arrange`, which runs after it).
     static SELECTOR: std::cell::Cell<Option<crate::gui::view::Id>> = const { std::cell::Cell::new(None) };
@@ -230,15 +271,13 @@ impl ProgramsWindow {
         tree.get_mut(root).layout = Layout::Vertical;
         // (the school buttons, 3 in from the edges)
         let selector = tree.add(Node::new("SchoolSelector", Box::new(crate::gui::view::Plain)));
-        tree.get_mut(selector).layout = Layout::Horizontal;
+        tree.get_mut(selector).layout = Layout::None;
         tree.get_mut(selector).borders = crate::gui::geom::Rect::new(3.0, 3.0, 3.0, 3.0);
         let mut buttons = Vec::new();
         for (school, label) in SCHOOLS {
             let mut b = crate::gui::controls::Button::new(&crate::gui::xml::ldb_text(label));
             b.toggle = true;
-            let mut node = Node::new(&format!("school{school}"), Box::new(b));
-            node.borders = crate::gui::geom::Rect::new(0.0, 0.0, 3.0, 0.0);
-            let id = tree.add(node);
+            let id = tree.add(Node::new(&format!("school{school}"), Box::new(b)));
             tree.add_child(selector, id);
             buttons.push((id, school));
         }
@@ -256,44 +295,37 @@ impl ProgramsWindow {
         (tree, root, list, buttons)
     }
 
-    /// Lays the school buttons out for the docked (two a row, four grid columns) or the free (one row, six columns) window.
-    fn arrange(&mut self, docked: bool) {
-        use crate::gui::view::{Layout, Node};
+    /// Lays the school buttons out as `SchoolSelector_c` does (FUN_100d6051, run on its resize FUN_100d7244), at the
+    /// selector's width as last laid out: each button the size it was given (its preferred size less 8 by 2, FUN_100d6df0)
+    /// at its place from [`flow`], and the selector as tall as the rows. (Its width asked is the widest button's, not
+    /// the widest row's as the original's preferred size: the rows would then hold the window from ever narrowing.)
+    fn arrange(&mut self) {
         if self.selector.is_none() {
             self.selector = SELECTOR.with(|c| c.get());
         }
         let Some(selector) = self.selector else { return };
-        let Some((tree, _, list, buttons)) = self.views.as_mut() else { return };
-        for &r in &self.rows {
-            tree.get_mut(r).children.clear();
+        let Some((tree, _, _, buttons)) = self.views.as_mut() else { return };
+        let sizes: Vec<(f32, f32)> = buttons
+            .iter()
+            .map(|&(b, _)| {
+                let p = tree.preferred(b, false);
+                (p.x - 8.0, p.y - 2.0)
+            })
+            .collect();
+        let width = tree.get(selector).frame.width();
+        // (not laid out yet: one row)
+        let width = if width > 0.0 { width } else { sizes.iter().map(|s| s.0 + 6.0).sum::<f32>() + 3.0 };
+        let (places, extent) = flow(&sizes, width);
+        for (k, &(b, _)) in buttons.iter().enumerate() {
+            let ((x, y), (w, h)) = (places[k], sizes[k]);
+            tree.get_mut(b).frame = crate::gui::geom::Rect::new(x, y, x + w, y + h);
         }
-        tree.get_mut(selector).children.clear();
-        if docked {
-            tree.get_mut(selector).layout = Layout::Vertical;
-            for (k, chunk) in buttons.chunks(2).enumerate() {
-                let row = match self.rows.get(k) {
-                    Some(&r) => r,
-                    None => {
-                        let mut node = Node::new(&format!("schools{k}"), Box::new(crate::gui::view::Plain));
-                        node.layout = Layout::Horizontal;
-                        let r = tree.add(node);
-                        self.rows.push(r);
-                        r
-                    }
-                };
-                tree.add_child(selector, row);
-                for &(b, _) in chunk {
-                    tree.add_child(row, b);
-                }
-            }
-        } else {
-            tree.get_mut(selector).layout = Layout::Horizontal;
-            for &(b, _) in buttons.iter() {
-                tree.add_child(selector, b);
-            }
+        let widest = sizes.iter().fold(-1.0f32, |m, s| m.max(s.0));
+        let min = crate::gui::geom::Point::new(widest, extent.1);
+        if tree.get(selector).min_size != min {
+            tree.get_mut(selector).min_size = min;
+            tree.relayout = true;
         }
-        crate::gui::multilist::set_grid(tree, *list, |g| g.columns = Some(if docked { 4 } else { 6 }));
-        tree.relayout = true;
     }
 
     /// Shows a school's list (a preview's choice; the hidden list is [`HIDDEN`]).
@@ -326,13 +358,8 @@ impl ProgramsWindow {
         }
         let holding = self.dragging.is_some();
         let hidden = self.hidden.get_or_insert_with(load_hidden).clone();
-        // (docked in the rollup column the window is 175 wide: the original's `SchoolSelector_c` lays its buttons in rows as
-        // wide as the window (FUN_100d6051) and the grid takes as many columns as fit; here two buttons a row and four columns)
-        let docked = crate::rollup::docked("Nano programs");
-        if self.docked_layout != Some(docked) {
-            self.docked_layout = Some(docked);
-            self.arrange(docked);
-        }
+        // (the school buttons in rows as wide as the selector; the grid takes as many columns as its width holds)
+        self.arrange();
         let textures = &mut self.textures;
         let (tree, root, list, buttons) = self.views.as_mut()?;
         let (root, list) = (*root, *list);
@@ -563,6 +590,24 @@ impl ProgramsWindow {
 
 #[cfg(test)]
 mod tests {
+    /// WIN-016: `SchoolSelector_c` (FUN_100d6051) wraps a button that would come within 3 of the width and spreads each
+    /// row over the width.
+    #[test]
+    fn school_buttons_flow_in_rows_as_wide_as_the_selector() {
+        let sizes = [(50.0, 20.0), (50.0, 20.0), (50.0, 20.0)];
+        // (two fit in 120: 0..50, 56..106; the third would reach 162+3)
+        let (places, extent) = super::flow(&sizes, 120.0);
+        // (the first row ends at 107: 13 left, 6.5 a button: moved by 3 and 9)
+        assert_eq!(places[0], (3.0, 0.0));
+        assert_eq!(places[1], (65.0, 0.0));
+        // (the second row: 25 down; 120 less 51 is 69 for one button: moved by 34)
+        assert_eq!(places[2], (34.0, 25.0));
+        assert_eq!(extent, (106.0, 45.0));
+        // (wide enough for all three in a row)
+        let (places, _) = super::flow(&sizes, 200.0);
+        assert!(places.iter().all(|p| p.1 == 0.0));
+    }
+
     use super::*;
 
     fn program(id: u32, school: usize) -> Program {

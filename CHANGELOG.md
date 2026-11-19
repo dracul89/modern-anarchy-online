@@ -112,6 +112,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - With land control shown on the map, a light grey circle marks where a tower would stand while the tower build menu holds an item.
 - Right-clicking a mission booth offer opens its menu: Look at Mission and Upload to map.
 - With the mouse wheel set to scroll the side bar, the wheel over the world scrolls the rollup column; the column keeps its scroll between sessions.
+- The nano programs window lays its school buttons in rows as wide as the window and shows as many program columns as fit, as in the original.
 
 ### Items
 

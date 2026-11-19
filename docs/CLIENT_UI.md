@@ -7790,3 +7790,7 @@ The original's `ScrollView_c::WheelMoved` (GUI.dll 0x10142820) scrolls only alon
 ### Where a click in a text view chooses a link (WIN-012)
 
 The original takes the clicked point to a character of the text (`TextRenderer_c::GetBufferLocation` 0x101622f6, 0x101617f0: the line at the point's height, then the first character whose right edge is past the point) and uses that character's link (`GetHyperLink` 0x10162f14, `FindTextAttrib` 0x1016132a). The client now does the same with each line's spaces and words: a space inside a link is on it, a click left of a line's text is on its first word's link, past a wrapped line's end on the next line's first word's link, and every area is the line's whole height (pictures too). Before, the client stretched a link's words over the gaps between them, with no area beside the line.
+
+### Nano programs' school buttons in rows as wide as the window (WIN-016)
+
+The original's `SchoolSelector_c` (FUN_100d6051, on resize FUN_100d7244) lays its school buttons left to right, 6 pixels apart, each at its preferred size less 8 by 2 (FUN_100d6df0); a button that would come within 3 pixels of the width starts a new row 5 pixels below, and each row is spread over the width. The program grid takes as many columns as its width holds. The client did two buttons a row and four columns docked, one row and six columns free; it now lays them as the original at any width (`nanoprograms::flow`). The selector asks only for its widest button's width, so the free window can still be narrowed.
