@@ -2180,7 +2180,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Another place the item's flags (stat 298) allow is taken when its own is taken and that one is free.
 - A player notices: Item goes to an alternate slot.
 - Where: `docs/CLIENT_UI.md:3613`; `crates/mao-client/src/net.rs:8585`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Gamecode `N3Msg_UseItem` (0x10028883) wears an item by use at its own place only: `N3Msg_GetSkill(item, 0x58)` on the page of its class (+0x10 clothes, +0x20 implants and spirits), asked of `N3Msg_IsItemPossibleToWear`, taking what is worn there off first (FUN_10047732 / FUN_1004b3ee). The client's choice of another free place the item's mask allowed is gone. Test: the wear tests build.
 
 ### Inventory and items: an approximation or a stand-in (22)
 

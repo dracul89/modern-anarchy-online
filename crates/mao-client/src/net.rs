@@ -10192,8 +10192,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let taken = |place: u32| state.worn.iter().any(|w| w.slot == place);
                     let to = if e.slot >= inventory::BACKPACK_FIRST {
                         // (the wear page from stat 76: 1 the weapons' places, 2 the clothes' sixteen on, 3 and 5 the implants'
-                        // thirty-two on; the place from stat 88, or another of the places the item's flags, stat 298, allow
-                        // when that one is taken and one of those is free)
+                        // thirty-two on; the place is stat 88's alone, whatever is worn there: `N3Msg_UseItem` asks
+                        // `N3Msg_IsItemPossibleToWear` of that place and takes what is on it off first)
                         let stat = |k: u32| template_stat(e.low_id, k).unwrap_or(0);
                         let base = match stat(76) {
                             1 => Some(0u32),
@@ -10201,12 +10201,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             3 | 5 => Some(32),
                             _ => None,
                         };
-                        let own_place = stat(88).clamp(0, 15) as u32;
-                        let allowed: Vec<u32> = (1..16u32).filter(|slot| stat(298) & (1 << slot) != 0).collect();
-                        base.filter(|_| own_place > 0 || !allowed.is_empty()).map(|base| {
-                            let first = if own_place > 0 { own_place } else { allowed[0] };
-                            if taken(base + first) { allowed.iter().copied().find(|slot| !taken(base + slot)).unwrap_or(first) + base } else { base + first }
-                        })
+                        base.map(|base| base.wrapping_add(stat(88) as u32))
                     } else {
                         (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + 30).find(|&p| !taken(p))
                     };

@@ -7289,3 +7289,7 @@ The original keeps the cell an item was let go on until the item comes (GUI.dll 
 ### Items put into a backpack land where they were let go (INV-063)
 
 As in the original (GUI.dll FUN_100cc855 and FUN_100ce25d), an inventory item let go on an empty cell of an open backpack now appears in that cell when the server has moved it, as it already did for the bank.
+
+### Wearing by right click goes to the item's own place (INV-015)
+
+The original's `N3Msg_UseItem` wears an item at its own place (stat 88) and takes off what is there first. The client no longer picks another free place the item could also go to (a second ring finger, the other wrist); the item goes to its own place, swapping with what is worn there.

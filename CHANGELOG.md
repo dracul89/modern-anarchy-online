@@ -118,6 +118,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Destroying an item waits for the server; a bag with something in it is refused with the game's line.
 - The tradeskill window names the result as it will be at the chosen quality.
 - An item dragged into an open backpack lands in the cell it was let go on.
+- Right-click wearing an item always uses its own place, swapping out what is there, as in the original.
 
 ### The launcher
 
