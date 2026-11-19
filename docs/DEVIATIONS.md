@@ -3442,7 +3442,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a blob that does not hold exactly its count of houses is refused
 - A player notices: with odd data no houses show
 - Where: `crates/mao-net/src/landcontrol.rs:145`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The houses' blob is now read by its count as the original does (PlayfieldCityHolderClient_c::UpdateNewHouses, city.dll 0x10016317, which does not check the count against the length): bytes after the counted houses are left, and a blob too short for its count gives the houses it holds (the original would read on past its end; Rust stops at the end). Test: landcontrol::tests::a_citys_houses (mao-net).
 
 #### `ZON-014` Redirect hop logs in again and retries
 

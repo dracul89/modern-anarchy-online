@@ -142,16 +142,14 @@ impl House {
 
 /// The houses of [`all_cities`]' blob (`PlayfieldCityHolderClient_c::UpdateNewHouses`, city.dll 0x10016317): a plain
 /// count, then that many [`House`]s. An empty blob is no houses. The original does not check the count against the
-/// length; here a blob that does not hold exactly its count is refused.
+/// length: it reads its count of houses and leaves any bytes after them; a blob too short for its count gives the houses it
+/// holds (the original would read on past its end).
 pub fn houses(blob: &[u8]) -> Option<Vec<House>> {
     if blob.is_empty() {
         return Some(Vec::new());
     }
     let count = u32::from_be_bytes(blob.get(..4)?.try_into().ok()?) as usize;
-    if blob.len() != 4 + House::SIZE * count {
-        return None;
-    }
-    blob[4..].chunks_exact(House::SIZE).map(House::parse).collect()
+    blob[4..].chunks_exact(House::SIZE).take(count).map(House::parse).collect()
 }
 
 #[cfg(test)]
@@ -239,8 +237,12 @@ mod tests {
         assert_eq!(list, vec![House { position: [868.0, 5.0, 1224.0], rotation: 90, flag: false, template: (0xf4268, 0x6a0000) }]);
         assert_eq!(list[0].tile(), (217, 306));
         assert_eq!(houses(&all_cities(&hex("010000")).unwrap()), Some(Vec::new()));
-        // (a count that the bytes do not hold)
-        assert_eq!(houses(&hex("00000002445900004")), None);
+        // (ZON-013: a count that the bytes do not hold gives what they hold; bytes past the count are left)
+        assert_eq!(houses(&hex("00000002445900004")), Some(Vec::new()));
+        let mut two = hex("00000001");
+        two.extend(&blob[4..]);
+        two.extend([0u8; 7]);
+        assert_eq!(houses(&two), Some(list.clone()));
         // (80 houses are 2004 bytes, the length the log's message gave)
         assert_eq!(4 + House::SIZE * 80, 0x7d4);
     }
