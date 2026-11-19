@@ -8302,7 +8302,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only Escape is wired (the comment says "or a click"); skip works during the intro and entering the breed scene only
 - A player notices: clicking does not skip
 - Where: `crates/mao-client/src/ccscene.rs:413`; `crates/mao-client/src/charcreate.rs:571`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The client already does what the original does: GUI.dll `CharCreateModule_t::SlotEscPressed` 0x1011b69e is the only skip (command 0x31, `FUN_10115c71`), and the module's other input, `CameraControlMessage` 0x1011b428, maps keys only (the debug camera); no click skips the flight in the original either. Only the comment of `ccscene::Director::skip`, which said "or a click", was wrong; corrected (comment-only commit).
 
 #### `LCH-011` Character list screen falls back to a lone turning figure
 

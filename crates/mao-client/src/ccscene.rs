@@ -410,7 +410,8 @@ impl Director {
         out
     }
 
-    /// Escape, or a click, while the camera flies: the flight's end.
+    /// Escape while the camera flies: the flight's end (`CharCreateModule_t::SlotEscPressed` 0x1011b69e: command 0x31; a
+    /// click does not skip, the module's only other input being `CameraControlMessage`'s keys).
     pub fn skip(&mut self) {
         if matches!(self.phase, Phase::Intro | Phase::Entering(Scene::Breed)) {
             self.mover.skip();
