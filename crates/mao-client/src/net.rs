@@ -10852,18 +10852,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     teleport_try = Some(Instant::now());
                     send_kind(movement::FULL, &mut connection);
                     eprintln!("[{:6.1}] teleport try at a door, from {position:?}", clock.elapsed().as_secs_f32());
-                    // (the booth to Jobe, by an account without Shadowlands: the server answers such a try with nothing, so
-                    // the client says why, in the game's own words for that expansion. The try is sent all the same.)
-                    let expansions = state.stats.contains_key(&54).then(|| state.stats.get(&389).copied().unwrap_or(0));
-                    let jobe_booths = crate::whompah::to_jobe(&booth_signs);
-                    if jobe_booths.iter().any(|b| (b[0] - position[0]).hypot(b[2] - position[2]) < 2.0) {
-                        eprintln!("the booth to Jobe: the account's expansions (stat 389) are {expansions:?}");
-                    }
-                    if crate::whompah::needs_shadowlands(&jobe_booths, position, expansions) {
-                        crate::chrome::alert(crate::feedback::plain("Feedback_YouMustHaveExpansionpack1"));
-                        // (the text goes to a box, not to a chat line: its chat group is not left for the next line)
-                        let _ = crate::feedback::take_group();
-                    }
                 }
                 Some(began) if began.elapsed() >= Duration::from_secs(30) => {
                     teleport_try = None;

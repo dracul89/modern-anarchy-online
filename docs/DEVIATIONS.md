@@ -3744,7 +3744,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: shows an error box with that text when a character without the expansion touches a Jobe booth, and still sends the try
 - A player notices: a free player gets a message at the Jobe booth where the original gives none
 - Where: `crates/mao-client/src/whompah.rs:207`; `crates/mao-client/src/net.rs:9160`; `docs/CLIENT_UI.md:4189`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): Removed the error box (`chrome::alert` with `Feedback_YouMustHaveExpansionpack1`) shown when a character without Shadowlands touches a Jobe booth, with the helpers only it used (`whompah::needs_shadowlands`, `to_jobe`, `jobe_booths`) and its test; the sign test now checks `sign_is_jobe` alone and the game-data test filters the signs itself. The teleport try at a door is sent as before, and the client says nothing, as the original: that text is only a criterion's failure line (Gamecode FUN_1000556a, called from the criterion check FUN_100065d8), and a door's teleport try is no use with criteria. Tests: `whompah` (7 pass, with MAO_GAME).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE (replace with the original's path): the text is the original's, but it is a criterion's failure line, not an error box: FUN_1000556a (called from the criterion check FUN_100065d8) says Feedback_YouMustHaveExpansionpack1 (category 110; Feedback_TargetMustHaveExpansionpack1 when the criterion is on the target, 0x12) when a requirement on the expansion flags fails, and a failed use requirement is not sent. Whether a Jobe booth carries such a requirement was not checked; if it does, the client's use-criteria path should say it as a chat line, and the box (and the try sent anyway) should go.
 
 #### `ZON-025` Whom-Pah destinations learned from play and remembered

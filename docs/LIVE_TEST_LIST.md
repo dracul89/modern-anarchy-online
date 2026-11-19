@@ -1076,6 +1076,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Inspect another player: the title reads "Inspect"; a right press on an item opens Look At / Create Reference, and both work.
 - [ ] Raise a skill and Accept: no "Changes sent." line; try a disabled skill: its line still shows.
 - [ ] Log in with an account that has no characters: the character screen comes up and New Character works.
+- [ ] With a character lacking Shadowlands, step into a Jobe booth: no box, no teleport.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

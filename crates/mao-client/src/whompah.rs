@@ -188,46 +188,16 @@ pub fn sign_is_jobe(texture: &str) -> bool {
     name.contains("whompa") && name.contains("jobe") && !name.contains("from_jobe")
 }
 
-/// The booths of a playfield that lead to Jobe (x, height, z): the statels whose texture is a Jobe sign's
-/// ([`sign_is_jobe`]). The server alone decides where a booth leads; the sign is what the game's data says of it.
-pub fn jobe_booths(game: &str, db: &mao_formats::resource::ResourceDatabase, playfield: u32) -> Vec<[f32; 3]> {
-    to_jobe(&signs(game, db, playfield))
-}
-
-/// The places of the signs that lead to Jobe.
-pub fn to_jobe(signs: &[([f32; 3], Sign)]) -> Vec<[f32; 3]> {
-    signs.iter().filter(|s| s.1.playfield == JOBE).map(|s| s.0).collect()
-}
-
-/// Whether a character at `position` (x, height, z), touching a booth, is at one to Jobe that it cannot take: its
-/// account's expansions (stat 389, none while the stats are not known) lack Shadowlands, bit 1 (the original's text
-/// for a condition on that bit is `Feedback_YouMustHaveExpansionpack1`, Gamecode FUN_1000556a: bit 0 the Notum Wars
-/// booster, 1 Shadowlands, 3 Alien Invasion, 5 Lost Eden, 7 Legacy of the Xan). The server says nothing to such a
-/// character in the booth (the user's log of 2026-11-15: four tries, no answer), so the client says it.
-pub fn needs_shadowlands(jobe_booths: &[[f32; 3]], position: [f32; 3], expansions: Option<i64>) -> bool {
-    expansions.is_some_and(|e| e & 2 == 0) && jobe_booths.iter().any(|b| (b[0] - position[0]).hypot(b[2] - position[2]) < 2.0 && (b[1] - position[1]).abs() < 4.0)
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The Jobe booth is known by its sign, and an account without Shadowlands touching it is told; one with
-    /// Shadowlands, one whose stats are not known yet, and anyone at another booth are not.
+    /// The Jobe booth is known by its sign.
     #[test]
-    fn the_jobe_booth_asks_for_shadowlands() {
+    fn the_jobe_booth_is_known_by_its_sign() {
         assert!(sign_is_jobe("new_whompa_sign_jobe.png") && sign_is_jobe("teleportersigns_omni-whompa_jobe.png"));
         assert!(!sign_is_jobe("new_whompa_sign_tir.png") && !sign_is_jobe("whompa_signs_from_jobe.png") && !sign_is_jobe("jobe_building_whompa.abiff.png_from_jobe"));
-        let booths = [[449.0, 8.0, 317.7]];
-        let at = [448.9, 8.3, 318.2];
-        assert!(needs_shadowlands(&booths, at, Some(0)));
-        assert!(needs_shadowlands(&booths, at, Some(1)));
-        assert!(!needs_shadowlands(&booths, at, Some(2)));
-        assert!(!needs_shadowlands(&booths, at, Some(0xab)));
-        assert!(!needs_shadowlands(&booths, at, None));
-        // (the booth to Tir, five units off; and a door a floor up)
-        assert!(!needs_shadowlands(&booths, [444.2, 8.3, 313.0], Some(0)));
-        assert!(!needs_shadowlands(&booths, [448.9, 14.0, 318.2], Some(0)));
     }
 
     /// `MAO_GAME`: Old Athen's fourth booth and ICC's eastern one are the ones to Jobe, and Tir has none.
@@ -236,7 +206,7 @@ mod tests {
         let Some(game) = std::env::var_os("MAO_GAME") else { return };
         let game = game.to_string_lossy().to_string();
         let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
-        let places = |pf: u32| jobe_booths(&game, &db, pf).iter().map(|b| ((b[0] * 10.0).round() as i32, (b[2] * 10.0).round() as i32)).collect::<Vec<_>>();
+        let places = |pf: u32| signs(&game, &db, pf).iter().filter(|s| s.1.playfield == JOBE).map(|s| ((s.0[0] * 10.0).round() as i32, (s.0[2] * 10.0).round() as i32)).collect::<Vec<_>>();
         assert_eq!(places(540), [(4490, 3177)]);
         assert_eq!(places(655), [(31831, 8660)]);
         assert_eq!(places(640), []);
@@ -253,7 +223,6 @@ mod tests {
         assert_eq!((sign_destination("whompa_new_omni.png"), sign_destination("whompa_signs_from_jobe.png"), sign_destination("new_whompa_sign_nowhere.png")), (None, None, None));
         let signs = [([449.0, 8.0, 317.7], Sign { playfield: JOBE, station: None }), ([444.2, 8.0, 313.0], Sign { playfield: 640, station: None })];
         assert_eq!((sign_at(&signs, 444.9, 312.6).map(|s| s.playfield), sign_at(&signs, 454.0, 313.0)), (Some(640), None));
-        assert_eq!(to_jobe(&signs), [[449.0, 8.0, 317.7]]);
     }
 
     /// `MAO_GAME`: every sign the game has placed is known, every booth of a station has its sign, the booth

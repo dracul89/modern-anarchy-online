@@ -218,6 +218,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Other characters' walk and run animations follow their walk/run mode instead of their measured speed.
 - One's own character is no longer pulled back to a place the server's echo names; the server's own put-backs (teleports) still move it.
 - Creatures near death run slower, as players do.
+- A character without Shadowlands no longer gets a message box at the Jobe whompah booth; as in the original, nothing happens.
 
 ### Nanos
 

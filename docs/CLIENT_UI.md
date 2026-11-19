@@ -7413,3 +7413,7 @@ The skills window no longer writes "Changes sent." after Accept or "Reset asked 
 ### An empty account reaches the character screen (LCH-043)
 
 The client's own "This account has no characters." on the login form is gone. As the original (GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179, reply 0xe shows the character screen with no count checked), an account with no characters gets the character screen, where New Character makes the first.
+
+### No expansion message at the Jobe booth (ZON-024)
+
+The client's own box "You must have the expansion pack..." at a Jobe booth is gone. As the original, a character without Shadowlands who steps into the booth gets no message (the server answers the try with nothing); the original says `Feedback_YouMustHaveExpansionpack1` only as a criterion's failure line (Gamecode FUN_1000556a).
