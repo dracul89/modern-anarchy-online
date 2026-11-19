@@ -1531,6 +1531,23 @@ impl World {
         None
     }
 
+    /// Why the item at `from` is not moved to `to` by the client itself, if it is not: the equipment is locked, it may
+    /// not come off, or it may not be worn there (the window's move, `N3Msg_IsItemPossibleToWear` before
+    /// `N3Msg_MoveItemToInventory`, GUI.dll FUN_100e220f).
+    fn move_refusal(&self, from: u32, to: u32, db: &ResourceDatabase) -> Option<Vec<Say>> {
+        if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), &crate::gear::equipment_locked, from, to) {
+            Some(vec![Say::Named("Feedback_EquipmentLocked")])
+        } else {
+            self.unwear_refusal(from, to).or_else(|| self.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| self.wear_refusal(e, to, db, None)))
+        }
+    }
+
+    /// The wear places the item at `from` would be refused at ([`World::move_refusal`]), for the wear window to ask while
+    /// the item is in hand (`crate::gear::wear_refused`).
+    fn refused_wear_places(&self, from: u32, db: &ResourceDatabase) -> Vec<u32> {
+        (0..inventory::BACKPACK_FIRST).filter(|&to| to != from && self.move_refusal(from, to, db).is_some()).collect()
+    }
+
     /// Something is worn on one of the deck's places, 9 to 14 of the weapons' page (the belt's units).
     fn deck_holds_something(&self) -> bool {
         self.worn.iter().any(|w| (9..=14).contains(&w.slot))
@@ -8305,6 +8322,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // (an item to wear or take off because it was "used": the move, made by the move's own code at the next turn)
         let mut wear_by_use: std::collections::VecDeque<(u32, u32)> = std::collections::VecDeque::new();
         let mut wear_gate = Instant::now() - Duration::from_secs(5);
+        let mut wear_verdict: Option<(u32, Instant)> = None;
         let mut shop_booth: Option<(u32, u32)> = None;
         // (the backpack places put into the open shop's trade: gone from the backpack when the trade completes. The server
         // says nothing more of them: a sale's log has `AddItem` for each place, then `Complete`, then the shop opened anew.)
@@ -10431,6 +10449,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // moment after it. The user's log of a jetpack swapped for a key: the key's wearing, sent in the turn after
             // the jetpack's taking off, was never answered and the key came back. A wear place still taken when its turn
             // comes, the taking off refused, ends the swap.)
+            // (the wear check of the item in hand at every wear place, for the wear window to ask at once: again when
+            // another is taken up, and twice a second while it is held, as the character changes)
+            match crate::gear::held() {
+                Some(held) if wear_verdict.is_none_or(|(place, at): (u32, Instant)| place != held || at.elapsed() >= Duration::from_millis(500)) => {
+                    crate::gear::set_wear_verdict(Some((held, state.refused_wear_places(held, &gear_db))));
+                    wear_verdict = Some((held, Instant::now()));
+                }
+                None if wear_verdict.is_some() => {
+                    crate::gear::set_wear_verdict(None);
+                    wear_verdict = None;
+                }
+                _ => {}
+            }
             let mut wanted_move = None;
             if (state.moves_asked.is_empty() && wear_gate.elapsed() >= Duration::from_millis(600)) || wear_gate.elapsed() >= Duration::from_secs(3) {
                 if let Some((from, to)) = wear_by_use.pop_front() {
@@ -10451,11 +10482,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.selected = target;
                 // (to a wear place only what may be worn there: the original asks itself before it asks the server; and
                 // nothing on or off while the equipment is locked)
-                let refusal = if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), &crate::gear::equipment_locked, from, to) {
-                    Some(vec![Say::Named("Feedback_EquipmentLocked")])
-                } else {
-                    state.unwear_refusal(from, to).or_else(|| state.worn.iter().find(|e| e.slot == from).filter(|_| to < inventory::BACKPACK_FIRST).and_then(|e| state.wear_refusal(e, to, &gear_db, None)))
-                };
+                let refusal = state.move_refusal(from, to, &gear_db);
                 for say in refusal.iter().flatten() {
                     state.game_lines.push(say.line());
                 }

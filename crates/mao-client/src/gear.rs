@@ -127,6 +127,22 @@ pub fn unlock_all_equipment() {
     with_equipment_locks(|bits| *bits = 0);
 }
 
+/// The wear check (`N3Msg_IsItemPossibleToWear`) of the item in hand at every wear place, made by the game loop which
+/// keeps the character's state: the held place and the wear places that refuse it. The wear window asks it as the
+/// original's does, at once: over a cell (FUN_100e1ded, the "no" pointer) and when the item is let go there
+/// (FUN_100e220f: refused, the drag is not accepted and the item stays in hand).
+static WEAR_VERDICT: std::sync::Mutex<Option<(u32, Vec<u32>)>> = std::sync::Mutex::new(None);
+
+/// The game loop's verdict for the item in hand (nothing: none in hand).
+pub fn set_wear_verdict(verdict: Option<(u32, Vec<u32>)>) {
+    *WEAR_VERDICT.lock().unwrap_or_else(|e| e.into_inner()) = verdict;
+}
+
+/// Whether the item at `held` is refused at a wear place (nothing: not judged yet).
+pub fn wear_refused(held: u32, place: u32) -> Option<bool> {
+    WEAR_VERDICT.lock().unwrap_or_else(|e| e.into_inner()).as_ref().filter(|v| v.0 == held).map(|v| v.1.contains(&place))
+}
+
 /// Whether the item at a place of the character's own is locked, either way: it shows the lock's picture and is not
 /// taken up, used, traded or dropped on.
 pub fn locked(place: u32) -> bool {

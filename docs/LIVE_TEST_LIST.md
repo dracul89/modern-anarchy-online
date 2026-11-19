@@ -1121,6 +1121,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] Zone through a zone line and a grid exit: the picture holds still (no loading picture) and the new area appears; the chat says the changing-area line. Check the window does not stay frozen if a zoning is refused.
 - [ ] `/setoption AutoCloseWindows 1`, then open Skills, then Perks from the character menu: the skills window closes; with 0 both stay.
 - [ ] Place an item in the inventory's fourth column, narrow the window to three columns: the item stays in the fourth column (the grid scrolls sideways); widen it again: nothing moved.
+- [ ] Take up an item you cannot wear (requirements too high) and move it over its wear place: the "can't drop" pointer shows; let it go there: the refusal is told and the item is still in hand.
+- [ ] Take up a weapon you can wield: the plain pointer over a hand cell, the "can't drop" one over the belt's and beside the cells; letting it go in the hand wears it.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

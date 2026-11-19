@@ -71,6 +71,22 @@ fn wear_drop_place(tab: &WearTab, cell: (usize, usize), own_place: impl FnOnce()
     tab.base + tab.cells.iter().find(|c| (c.1, c.2) == cell).map_or_else(own_place, |c| c.0)
 }
 
+/// Whether a wear page shows the "no" pointer with the item at `held` in hand (`split` of it split off) over `cell`
+/// (none: beside the cells), one that holds an item or not (GUI.dll FUN_100e1ded): a split, or beside the cells, always;
+/// an item that is worn nowhere (its stat 298 0 or none) everywhere but over an item, where it would be used on it;
+/// else over a cell that is no place, or a place the wear check refuses (`refused`: `N3Msg_IsItemPossibleToWear`
+/// without its lines; not judged yet: no "no").
+fn wear_pointer_refuses(tab: &WearTab, held: u32, split: u32, cell: Option<(usize, usize)>, onto_item: bool, slots: Option<u32>, refused: impl Fn(u32, u32) -> Option<bool>) -> bool {
+    let Some(cell) = cell.filter(|_| split == 0) else { return true };
+    if slots.unwrap_or(0) == 0 {
+        return !onto_item;
+    }
+    match tab.cells.iter().find(|c| (c.1, c.2) == cell) {
+        Some(c) => refused(held, tab.base + c.0) == Some(true),
+        None => true,
+    }
+}
+
 /// One grid in its own small view tree.
 struct GridView {
     tree: Tree,
@@ -786,6 +802,17 @@ impl ItemWindows {
                             let own_place = || by_slot.get(&from).and_then(|i| crate::net::item_template_stat(i.item_id, 0x58)).unwrap_or(0);
                             drop_on = Some(wear_drop_place(&WEAR_TABS[t], cell, own_place));
                         }
+                        // (with an item in hand, the "no" pointer over what will not take it, FUN_100e1ded)
+                        if let Some(from) = dragged
+                            && response.rect.contains(at)
+                        {
+                            let cell = multilist::cell_at(tree, list, response.rect.min, at);
+                            let onto_item = multilist::item_at(tree, list, response.rect.min, at).is_some();
+                            let slots = by_slot.get(&from).and_then(|i| crate::net::item_template_stat(i.item_id, 298));
+                            if wear_pointer_refuses(&WEAR_TABS[t], from, split, cell, onto_item, slots, crate::gear::wear_refused) {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::NotAllowed);
+                            }
+                        }
                     }
                 });
             });
@@ -797,6 +824,11 @@ impl ItemWindows {
                 && from != to
             {
                 events.moves.push((from, to));
+                // (one the wear check refuses is not accepted: it stays in hand, FUN_100e220f; the game loop asks the
+                // check again for the move and tells why, and sends nothing)
+                if crate::gear::wear_refused(from, to) == Some(true) {
+                    crate::gear::pick_up(from);
+                }
             }
             for view in self.wear.iter_mut() {
                 Self::events_of(&mut view.tree, view.list, &mut events, items, dragged, &mut self.split_box);
@@ -1022,6 +1054,24 @@ mod tests {
         assert_eq!(wear_drop_place(implants, (0, 4), || 6), 32 + 6);
         assert_eq!(wear_drop_place(&WEAR_TABS[0], (1, 0), || 3), 15);
         assert_eq!(wear_drop_place(&WEAR_TABS[1], (2, 9), || 0), 16);
+    }
+
+    /// FUN_100e1ded: the "no" pointer over a wear page with an item in hand.
+    #[test]
+    fn the_no_pointer_over_a_wear_page() {
+        let (held, weapons) = (BACKPACK_FIRST + 3, &WEAR_TABS[0]);
+        // (the right hand, place 6, refuses it; the left, 8, takes it; not judged yet: no "no")
+        let refused = |h: u32, place: u32| (h == held).then_some(place == 6);
+        assert!(wear_pointer_refuses(weapons, held, 0, Some((0, 2)), false, Some(0x40), refused));
+        assert!(!wear_pointer_refuses(weapons, held, 0, Some((2, 2)), false, Some(0x40), refused));
+        assert!(!wear_pointer_refuses(weapons, held, 0, Some((2, 2)), false, Some(0x40), |_, _| None));
+        // (a split, beside the cells, and a cell that is no place: always)
+        assert!(wear_pointer_refuses(weapons, held, 5, Some((2, 2)), false, Some(0x40), refused));
+        assert!(wear_pointer_refuses(weapons, held, 0, None, false, Some(0x40), refused));
+        assert!(wear_pointer_refuses(&WEAR_TABS[2], held, 0, Some((0, 4)), false, Some(0x40), refused));
+        // (an item worn nowhere: only over another item, to be used on it)
+        assert!(wear_pointer_refuses(weapons, held, 0, Some((2, 2)), false, None, refused));
+        assert!(!wear_pointer_refuses(weapons, held, 0, Some((2, 2)), true, Some(0), refused));
     }
 
     /// FUN_100cc855 and FUN_100e220f: a plain right click uses the item in hand on the other, Shift in the

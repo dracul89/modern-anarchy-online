@@ -132,6 +132,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - More item and nano requirements are judged by the client: wielding a given item, having or running a nano, a perk lock, free backpack space.
 - Requirement lines in item and nano descriptions read as in the original for items, nanos, perks, pets, teams and places.
 - Items placed by hand in the inventory, bank and bags keep their column and row when the window is resized, as in the original.
+- The wear window shows the "can't drop" pointer over places an item in hand cannot go, and a refused item stays in hand instead of going back to the inventory.
 
 ### The launcher
 
