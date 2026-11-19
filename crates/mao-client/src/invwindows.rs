@@ -780,8 +780,8 @@ impl ItemWindows {
 
         // (a right click uses the item, as the original's list does (`ItemListViewBase_c`'s FUN_1004141b: button 2 -> the
         // use signal); with an item in hand, that item is used on the one clicked (`UseItemOnItem`: the one in hand is
-        // the source, so the order of the two matters) and goes back to its place; Shift+right click opens the client's
-        // own menu where it was clicked)
+        // the source, so the order of the two matters) and goes back to its place; with Shift it is a use as well: the
+        // only menu is the held button's)
         // (the right button held on an item for a moment opens its menu, and letting go then is not a use; the user's word
         // for the original's: "long right click on item should give a menu with look at item, delete and create reference")
         // (`MouseButtonHoldDelay`, 0.3 s: the original's list raises its menu signal then, FUN_10041c04)

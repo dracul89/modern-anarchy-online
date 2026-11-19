@@ -2162,7 +2162,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Info, Use, Delete are the client's own entries
 - A player notices: menu contents differ
 - Where: `docs/CLIENT_UI.md:1756`; `crates/mao-client/src/invwindows.rs:20`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already done in the code: a Shift+right click is a use (FUN_1004141b raises the use signal for button 2 whatever the qualifiers) and the only item menu is the held button's (FUN_10041c04, FUN_100caf07); the client's own Shift menu (Info, Use, Delete) is gone. Only a comment still described it; corrected.
 
 #### `INV-014` Wear check ignores the 'wear' can flag
 
