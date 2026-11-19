@@ -1041,6 +1041,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] With no kept place for PlanetMap (or a fresh layout), open the planet map (P): it opens at the top left, about 300 by 400.
 - [ ] With a nano buff that raises max health, compare the Stats window's health bar text with the server's current health: a computed maximum short of it shows as "current / max" with a full bar.
 - [ ] Open the mail window, widen the Subject column and sort by Sent; close it and reopen (and restart): widths and sort are kept.
+- [ ] Turn on the score bars in the Stats window's menu: each shows "score / next rank's score" (2000 for a score of 0) and fills accordingly.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

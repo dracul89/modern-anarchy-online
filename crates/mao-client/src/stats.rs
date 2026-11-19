@@ -14,8 +14,8 @@
 //!   chemical (93), radiation (94), cold (95) and fire (97) (FUN_10080089, FUN_100800e7).
 //!
 //! The numbers are the stats the server sends and those the client works out (`derived`); one it has not is a dash.
-//! The score bars have no maximum here (the original asks Gamecode for the next rank's score). Resting the pointer on
-//! a value still shows what it is made of, which is this client's own.
+//! A score bar's maximum is the next rank's score ([`next_rank_score`], FUN_1008049c). Resting the pointer on a value
+//! still shows what it is made of, which is this client's own.
 
 use std::collections::BTreeMap;
 
@@ -196,9 +196,9 @@ impl StatsWindow {
                 let (value, max) = match k {
                     1 => experience(stats),
                     0 => (get(stat::ALIEN_XP), get(stat::ALIEN_NEXT_XP)),
-                    2 => (get(684), None),
-                    3 => (get(683), None),
-                    _ => (get(682), None),
+                    2 => (get(684), get(684).map(next_rank_score)),
+                    3 => (get(683), get(683).map(next_rank_score)),
+                    _ => (get(682), get(682).map(next_rank_score)),
                 };
                 framed(ui, picture, value, max).on_hover_text(tip(key, own));
             }
@@ -234,8 +234,64 @@ impl StatsWindow {
     }
 }
 
+/// The score of a PvP rank (Gamecode FUN_1003ea89, `N3Msg_GetPVPScoreForRank`): `pow(2500, 1/9)` once as a float
+/// (0x1015e758, 0x1015e760), raised to `rank - 1` by repeated float products (FUN_1003dfc0), times 20 (0x1015e750),
+/// cut to a whole number (`_ftol`), times 100. Rank 1 is 2000, rank 10 is 4,999,900.
+pub fn pvp_score_for_rank(rank: i32) -> i64 {
+    let base = 2500f64.powf(0.1111111119389534) as f32;
+    let n = rank - 1;
+    let mut x = base;
+    let mut e = n.unsigned_abs();
+    let mut p = 1.0f32;
+    loop {
+        if e & 1 != 0 {
+            p *= x;
+        }
+        e >>= 1;
+        if e == 0 {
+            break;
+        }
+        x *= x;
+    }
+    if n < 0 {
+        p = 1.0 / p;
+    }
+    (p as f64 * 20.0) as i32 as i64 * 100
+}
+
+/// A score's PvP rank (Gamecode FUN_1003eae2): the first rank from 1 to 10 whose score is above it, less one (10 when
+/// none is).
+pub fn pvp_rank(score: i64) -> i32 {
+    let mut rank = 1;
+    while rank < 11 {
+        if score < pvp_score_for_rank(rank) {
+            break;
+        }
+        rank += 1;
+    }
+    rank - 1
+}
+
+/// The maximum of a score bar (GUI.dll FUN_1008049c): the score of the rank after the score's
+/// (`N3Msg_GetPVPScoreForRank(N3Msg_GetPVPRank(stat) + 1)`).
+pub fn next_rank_score(score: i64) -> i64 {
+    pvp_score_for_rank(pvp_rank(score) + 1)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_pvp_ranks_are_gamecodes() {
+        use super::*;
+        assert_eq!(pvp_score_for_rank(1), 2000);
+        // (the float products fall a little short of 2500 at rank 10: 49999.x times 20, cut, as the original's x87 code does)
+        assert_eq!(pvp_score_for_rank(10), 4_999_900);
+        assert!((2..=10).all(|r| pvp_score_for_rank(r) > pvp_score_for_rank(r - 1)));
+        assert_eq!((pvp_rank(0), pvp_rank(1999), pvp_rank(2000), pvp_rank(4_999_900)), (0, 0, 1, 10));
+        assert_eq!(next_rank_score(0), 2000);
+        assert_eq!(next_rank_score(2500), pvp_score_for_rank(2));
+    }
+
     use super::*;
 
     #[test]

@@ -5859,6 +5859,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: those bars show only a number with an empty fill; attack rating may differ
 - Where: `crates/mao-client/src/stats.rs:17`; `crates/mao-client/src/stats.rs:52`; `docs/GUI_DLL_PARITY.md:79`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The score bars are ported: StatView_c's FUN_1008049c fills the duel (684), solo (682) and team (683) score bars with FUN_1007fed3(N3Msg_GetPVPScoreForRank(N3Msg_GetPVPRank(stat) + 1), stat). Gamecode's score for a rank (FUN_1003ea89) is base^(rank - 1) * 20.0 cut to an int, times 100, with base = (float)pow(2500.0, 0.1111111119...) computed once (constants at 0x1015e760, 0x1015e758, 0x1015e750) and the power by FUN_1003dfc0's float squaring loop; the rank (FUN_1003eae2) is the first r in 1..10 with stat < score(r), less one (10 when none). stats.rs has pvp_score_for_rank, pvp_rank and next_rank_score, emulating the float products (rank 1 = 2000, rank 10 = 4,999,900: the f32 products fall just short of 2500), and the bars now have that maximum. Left: the attack rating row (stat 22 asked of Gamecode's stat holder; the client's own sum stays until the stat holder is ported, see WIN-036). Test: stats::tests::the_pvp_ranks_are_gamecodes.
 
 #### `WIN-142` Skills window does not refuse a "temporarily changed" skill
 
