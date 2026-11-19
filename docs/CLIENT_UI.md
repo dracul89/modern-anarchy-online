@@ -7810,3 +7810,7 @@ The original reads each `.fnt` as 255 glyph rectangles and a width table (`FontS
 ### Faction bands from the game database (WIN-053)
 
 Gamecode reads the faction bands at start from the database's 0xf4265 records (FUN_100c6914, FUN_100c24b8: low, high and two texts each) into a map by instance, which `N3Msg_GetFactionRange` (FUN_100c246b) walks; a band's place picks its title from Gamecode's own table. The client's faction window now reads the same records from the game's database instead of twelve bands written into its code.
+
+### Timer bars with the skin's pictures (WIN-058)
+
+The original's `TimerBar_c` (FUN_100519d6, the logout bar and the game's attack, nano and other timers) is a `PowerBar_t` (0x10020b9f) of the skin pictures 0x1a8 and 0x1a9 (`GFX_GUI_TIMERBAR_EMPTY` and `_FULL` by AFCM's table, 113 by 10), tinted with the bar's colour: the full picture's left part to the level (`Recalculate` 0x100208f8), the empty picture's pixels after it, and the label over the bar in black (a `TextLine_t` at (0, 1)). The client drew plain 128 by 16 rectangles and put "Logout" above its bar in white; it now draws the pictures (`ui::timer_bar`) and the label over the bar for all of them.

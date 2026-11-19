@@ -265,6 +265,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Selected text in the interface's text views is on the original's light grey.
 - Links in NPC chat and info pages answer clicks over the whole height of their line, beside the line's start, and past the end of a line that wraps into the same link, as in the original.
 - Scroll bars in the game's own views (info, inventory lists, chat and the like) show the skin's pictures in their own colours, no longer tinted with the theme's colour.
+- The logout bar and the attack/nano/item timer bars use the skin's timer bar pictures, with their label on the bar, as in the original.
 
 ### Chat
 

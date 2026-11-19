@@ -441,29 +441,56 @@ pub static CAMP: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None)
 /// How long the logout bar runs (`CampStartedMessage`'s `CreateTimer(40000, ..., "Logout", 0xffffff)`).
 pub const CAMP_MS: u64 = 40_000;
 
-/// The logout timer (`TimerBar_c`, FUN_100519d6: a 128 by 16 `PowerBar_t` in white with its label over it), in the middle
-/// of the screen (`CampStartedMessage`: at half the display less half the bar), running out over [`CAMP_MS`].
-fn camp_bar(ctx: &egui::Context, screen: egui::Rect, palette: &Palette) {
-    let Some(began) = *CAMP.lock().unwrap_or_else(|e| e.into_inner()) else { return };
-    let left = 1.0 - (began.elapsed().as_millis() as f32 / CAMP_MS as f32).clamp(0.0, 1.0);
-    let size = egui::vec2(128.0, 16.0);
-    let at = screen.center() - size * 0.5;
-    egui::Area::new(egui::Id::unique("camp-timer")).fixed_pos(at - egui::vec2(0.0, 14.0)).interactable(false).order(egui::Order::Foreground).show(ctx, |ui| {
-        let (title, _) = ui.allocate_exact_size(egui::vec2(size.x, 14.0), egui::Sense::hover());
-        let text = egui::Color32::WHITE;
+/// The bar of a `TimerBar_c` (FUN_100519d6): a `PowerBar_t` (0x10020b9f, direction 1) of the skin's pictures 0x1a8
+/// and 0x1a9 (AFCM's `GFX_GUI_TIMERBAR_EMPTY` and `_FULL`) in a window of their size tinted with the bar's colour
+/// (`RenderWindow_t::SetColor`): the full picture's left part as far as `fill` reaches (`Recalculate` 0x100208f8: its
+/// width times the level, cut to a whole pixel), the empty picture's own pixels after it; the label (a `TextLine_t` at
+/// (0, 1) over the bar in black). Without the pictures a plain bar of the same kind. The bar's size.
+pub fn timer_bar(ctx: &egui::Context, painter: &egui::Painter, at: egui::Pos2, fill: f32, colour: egui::Color32, label: &str) -> egui::Vec2 {
+    let skin = crate::skin::skin(ctx);
+    let pictures = skin.as_ref().and_then(|s| Some((s.get("GFX_GUI_TIMERBAR_FULL")?, s.get("GFX_GUI_TIMERBAR_EMPTY")?)));
+    let size = match &pictures {
+        Some((full, empty)) => {
+            let size = full.size;
+            let reach = (size.x * fill.clamp(0.0, 1.0)).trunc();
+            let part = reach / size.x;
+            painter.image(full.texture.id(), egui::Rect::from_min_size(at, egui::vec2(reach, size.y)), egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(part, 1.0)), colour);
+            let rest = egui::Rect::from_min_max(egui::pos2(at.x + reach, at.y), egui::pos2(at.x + empty.size.x, at.y + empty.size.y));
+            painter.image(empty.texture.id(), rest, egui::Rect::from_min_max(egui::pos2(reach / empty.size.x, 0.0), egui::pos2(1.0, 1.0)), colour);
+            size
+        }
+        None => {
+            let size = egui::vec2(128.0, 16.0);
+            let bar = egui::Rect::from_min_size(at, size);
+            painter.rect_filled(bar, 2.0, egui::Color32::from_black_alpha(170));
+            painter.rect_filled(egui::Rect::from_min_size(bar.min + egui::vec2(1.0, 1.0), egui::vec2((size.x - 2.0) * fill, size.y - 2.0)), 1.0, colour);
+            size
+        }
+    };
+    if !label.is_empty() {
+        let bar = egui::Rect::from_min_size(at, size);
         match crate::font::tooltip(ctx) {
             Some(font) => {
-                font.paint(ui.painter(), egui::pos2(title.center().x - font.width("Logout") * 0.5, title.top()), "Logout", text);
+                font.paint(painter, egui::pos2(bar.center().x - font.width(label) * 0.5, bar.top() + 1.0), label, egui::Color32::BLACK);
             }
             None => {
-                ui.painter().text(title.center_top(), egui::Align2::CENTER_TOP, "Logout", egui::FontId::proportional(11.0), text);
+                painter.text(bar.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(11.0), egui::Color32::BLACK);
             }
         }
-        let (bar, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-        ui.painter().rect_filled(bar, 2.0, egui::Color32::from_black_alpha(170));
-        ui.painter().rect_filled(egui::Rect::from_min_size(bar.min + egui::vec2(2.0, 2.0), egui::vec2((size.x - 4.0) * left, size.y - 4.0)), 1.0, text);
-        ui.painter().rect_stroke(bar, 2.0, egui::Stroke::new(1.0, rgb(palette.accent)), egui::StrokeKind::Inside);
-    });
+    }
+    size
+}
+
+/// The logout timer (`CampStartedMessage`'s `CreateTimer(40000, ..., "Logout", 0xffffff)`: a [`timer_bar`] in white
+/// labelled "Logout"), in the middle of the screen (at half the display less half the bar), running out over
+/// [`CAMP_MS`].
+fn camp_bar(ctx: &egui::Context, screen: egui::Rect, _palette: &Palette) {
+    let Some(began) = *CAMP.lock().unwrap_or_else(|e| e.into_inner()) else { return };
+    let left = 1.0 - (began.elapsed().as_millis() as f32 / CAMP_MS as f32).clamp(0.0, 1.0);
+    let size = crate::skin::skin(ctx).and_then(|s| s.get("GFX_GUI_TIMERBAR_FULL")).map_or(egui::vec2(128.0, 16.0), |p| p.size);
+    let at = screen.center() - size * 0.5;
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("camp-timer")));
+    timer_bar(ctx, &painter, at, left, egui::Color32::WHITE, "Logout");
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
 }
 
@@ -486,32 +513,17 @@ fn timer_look(kind: u32) -> (String, u32) {
     (crate::feedback::texts().and_then(|t| t.named(10000, name)).unwrap_or(fallback).to_string(), colour)
 }
 
-/// The game's timer bars (`TimerBar_c`, FUN_100519d6: a 128 by 16 `PowerBar_t` in its kind's colour with the label in black
-/// over it) at (40, (place + 2) × 20).
+/// The game's timer bars ([`timer_bar`]s in their kind's colour with the label in black over it) at (40, (place + 2) × 20).
 fn timer_bars(ctx: &egui::Context, screen: egui::Rect) {
     let timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner()).clone();
     if timers.is_empty() {
         return;
     }
-    let size = egui::vec2(128.0, 16.0);
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("game-timers")));
     for (place, kind, fill) in timers {
         let (label, colour) = timer_look(kind);
-        let bar = egui::Rect::from_min_size(screen.min + egui::vec2(40.0, (place as f32 + 2.0) * 20.0), size);
-        painter.rect_filled(bar, 2.0, egui::Color32::from_black_alpha(170));
         let fill_colour = egui::Color32::from_rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8);
-        painter.rect_filled(egui::Rect::from_min_size(bar.min + egui::vec2(1.0, 1.0), egui::vec2((size.x - 2.0) * fill, size.y - 2.0)), 1.0, fill_colour);
-        if label.is_empty() {
-            continue;
-        }
-        match crate::font::tooltip(ctx) {
-            Some(font) => {
-                font.paint(&painter, egui::pos2(bar.center().x - font.width(&label) * 0.5, bar.top() + 2.0), &label, egui::Color32::BLACK);
-            }
-            None => {
-                painter.text(bar.center(), egui::Align2::CENTER_CENTER, &label, egui::FontId::proportional(11.0), egui::Color32::BLACK);
-            }
-        }
+        timer_bar(ctx, &painter, screen.min + egui::vec2(40.0, (place as f32 + 2.0) * 20.0), fill, fill_colour, &label);
     }
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
 }
