@@ -6416,7 +6416,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: draws the whole skin picture squeezed into 4 x 4, or a plain blue or red square
 - A player notices: dots may look slightly different
 - Where: `crates/mao-client/src/cityterminal.rs:387`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The city map's markers come from an atlas (GUI U:0x10046d0b, docs/CITY_MAP_ORIGINAL.md) that copies only the top-left 4 x 4 texels of each GUI picture into its cell, so a door or guard dot is those 4 x 4 texels. The client drew the whole GFX_GUI_MAPDOT_BLUE/_RED picture squeezed into 4 x 4 pixels; it now draws just its top-left 4 x 4 texels (cityterminal.rs show_map); the plain blue/red squares stay for a skin without the pictures. No unit test (drawing); built.
 
 #### `RND-036` Client's own light stands in without the scripts' light
 

@@ -438,13 +438,20 @@ impl CityTerminalWindow {
                     painter.rect_filled(r, 0.0, *c);
                 }
             }
-            // (a dot for each door, then for each guard, of every node: `GFX_GUI_MAPDOT_BLUE` and `_RED`, 4 pixels)
+            // (a dot for each door, then for each guard, of every node: `GFX_GUI_MAPDOT_BLUE` and `_RED`, 4 pixels: the
+            // marker atlas, U:0x10046d0b, keeps only each picture's top-left 4 x 4 texels)
             for (guards, picture, own) in [(false, "GFX_GUI_MAPDOT_BLUE", colour(60, 120, 255, 255)), (true, "GFX_GUI_MAPDOT_RED", colour(255, 60, 60, 255))] {
+                let sprite = skin.as_deref().and_then(|s| s.get(picture));
                 for n in &map.nodes {
                     for local in if guards { &n.shape.guards } else { &n.shape.doors } {
                         let r = egui::Rect::from_center_size(at(g.marker_pixel(n.place(*local))), egui::vec2(4.0, 4.0));
-                        if !skin.as_deref().is_some_and(|s| s.draw_in(&painter, picture, r, egui::Color32::WHITE)) {
-                            painter.rect_filled(r, 0.0, own);
+                        match &sprite {
+                            Some(s) => {
+                                painter.image(s.texture.id(), r, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(4.0 / s.size.x, 4.0 / s.size.y)), egui::Color32::WHITE);
+                            }
+                            None => {
+                                painter.rect_filled(r, 0.0, own);
+                            }
                         }
                     }
                 }

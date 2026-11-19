@@ -7009,3 +7009,7 @@ When one animation fades into another, the original's CATAnimBlend_t (FUN_100505
 ### Attractors by whole name (RND-031)
 
 The original finds a body's attachment points by their whole names (RCATMesh_t::GetAttractor, FUN_10054df1): the head at `Attractor01_head`, and a worn mesh at the name its place gives in AttractorMesh::GetName's table (0x100af7f0: head, right hand, left hand, right shoulder, left shoulder, back, hip, thighs, crus, arms, forearms, fifteen in all). The client now does the same; it used to take the first attractor whose name merely contained the text.
+
+### City map dots are the pictures' corner (RND-035)
+
+The original's marker atlas (U:0x10046d0b) keeps only the top-left 4 x 4 texels of each GUI picture, so the city map's door dots (GFX_GUI_MAPDOT_BLUE) and guard dots (GFX_GUI_MAPDOT_RED) are those texels. The client now draws the same corner of each picture at 4 x 4 pixels, where it drew the whole picture shrunk.
