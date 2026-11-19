@@ -222,6 +222,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Cast sparkles now stream from the caster's moving hands, and hit and buff effects sit on the body part they are made at.
 - Effects made by some spell lists (such as the Shadowland Anvian's smoke and sparks) now take the spell's own colours.
 - In a heavy thunderstorm at most two lightning flashes, ten bolts and twenty rocks of each kind show at once, as in the original.
+- The world is drawn out to the view distance and no further, as in the original (the far plane is the view distance setting).
 
 ### Interface
 

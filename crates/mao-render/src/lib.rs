@@ -510,6 +510,9 @@ pub struct Scene {
     /// The view distance: the far plane an area's fog is drawn in from (`.1`); the effect scripts' fogged sky draws fade
     /// over the two (a view that wants none keeps the default).
     pub fog: (f32, f32),
+    /// The camera's front and back planes when the view sets them (the game's: N3's `n3Camera_t`, see
+    /// [`Camera::view_proj_clipped`]); none, and they follow the scene's size.
+    pub clip: Option<(f32, f32)>,
     /// The sky's colours: at the horizon and overhead.
     pub sky: ([f32; 3], [f32; 3]),
     pub water: Option<Water>,
@@ -918,10 +921,20 @@ impl Camera {
     }
 
     fn view_proj(&self, aspect: f32, radius: f32) -> Mat4 {
+        self.view_proj_clipped(aspect, radius, None)
+    }
+
+    /// The view and projection, between the `clip` planes when given: the game's camera is N3's `n3Camera_t`, made by
+    /// `n3EngineClient_t::CreateCamera` (0x10007842) with the front plane 0.2 and the back 200, then given the back plane
+    /// `ViewDistance × 1000`, at least the front plus 50, by the preference's callback (FUN_1001fc91, which makes its
+    /// `VisualCamera_t` again with them and hands both to `VisualFog_t::AddClipPlanes`). Without them (the other views),
+    /// the camera's distance plus four of the scene's radii, and a thousandth of that between 0.01 and 0.2 in front.
+    fn view_proj_clipped(&self, aspect: f32, radius: f32, clip: Option<(f32, f32)>) -> Mat4 {
         let eye = self.eye();
         let far = (self.distance + radius * 4.0).max(1.0);
         // (Not a fixed share of the far plane: on a big playfield that cut the ground within 8 units of the camera away.)
         let near = (far * 0.001).clamp(0.01, 0.2);
+        let (near, far) = clip.unwrap_or((near, far));
         // The original's view is 90° across (`VisualCamera_t::SetViewPlaneWindow(1.5708, aspect)`: the window's half width is
         // tan(45°) at unit distance, its height that over the aspect), so the vertical field follows the window's shape.
         let fov_y = 2.0 * self.half_height.unwrap_or(1.0 / aspect.max(0.1)).atan();
@@ -2109,7 +2122,7 @@ impl Renderer {
             }
         }
         let liquid = model.water.as_ref().filter(|w| !w.surfaces.is_empty()).map(|w| LiquidMesh::new(gpu, &w.surfaces));
-        Scene { parts, hidden: Default::default(), overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), sky: DAY_SKY, water: model.water.clone(), liquid, water_light: None, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, lighting: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None, under_water: false }
+        Scene { parts, hidden: Default::default(), overlay: Vec::new(), follow: Vec::new(), center, radius, player: None, fog: (1.0e9, 2.0e9), clip: None, sky: DAY_SKY, water: model.water.clone(), liquid, water_light: None, particles: Vec::new(), blobs: Vec::new(), shells: Vec::new(), backdrops: Vec::new(), sun: None, lighting: None, daylight: 1.0, ambient: [0.0; 3], area_fog: None, under_water: false }
     }
 
     fn depth_view(&mut self, gpu: &Gpu, size: (u32, u32), samples: u32) {
@@ -2218,7 +2231,7 @@ impl Renderer {
         // 16-point Halton (2, 3) sequence); multisampling four.
         let taa = self.antialiasing == Antialiasing::Taa;
         let samples = if self.antialiasing == Antialiasing::Msaa { self.samples } else { 1 };
-        let unjittered = camera.view_proj(aspect, scene.radius);
+        let unjittered = camera.view_proj_clipped(aspect, scene.radius, scene.clip);
         let view_proj = if taa {
             let i = self.frame % 16 + 1;
             let (jx, jy) = (halton(i, 2) - 0.5, halton(i, 3) - 0.5);
@@ -2262,7 +2275,7 @@ impl Renderer {
         };
         // (the flat sheet only where the playfield has no water triangles)
         let water = scene.water.as_ref().filter(|w| w.surfaces.is_empty());
-        let planes = frustum(&camera.view_proj(aspect, scene.radius));
+        let planes = frustum(&camera.view_proj_clipped(aspect, scene.radius, scene.clip));
         let (mut parts, mut drawn, mut shadow_drawn) = (0usize, 0usize, 0usize);
         // The LOD manager's decision for every watched mesh this frame (see `Lod`): which of the playfield's parts draw.
         let mut lod_draw: Vec<bool> = scene.parts.iter().map(|p| !p.low_only).collect();

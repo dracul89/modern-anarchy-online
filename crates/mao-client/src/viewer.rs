@@ -891,6 +891,14 @@ pub fn own_fade(distance: f32, start: f32, end: f32, end_alpha: f32) -> f32 {
     }
 }
 
+/// The game camera's front and back planes (N3 `n3EngineClient_t::CreateCamera` 0x10007842: the front 0.2; the
+/// `ViewDistance` callback FUN_1001fc91: the back the view distance, at least the front plus 50), `distance` the view
+/// distance in metres (the preference's share × 1000, as the options window sets it).
+pub fn game_clip(distance: f32) -> (f32, f32) {
+    let front = 0.2f32;
+    (front, distance.max(front + 50.0))
+}
+
 pub fn fog_for(distance: f32) -> (f32, f32) {
     ((distance / 7.2).max(40.0), distance)
 }
@@ -2663,6 +2671,7 @@ impl ApplicationHandler for App {
                 let size = (w.config.width, w.config.height);
                 if self.live.is_some() {
                     w.scene.fog = fog_for(self.settings.view_distance);
+                    w.scene.clip = Some(game_clip(self.settings.view_distance));
                     // (an interior has no ground: it is seen against the dark, not the daylight sky)
                     let interior = self.ground.is_none() && self.behind_set;
                     w.scene.sky = if interior { mao_render::DARK_SKY } else { mao_render::DAY_SKY };
@@ -3334,6 +3343,13 @@ impl ApplicationHandler for App {
 #[cfg(test)]
 mod camera_tests {
     use super::*;
+
+    /// The game camera's planes: the front 0.2, the back the view distance, never nearer than 50.2 (FUN_1001fc91).
+    #[test]
+    fn the_game_camera_clips_at_the_view_distance() {
+        assert_eq!(game_clip(1800.0), (0.2, 1800.0));
+        assert_eq!(game_clip(10.0), (0.2, 50.2));
+    }
 
     /// The setting's names: lock, rubber, and the free camera for "trail" and anything else, the original's default.
     #[test]

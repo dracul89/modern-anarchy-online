@@ -1157,6 +1157,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Near a Shadowland Anvian whose "Angry Smoke and Sparks" runs: its sparks are faint and dark, not the template's bright ones.
 - [ ] In a thunderstorm with strikes close together: no more than two sky flashes at once, and the thrown rocks thin out during a long burst.
 - [ ] Open a few windows and look at their frames and buttons: crisp edges, no blur; check at the usual UI scale that no piece shows uneven doubled pixels.
+- [ ] Outdoors with the view distance at its lowest and highest: the world ends at the view distance (the sky shows past it), with no flicker of distant ground and no hole near the camera; the sky's domes and moons still show.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

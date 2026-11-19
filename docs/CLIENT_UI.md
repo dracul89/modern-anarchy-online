@@ -7710,3 +7710,7 @@ The original draws its GUI sprites through DisplaySystem's `RenderSprite_t` with
 ### Skinning by the first bone (RND-077)
 
 randy31's CAT render (FUN_100543bc, drop-in `catrender.rs`) places a vertex weighted above 0.99 by its first bone alone and blends the two bones otherwise, and always turns the normal by the first bone. The client does the same; a vertex on its first bone no longer needs its second to be known. A bone past the pose's matrices leaves the vertex at rest (the original reads past its array).
+
+### The camera's near and far planes (CAM-007)
+
+N3's game camera (`n3EngineClient_t::CreateCamera`, 0x10007842) has a 90° view, its front plane at 0.2 and its back plane at the view distance: the `ViewDistance` option × 1000, never nearer than 50.2 (FUN_1001fc91, which also gives both planes to the fog). The client's game view now draws between the same planes, so nothing beyond the view distance is drawn; other views keep planes fitted to their scenes.
