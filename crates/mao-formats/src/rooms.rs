@@ -349,6 +349,12 @@ impl Reader<'_> {
     }
 }
 
+/// The data version of a playfield definition object (its first word, `RDBPlayfield_t` +0x64 as `ReadBlob` 0x1001c115
+/// keeps it).
+pub fn version(object: &[u8]) -> Option<u32> {
+    Reader { data: object, at: OBJECT_HEAD }.u32("the version").ok()
+}
+
 /// The rooms of a playfield definition object (an outdoor playfield, which has zones instead, gives `None`).
 pub fn parse(object: &[u8]) -> Result<Option<RoomPlayfield>, Error> {
     parse_with_end(object).map(|(rooms, _)| rooms)

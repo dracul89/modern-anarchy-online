@@ -293,6 +293,150 @@ fn playfield_statels() {
     }
 }
 
+/// The statels of a zone as the client read them before 2026-11-19 (its own rule: each zone in the first layout that read
+/// to its end, the light objects at the end not read, so a zone with some was taken as soon as its statels read): mesh and
+/// position bits in order, and whether it took the tile layout.
+fn statels_by_the_old_rule(zone: &[u8]) -> Option<(Vec<(u32, [u32; 3])>, bool)> {
+    struct R<'a>(&'a [u8], usize);
+    impl R<'_> {
+        fn take(&mut self, n: usize) -> Option<&[u8]> {
+            let b = self.0.get(self.1..self.1.checked_add(n)?)?;
+            self.1 += n;
+            Some(b)
+        }
+        fn u16(&mut self) -> Option<u16> {
+            Some(u16::from_le_bytes(self.take(2)?.try_into().unwrap()))
+        }
+        fn u32(&mut self) -> Option<u32> {
+            Some(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+        }
+        fn statels(&mut self, out: &mut Vec<(u32, [u32; 3])>) -> Option<()> {
+            for _ in 0..self.u16()? {
+                let position = [self.u32()?, self.u32()?, self.u32()?];
+                let (flags, mesh) = (self.u32()?, self.u32()?);
+                let mut left = self.take(2)?[1] as i32;
+                while left != 0 {
+                    let mask = self.u32()?;
+                    for _ in (0..32).filter(|b| mask & (1 << b) != 0) {
+                        self.u32()?;
+                        left -= 1;
+                    }
+                    if mask == 0 && left != 0 && self.1 >= self.0.len() {
+                        return None;
+                    }
+                }
+                if flags & 4 != 0 {
+                    self.u32()?;
+                }
+                if mesh != 0 {
+                    out.push((mesh, position));
+                }
+            }
+            Some(())
+        }
+    }
+    for tiles in [true, false] {
+        let mut r = R(zone, 0);
+        let mut out = Vec::new();
+        let read = (|| {
+            if tiles {
+                let n = r.u16()? as usize;
+                r.take(n * 2)?;
+                r.statels(&mut out)?;
+                r.statels(&mut out)?;
+            } else {
+                let size = r.u32()? as usize;
+                if size != 0 {
+                    r.u32()?;
+                    r.take(size.checked_sub(4)?)?;
+                }
+                for _ in 0..2 {
+                    let n = r.u16()? as usize;
+                    r.take(n * 18)?;
+                }
+            }
+            r.statels(&mut out)?;
+            r.statels(&mut out)?;
+            let more = r.u16()?;
+            Some(more != 0 || r.1 == zone.len())
+        })();
+        if read == Some(true) {
+            return Some((out, tiles));
+        }
+    }
+    None
+}
+
+/// Every playfield's statel file read in the layout its definition gives (a room playfield's zones are its rooms', read
+/// as `EnableRoomStatels` has them read; RND-140): every zone reads to its end, a file's own guess agrees with its
+/// definition, and the statels are those the client read before but in the four playfields whose room zones the old rule
+/// took for the tile layout (where it read four strays, and 90 for 815 in one zone of 4221).
+#[test]
+fn every_playfields_statel_zones() {
+    use mao_formats::statels::{self, Layout};
+    let Some(db) = database() else { return };
+    let game = PathBuf::from(std::env::var_os("MAO_GAME").unwrap());
+    let (mut files, mut zones, mut room_files, mut coloured, mut room_statels, mut lights, mut light_meshes) = (0, 0, 0, 0, 0, 0, 0);
+    let mut changed = Vec::new();
+    for entry in std::fs::read_dir(game.join("cd_image/data/statels")).unwrap() {
+        let path = entry.unwrap().path();
+        let Some(playfield) = path.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<u32>().ok()) else { continue };
+        if path.extension().is_none_or(|e| e != "pf") {
+            continue;
+        }
+        let file = std::fs::read(&path).unwrap();
+        let layout = match db.get(Id { kind: mao_formats::rooms::KIND, instance: playfield }).unwrap() {
+            Some(object) if matches!(mao_formats::rooms::parse(&object), Ok(Some(_))) => Layout::Rooms { version: mao_formats::rooms::version(&object).unwrap() },
+            _ => Layout::Tiles,
+        };
+        let Ok((_, read)) = statels::parse_zones(&file, layout) else { continue };
+        files += 1;
+        assert_eq!(matches!(statels::guess_layout(&file), Layout::Rooms { .. }), matches!(layout, Layout::Rooms { .. }) && !read.is_empty(), "playfield {playfield}");
+        if matches!(layout, Layout::Rooms { .. }) {
+            room_files += 1;
+        }
+        // the zones' bytes, again, for the old rule
+        let mut offsets = Vec::new();
+        let mut at = 4;
+        while offsets.first().is_none_or(|&f| at < f) && at + 4 <= file.len() {
+            let v = u32::from_le_bytes(file[at..at + 4].try_into().unwrap()) as usize;
+            if v < at + 4 || offsets.last().is_some_and(|&l| v < l) {
+                break;
+            }
+            offsets.push(v);
+            at += 4;
+        }
+        assert_eq!(offsets.len(), read.len(), "playfield {playfield}");
+        for (k, zone) in read.iter().enumerate() {
+            let zone = zone.as_ref().unwrap_or_else(|| panic!("playfield {playfield} zone {k} reads"));
+            assert_eq!(zone.unread, 0, "playfield {playfield} zone {k} reads to its end");
+            zones += 1;
+            lights += zone.lights[0].len() + zone.lights[1].len();
+            light_meshes += zone.light_meshes.len();
+            if matches!(layout, Layout::Rooms { .. }) {
+                room_statels += zone.statels.len();
+                coloured += zone.statels.iter().filter(|s| !s.light.is_empty()).count();
+            }
+            let bytes = &file[offsets[k]..offsets.get(k + 1).copied().unwrap_or(file.len())];
+            let now: Vec<(u32, [u32; 3])> = zone.statels.iter().map(|s| (s.mesh, s.position.map(f32::to_bits))).collect();
+            let before = statels_by_the_old_rule(bytes);
+            if before.as_ref().map(|b| &b.0) != Some(&now) {
+                // (only a room zone the old rule read as tiles)
+                assert!(matches!(layout, Layout::Rooms { .. }) && before.is_none_or(|b| b.1), "playfield {playfield} zone {k}");
+                changed.push(playfield);
+            }
+        }
+    }
+    changed.sort();
+    changed.dedup();
+    eprintln!("{files} files, {room_files} of room playfields, {zones} zones; {coloured} of {room_statels} room statels coloured; {lights} lights, {light_meshes} light objects");
+    assert_eq!(changed, [1186, 1187, 4221, 9070]);
+    assert_eq!((files, room_files, zones), (624, 289, 515_020));
+    // (the colours run out early in a few rooms; with the other width of count they would in most)
+    assert_eq!((coloured, room_statels), (209_765, 213_272));
+    assert_eq!((lights, light_meshes), (398, 9451));
+}
+
 #[test]
 fn the_effect_templates_are_read_to_the_last_word() {
     let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };

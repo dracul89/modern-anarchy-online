@@ -7638,3 +7638,7 @@ The original's item pages (GUI.dll FUN_1003882b and the other builders) also sho
 ### A trade across dungeon rooms (INV-055)
 
 The original allows a trade only within 5 m between the two bodies, and in a dungeon, with the two in different rooms, only through an open door between those rooms (Gamecode FUN_1005a1e7, N3's `FindDoorIDFromRoomLink` / `IsDoorOpenBetweenRooms`); else it says the target is out of range for a trade. The client now checks the rooms too.
+
+### Statel zones read as the original reads them (RND-140)
+
+N3.dll reads a room playfield's statel zones (n3StatelController_t::EnableRoomStatels 0x10025ae8, loader FUN_100274b1 -> FUN_10027f16) in the room layout: the statels' packed 565 colours, two lists of lights, then the statels and the light objects (FUN_10026e66); an outdoor playfield's (FUN_1002739d -> FUN_10027cb2) in the tile layout: the global statels the zone holds, then the statels and light objects. The client now chooses the layout from the playfield's definition (rooms or not) instead of trying both, reads every part of a zone, and hands each room statel its colours as FUN_100271b6 does (two-word counts from data version 10). Room zones of playfields 1186, 1187, 4221 and 9070 that the old guess read in the wrong layout now give the right props. The colours and lights are read but not drawn yet (the renderer instances a mesh's parts for all its statels and has no local lights).

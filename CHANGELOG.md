@@ -214,6 +214,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Other players are drawn thin, medium or fat as they were made, and robed when they wear a robe; a hoverboard rider does a trick when jumping.
 - The Whom-Pah pillars' blue beams and the Shadowlands' veins are drawn, as are the engine trails behind the effect scripts' ships.
 - The asteroid that has its own way of being drawn (no fog) is drawn that way.
+- Four dungeon layouts (playfields 1186, 1187, 4221, 9070) no longer show stray or missing props: their statel zones are read the way the original reads them.
 
 ### Interface
 

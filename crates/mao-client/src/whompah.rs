@@ -170,7 +170,7 @@ pub fn signs(game: &str, db: &mao_formats::resource::ResourceDatabase, playfield
         .unwrap_or_default();
     let path = std::path::Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
     let Ok(file) = mao_formats::files::read(&path) else { return Vec::new() };
-    let Ok(statels) = mao_formats::statels::parse(&file) else { return Vec::new() };
+    let Ok(statels) = mao_formats::statels::parse_as(&file, crate::statel_layout(db, playfield)) else { return Vec::new() };
     statels.iter().filter_map(|s| Some((s.position, s.extras.iter().find_map(|e| textures.get(&e.2).copied())?))).collect()
 }
 

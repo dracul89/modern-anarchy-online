@@ -821,11 +821,22 @@ pub(crate) fn add_props_with(game: &str, db: &ResourceDatabase, playfield: u32, 
     part_mesh
 }
 
+/// How a playfield's statel zones are laid out: a room playfield's (its definition has rooms: `RDBPlayfield_t::ReadBlob`
+/// 0x1001c115 marks it +0x68 = 2 when the tile-map is not the playfield's own) are its rooms', read as
+/// `n3StatelController_t::EnableRoomStatels` (0x10025ae8) has them read, with the definition's version; the others' are
+/// the tile map's squares.
+pub(crate) fn statel_layout(db: &ResourceDatabase, playfield: u32) -> mao_formats::statels::Layout {
+    match db.get(Id { kind: mao_formats::rooms::KIND, instance: playfield }).ok().flatten() {
+        Some(object) if matches!(mao_formats::rooms::parse(&object), Ok(Some(_))) => mao_formats::statels::Layout::Rooms { version: mao_formats::rooms::version(&object).unwrap_or(0) },
+        _ => mao_formats::statels::Layout::Tiles,
+    }
+}
+
 /// A playfield's statels where they stand: the playfield's own, and each zone's by its room.
 fn placed_statels(game: &str, db: &ResourceDatabase, playfield: u32) -> Option<Vec<mao_formats::statels::Statel>> {
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
     let file = mao_formats::files::read(&path).ok()?;
-    let (mut statels, zone_lists) = mao_formats::statels::parse_zoned(&file).ok()?;
+    let (mut statels, zone_lists) = mao_formats::statels::parse_zoned(&file, statel_layout(db, playfield)).ok()?;
     let (zones, failed) = (zone_lists.len(), zone_lists.iter().filter(|z| z.is_none()).count());
     if failed > 0 {
         eprintln!("{failed} of {zones} statel zones could not be read (their props are missing)");
@@ -1005,7 +1016,7 @@ pub(crate) fn whompah_booths(game: &str, db: &ResourceDatabase, playfield: u32) 
         .unwrap_or_default();
     let path = Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"));
     let Ok(file) = mao_formats::files::read(&path) else { return Vec::new() };
-    let Ok(statels) = mao_formats::statels::parse(&file) else { return Vec::new() };
+    let Ok(statels) = mao_formats::statels::parse_as(&file, statel_layout(db, playfield)) else { return Vec::new() };
     statels.iter().filter(|s| booth_meshes.contains(&s.mesh)).map(|s| s.position).collect()
 }
 
@@ -1019,7 +1030,7 @@ pub(crate) fn door_markers(game: &str, db: &ResourceDatabase, playfield: u32) ->
         .map(|index| index.iter().filter(|&(kind, name, _)| kind == 0xf6951 && name == "door_blocker.abiff").map(|(_, _, instance)| instance).collect())
         .unwrap_or_default();
     let Ok(file) = mao_formats::files::read(Path::new(game).join(format!("cd_image/data/statels/{playfield}.pf"))) else { return Vec::new() };
-    let Ok(statels) = mao_formats::statels::parse(&file) else { return Vec::new() };
+    let Ok(statels) = mao_formats::statels::parse_as(&file, statel_layout(db, playfield)) else { return Vec::new() };
     statels.iter().filter(|s| meshes.contains(&s.mesh)).map(|s| s.position).collect()
 }
 
