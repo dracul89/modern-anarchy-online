@@ -297,6 +297,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Game texts with numbers are filled as the original fills them: widths, hex and decimals print right, and doubled spaces in a filled text are one space.
 - A chat line from someone whose name the chat server has not sent yet shows just the text, as in the original, instead of a hex number.
 - With "fade messages" on, chat lines fade away even while the window is under the mouse or being typed in, as in the original.
+- A script's arguments in double quotes are one word (quotes kept), as in the original.
 
 ### Movement
 

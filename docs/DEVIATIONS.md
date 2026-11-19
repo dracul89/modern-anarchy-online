@@ -4230,7 +4230,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: words are split at blanks
 - A player notices: quoted words in a script call may split differently
 - Where: `crates/mao-client/src/scripts.rs:19`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): GUI.dll's script loader FUN_100b1517 cuts the command line (under 0xb5 bytes) with Utils.dll's `String::Tokenize` and a limit of -1 (none). Its rule, from the faithful ao-utils port (`ao_utils::string::tokenize`): blanks are msvcr100's `iswspace` (0x09–0x0d, space, 0xa0 and the Unicode spaces), leading blanks skipped; a piece that begins with `"` runs to a `"` that a blank or the end follows and keeps both quotes; a quote inside a word or one no blank follows is part of the word; an unclosed quote runs to the end; characters are read by `GetUCChar`, so a blank written by its number (`&#32;`) is a blank. The client's `scripts::words` now uses a port of that (`scripts::tokenize`, which also takes the original's piece limit) instead of splitting at blanks, so `%N` gets a quoted word whole, quotes and all. Test: `scripts::tests::a_scripts_lines_take_the_command_lines_words`.
 - Looked at, left (2026-11-19, overnight): String::Tokenize's treatment of quotes in the script path was not read. Left.
 
 #### `CHT-042` Sent-line history of 100 lines and chat buffer of 600 lines

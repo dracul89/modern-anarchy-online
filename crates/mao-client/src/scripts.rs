@@ -16,8 +16,8 @@
 //! The original's folder is beside its preferences (`%LOCALAPPDATA%/Funcom/Anarchy Online/<install>/Anarchy
 //! Online/scripts`). Here a `scripts` folder beside the client's settings is looked in first, then the original's
 //! (of the install the character's preferences are in, [`crate::aoprefs`]); the file names are offered with the
-//! commands when a `/` is typed, as the original offers them (FUN_100a44e8). How the original's `String::Tokenize`
-//! treats quotes was not read: the words here are split at blanks.
+//! commands when a `/` is typed, as the original offers them (FUN_100a44e8). The words are cut by Utils.dll's
+//! `String::Tokenize` with no limit (FUN_100b1517 passes -1): [`tokenize`].
 
 use std::path::PathBuf;
 
@@ -86,9 +86,79 @@ pub fn names() -> Vec<String> {
     names
 }
 
-/// The words of a command line; the first is the script's name, its slashes taken out.
+/// msvcr100's `iswspace` (the "C" locale's blanks, as the ao-msvc crate has them).
+fn is_blank(c: i32) -> bool {
+    matches!(c as u16, 0x09..=0x0d | 0x20 | 0xa0 | 0x1680 | 0x180e | 0x2000..=0x200a | 0x2028 | 0x2029 | 0x202f | 0x205f | 0x3000)
+}
+
+/// `String::GetUCChar` as `Tokenize` reads the text (not raw): a character written by its number counts as that
+/// character; the end of the text is a NUL of one byte.
+fn uc_char(text: &str, pos: usize) -> (i32, usize) {
+    let Some(rest) = text.get(pos..).filter(|r| !r.is_empty()) else { return (0, 1) };
+    if let Some((c, length)) = mao_net::chat::numbered_character(rest) {
+        return (c as i32, length);
+    }
+    let c = rest.chars().next().unwrap_or('\0');
+    (c as i32, c.len_utf8())
+}
+
+/// Utils.dll's `String::Tokenize` (the ao-utils port's `tokenize`): the text cut at blanks, a piece that begins with
+/// a double quote running to a quote that a blank or the end follows, its quotes kept (a quote inside a word, or one
+/// not followed by a blank, is part of the word). With `max_tokens` above 0 the last piece holds the rest of the text.
+pub fn tokenize(text: &str, max_tokens: i32) -> Vec<String> {
+    let mut tokens: Vec<String> = Vec::new();
+    let size = text.len();
+    if size == 0 {
+        return tokens;
+    }
+    let (mut in_quote, mut start, mut pos) = (false, 0usize, 0usize);
+    loop {
+        let (c, length) = uc_char(text, pos);
+        let mut boundary = false;
+        if !in_quote && pos == start && pos != size && is_blank(c) {
+            start += length;
+        } else if pos < size && c == i32::from(b'"') {
+            if !in_quote {
+                if pos == start {
+                    in_quote = true;
+                } else {
+                    boundary = true;
+                }
+            } else if pos == size - 1 || is_blank(uc_char(text, pos + length).0) {
+                in_quote = false;
+                tokens.push(text[start..pos + length].to_string());
+                start = pos + length;
+            } else {
+                boundary = true;
+            }
+        } else {
+            boundary = true;
+        }
+        if boundary {
+            if pos == size || (!in_quote && is_blank(c)) {
+                if pos != start {
+                    tokens.push(text[start..pos].to_string());
+                }
+                start = pos + length;
+            }
+            if tokens.len() as i32 == max_tokens.wrapping_sub(1) {
+                if pos < size {
+                    tokens.push(text[start.min(size)..].to_string());
+                }
+                break;
+            }
+        }
+        pos += length;
+        if pos > size {
+            break;
+        }
+    }
+    tokens
+}
+
+/// The words of a command line ([`tokenize`]); the first is the script's name, its slashes taken out.
 pub fn words(line: &str) -> Vec<String> {
-    let mut words: Vec<String> = line.split_whitespace().map(str::to_string).collect();
+    let mut words: Vec<String> = tokenize(line, -1);
     if let Some(first) = words.first_mut() {
         *first = first.replace('/', "");
     }
@@ -197,6 +267,13 @@ mod tests {
     fn a_scripts_lines_take_the_command_lines_words() {
         let w = words("/greet Zed  there");
         assert_eq!(w, ["greet", "Zed", "there"]);
+        // (`String::Tokenize`: a quoted piece is one word, quotes and all; a quote inside a word, or one a blank does
+        // not follow, does not close it)
+        assert_eq!(words("/greet \"Big Zed\" there"), ["greet", "\"Big Zed\"", "there"]);
+        assert_eq!(tokenize("a\"b c \"d e\"f g\" \"open end", -1), ["a\"b", "c", "\"d e\"f g\"", "\"open end"]);
+        // (a blank written by its number is a blank to it, as `GetUCChar` reads it)
+        assert_eq!(tokenize("one&#32;two three", -1), ["one", "two", "three"]);
+        assert_eq!(tokenize("  one two three", 2), ["one", "two three"]);
         let text = "# a comment\r\n/say hello %1, %2!\r\n\r\n/me runs %0 for %3%1\n/say 100%% of %12 and %x\n";
         assert_eq!(lines(text, &w), ["/say hello Zed, there!", "/me runs greet for %1", "/say 100%% of 2 and %x"]);
         // (after a word is put in, the looking goes on one character further: a `%N` that slid into the place of one

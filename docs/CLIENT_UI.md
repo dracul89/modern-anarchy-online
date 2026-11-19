@@ -7870,3 +7870,7 @@ GUI.dll FUN_100b69a7 sets the `ViewDistance` preference to the number times 0.01
 ### Fading chat lines (CHT-034)
 
 GUI.dll's ChatTextView_c fades a line by its frame timer (FUN_100926f6): `ChatTextFadeDelay` and `ChatTextFadeTime` in whole milliseconds (FUN_1008f8e7), the alpha the time left over the fade time once the delay is past, and the line taken away after both. The fading follows the window's "fade messages" setting alone, typed in or not. The client now does the same; before, it did not fade a window that was under the pointer or typed in.
+
+### Script words (CHT-041)
+
+GUI.dll's script loader (FUN_100b1517) cuts the command line with Utils.dll's `String::Tokenize`: blanks separate words, and a word that begins with a double quote runs to the closing quote and keeps its quotes. The client now cuts a script's command line the same way, so `/myscript "two words" x` gives `%1` = `"two words"` and `%2` = `x`.
