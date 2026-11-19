@@ -8040,7 +8040,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // Mail: the answer's count and notes for the window, when the inbox request is due, and when the last send went out.
         let mut pending_mail_count: Option<usize> = None;
         // Shops: the stock to show, a note, the open booth and the trade's bag (from the server's Trade open).
-        let (mut pending_shop, mut pending_shop_status): (Option<crate::shop::ShopState>, Option<String>) = (None, None);
+        let mut pending_shop: Option<crate::shop::ShopState> = None;
         // (the NPC chat: what the server said for the window, and the NPC talked to)
         let (mut pending_npc_chat, mut chat_npc): (Vec<crate::npcchat::Event>, Option<(u32, u32)>) = (Vec::new(), None);
         // (the mission journal: the server's whole list when it sends one, and the missions it dropped)
@@ -9480,19 +9480,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let _ = connection.send(&n3::trade(own, 3, [0, 0, 0, 0]));
                     }
                     // As captured: a stock item put in (action 5: the booth, 0x6f, the stock index); the echo lists it.
-                    crate::shop::ShopCommand::Buy(index) => match shop_booth {
-                        Some(booth) => {
+                    crate::shop::ShopCommand::Buy(index) => {
+                        if let Some(booth) = shop_booth {
                             let _ = connection.send(&n3::trade(own, 5, [booth.0, booth.1, 0x6f, index as u32]));
                         }
-                        None => pending_shop_status = Some("No open trade to buy in.".into()),
-                    },
+                    }
                     // As captured: one of your own items put in (action 5: yourself, the inventory page 0x68, the slot).
-                    crate::shop::ShopCommand::Sell(slot) => match shop_booth.or(player_trade.map(|p| (n3::CHARACTER, p))) {
-                        Some(_) => {
+                    crate::shop::ShopCommand::Sell(slot) => {
+                        if shop_booth.or(player_trade.map(|p| (n3::CHARACTER, p))).is_some() {
                             let _ = connection.send(&n3::trade(own, 5, [0xc350, own, 0x68, slot]));
                         }
-                        None => pending_shop_status = Some("No open trade to sell in.".into()),
-                    },
+                    }
                     // (action 6, as captured: the item as it went in)
                     crate::shop::ShopCommand::Remove(item) => {
                         let _ = connection.send(&n3::trade(own, 6, item));
@@ -11623,7 +11621,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     mail_entries: pending_mail_entries.take(),
                     mail_opened: pending_mail_opened.take(),
                     shop: pending_shop.take(),
-                    shop_status: pending_shop_status.take(),
                     shop_changes: std::mem::take(&mut pending_shop_changes),
                     npc_chat: std::mem::take(&mut pending_npc_chat),
                     mission_log: std::mem::take(&mut pending_mission_log),

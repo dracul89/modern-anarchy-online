@@ -7401,3 +7401,7 @@ The client's own status line under the inbox ("The inbox holds N messages.", "Se
 ### Inspect window: title and item menu (WIN-168)
 
 The Inspect window is titled "Inspect" for everyone inspected, as the original's (GUI.dll FUN_100e24b8); the client's "Inspect: name" is gone. A right press on an item opens its menu at once, as the original's lists without click listeners do (FUN_10041c04, FUN_100caf07): Look At shows the item's page, Create Reference puts its link into the chat's line. The original's lock entry for a worn item is not in this menu.
+
+### No "Trade complete." status in the shop (WIN-173)
+
+The client's own shop status text ("Trade complete.", "No open trade to buy in/sell in.") is gone; it was never shown. As the original's `TradeView_c`, the trade window says nothing of its own when a trade ends.

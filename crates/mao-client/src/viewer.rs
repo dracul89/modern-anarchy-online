@@ -302,9 +302,8 @@ pub struct Update {
     /// The city's houses, the backpack's building items and the zones, for the controller's map, when the houses or
     /// the inventory change while the session is open.
     pub city_map: Option<crate::citymap::Data>,
-    /// A shop the server opened (stock), and a note for the shop window.
+    /// A shop the server opened (stock).
     pub shop: Option<crate::shop::ShopState>,
-    pub shop_status: Option<String>,
 }
 
 /// Something that changes while the window is open: models to draw over the
@@ -1779,9 +1778,6 @@ impl ApplicationHandler for App {
                             }
                             if let Some(state) = u.shop.take() {
                                 ui.shop.set(state);
-                            }
-                            if let Some(status) = u.shop_status.take() {
-                                ui.shop.status = status;
                             }
                             for change in std::mem::take(&mut u.shop_changes) {
                                 ui.shop.apply(change);

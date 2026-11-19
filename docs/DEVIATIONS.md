@@ -6374,7 +6374,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a status string "Trade complete." is set when the trade completes
 - A player notices: minor extra text
 - Where: `crates/mao-client/src/shop.rs:302`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): Removed the shop window's `status` string ("Trade complete." on a completed trade) and what only fed it: the net thread's "No open trade to buy in." / "No open trade to sell in." and `Update::shop_status`. The string was never drawn (no view showed it), so nothing visible changes; the original's trade window (`TradeView_c`) has no such line. A buy or sell without an open trade still sends nothing. Tests: `shop` (9 pass).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original's trade shows no such line; the trade window closing says it was done.
 
 #### `WIN-174` Shop window title carries the shop's name

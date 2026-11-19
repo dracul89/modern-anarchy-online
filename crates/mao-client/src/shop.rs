@@ -287,7 +287,6 @@ pub struct ShopWindow {
     pub stock: Vec<Slot>,
     pub bought: Vec<Row>,
     pub sold: Vec<Row>,
-    pub status: String,
     /// An item's page for the Info window (a row clicked with Shift: `itemref://low/high/ql`), until taken.
     pub info_url: Option<String>,
     /// When the right button went down.
@@ -323,7 +322,6 @@ impl ShopWindow {
         self.bought.clear();
         self.sold.clear();
         self.open = true;
-        self.status.clear();
     }
 
     /// The server's echo of an item put in or taken out, or the end of the trade.
@@ -338,7 +336,6 @@ impl ShopWindow {
             Change::Complete => {
                 self.bought.clear();
                 self.sold.clear();
-                self.status = "Trade complete.".into();
                 // (a player trade's window closes when it goes through)
                 if self.partner.take().is_some() {
                     self.open = false;
