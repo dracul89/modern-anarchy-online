@@ -1114,6 +1114,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Upload a mission to the map, relog, open the journal: the mission is selected and its waypoint returns with the "uploaded" lines; zone and check again.
 - [ ] In a team with a team mission: right click it, Update Team Members; the log shows "update team members of mission ..." and teammates get the mission.
 - [ ] In the info view (an item page), drag across some text: it shades as selected, clicks on links still open them, and a new page clears the selection.
+- [ ] Use or wield an item whose requirements start with "On Target" with and without a target selected: refused without one.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

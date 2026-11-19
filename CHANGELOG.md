@@ -127,6 +127,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - An item dragged into an open backpack lands in the cell it was let go on.
 - Right-click wearing an item always uses its own place, swapping out what is there, as in the original.
 - Corpse, chest and overflow windows no longer have a "Take all" button, as in the original; take items by clicking them (or turn on the auto-loot option for corpses).
+- Item requirements "on target" are judged against the selected target: with nothing selected such an item is refused, as in the original.
 
 ### The launcher
 

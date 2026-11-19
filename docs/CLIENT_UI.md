@@ -7594,3 +7594,7 @@ The original's journal keeps its active mission (MissionViewConfig's active_miss
 ### Selecting text in views that do not edit (WIN-121)
 
 The original's text views that take the mouse (TVF_ACCEPT_MOUSE_INPUT) begin a selection where the left button goes down off a link (TextRenderer_c::MouseDown 0x10163bcd: GetBufferLocation, BeginSelection) and grow it while the button is held. The client now does this in views that do not edit too, selecting the text as drawn and shading it; the right-click menu that copies it (PopulateRightClickMenu) is not there yet.
+
+### Requirements "On Target" read the selection (INV-056)
+
+The requirement evaluator's "On Target" (operator 18) moves to whom the holder targets: Gamecode FUN_10001fba case 3 reads the character's +0x1d0 object's +0x5c identity, set only by N3Msg_SelectedTarget (0x10017790) for the client's own character. The client's wear, wield, use and special-attack checks now take the selected target there (its below/above criteria pass, as for anyone not the own character; nothing selected fails the list); another character's target is nobody. "On User" and "On Secondary Item" are still unknown.

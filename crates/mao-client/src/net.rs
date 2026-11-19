@@ -499,6 +499,9 @@ struct World {
     mods_dirty: bool,
     /// The identity type each entity was first heard of with (what a use message names it by).
     types: BTreeMap<u32, u32>,
+    /// The client's selected target as the requirements see it: what `N3Msg_SelectedTarget` (0x10017790) keeps in the
+    /// own character's +0x1d0 object at +0x5c (FUN_1003fd9f), copied from the loop's selection before it is judged.
+    selected: Option<u32>,
     /// The items standing in the world (`SimpleItemFullUpdate` with a place), by instance: their flags (stat 0, the
     /// dynel's +0x4c that the flag checks of vtable +0x14 read, FUN_10003d5b) and template (stat 23), for what an attack at
     /// one asks (FUN_10069a9f).
@@ -1254,7 +1257,7 @@ impl crate::requirements::Context for World {
         self.is_own(character).then(|| self.perks.contains(&perk))
     }
     fn pick(&self, holder: crate::requirements::Holder, which: i32) -> Option<Option<crate::requirements::Holder>> {
-        world_pick(holder, which)
+        world_pick(self.own, self.selected_identity(), holder, which)
     }
     fn flying(&self, character: crate::requirements::Holder) -> Option<bool> {
         Some(if character.1 == self.own { self.own_flying } else { self.flying.contains(&character.1) })
@@ -1288,16 +1291,30 @@ fn playfield_forbids_flying(db: &ResourceDatabase, playfield: u32) -> bool {
     record.as_deref().and_then(mao_formats::playfield::flag_words).is_some_and(|w| w[2] & 0x80000 != 0)
 }
 
-/// FUN_10001fba, the requirements' holder picker on a character, as far as the world knows it: `which` 1 ("On Self",
-/// and 0x25 with 1) is the holder itself; 2 the holder's user (`Beholder_t` +0x3c), 3 its target (+0x1d0's +0x5c, or
-/// +0x44 while its +0x21c flag is up) and 4 its secondary item (the identity in its stats 0x52 and 0x53) are not kept
-/// here: unknown; any other finds nothing. (The picked one must be in the holder's playfield and not gone, which the
-/// holder itself always is.)
-fn world_pick(holder: crate::requirements::Holder, which: i32) -> Option<Option<crate::requirements::Holder>> {
+/// FUN_10001fba, the requirements' holder picker, as far as the world knows it: `which` 1 ("On Self", and 0x25 with 1)
+/// is the holder itself; 2 the holder's user (`Beholder_t` +0x3c) is not kept here: unknown. On a character, 3 is its
+/// target, the +0x1d0 object's +0x5c identity (FUN_10058d5d), which only `N3Msg_SelectedTarget` (0x10017790, through
+/// FUN_1003fd9f) sets, for the client's own character: its selected target, nothing for anyone else. (The branch for
+/// the character's +0x21c flag, +0x44 instead, is dead: Gamecode only ever clears that byte, 0x10058969 and the
+/// constructor 0x1005d25e.) 4 its secondary item (the identity in its stats 0x52 and 0x53, which Gamecode sets on an
+/// item used on another, FUN_100807e7) is not kept: unknown. An item (a holder not a character) has only 1 and 2.
+/// Anything else, or outside 1 to 22, finds nothing. The picked one must be in the holder's playfield and not gone
+/// (0x100020c3): the selection is dropped when it leaves the world, so it always is.
+fn world_pick(own: u32, selected: Option<crate::requirements::Holder>, holder: crate::requirements::Holder, which: i32) -> Option<Option<crate::requirements::Holder>> {
+    let character = holder.0 == crate::requirements::CHARACTER;
     match which {
         1 => Some(Some(holder)),
-        2..=4 => None,
+        2 => None,
+        3 if character => Some(if holder.1 == own { selected } else { None }),
+        4 if character => None,
         _ => Some(None),
+    }
+}
+
+impl World {
+    /// The selected target as an identity (the type it was first heard of with; a character's when not known).
+    fn selected_identity(&self) -> Option<crate::requirements::Holder> {
+        self.selected.filter(|&t| t != 0).map(|t| (self.types.get(&t).copied().unwrap_or(crate::requirements::CHARACTER), t))
     }
 }
 
@@ -1319,7 +1336,7 @@ impl crate::requirements::Context for Stripped<'_> {
         self.world.has_perk(character, perk)
     }
     fn pick(&self, holder: crate::requirements::Holder, which: i32) -> Option<Option<crate::requirements::Holder>> {
-        world_pick(holder, which)
+        world_pick(self.world.own, self.world.selected_identity(), holder, which)
     }
     fn flying(&self, character: crate::requirements::Holder) -> Option<bool> {
         self.world.flying(character)
@@ -8361,6 +8378,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         const BURST: u32 = 200;
         let (mut stash, mut burst): (Option<frame::Frame>, u32) = (None, 0);
         loop {
+            state.selected = target;
             prof_iter = crate::prof::lap("net-iteration", prof_iter);
             // MAO_FAKE_REDIRECT=<seconds>: behave as if the server sent a redirect then (to test the hop without a zone line).
             let fake_due = !fake_done && std::env::var("MAO_FAKE_REDIRECT").ok().and_then(|v| v.parse::<u64>().ok()).is_some_and(|s| clock.elapsed() > Duration::from_secs(s));
@@ -9840,6 +9858,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         (t, s)
                     }), offset });
                     let sight = |a: [f32; 3], b: [f32; 3]| crate::camera::playfield_line_of_sight(sight_ground.as_ref(), sight_terrain.as_ref(), Some(&*collision), interior.as_deref(), &rooms_shown, None, a, b);
+                    state.selected = target;
                     match state.special_refusal(n, aim, &sight) {
                         Some(lines) => {
                             for text in lines {
@@ -10359,6 +10378,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 wanted_move = Some((keys.mv.1, keys.mv.2));
             }
             if let Some((from, to)) = wanted_move {
+                // (the requirements' "On Target" reads the selection: `World::selected`)
+                state.selected = target;
                 // (to a wear place only what may be worn there: the original asks itself before it asks the server; and
                 // nothing on or off while the equipment is locked)
                 let refusal = if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), &crate::gear::equipment_locked, from, to) {
@@ -10444,6 +10465,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // asked only when the item's own move came up, after the worn one had been taken off: the user's
                     // mission belt, refused for its Computer Literacy, left the old belt in the backpack. What is on
                     // the place is given to the check, which judges the character without it: `World::wear_refusal`.)
+                    state.selected = target;
                     let wearing = e.slot >= inventory::BACKPACK_FIRST;
                     let refusal = to.and_then(|to| {
                         if equipment_locked(LOCK_EQUIPMENT.load(std::sync::atomic::Ordering::Relaxed), &crate::gear::equipment_locked, e.slot, to) {
@@ -14820,8 +14842,9 @@ mod door_tests {
         assert!(w.doors_open.contains_key(&3));
     }
 
-    /// FUN_10001fba in the world: "On Self" is the character, "On Fight Target" finds nothing (the list fails), the
-    /// target, user and secondary item are not known.
+    /// FUN_10001fba in the world: "On Self" is the character, "On Fight Target" finds nothing (the list fails), "On
+    /// Target" the own character's selected target (none selected: the list fails; another's target: nothing), the
+    /// user and secondary item are not known.
     #[test]
     fn the_world_picks_the_holder_on_self() {
         let mut w = World { own: 7, ..World::default() };
@@ -14830,7 +14853,19 @@ mod door_tests {
         assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x13), (54, 5, 2)], own, &w), Ok(true));
         assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x13), (54, 50, 2)], own, &w), Ok(false));
         assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x6e), (54, 5, 2)], own, &w), Ok(false));
-        assert!(crate::requirements::evaluate(&[(0, 0, 0x12), (54, 5, 2)], own, &w).is_err());
+        assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x12), (54, 5, 2)], own, &w), Ok(false));
+        w.selected = Some(9);
+        // (the target is not the client's own character: its above passes, its equality is not known)
+        assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x12), (54, 50, 2)], own, &w), Ok(true));
+        assert!(crate::requirements::evaluate(&[(0, 0, 0x12), (54, 5, 0)], own, &w).is_err());
+        // (selecting oneself: one's own stats; a told line names the target)
+        w.selected = Some(7);
+        assert_eq!(crate::requirements::evaluate_told(&[(0, 0, 0x12), (54, 50, 2)], own, &w), (Ok(false), vec![crate::requirements::Told::AtLeast { target: true, stat: 54, value: 51 }]));
+        // (another character's target is nobody; an item has no target; the user and the secondary item are unknown)
+        assert_eq!(world_pick(7, Some(own), (crate::requirements::CHARACTER, 8), 3), Some(None));
+        assert_eq!(world_pick(7, Some(own), (0xc73d, 8), 3), Some(None));
+        assert_eq!((world_pick(7, None, own, 2), world_pick(7, None, own, 4)), (None, None));
+        assert_eq!(world_pick(7, None, own, 23), Some(None));
     }
 
     /// FUN_100498ed / FUN_10080659: the page takes its class (implants also spirits, social also weapons and clothes),
