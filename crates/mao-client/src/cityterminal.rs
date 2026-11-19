@@ -97,7 +97,8 @@ impl Session {
     }
 
     /// Whether the map may build and demolish (`HouseBuildView_c`'s read-only flag, FUN_100e7e89, the other way
-    /// round): lease mode 3 and the opening's third word 0 or 1.
+    /// round): lease mode 3 and the opening's third word below 2, a signed compare (the window's +0x78 and +0xa0 as
+    /// FUN_100e755a makes the map view, FUN_100e8108's last argument).
     pub fn may_build(&self) -> bool {
         self.lease == 3 && self.third <= 1
     }

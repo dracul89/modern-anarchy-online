@@ -3554,7 +3554,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: treated as "a rank in the organisation" that lets the window build and demolish when 0 or 1
 - A player notices: who may build or demolish in the city terminal may differ
 - Where: `crates/mao-net/src/city.rs:52`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The rule is the original's, now read: GUI.dll `CityTerminalGUIModule_c::SlotOpenCityTerminal` (0x100e6c24) hands the signal's three words to the window, FUN_100e7847: +0x74 the GUI type, +0x78 the lease mode, +0xa0 the third word (pushes at 0x100e6cd6..0x100e6cdc); FUN_100e755a makes the map view read-only unless `+0x78 == 3 && +0xa0 < 2` (a signed compare). The client's `Session::may_build` is `lease == 3 && third <= 1` on an i32, the same. Only the word's meaning on the server's side (a rank, by the look of it) is unknown, and the client needs none; comments now cite the reading (cityterminal.rs, mao-net city.rs). Not changed: the original opens the window only for GUI types 1 and 2 and, when one of the same type is already open, passes it only the new lease mode (FUN_100e7193), not the third word.
 - Looked at, left (2026-11-19, overnight): The third word's meaning is decided where FUN_1012faab's reader hands it to the window (the city terminal's GUI.dll code), which was not traced tonight; the client's guess fits the user's log.
 
 #### `ZON-008` Door number guessed from the run of ids

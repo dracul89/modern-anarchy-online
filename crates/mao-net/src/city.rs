@@ -49,7 +49,8 @@ pub enum Signal {
     HouseRemoved(i32, i32),
     /// 5: the terminal's window is to open. `gui_type` 1 is the dialog that buys the land, 2 the terminal;
     /// `lease` 1 shows the city only, 3 lets everything be done, another shows without doing; `third` is a word the
-    /// window lets build and demolish by when it is 0 or 1 (it reads like a rank in the organisation: a guess).
+    /// window lets build and demolish by when it is below 2 (GUI.dll FUN_100e755a; what the server means by it, a rank
+    /// in the organisation by the look of it, the client does not need).
     /// Nothing reads `identity`.
     Open { city: CityId, identity: (u32, u32), gui_type: i32, lease: i32, third: i32, org: String },
     /// 6.
