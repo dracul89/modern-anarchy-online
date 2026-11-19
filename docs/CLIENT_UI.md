@@ -7297,3 +7297,7 @@ The original's `N3Msg_UseItem` wears an item at its own place (stat 88) and take
 ### An unknown camera mode is the free camera (CAM-002)
 
 When no camera mode is preferred, the original uses its free camera (mode 1, GUI.dll FUN_10021859). The client now does the same for a `camera_mode` name it does not know, where it fell back to the rubber camera.
+
+### The music's random choices differ from run to run (SND-005)
+
+The original's music player seeds its random numbers with the tick count when it starts (SIMPlayer.dll, `srand(GetTickCount())`), so which piece and layer play differ every time. The client had seeded them with 1, so every run chose the same; it now seeds them from the clock.

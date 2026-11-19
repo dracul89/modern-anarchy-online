@@ -8512,7 +8512,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: generator seeded 1 every time
 - A player notices: the music's random choices repeat from run to run
 - Where: `crates/mao-client/src/music.rs:146`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): SIMPlayer.dll's `SIMPlayer_t` constructor (the drop-in's `player.rs` `new`) calls `srand(GetTickCount())`; the client's music player seeded its `rand()` with 1 every run. Now `audio::Rand::seeded` gives the player a seed from the system clock's milliseconds (standing in for the tick count, which also differs from run to run), so the music's random choices differ between runs as in the original. No unit test (the seed is the clock's); music tests pass.
 
 #### `SND-006` Music streams start with no driver latency
 

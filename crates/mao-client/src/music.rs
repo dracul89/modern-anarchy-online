@@ -143,8 +143,9 @@ impl Player {
             timer: None,
             manager: Manager { layer: -1, ..Manager::default() },
             pause: PauseControl { enabled: true, ..PauseControl::default() },
-            // (the original seeds the CRT with the tick count)
-            rand: Rand::default(),
+            // (the original seeds the CRT with the tick count, `srand(GetTickCount())`: here the system clock's
+            // milliseconds, which differ from run to run as the tick count does)
+            rand: Rand::seeded(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_millis() as u32)),
             cache: Default::default(),
         };
         if let Some(e) = p.entry_sample(-1, false) {

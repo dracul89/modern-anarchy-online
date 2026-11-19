@@ -210,6 +210,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The NCU window's list shows self-only nanos as such.
 - A nano's cast effect lasts as long as the cast itself; instant nanos show no cast effect.
 
+### Sound
+
+- The music's random choices are no longer the same every time the game starts.
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher

@@ -176,6 +176,11 @@ impl Default for Rand {
 }
 
 impl Rand {
+    /// `srand(seed)`.
+    pub fn seeded(seed: u32) -> Rand {
+        Rand(seed)
+    }
+
     pub fn next(&mut self) -> i32 {
         self.0 = self.0.wrapping_mul(214013).wrapping_add(2531011);
         ((self.0 >> 16) & 0x7fff) as i32
