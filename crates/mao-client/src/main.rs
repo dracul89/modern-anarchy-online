@@ -796,7 +796,7 @@ pub(crate) fn statel_effects(game: &str, db: &ResourceDatabase, playfield: u32) 
         if effects.is_empty() {
             continue;
         }
-        let place = model::multiply(&model::trs_matrix(s.position, s.rotation, s.scale_xyz), &swap);
+        let place = model::multiply(&s.matrix(), &swap);
         for (effect, frame) in effects.iter() {
             let m = model::multiply(frame, &place);
             out.push((*effect, [m[12], m[13], m[14]]));
@@ -988,7 +988,7 @@ fn add_statels(db: &ResourceDatabase, model: &mut Model, statels: &[mao_formats:
             })
             .clone();
         let Some(range) = range else { continue };
-        let place = model::multiply(&model::trs_matrix(s.position, s.rotation, s.scale_xyz), &swap);
+        let place = model::multiply(&s.matrix(), &swap);
         model.instances.extend(range.map(|i| (i, place)));
         if let (Some(list), Some(parts)) = (animated.as_deref_mut(), moving.get(&(s.mesh, overrides))) {
             list.extend(parts.iter().map(|p| AnimatedPart { part: p.clone(), place }));

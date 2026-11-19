@@ -6997,3 +6997,7 @@ A statel's own effects (a campfire's fire, chimney smoke, a lamp's halo) run wit
 ### Effects on the body's bones (RND-139)
 
 An effect's attach point 1000-1018 is a bone of the posed body in the original (FUN_10105e6d, table at 0x102c63a8: pelvis, spine to spine3, neck, head, upper arms, forearms, thighs, calves, feet, hands, each `Bip01 <name>_ac`), the head attractor when the body lacks it. The client now keeps the bones' posed frames with the attractors and places effect meshes and trails on them; before, such effects were not shown. The weapon (3000) and the mesh's attractor (3001) are not given yet.
+
+### Statels of the second flag layout sheared (RND-141)
+
+A statel whose flags have bit 0 is turned about Y, stretched along X and sheared: N3.dll's FUN_1002777a gives it an anim matrix (scale (1, 1/s, 1/s), then y plus p × x with p = (v / 630 / 211) / 100 − 1.25 of the packed v), which the frame applies before its scale s × C, turn and place. The client read only the turn and the stretch; it now applies the shear too (Statel::matrix).

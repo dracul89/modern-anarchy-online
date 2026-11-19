@@ -58,10 +58,14 @@ pub struct Statel {
     /// A quaternion (x, y, z, w).
     pub rotation: [f32; 4],
     pub colour: u32,
-    /// Whether the flags use the second layout (bit 0), of which only the
-    /// rotation about Y and the stretch along X are read (its further matrix
-    /// is left out).
+    /// Whether the flags use the second layout (bit 0): a rotation about Y, a stretch along X and a shear ([`shear`](Self::shear)).
     pub unread_rotation: bool,
+    /// The second layout's shear (0 for the first): N3.dll's statel reader (FUN_1002777a) gives such a statel a matrix
+    /// of its own (`VisualMesh_t::SetAnimMatrix`, through FUN_1002435c), which scales by (1, 1/s, 1/s) (FUN_10026cdc)
+    /// and adds this times x to y (FUN_10026d5c), applied before the scale, turn and place; with the uniform scale
+    /// `s × C` that makes the stretch along X ([`scale_xyz`](Self::scale_xyz)) and a y that rises `shear × s × C` per unit
+    /// of x. It is `(v / 630 / 211) / 100 − 1.25` of the packed `v = A >> 7`. See [`Statel::matrix`].
+    pub shear: f32,
     /// The extras: (mask number, bit, value) for each set bit of each mask.
     pub extras: Vec<(u32, u32, u32)>,
 }
@@ -112,6 +116,22 @@ fn quat_mul(a: Quat, b: Quat) -> Quat {
 }
 
 impl Statel {
+    /// The statel's placing matrix (row vectors, the world Y up), as the original's frame builds it
+    /// (`update_world_matrix`: the anim matrix, then the uniform scale and the turn, then the place): for the second
+    /// layout the anim matrix `[[1, shear, 0], [0, 1/s, 0], [0, 0, 1/s]]` before the scale `s × C`, which is the stretch
+    /// `scale_xyz` with y rising `shear × s × C` per unit of x; for the first layout the scale and the turn alone.
+    pub fn matrix(&self) -> crate::model::Matrix {
+        let trs = crate::model::trs_matrix(self.position, self.rotation, self.scale_xyz);
+        if !self.unread_rotation {
+            return trs;
+        }
+        // (scale_xyz is (s C, C, C): the anim matrix's 1/s cancels s on y and z; its shear, met before the scale, is
+        // `shear` × s × C of y per unit of x)
+        let mut anim = crate::model::IDENTITY;
+        anim[1] = self.shear * self.scale_xyz[0] / self.scale_xyz[1];
+        crate::model::multiply(&anim, &trs)
+    }
+
     /// The rotation packed in the flags (`A >> 7`, with `A & 1` clear): a
     /// pitch of `v % 180 - 90` degrees (`v` first reduced by 0x163f500 when
     /// it is at least that, the pitch then 180 - 90), a yaw of the next
@@ -169,17 +189,19 @@ fn statel(r: &mut Reader) -> Result<Option<Statel>, Error> {
     }
     let unread = flags & 1 != 0;
     let scale = scale_byte as f32 / 100.0 + 0.1;
-    let (rotation, scale_xyz) = if unread {
-        // `A >> 7` is a turn about Y (v % 630 of 630 to the circle) and a
-        // stretch s = (v / 630 % 211) / 100 + 0.5 along X.
+    let (rotation, scale_xyz, shear) = if unread {
+        // `A >> 7` is a turn about Y (v % 630 of 630 to the circle), a
+        // stretch s = (v / 630 % 211) / 100 + 0.5 along X and a shear
+        // (v / 630 / 211) / 100 - 1.25 (FUN_1002777a).
         let v = (flags as u32) >> 7;
         let turn = (v % 630) as f32 * std::f32::consts::TAU / 630.0;
         let s = ((v / 630) % 211) as f32 / 100.0 + 0.5;
-        (axis_angle([0.0, 1.0, 0.0], turn), [scale * s, scale, scale])
+        let shear = ((v / 630) / 211) as f32 / 100.0 - 1.25;
+        (axis_angle([0.0, 1.0, 0.0], turn), [scale * s, scale, scale], shear)
     } else {
-        (Statel::unpack_rotation(flags), [scale; 3])
+        (Statel::unpack_rotation(flags), [scale; 3], 0.0)
     };
-    Ok(Some(Statel { position, flags, mesh, scale, scale_xyz, rotation, colour, unread_rotation: unread, extras: kept }))
+    Ok(Some(Statel { position, flags, mesh, scale, scale_xyz, rotation, colour, unread_rotation: unread, shear, extras: kept }))
 }
 
 fn statels(r: &mut Reader, out: &mut Vec<Statel>) -> Result<(), Error> {
@@ -306,6 +328,32 @@ mod rotation_tests {
         // (q v q*: Hamilton's rotation)
         let p = quat_mul(quat_mul(q, [v[0], v[1], v[2], 0.0]), [-q[0], -q[1], -q[2], q[3]]);
         [p[0], p[1], p[2]]
+    }
+
+    /// A statel of the second flag layout (bit 0): turn 10 of 630, stretch index 60, shear index 150
+    /// (150 / 100 - 1.25 = 0.25), as FUN_1002777a unpacks it; its matrix raises y by shear × s × C per unit of x.
+    #[test]
+    fn second_layout_shears() {
+        let v: u32 = 10 + 630 * (60 + 211 * 150);
+        let mut bytes = Vec::new();
+        for f in [1.0f32, 2.0, 3.0] {
+            bytes.extend(f.to_le_bytes());
+        }
+        bytes.extend((((v << 7) | 1) as i32).to_le_bytes());
+        bytes.extend(77i32.to_le_bytes());
+        bytes.extend([90u8, 0]);
+        let s = statel(&mut Reader { data: &bytes, at: 0 }).unwrap().unwrap();
+        assert!(s.unread_rotation && (s.shear - 0.25).abs() < 1e-6);
+        // C = 90 / 100 + 0.1 = 1.0, s = 60 / 100 + 0.5 = 1.1
+        assert!((s.scale_xyz[0] - 1.1).abs() < 1e-6 && (s.scale_xyz[1] - 1.0).abs() < 1e-6);
+        // without the turn: a unit along x goes 1.1 along x and 0.25 × 1.1 up
+        let flat = Statel { rotation: [0.0, 0.0, 0.0, 1.0], position: [0.0; 3], ..s.clone() };
+        let m = flat.matrix();
+        assert!((m[0] - 1.1).abs() < 1e-6 && (m[1] - 0.275).abs() < 1e-6 && m[2].abs() < 1e-6, "{m:?}");
+        assert!(m[4].abs() < 1e-6 && (m[5] - 1.0).abs() < 1e-6 && (m[10] - 1.0).abs() < 1e-6);
+        // the first layout: no shear
+        let first = Statel { unread_rotation: false, shear: 0.0, ..flat };
+        assert_eq!(first.matrix(), crate::model::trs_matrix([0.0; 3], [0.0, 0.0, 0.0, 1.0], first.scale_xyz));
     }
 
     fn packed(yaw: u32, pitch: i32, roll: u32) -> i32 {

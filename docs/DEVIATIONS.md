@@ -7381,6 +7381,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: such statels are not tilted or placed as in the original; elevators silent
 - Where: `crates/mao-formats/src/statels.rs:61`; `crates/mao-formats/src/statels.rs:64`; `docs/ROADMAP.md:77`; `docs/CLIENT_UI.md:3963`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The matrix is ported: N3.dll's statel reader FUN_1002777a, for flag bit 0, after the Y turn (v % 630 × 2π/630) and the stretch s = (v/630 % 211)/100 + 0.5, builds an anim matrix scaled by (1, 1/s, 1/s) (FUN_10026cdc) and sheared by p = (v/630/211)/100 − 1.25 of x into y (FUN_10026d5c, constants read from N3.dll: 100.0, 0.5, 1.25), handed to VisualMesh_t::SetAnimMatrix (FUN_1002435c); the frame applies it before its uniform scale s×C, turn and place (randy31 refframe update_world_matrix). Statel::shear and Statel::matrix carry it, and both statel placings in main.rs use it. Left: the elevators' sound and effect. Test: statels::rotation_tests::second_layout_shears.
 
 #### `RND-142` Worn meshes: the original's two hiding modes not ported
 
