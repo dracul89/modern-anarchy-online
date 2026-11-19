@@ -1952,7 +1952,6 @@ Missed attacks at or by the character (`MissedAttackInfo`: the attacker and the 
 
 - **Reload line**: a `Reload` (`26515e61`) of your weapon now tells the original's "Reloading..." and, once the weapon's reload time (its stat 210, in hundredths of a second) is over, "Reloading completed" (FUN_100697bd, FUN_10068fd2 → FUN_1006884a; told through FUN_10059047 in the plain feedback channel, here the System tab). Not tried live; no reload is sent by the client yet.
 
-- **Backpack count**: the inventory's Backpack heading shows how many of the 30 places are used ("Backpack  12/30").
 
 - **Stop fighting**: a `StopFight` (`4a41203e`) tells nothing (the original's handler, FUN_1007a2be, only holsters the weapon); the client's own "You stop fighting." line is gone.
 
@@ -7424,4 +7423,4 @@ The client no longer tells the server its walk or run mode on entering each play
 
 ### No backpack count heading (INV-082)
 
-The "Backpack 12/30" count described earlier is not in the client: the inventory window shows no such heading, as the original. (The old "Backpack count" bullet should be deleted.)
+The "Backpack 12/30" count described earlier is not in the client: the inventory window shows no such heading, as the original.

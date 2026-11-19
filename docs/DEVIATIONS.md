@@ -43,28 +43,28 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 47 | 7 | 0 | 0 | 0 | **0** |
-| **medium** | 158 | 38 | 29 | 55 | 27 | 9 | **0** |
-| **low** | 725 | 101 | 20 | 532 | 56 | 16 | **0** |
-| **all** | 937 | 186 | 56 | 587 | 83 | 25 | **0** |
+| **medium** | 158 | 41 | 29 | 55 | 27 | 6 | **0** |
+| **low** | 725 | 107 | 20 | 532 | 56 | 10 | **0** |
+| **all** | 937 | 195 | 56 | 587 | 83 | 16 | **0** |
 
 ### By area
 
 | Area | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Movement (`MOV`) | 33 | 8 | 1 | 18 | 4 | 2 | **0** |
+| Movement (`MOV`) | 33 | 9 | 1 | 18 | 4 | 1 | **0** |
 | Combat (`CMB`) | 38 | 8 | 5 | 23 | 1 | 1 | **0** |
 | Targeting and mouse (`TGT`) | 17 | 4 | 3 | 10 | 0 | 0 | **0** |
 | Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
 | NPCs and creatures (`NPC`) | 40 | 12 | 7 | 19 | 1 | 1 | **0** |
-| Inventory and items (`INV`) | 84 | 30 | 12 | 36 | 4 | 2 | **0** |
+| Inventory and items (`INV`) | 84 | 32 | 12 | 36 | 4 | 0 | **0** |
 | Nano programs (`NAN`) | 60 | 6 | 3 | 46 | 3 | 2 | **0** |
-| Zoning and playfields (`ZON`) | 28 | 4 | 0 | 19 | 4 | 1 | **0** |
+| Zoning and playfields (`ZON`) | 28 | 5 | 0 | 19 | 4 | 0 | **0** |
 | Chat and commands (`CHT`) | 80 | 15 | 1 | 53 | 6 | 5 | **0** |
-| Windows and interface (`WIN`) | 180 | 37 | 13 | 102 | 23 | 5 | **0** |
+| Windows and interface (`WIN`) | 180 | 41 | 13 | 102 | 23 | 1 | **0** |
 | Camera (`CAM`) | 13 | 4 | 0 | 8 | 0 | 1 | **0** |
 | Rendering and world (`RND`) | 194 | 20 | 4 | 158 | 8 | 4 | **0** |
 | Sound and music (`SND`) | 17 | 3 | 0 | 14 | 0 | 0 | **0** |
-| Launcher, login, character creation (`LCH`) | 51 | 17 | 4 | 23 | 6 | 1 | **0** |
+| Launcher, login, character creation (`LCH`) | 51 | 18 | 4 | 23 | 6 | 0 | **0** |
 | Settings and files (`SET`) | 54 | 8 | 2 | 27 | 17 | 0 | **0** |
 | Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 2 | 0 | **0** |
 | Other (`OTH`) | 21 | 3 | 1 | 13 | 4 | 0 | **0** |
@@ -212,30 +212,21 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 "Your call": a client addition read overnight; its entry recommends keeping or removing it.
 
 - `MOV-029` (low) /sit command is the client's own: Addition: recommend REMOVE: the original's command list has no /sit (GUI.dll's command table FUN_100b2ac9 and the text interpreter list none); the X key (N3Msg_
-- `MOV-033` (low) Walk/run mode announced on entering each playfield: Addition: recommend REMOVE: the original never sends the walk/run mode on entering a playfield: across all captures (several zonings) its own movement messages 
 - `CMB-038` (medium) Floating combat numbers: Addition: recommend REMOVE (or put behind an option, off by default): the original draws no damage numbers over characters (no such view or setting in GUI.dll, 
 - `NPC-040` (low) Clicked NPC answer echoed locally; client line for rejected items: Addition: recommend REMOVE: the original writes NPC chat only from the server's KnubotAppendText, with no local echo of a clicked answer and no "N item(s) given
-- `INV-080` (medium) Container and overflow windows have a "Take all" button: Addition: recommend REMOVE: GUI.dll's container window has no "Take all" button or handler (docs/INVENTORY_ORIGINAL.md section 4, confirmed in `InventoryView_c`
-- `INV-082` (low) Backpack count heading: Addition: recommend REMOVE: the "Backpack 12/30" heading is no longer in the client's code (no such text in the inventory window); only docs/CLIENT_UI.md:1957 s
 - `NAN-056` (medium) Nano landing glow: three widening rings, colour from stats or school: Addition: recommend REMOVE: the original draws only the gfxtweak.bin effect a nano names (no rings of its own; the EffectRed/Green/Blue stats feed those effects
 - `NAN-058` (low) "Nano programs available." chat line: Addition: recommend REMOVE: no such line exists in the original (no text of that kind in GUI.dll's or Gamecode's strings, none sent by name from text.mdb); the 
-- `ZON-024` (medium) Client says the Shadowlands expansion is missing at the Jobe booth: Addition: recommend REMOVE (replace with the original's path): the text is the original's, but it is a criterion's failure line, not an error box: FUN_1000556a 
 - `CHT-070` (medium) Use key adds a "Using X" line and a "Nothing targeted to use" notice: Addition: recommend REMOVE: the original's use key (N3Msg_UseItem / the target's use, GUI.dll) prints no "Using X" line and no "Nothing targeted" notice; these 
 - `CHT-072` (low) /fxscript with only a name gets a parameter mark added: Addition: recommend REMOVE: the original runs a script only when a parameters part follows the name; adding the mark runs scripts the original would not.
 - `CHT-075` (low) Deposit to Market adds a client line: Addition: recommend REMOVE: the original says nothing; the market window itself shows what was sent.
 - `CHT-076` (low) Inspect result also told as a chat line: Addition: recommend REMOVE: the original only opens the info page.
 - `CHT-078` (low) Own confirmation lines for several commands: Addition: recommend REMOVE: the original says nothing for these commands (e.g. /gfx); the lines are the client's own.
 - `WIN-154` (medium) Client's own message box for 14 seconds: Addition: recommend REMOVE: the original has no such box; its messages go to the chat window as feedback lines (and some, like the screenshot, say nothing at al
-- `WIN-166` (low) Inbox status line and "Sending ..." text: Addition: recommend REMOVE the status line (or keep only the delete refusal): the original's mail window shows only InboxSize ("n/30", GUI.dll FUN_10109489), an
-- `WIN-168` (low) Inspect window: title carries the character's name, right click opens the item page: Addition: recommend REMOVE both for faithfulness: the original's Inspect window is titled Inspect and a right press opens the item menu (FUN_100e24b8); the name
-- `WIN-173` (low) Shop status line "Trade complete.": Addition: recommend REMOVE: the original's trade shows no such line; the trade window closing says it was done.
-- `WIN-175` (low) Skills window messages use the client's own words: Addition: recommend REMOVE the client's own status texts where the original says nothing, keeping text.mdb's (Skill_LackIP) where it does; "Changes sent." and "
 - `CAM-013` (low) Camera mode change prints a chat line: Addition: recommend REMOVE: the game's texts have no such line (text.mdb's camera texts are the menu's labels and tips only), so the original changes the mode s
 - `RND-185` (medium) Distance haze when the area has no fog: Addition: recommend REMOVE: the original's only fog is the area's VisualFog_t; with none it draws clear to its far clip, so the haze is a look of the client's o
 - `RND-187` (medium) Plants sway in the wind and bend away from the player: Addition: recommend REMOVE: the original has no plant flag and moves plants only through their meshes' own animations; the sway and the bend away from the playe
 - `RND-191` (low) Generic emitter: dense clouds dimmed, jitter and clamps: Addition: recommend REMOVE: the dimming, jitter and clamps change the generic emitter's look away from the template's own numbers; if a template makes a cloud t
 - `RND-192` (low) Hit effect fade-in and fade-out added: Addition: recommend REMOVE: the original's hit effects end as their own controls fade them; an extra fade in and out changes their look.
-- `LCH-043` (medium) An account with no characters is sent back to the form: Addition: recommend REMOVE: the original goes to the character screen for every character list (GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179: reply 0xe ->
 
 Low weight: see the counts above and each area's lists below.
 <!-- /status -->
@@ -372,7 +363,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - [x] `MOV-030` Auto-run key **(done)**
 - [x] `MOV-031` Own character glides between server updates **(kept by decision)**
 - [x] `MOV-032` Walk-through-props toggle (noclip) and key layout **(kept by decision)**
-- [ ] `MOV-033` Walk/run mode announced on entering each playfield **(your call)**
+- [x] `MOV-033` Walk/run mode announced on entering each playfield **(done)**
 
 **Combat**
 
@@ -391,9 +382,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 **Inventory and items**
 
 - [x] `INV-079` Auto loot of fresh corpses **(kept by decision)**
-- [ ] `INV-080` Container and overflow windows have a "Take all" button **(your call)**
+- [x] `INV-080` Container and overflow windows have a "Take all" button **(done)**
 - [x] `INV-081` Tradeskill guide made from item descriptions **(kept by decision)**
-- [ ] `INV-082` Backpack count heading **(your call)**
+- [x] `INV-082` Backpack count heading **(done)**
 - [x] `INV-083` Item finder (/find) is the client's own tool **(kept by decision)**
 - [x] `INV-084` A swap by right click is judged without the item that comes off (added 2026-11-18) **(kept by decision)**
 
@@ -407,7 +398,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Zoning and playfields**
 
-- [ ] `ZON-024` Client says the Shadowlands expansion is missing at the Jobe booth **(your call)**
+- [x] `ZON-024` Client says the Shadowlands expansion is missing at the Jobe booth **(done)**
 - [x] `ZON-025` Whom-Pah destinations learned from play and remembered **(kept by decision)**
 - [x] `ZON-026` Whom-Pah window with a Go button that walks to the booth **(kept by decision)**
 - [x] `ZON-027` Interior exit offered like a Whom-Pah booth **(kept by decision)**
@@ -445,16 +436,16 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - [x] `WIN-163` Help assistant ("Ask the guides") is the client's own window **(kept by decision)**
 - [x] `WIN-164` Help window (Ctrl+H) with find and chat input history **(kept by decision)**
 - [x] `WIN-165` Hover breakdown tooltips on stats and skills **(kept by decision)**
-- [ ] `WIN-166` Inbox status line and "Sending ..." text **(your call)**
+- [x] `WIN-166` Inbox status line and "Sending ..." text **(done)**
 - [x] `WIN-167` Info view file:// pages also search the game's text folder **(kept by decision)**
-- [ ] `WIN-168` Inspect window: title carries the character's name, right click opens the item page **(your call)**
+- [x] `WIN-168` Inspect window: title carries the character's name, right click opens the item page **(done)**
 - [x] `WIN-169` Missing game texts fall back to the client's own words **(kept by decision)**
 - [x] `WIN-170` Performance overlay **(kept by decision)**
 - [x] `WIN-171` Plain strip drawn when there is no skin **(kept by decision)**
 - [x] `WIN-172` Planet map window: map choice list inside the window **(kept by decision)**
-- [ ] `WIN-173` Shop status line "Trade complete." **(your call)**
+- [x] `WIN-173` Shop status line "Trade complete." **(done)**
 - [x] `WIN-174` Shop window title carries the shop's name **(kept by decision)**
-- [ ] `WIN-175` Skills window messages use the client's own words **(your call)**
+- [x] `WIN-175` Skills window messages use the client's own words **(done)**
 - [x] `WIN-176` The client can build planet maps of its own and list any map folder **(kept by decision)**
 - [x] `WIN-177` The client's own tool windows (damage meter, item finder, guide) **(kept by decision)**
 - [x] `WIN-178` Web pages: loading page and 8 s / 30 s proxy time-outs **(kept by decision)**
@@ -482,7 +473,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Launcher, login, character creation**
 
-- [ ] `LCH-043` An account with no characters is sent back to the form **(your call)**
+- [x] `LCH-043` An account with no characters is sent back to the form **(done)**
 - [x] `LCH-044` Character screen figure is dressed from a remembered look (looks.ini) **(kept by decision)**
 - [x] `LCH-045` Logging out (/camp) restarts the launcher and logs in again **(done)**
 - [x] `LCH-046` "No heads found" message in creation **(kept by decision)**
