@@ -2189,8 +2189,9 @@ fn shortcut_layer(ctx: &egui::Context, bars: &mut crate::shortcutbar::ShortcutBa
         // (the strip, the toggle and the grid laid along the bar: 11 + 32 + 2 + 10 cells 36 apart less the last's spacing + 2)
         let length = 11.0 + 32.0 + 2.0 + SLOTS as f32 * 36.0 - 5.0 + 2.0;
         let size = if vertical { egui::vec2(38.0, length) } else { egui::vec2(length, 38.0) };
-        // (no place kept: the bars stacked up from the bottom left, as the original's saved bars stand; its first place is not known)
-        let first = egui::pos2(screen.left(), screen.bottom() - 250.0 - b as f32 * 40.0);
+        // (no place kept: where the original's own file for the character has the bar (`Containers/ShortcutBar_<n>.xml`'s
+        // `WindowFrame`, `aoprefs.rs`), else stacked up from the bottom left)
+        let first = crate::layout::saved(&format!("ShortcutBar_{b}")).unwrap_or(egui::pos2(screen.left(), screen.bottom() - 250.0 - b as f32 * 40.0));
         let at = bars.bars[b].pos.map_or(first, |p| egui::pos2(p[0], p[1]));
         let at = egui::pos2(at.x.clamp(screen.left(), (screen.right() - size.x).max(screen.left())), at.y.clamp(screen.top(), (screen.bottom() - size.y).max(screen.top())));
         egui::Area::new(egui::Id::unique(("shortcutbar", b))).fixed_pos(at).order(egui::Order::Middle).show(ctx, |ui| {

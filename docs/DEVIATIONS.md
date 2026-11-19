@@ -4764,7 +4764,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: "not used: the bars here are the client's own"
 - A player notices: hotbars do not start where the original's did
 - Where: `crates/mao-client/src/aoprefs.rs:11`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The client's port of the original's shortcut bars (`shortcutbar.rs`) now starts each bar that has no place of its own where the character's own original file has it: `aoprefs::load` reads `Containers/ShortcutBar_<n>.xml` (n from 0, its `WindowFrame`) as `ShortcutBar_<n>`, and ui.rs's `shortcut_layer` takes that place (scaled to the window, through `layout::saved`), else the stack from the bottom left as before. Test: `aoprefs::tests::frames_are_read_from_the_archives_and_dock_areas` (a bar file's frame). The client's own smart hotbars are unchanged.
 
 #### `WIN-018` Scroll bars tinted with the theme's accent colour
 

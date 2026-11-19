@@ -7313,3 +7313,7 @@ The original's land-control view shows the character's district and its level ra
 ### Mail without a recipient or subject (WIN-013)
 
 The original's Send (GUI.dll FUN_1010733d) checks only the lengths and the money; a mail with no recipient or subject goes to the server, which answers it. The client no longer stops such a mail with its own line.
+
+### The shortcut bars start where the original had them (WIN-017)
+
+The original keeps each shortcut bar's frame in the character's `Containers/ShortcutBar_<n>.xml`. When the original's bars are on (`smart_hotbar = off`) and a bar has no place of its own here yet, it now starts where that file puts it, scaled to this window; otherwise the bars stack up from the bottom left as before.

@@ -8,7 +8,8 @@
 //! - `DockAreas/DockArea<n>.xml`: a `DockTabbedWindow` each, its `WindowFrame` and `docked_view_identities` (the window
 //!   names `inventory_window`, `mission_window`, `info_window`, a backpack's `Container_….xml`);
 //! - `Chat/Windows/Window<n>/Config.xml`: a chat window's `WindowFrame`, `name` and whether it is the startup window;
-//! - `Containers/ShortcutBar_<n>.xml`: the shortcut bars' frames (not used: the bars here are the client's own).
+//! - `Containers/ShortcutBar_<n>.xml` (n from 0): the shortcut bars' frames, as `ShortcutBar_<n>` here (the original's bars,
+//!   `shortcutbar.rs`, start there until moved).
 //!
 //! The rollup area's pages (wear, NCU, programs, team, faction: `DockableViewDockName="RollupArea"`) have no frame; they
 //! stack down the right edge (`rollup.rs`). Frames are scaled from the original's display to this window's size, so a
@@ -258,6 +259,14 @@ pub fn load(character: u32) -> Option<Original> {
             out.frames.insert("Chat".to_string(), *frame);
         }
     }
+    // (the shortcut bars' frames, one file each)
+    for n in 0..10 {
+        if let Ok(text) = std::fs::read_to_string(dir.join("Containers").join(format!("ShortcutBar_{n}.xml")))
+            && let Some(frame) = window_frame(&text)
+        {
+            out.frames.insert(format!("ShortcutBar_{n}"), frame);
+        }
+    }
     (!out.frames.is_empty()).then_some(out)
 }
 
@@ -305,6 +314,12 @@ mod tests {
 </Archive>"#;
         assert_eq!(dock_area(area), Some((vec!["inventory_window".to_string()], [2709.0, 1233.0, 3290.0, 1408.0])));
         assert_eq!(rect("Rect(1,2,0,5)"), None);
+        // (a shortcut bar's file: its frame at the top, `bar_orientation` among the rest)
+        let bar = "<Root>
+    <Rect name=\"WindowFrame\" value=\"Rect(20.000000,20.000000,422.000000,57.000000)\" />
+    <Int32 name=\"bar_orientation\" value=\"0\" />
+</Root>";
+        assert_eq!(window_frame(bar), Some([20.0, 20.0, 422.0, 57.0]));
     }
 
     /// A character's own file is found under any user's folder of any install, the one written last where two have

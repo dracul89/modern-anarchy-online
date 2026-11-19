@@ -192,6 +192,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The control center's experience bar shows shadowknowledge from level 200 and stays full past the next level's figure, as in the original.
 - Health and nano bars show the computed maximum even when the current value is above it (the bar stays full), as the original's bars do.
 - The Stats window's duel, solo and team score bars fill toward the next PvP rank's score.
+- The original-style shortcut bars start where the original client had them for the character, when it has a layout for it.
 
 ### Chat
 
