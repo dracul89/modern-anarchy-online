@@ -88,6 +88,23 @@ pub fn name_link(name: &str) -> String {
     format!("<a style=\"text-decoration:none\" href=\"user://{name}\">{name}</a>")
 }
 
+/// A channel's name as the link the original's chat lines put before the speaker (FUN_1009bc20's `chatgroup://` link,
+/// for a group of the chat server's).
+pub fn group_link(name: &str) -> String {
+    format!("<a style=\"text-decoration:none\" href=\"chatgroup://{name}\">{name}</a>")
+}
+
+/// The group a `chatgroup://` link names.
+fn linked_group(link: &str) -> Option<&str> {
+    link.get(..12).filter(|p| p.eq_ignore_ascii_case("chatgroup://")).map(|_| &link[12..]).filter(|n| !n.is_empty())
+}
+
+/// The command a press on a group's link types when it does not pick the group to talk to (FUN_100ac4f0): `/group`
+/// and the name, in quotes when it has a space in it, and a space after.
+fn group_command(group: &str) -> String {
+    if group.chars().any(char::is_whitespace) { format!("/group \"{group}\" ") } else { format!("/group {group} ") }
+}
+
 /// The character a link names (`user://`, any case as the original compares it).
 fn linked_name(link: &str) -> Option<&str> {
     link.get(..7).filter(|p| p.eq_ignore_ascii_case("user://")).map(|_| &link[7..]).filter(|n| !n.is_empty())
@@ -1033,6 +1050,33 @@ impl ChatWindow {
         }
     }
 
+    /// The chat window a frame shows now (`None`: the chat window itself; a tell window has none).
+    fn pane_of(&self, frame: Option<&str>) -> Option<usize> {
+        match frame {
+            None => Some(self.tab),
+            Some(frame) => self.shown.get(frame).copied().filter(|k| self.panes.get(*k).is_some_and(|p| p.frame == frame)).or_else(|| chatgroups::members(&self.panes, frame).first().copied()),
+        }
+    }
+
+    /// A group's name pressed in a line (`chatgroup://`, FUN_100ac4f0): with no Shift or Ctrl held, in a chat window
+    /// that shows the group, the window talks to it from then on (FUN_1009a7c0, when the group takes lines); else the
+    /// window's input bar is given `/group` and the name. A group not there is passed over.
+    fn group_pressed(&mut self, frame: Option<&str>, group: &str, qualified: bool) {
+        if !chatgroups::available(group) {
+            return;
+        }
+        let pane = self.pane_of(frame).filter(|k| !qualified && self.panes.get(*k).is_some_and(|p| p.selected.contains(group)));
+        match pane {
+            Some(k) => {
+                if self.panes[k].output != group && !chatgroups::read_only(group) {
+                    self.panes[k].output = group.to_string();
+                    chatgroups::save(&self.panes);
+                }
+            }
+            None => self.type_in(frame, &group_command(group)),
+        }
+    }
+
     /// A sent line's `%` arguments put in (`chat_commands::expand`).
     fn expand(&self, text: &str) -> String {
         chat_commands::expand(text, &self.names)
@@ -1959,6 +2003,12 @@ impl ChatWindow {
                 Some(name) if click.secondary => self.open_name_menu(ctx, &name, frame, click.at),
                 Some(name) if click.qualified => self.type_in(frame.as_deref(), &format!("/tell {name} ")),
                 Some(name) => self.ask_tell(&name),
+                None if !click.secondary
+                    && let Some(group) = linked_group(&click.link) =>
+                {
+                    let group = group.to_string();
+                    self.group_pressed(frame.as_deref(), &group, click.qualified);
+                }
                 None if !click.secondary => links.push(click.link),
                 None => {}
             }
@@ -2388,6 +2438,36 @@ mod tests {
         assert!(!w.open && w.log);
         assert_eq!(w.panes.len(), 3);
         assert_eq!((w.panes[2].selected.clone(), w.panes[2].frame.clone()), (w.panes[1].selected.clone(), w.panes[2].name.clone()));
+    }
+
+    /// A channel's name in a line is a link (FUN_1009bc20); pressing it picks the channel to talk to in a window that
+    /// shows it, else types `/group` and the name (FUN_100ac4f0).
+    #[test]
+    fn a_channels_name_is_a_link() {
+        assert!(group_link("Yy Shopping").contains("href=\"chatgroup://Yy Shopping\""));
+        assert_eq!(linked_group("chatgroup://Yy Shopping"), Some("Yy Shopping"));
+        assert_eq!(linked_group("user://Zed"), None);
+        assert_eq!((group_command("Yy OOC"), group_command("Yytrade")), ("/group \"Yy OOC\" ".to_string(), "/group Yytrade ".to_string()));
+        chatgroups::note_channel("Yy Linked", 3, 0x8004);
+        chatgroups::note_channel("Yy Linkedro", 3, 0x8006);
+        let mut w = ChatWindow::default();
+        w.panes[0].selected.insert("Yy Linked".into());
+        w.panes[0].selected.insert("Yy Linkedro".into());
+        w.group_pressed(None, "Yy Linked", false);
+        assert_eq!((w.panes[0].output.as_str(), w.input.as_str()), ("Yy Linked", ""));
+        // (a read-only group is not taken; with Shift or Ctrl, or in a window that does not show it, the command is typed)
+        w.group_pressed(None, "Yy Linkedro", false);
+        assert_eq!(w.panes[0].output, "Yy Linked");
+        w.group_pressed(None, "Yy Linked", true);
+        assert_eq!(w.input, "/group \"Yy Linked\" ");
+        w.tab = 1;
+        w.input.clear();
+        w.group_pressed(None, "Yy Linked", false);
+        assert_eq!((w.panes[1].output.as_str(), w.input.as_str()), ("", "/group \"Yy Linked\" "));
+        // (a group not there is passed over)
+        w.input.clear();
+        w.group_pressed(None, "Yy Nowhere", true);
+        assert_eq!(w.input, "");
     }
 
     #[test]

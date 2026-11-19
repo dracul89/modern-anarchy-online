@@ -2017,7 +2017,7 @@ fn run(args: &[String]) -> Result<(), String> {
                         use chatwindow::{Kind, Line};
                         let mut window = chatwindow::ChatWindow::default();
                         window.push(Line::new(Kind::System, "Welcome to AnarchyOnline"));
-                        window.push(Line::new(Kind::Channel, "[Clan OOC] Mothra: anyone want to team?").with_markup(&format!("[Clan OOC] {}: ", chatwindow::name_link("Mothra")), "anyone want to team?").in_group("Clan OOC"));
+                        window.push(Line::new(Kind::Channel, "[Clan OOC] Mothra: anyone want to team?").with_markup(&format!("[{}] {}: ", chatwindow::group_link("Clan OOC"), chatwindow::name_link("Mothra")), "anyone want to team?").in_group("Clan OOC"));
                         // (MAO_CHAT_AFK=<text>: away with that message, or with the box when it is empty)
                         if let Ok(text) = std::env::var("MAO_CHAT_AFK") {
                             window.names.own = "Tester".into();

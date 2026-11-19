@@ -7992,7 +7992,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 // (its voice line, if it carries one: `HandleGroupMessage` → FUN_1008cdb3, by the group's kind)
                                 let kind = channels.get(&channel.1).map_or(channel.0, |c| c.0);
                                 crate::voices::group_message(&mut voices, &who, kind, &blob);
-                                Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: place.clone(), at: None }.with_markup(&format!("[{place}] {}: ", crate::chatwindow::name_link(&who)), &text))
+                                Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: place.clone(), at: None }.with_markup(&format!("[{}] {}: ", crate::chatwindow::group_link(&place), crate::chatwindow::name_link(&who)), &text))
                             }
                             Some(Packet::Buddy { id, online, kind }) => {
                                 let mut buddies = BUDDIES.lock().unwrap();
