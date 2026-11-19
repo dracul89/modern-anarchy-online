@@ -209,6 +209,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The camera's rotate and zoom keys go at the original's speeds and follow the mouse turn and zoom speed settings.
 - Talking to an NPC asks it once, as the original does; the client no longer re-asks a silent NPC after two seconds.
 - Choosing a camera mode no longer prints a "Camera: ..." line.
+- The message box at the bottom left is gone: messages appear in the chat window as feedback lines, as in the original, and the client's own notices (screenshot saved, Whom-Pah destinations, walking/following, nano cancelled, zoning) are no longer shown.
 
 ### Chat
 

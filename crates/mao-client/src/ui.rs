@@ -1,10 +1,9 @@
 //! The interface drawn over the world: the heads-up display (where you are,
-//! the messages, labels over the whompah booths) and the options window
+//! labels over the whompah booths) and the options window
 //! (window mode, size, keys). `egui` does the widgets; the look is the AOU
 //! mod's translucent theme: dark warm panels with silver and gold accents.
 
-use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use mao_render::glam::Vec3;
 use mao_render::{wgpu, Gpu};
@@ -80,7 +79,9 @@ pub struct Hud {
     /// What the mouse can pick: (kind, id, feet (Z up), radius, height, picked only when nothing else is (the
     /// character itself)).
     pub pickables: Vec<crate::picking::Pickable>,
-    pub log: VecDeque<(Instant, String)>,
+    /// Lines said this frame, for the chat window: its feedback (System) lines, where the original writes its
+    /// messages. There is no message box of the client's own.
+    pub told: Vec<String>,
     /// The current target, for the target frame.
     pub target: Option<String>,
     /// The selected target's id, for the mouse (a click steps on from it, a right click prefers it).
@@ -133,12 +134,9 @@ pub struct Hud {
 }
 
 impl Hud {
-    /// Adds a message to the log (the last few stay visible for a while).
+    /// A feedback line for the chat window (the viewer hands it over before the frame is drawn).
     pub fn say(&mut self, text: impl Into<String>) {
-        self.log.push_back((Instant::now(), text.into()));
-        while self.log.len() > 8 {
-            self.log.pop_front();
-        }
+        self.told.push(text.into());
     }
 }
 
@@ -2116,7 +2114,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     gpu.queue.submit(extra.into_iter().chain(Some(encoder.finish())));
 }
 
-/// Where you are, the messages and the labels over the world.
+/// Where you are and the labels over the world.
 /// The Whom-Pah window: the booths of this area (their labels say where each leads, once known), how
 /// far they are, and a button that walks to one (the server zones a character that walks into a booth).
 fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Palette, requests: &mut Requests) {
@@ -2610,24 +2608,6 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
             frame().show(ui, |ui| {
                 ui.label(egui::RichText::new("Target").small().color(accent));
                 ui.label(egui::RichText::new(target).strong());
-            });
-        });
-    }
-    let recent: Vec<&String> = hud.log.iter().filter(|(t, _)| t.elapsed() < Duration::from_secs(14)).map(|(_, m)| m).collect();
-    if !recent.is_empty() {
-        egui::Area::new(egui::Id::unique("log")).anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(225.0, -150.0)).interactable(false).show(ctx, |ui| {
-            frame().show(ui, |ui| {
-                let font = crate::font::chat(ctx);
-                for line in recent {
-                    match &font {
-                        Some(font) => {
-                            font.label(ui, line, egui::Color32::WHITE);
-                        }
-                        None => {
-                            ui.label(line);
-                        }
-                    }
-                }
             });
         });
     }

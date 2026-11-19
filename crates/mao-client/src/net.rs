@@ -8154,10 +8154,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         eprintln!("the server sends us to {target}");
                         // The old session must be gone first, or the login is refused (the character is still logged in).
                         connection.close();
-                        let say = |text: String| {
-                            let _ = tx.send(crate::viewer::Update { messages: vec![text], messages_only: true, ..Default::default() });
-                        };
-                        say("Zoning...".into());
+                        // (the waits of a login again go to the log: the original's player sees the loading screen only)
+                        let say = |text: String| eprintln!("{text}");
                         // (straight to the new server with the session key; logging in again is the fallback)
                         let hopped = hop_direct(&target, own, session_key).or_else(|e| {
                             eprintln!("the direct hop failed ({e}); logging in again");
@@ -8533,10 +8531,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             if let Some(sign) = crate::whompah::sign_at(&booth_signs, booth[0], booth[2]).filter(|s| pf == booth_playfield && s.playfield != playfield) {
                                 eprintln!("Whom-Pah: the booth of {pf} at ({:.1}, {:.1}) has a sign to {} and led to {playfield}", booth[0], booth[2], sign.playfield);
                             }
+                            // (the booth's destination remembered for the Whom-Pah window; nothing is said)
                             if destinations.learn(pf, booth[0], booth[2], playfield) {
-                                pending_messages.push(format!("Whom-Pah: this booth leads to {to} (remembered)"));
-                            } else {
-                                pending_messages.push(format!("Whom-Pah to {to}"));
+                                eprintln!("Whom-Pah: this booth leads to {to} (remembered)");
                             }
                         }
                     }
@@ -8920,7 +8917,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         state.inspecting = Some(t);
                         let _ = connection.send(&n3::info_request(own, t));
                     }
-                    None => pending_messages.push("Nothing targeted to inspect (Tab selects)".into()),
+                    // (nothing targeted: nothing is asked and nothing said)
+                    None => {}
                 }
             }
             while autoplay.first().is_some_and(|(t, _)| autoplay_clock.elapsed().as_secs_f32() >= *t) {
@@ -9055,22 +9053,22 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                 }
             }
-            // Follow (`/follow`): walk after the target; a movement key of the player's own stops it.
+            // Follow (`/follow`): walk after the target; a movement key of the player's own stops it. What is said is the
+            // original's (Gamecode FUN_1003fe10's `follow`: `FollowingX` with the name, `Feedback_CantFollow` when it
+            // cannot); a stop says nothing.
             if raw.follow != follow_seen {
                 follow_seen = raw.follow;
                 if following.take().is_some() {
                     goto = None;
-                    pending_messages.push("Stopped following".into());
                 } else if let Some(t) = target.filter(|t| state.entities.contains_key(t)) {
                     following = Some(t);
-                    pending_messages.push(format!("Following {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
+                    pending_messages.push(crate::feedback::following(state.names.get(&t).map_or("", |n| n.0.as_str())));
                 } else {
-                    pending_messages.push("Nothing to follow (Tab selects a target)".into());
+                    pending_messages.push(crate::feedback::plain("Feedback_CantFollow"));
                 }
             }
             if following.is_some() && (raw.forward || raw.back || raw.strafe != 0 || raw.turn != 0 || raw.jump) {
                 following = None;
-                pending_messages.push("Stopped following".into());
             }
             if let Some(id) = following {
                 match state.entities.get(&id) {
@@ -9099,7 +9097,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     None => {
                         following = None;
                         goto = None;
-                        pending_messages.push("The target is gone: stopped following".into());
                     }
                 }
             }
@@ -9110,11 +9107,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // (the later order wins: a target followed until now is let go, or the walk never left its side)
                 following = None;
                 (goto_best, goto_progress, detour, detours) = (f32::MAX, Instant::now(), None, 0);
-                pending_messages.push("Walking there (any movement key stops)".into());
             }
             if goto.is_some() && (raw.forward || raw.back || raw.strafe != 0 || raw.turn != 0 || raw.jump) {
                 goto = None;
-                pending_messages.push("Stopped walking".into());
             }
             if let Some(g) = goto {
                 let distance = ((g[0] - position[0]).powi(2) + (g[1] - position[2]).powi(2)).sqrt();
@@ -9137,7 +9132,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     if detours > 12 {
                         goto = None;
-                        pending_messages.push("Can't find a way round (stopped)".into());
                     }
                     keys.face = Some((g[0] - position[0]).atan2(g[1] - position[2]) + detour.map_or(0.0, |d| d.0));
                     keys.forward = true;
@@ -9701,7 +9695,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let h: [u8; 4] = hash.as_bytes().try_into().unwrap_or([0; 4]);
                             let _ = connection.send(&n3::use_perk(own, perk_id, h));
                         }
-                        None => pending_messages.push(format!("{other}: its network message is not captured yet")),
+                        None => eprintln!("action {other}: its network message is not captured yet"),
                     },
                 }
             }
@@ -9955,7 +9949,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.nanos.retain(|n| *n != nano);
                 state.nano_list_changed = true;
                 state.mods_dirty = true;
-                pending_messages.push("Nano cancelled".into());
             }
             // (a tradeskill combine: the server answers with the result and deletes what it used up)
             if keys.combine.0 != combine_seen {
@@ -10781,7 +10774,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 Some(began) if began.elapsed() >= Duration::from_secs(30) => {
                     teleport_try = None;
-                    pending_messages.push("Area change not initiated".into());
+                    // (Gamecode `TeleportTrier_t::TeleportFailed`, 0x10037fcd)
+                    pending_messages.push(crate::feedback::plain("Feedback_AreaChangeNotInitiated"));
                 }
                 Some(_) if !at_door => teleport_try = None,
                 _ => {}
@@ -11131,6 +11125,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 let mut chat_lines_now: Vec<crate::chatwindow::Line> = std::mem::take(&mut *CHAT_LINES.lock().unwrap());
                 chat_lines_now.extend(std::mem::take(&mut state.game_lines));
+                // (the feedback lines of the loop's own, in the chat window as the original writes its feedback)
+                chat_lines_now.extend(pending_messages.drain(..).map(|text| crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text)));
                 let friends_now = {
                     let buddies = BUDDIES.lock().unwrap();
                     (buddies.0 != friends_seen).then(|| {
@@ -11189,7 +11185,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     })
                 };
                 let update = crate::viewer::Update {
-                    messages_only: false,
                     target_nanos,
                     keep_camera: std::mem::take(&mut pending_keep_camera) && pending_scene.is_some(),
                     scene: pending_scene.take(),
@@ -11453,12 +11448,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     info_urls: std::mem::take(&mut state.info_urls),
                     open_windows: std::mem::take(&mut state.open_windows),
                     browser: state.browser.take(),
-                    messages: {
-                        for line in &chat_lines_now {
-                            pending_messages.push(line.text.clone());
-                        }
-                        std::mem::take(&mut pending_messages)
-                    },
                     chat_lines: chat_lines_now,
                     friends: friends_now,
                     loot: std::mem::take(&mut state.loot_changed).then(|| {

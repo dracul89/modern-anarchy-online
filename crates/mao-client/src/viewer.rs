@@ -127,8 +127,6 @@ const CLOUD_SHEET: u16 = 0xb101;
 /// follows it).
 #[derive(Default)]
 pub struct Update {
-    /// An update that only carries messages (nothing to draw): the picture stays as it was.
-    pub messages_only: bool,
     /// A new playfield to replace the one drawn (zoning).
     pub scene: Option<Model>,
     /// The scene is the playfield the character is in already, drawn again (a city's houses came): no new camera.
@@ -228,8 +226,6 @@ pub struct Update {
     pub browser: Option<crate::browser::Request>,
     /// Windows to open (a mail terminal or mission booth used).
     pub open_windows: Vec<&'static str>,
-    /// Messages for the log.
-    pub messages: Vec<String>,
     /// The current target (name and distance), for the target frame.
     pub target: Option<String>,
     /// The selected target's id (`Hud::selected`).
@@ -1010,11 +1006,10 @@ fn fire_action(action: &crate::hotbar::Action, keys: &mut Input, hud: &mut Hud) 
         crate::hotbar::Action::Special { id, .. } => keys.special = (keys.special.0.wrapping_add(1), *id),
         crate::hotbar::Action::Social { id, .. } => keys.social = (keys.social.0.wrapping_add(1), *id),
         crate::hotbar::Action::Nano { id, .. } => keys.cast = (keys.cast.0.wrapping_add(1), *id),
-        // (FUN_100d833f: the macro's line carried out as typed; one whose number has no macro is "Broken macro")
+        // (FUN_100d833f: the macro's line carried out as typed; one whose number has no macro does nothing ("Broken
+        // macro" is only its name on the bar, FUN_10042193))
         crate::hotbar::Action::Macro { id, .. } => {
-            if !crate::macros::press(*id) {
-                hud.say("Broken macro");
-            }
+            crate::macros::press(*id);
         }
         crate::hotbar::Action::Item { id, name, .. } => {
             // The first stack of that item (the backpack before anything worn).
@@ -1716,12 +1711,17 @@ impl ApplicationHandler for App {
                             let _ = live.input.send(self.keys);
                         }
                     }
+                    // (what the client said since the last frame goes to the chat window as its feedback lines, where
+                    // the original writes its messages: there is no message box of the client's own)
+                    for text in self.hud.told.drain(..) {
+                        ui.chat.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
+                    }
                 }
                 // The game's camera is stepped once the character's place for this frame is known (below).
                 let dt = self.last_follow.elapsed().as_secs_f32().min(0.25);
                 self.last_follow = std::time::Instant::now();
                 if let Some(live) = &self.live {
-                    // Every update's messages count; the last one's picture is drawn.
+                    // Every update counts; the last one's picture is drawn.
                     let mut updates: Vec<Update> = live.overlays.try_iter().collect();
                     // The game's connection thread ends with the connection: the server logged the character out.
                     if matches!(live.overlays.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)) && !self.logged_out {
@@ -1729,9 +1729,6 @@ impl ApplicationHandler for App {
                         event_loop.exit();
                     }
                     for u in &mut updates {
-                        for m in std::mem::take(&mut u.messages) {
-                            self.hud.say(m);
-                        }
                         self.hud.target = u.target.take();
                         self.hud.selected = u.selected;
                         if let Some(bars) = u.target_bars.take() {
@@ -1961,7 +1958,7 @@ impl ApplicationHandler for App {
                     let (mut scene, mut environment, mut daylight) = (None, None, None);
                     // (a new camera unless every scene of the lot is the same playfield again)
                     let mut keep_camera = true;
-                    for u in updates.iter_mut().filter(|u| !u.messages_only) {
+                    for u in updates.iter_mut() {
                         if let Some(s) = u.scene.take() {
                             scene = Some(s);
                             keep_camera &= u.keep_camera;
@@ -1973,7 +1970,7 @@ impl ApplicationHandler for App {
                             daylight = Some(d);
                         }
                     }
-                    let latest = updates.into_iter().filter(|u| !u.messages_only).last();
+                    let latest = updates.into_iter().last();
                     if let Some(mut update) = latest {
                         (update.scene, update.environment, update.daylight) = (scene, environment, daylight);
                         update.keep_camera = keep_camera && update.scene.is_some();
@@ -2787,7 +2784,11 @@ impl ApplicationHandler for App {
                         ];
                         let _ = std::fs::write(dir.join(format!("{name}.txt")), crate::shotnotes::text(&heading, self.hud.target.as_deref()));
                     }
-                    self.hud.say(if saved { format!("Screenshot saved: {}", path.display()) } else { "The screenshot could not be saved".to_string() });
+                    // (nothing is said: `FlowControlModule_t::SlotScreenshot`, 0x1002848e, only asks for the picture; a
+                    // failure goes to the log)
+                    if !saved {
+                        eprintln!("the screenshot could not be saved to {}", path.display());
+                    }
                 }
                 prof_t = crate::prof::lap("scene", prof_t);
                 w.renderer.draw(&w.gpu, &w.scene, &camera, &view, size);
@@ -2873,7 +2874,7 @@ impl ApplicationHandler for App {
                                         Ok(page) => w.page = Some(page),
                                         Err(e) => {
                                             ui.browser.open = false;
-                                            self.hud.say(format!("The web page could not be opened: {e}"));
+                                            eprintln!("the web page could not be opened: {e}");
                                         }
                                     }
                                 }
@@ -2935,16 +2936,14 @@ impl ApplicationHandler for App {
                             }
                             crate::chatwindow::Out::Quit => event_loop.exit(),
                             crate::chatwindow::Out::ToggleWindow { name } => {
+                                // (FUN_100b7da5: a name it does not know does nothing)
                                 let open = !ui.window_open(name.trim().to_lowercase().as_str());
-                                if !ui.set_window(&name, open) {
-                                    self.hud.say(format!("No window called {name:?}."));
-                                }
+                                ui.set_window(&name, open);
                             }
                             crate::chatwindow::Out::Assist { name } => crate::net::assist(name),
-                            crate::chatwindow::Out::Window { name, open } => match ui.set_window(&name, open) {
-                                true => {}
-                                false => self.hud.say(format!("No window called {name:?} (inventory, stats, skills, ncu, friends, programs, perks, help, map, actions, missions, mail, chat)")),
-                            },
+                            crate::chatwindow::Out::Window { name, open } => {
+                                ui.set_window(&name, open);
+                            }
                             crate::chatwindow::Out::Waypoint { x, z } => {
                                 self.keys.goto = (self.keys.goto.0.wrapping_add(1), [x, z]);
                                 if let Some(live) = &self.live {

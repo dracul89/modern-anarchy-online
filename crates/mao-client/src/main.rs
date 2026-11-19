@@ -2312,8 +2312,6 @@ fn run(args: &[String]) -> Result<(), String> {
                             hud.gear_open = true;
                         }
                     }
-                    hud.say("Welcome to Old Athens");
-                    hud.say("Whom-Pah: this booth leads to Tir (remembered)");
                     viewer::headless_with(&model, &textures, out, Some((&hud, preview.as_deref() == Some("options"))))
                 }
                 [flag, out] if flag == "--image" => viewer::headless(&model, &textures, out),

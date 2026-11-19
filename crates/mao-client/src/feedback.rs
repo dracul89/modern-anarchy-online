@@ -60,6 +60,9 @@ fn english(name: &str) -> &'static str {
         "Feedback_FallDamage" => "You took %u points of fall damage.",
         "DroppedItemWasLocked" => "That item is locked.",
         "Feedback_CantLogOutInAFight" => "You can't log out while in a fight.",
+        "FollowingX" => "Now following %s.",
+        "Feedback_CantFollow" => "That target can't be followed.",
+        "Feedback_AreaChangeNotInitiated" => "The area change did not start; step back or cross again.",
         "Feedback_AttackedByForPointsOfDamage" => "You were attacked with %s for %u points of %s damage.",
         "Feedback_YouWereAttackedByNanobotsFrom" => "You were attacked with nanobots from %s for %u points of %s damage.",
         "Feedback_AttackedByNanobotsForPointsOfDamage" => "You were attacked with nanobots for %u points of %s damage.",
@@ -511,6 +514,11 @@ pub fn detected(who: &str) -> String {
 /// The client starting a nano program (N3Msg_CastNanoSpell, 0x1001b5d4: feedback 0x47 with the nano's name).
 pub fn executing(nano: &str) -> String {
     line("Feedback_ExecutingNanoProgram", &[Arg::Text(nano)])
+}
+
+/// `/follow` started (Gamecode FUN_1003fe10's `follow`: `FollowingX` fed the target's name).
+pub fn following(name: &str) -> String {
+    line("FollowingX", &[Arg::Text(name)])
 }
 
 #[cfg(test)]

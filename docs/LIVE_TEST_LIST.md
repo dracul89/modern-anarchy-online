@@ -1092,6 +1092,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Cast a nano with a long recharge: no "Nano programs available." line when it is over.
 - [ ] Talk to an NPC and click an answer: it shows as your line once (no duplicate), the answers go until the NPC replies; give an unwanted item: it returns with no line.
 - [ ] Typing /sit does not sit the character (the unknown-script line comes instead); X still sits and stands.
+- [ ] No box appears at the bottom left; F12 saves a screenshot silently; /follow with a target says "Following <name> ...", without one "Cannot follow selected target."; /logout-in-fight and similar feedback lines show in chat once (not twice).
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

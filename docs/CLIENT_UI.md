@@ -7484,3 +7484,7 @@ The client's own "N item(s) given back." line in the NPC chat window was removed
 ### No /sit command (MOV-029)
 
 The client's own `/sit` command was removed: the original has none, and typing it now does what any unknown command does (it is taken for a script's name). The X key sits down and stands up as the original's `N3Msg_SitToggle` does, and `/camp` logs out.
+
+### No message box of the client's own (WIN-154)
+
+The client's own box of transient messages at the left bottom of the screen was removed. As in the original, messages are feedback lines in the chat window: the game's texts where the original writes them (logout, actions not available, /follow's "Following ..." and "Cannot follow selected target.", a failed crossing's "Area change not initiated ...", /assist, /duel, mission waypoints), and nothing where the original says nothing (a screenshot, a missing macro's press, an unknown window name, a cancelled nano, the walk-to and Whom-Pah notices, zoning). The client's smart hotbar, an option of its own, tells its waits in chat.
