@@ -1393,7 +1393,6 @@ impl ChatWindow {
             }
             Parsed::SelectSelf => Some(Out::SelectSelf),
             Parsed::SetOption { name, value } => Some(Out::SetOption { name, value }),
-            Parsed::Inspect => Some(Out::Inspect),
             Parsed::InspectEquipment { id } => {
                 crate::charinfo::ask_equipment(id);
                 None

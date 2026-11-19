@@ -3773,7 +3773,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: /inspect alone (or with a name) asks about the target and opens the info page
 - A player notices: /inspect alone does something
 - Where: `crates/mao-client/src/chat_commands.rs:377`; `docs/CLIENT_UI.md:4566`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): GUI.dll's /inspect (FUN_100b280d) does nothing with fewer than two pieces, else reads the second piece with strtoul(.., 10) and asks N3Msg_Inspect for (50000, that number): a name reads as 0. The client's own /inspect-the-target (alone or with a name) is gone; the word is read by a port of the CRT's strtoul (chat_commands::strtoul10: blanks, sign, digits to the first other character, ULONG_MAX on overflow). Test: chat_commands::tests::lines_become_commands (/inspect alone, a name, "12ab", overflow and sign).
 
 #### `CHT-006` /items delete is left out
 

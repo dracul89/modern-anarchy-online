@@ -7133,3 +7133,7 @@ The original's cast effect (the program's CastEffectType, a _GfxControlSpell1_t)
 ### /tell alone (CHT-007)
 
 `/tell` with no name does nothing in the original (FUN_100ba8d5 wants two pieces). The client used to open a tell window for the target; it now does nothing too.
+
+### /inspect takes a number (CHT-005)
+
+`/inspect` alone does nothing in the original (FUN_100b280d); with a word it reads it as a number by strtoul and asks what that character wears, a name reading as 0. The client's own /inspect of the target is gone.

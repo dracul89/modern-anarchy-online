@@ -115,8 +115,6 @@ pub enum Parsed {
     CharDist { distance: Option<u32> },
     /// `/follow`: walk after the current target (again: stop).
     Follow,
-    /// `/inspect`: say what is known of the current target (level, profession, health).
-    Inspect,
     /// `/inspect <a character's number>` (GUI.dll FUN_100b280d): ask for what that character wears. The info page's
     /// "Inspect Equipment" link is this command.
     InspectEquipment { id: u32 },
@@ -352,6 +350,25 @@ pub fn expand(text: &str, names: &Names) -> String {
     out
 }
 
+/// The CRT's `strtoul(text, NULL, 10)` on a 32-bit `unsigned long`: blanks skipped, a sign, the digits up to the first
+/// other character (0 when there are none), ULONG_MAX on overflow, a minus negating the value.
+fn strtoul10(text: &str) -> u32 {
+    let t = text.trim_start();
+    let (negative, digits) = match t.as_bytes().first() {
+        Some(b'-') => (true, &t[1..]),
+        Some(b'+') => (false, &t[1..]),
+        _ => (false, t),
+    };
+    let mut value: u64 = 0;
+    for b in digits.bytes().take_while(u8::is_ascii_digit) {
+        value = value * 10 + u64::from(b - b'0');
+        if value > u64::from(u32::MAX) {
+            return u32::MAX;
+        }
+    }
+    if negative { (value as u32).wrapping_neg() } else { value as u32 }
+}
+
 fn known(word: &str) -> Option<&'static str> {
     COMMANDS.iter().chain(EXTRA).copied().find(|c| c.eq_ignore_ascii_case(word))
 }
@@ -435,9 +452,11 @@ pub fn parse(line: &str) -> Parsed {
             None => Parsed::Usage("/voice <sound name>"),
         },
         "follow" => Parsed::Follow,
-        "inspect" => match text.trim().parse::<u32>() {
-            Ok(id) => Parsed::InspectEquipment { id },
-            Err(_) => Parsed::Inspect,
+        // (FUN_100b280d: nothing alone; else the second piece read by `strtoul(.., 10)`, 0 for a word, and
+        // `N3Msg_Inspect` of that character)
+        "inspect" => match text.split_whitespace().next() {
+            Some(word) => Parsed::InspectEquipment { id: strtoul10(word) },
+            None => Parsed::Nothing,
         },
         // (`/lft` opens its window, as the original's command does. `/raid` does not: it is the raid's commands, a
         // line for Gamecode's text interpreter, and until 2026-11-18 it opened the raid window here, which is
@@ -743,9 +762,12 @@ mod tests {
         assert_eq!(parse("/pet Terminate"), pet(&[], 10, 0, ""));
         assert_eq!(parse("/sit"), Parsed::Sit);
         assert_eq!(parse("/follow"), Parsed::Follow);
-        assert_eq!(parse("/inspect"), Parsed::Inspect);
+        // (FUN_100b280d: alone nothing; the word read by strtoul, 0 for a name)
+        assert_eq!(parse("/inspect"), Parsed::Nothing);
         assert_eq!(parse("/inspect 2065585191"), Parsed::InspectEquipment { id: 2065585191 });
-        assert_eq!(parse("/inspect Somebody"), Parsed::Inspect);
+        assert_eq!(parse("/inspect Somebody"), Parsed::InspectEquipment { id: 0 });
+        assert_eq!(parse("/inspect 12ab"), Parsed::InspectEquipment { id: 12 });
+        assert_eq!((strtoul10("99999999999"), strtoul10("-1"), strtoul10("+7")), (u32::MAX, u32::MAX, 7));
         assert_eq!(parse("/open skills"), Parsed::Window { name: "skills".into(), open: true });
         assert_eq!(parse("/raid"), Parsed::RaidCommand { text: String::new() });
         assert_eq!(parse("/raid move 12 3"), Parsed::RaidCommand { text: "move 12 3".into() });
