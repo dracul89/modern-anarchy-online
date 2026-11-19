@@ -7305,3 +7305,7 @@ The original's music player seeds its random numbers with the tick count when it
 ### The inbox size counts the list's rows (WIN-009)
 
 The original's mail window shows its size as the rows in its list over 30 (GUI.dll FUN_10109489). The client now writes the same, where it showed the server's count.
+
+### The district's level range at the map's corner (WIN-011)
+
+The original's land-control view shows the character's district and its level range at 5, 5 of the map (GUI.dll FUN_100eb04b). The playfield map window now shows it there too when the land-control view is on; the client's own overlay map keeps it under its button.

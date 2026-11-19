@@ -4709,6 +4709,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: district range text in a different place
 - Where: `docs/CAPTURE_GAPS.md:214`; `crates/mao-client/src/automap.rs:699`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): GUI.dll FUN_100eb04b puts the district's TextView at 5, 5 of the map renderer. The client's original-style playfield map window (`AutoMap::pf_window`) now draws the district text at 5, 5 of its map when the land-control view is on; the client's own overlay map keeps it under its button, the overlay being the client's own. No unit test (drawing); automap tests pass.
 
 #### `WIN-012` Link words stretched so a click anywhere chooses
 

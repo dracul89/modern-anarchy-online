@@ -1058,6 +1058,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Drag an inventory item onto an empty cell in the middle of an open backpack: it appears in that cell.
 - [ ] With a ring worn on its own place and the other ring place free, right click a second ring: the worn one comes off and the new one goes on its place.
 - [ ] Start the game twice in the same place: the music's first pieces differ between the runs
+- [ ] Playfield map window on a Notum Wars playfield, land control on: the district and "Lvl Rng" text at the map's top left
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

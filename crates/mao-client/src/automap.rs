@@ -765,6 +765,10 @@ impl AutoMap {
             }
             self.land(&painter, rect, center, PX, None, false);
             self.towers(&painter, rect, center, PX, None, towers, false);
+            // (the character's district at 5, 5 of the map, FUN_100eb04b)
+            if let Some(text) = self.district_text() {
+                painter.text(rect.min + egui::vec2(5.0, 5.0), egui::Align2::LEFT_TOP, text, egui::FontId::proportional(12.0), egui::Color32::WHITE);
+            }
             let skin = crate::skin::skin(ctx);
             for (p, kind) in dots {
                 let at = Self::to_screen(rect, center, PX, None, *p);
