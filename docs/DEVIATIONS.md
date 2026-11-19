@@ -1712,7 +1712,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: double click no longer uses an item; Ctrl+double click still puts an item into an open trade
 - A player notices: double clicking an item does not use it
 - Where: `docs/CLIENT_UI.md:3327`; `crates/mao-client/src/invwindows.rs:21`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): not a rule of the client's own: the original's item lists have no double-click handler. The first click takes the item up and the second puts it back on its own cell (FUN_100cc6e8, FUN_100cc855); an item is used by a right click. Nothing to change. `docs/INVENTORY_ORIGINAL.md` section 1.
 
 #### `INV-004` Right click with an item in hand always does a tradeskill combine
 

@@ -6405,3 +6405,11 @@ lists of that kind pick up from a held press).
 the inventory.
 
 Tests: `gui::multilist`'s `grid_cells` (the click-only list), `invwindows`' and `loot`'s click tables.
+
+### No use by double click: the original has none either (INV-003)
+
+The entry had the client's rule as its own. It is the original's: its item lists have no double-click handler at
+all. Two clicks are two clicks: the first takes the item up (FUN_100cc6e8), the second lets it go on its own
+cell, which cancels the drag and leaves it where it was (FUN_100cc855: the held item's identity is the cell's).
+An item is used by a right click. Nothing was changed for this entry; the Ctrl + double click the client had
+beside it went with NPC-014.
