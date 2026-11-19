@@ -8943,6 +8943,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no Notum Wars interface
 - Where: `docs/GUI_DLL_PARITY.md:110`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-18): Done: the battlestation's signup terminal (a used terminal of window kind 3 opens it: the place in the queue, the side, Sign Up and Leave Queue, with the server's QueueUpdate), from the decompile alone. Left: the laser target and the airstrike (one window; its list's record was not read to the end), the vehicles' window, the tower build menu (its Build message is in no decompile at hand) and the battlestation's own view (needs a battle's state). None of the six has a message in any capture; the survey is in CLIENT_UI.md.
 
 #### `OTH-011` Help assistant: other sites and sources not done
 

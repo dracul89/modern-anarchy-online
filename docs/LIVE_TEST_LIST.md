@@ -936,6 +936,9 @@ These were written before this list; some may have been seen working since witho
   mission's locked door with its key, and the doors inside an apartment: they should open as you walk up. Tell me
   of a door that opens here and the server then pulls you back from, or one the original opens and this does not;
   the log says "door ... locked, key ..." when the server locks one.
+- [ ] The battlestation's signup terminal (2026-11-18): use one: the window should come up with your place in the
+  queue. Sign up with a side, leave the queue. Send me the log either way: it says "battlestation queue: ..." for
+  what was asked and for the server's answer; nothing of this was ever captured.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

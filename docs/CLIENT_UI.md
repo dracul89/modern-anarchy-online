@@ -6056,3 +6056,32 @@ Here (`net.rs` `door_lock`, `door_may_pass`, `World::tick_doors`, `keys_held`; `
   not kept). The line about the full backpack hangs on the list and is not said, and nobody is pushed back.
 Tests: `a_locked_door_lets_through_who_may_pass`, `a_locked_door_opens_at_the_touch_of_one_who_may_pass`, the door
 word's lock in `door_tests`.
+
+### The Notum Wars and battlestation windows (OTH-010): surveyed, one ported
+
+A survey of the six windows the entry names, by a reader; the signup terminal's part was checked here and ported.
+**None of their messages is in any capture**, so everything below is the decompile's word alone.
+
+**How four of them are opened.** A used terminal whose template has the spell 0xcf7b names a window kind (its stat
+39; Gamecode FUN_100a9cf4, which `client_window` already reads for the market and the mail) and GUI.dll's
+FUN_1002e2fe opens it: 3 the signup terminal, 4 the laser target, 5 the airstrike, 7 the vehicles (0 the market, 8
+the mail). Kinds 4, 5 and 7 are only opened for a character whose stat 389 has bit 0x20; kind 3 has no such test.
+
+| Window | Class, view | Opened by | Asks and gets | Here |
+|---|---|---|---|---|
+| Signup terminal | `SignupTerminal_c` FUN_100f499a, `Views/SignupTerminal.xml` | kind 3 | CharacterAction 0xfe (how the character stands), 0xfd (join, the side as the second parameter, after `SetStat` of 0x29c), 0xff (leave); `QueueUpdate` `2c2f061c` with the place | **ported**, `signup.rs` |
+| Laser target, airstrike | `LaserTarget_c` FUN_100f2e32 (one class, the mode from the kind), `Views/LaserTarget.xml`: a list "Player Name", "Area", "Level Range" | kinds 4 and 5 | CharacterAction 0x100 (refresh), 0x102 (orbital attack), 0x103 (airstrike) on the chosen row's identity (0xc73d, row); `LaserTagList` `2933154f` | not done: the list's record was not read to the end (which number is which column), and no terminal of these kinds was looked for |
+| Vehicles | FUN_100f3e80, `Views/MechSelect.xml`, `esc_vehicle` | kind 7, the control center's vehicle button (Shift+V, `OpenVehicleWindowMessage`) | a button for each finished global research goal whose item is a vehicle; `SpawnMech` `464d000a` with the perk | not done |
+| Tower build menu | `TowerBuildMenuView_c` FUN_1005cb45, made in code, `esc_towerbuildmenu` | the map control's Build and War buttons (FUN_100ec95f, FUN_100ec9f3) | an item dropped in; a check (CharacterAction 0xaf by the reader's reading) and `BuildTower`, whose message is in no decompile at hand; the answer's texts are Gamecode FUN_10129b8f's | not done: the exchange is unknown |
+| Battlestation | `BattlestationView_c` FUN_100f8967, made in code from four pictures and the points' places | the server's `ArriveAtBs` `540e3b27`; closed by `BattleOver` `4b062919` | `SendScore` `44483b3a`, the points' places | not done: needs a battle's own state |
+
+**The signup terminal as ported** (`signup.rs`, `mao_net::n3::queue_action` / `queue_place`): the window from its
+view file, the drop-down's two sides (texts 8 and 9 of category 2005) with the character's stat 0x29c chosen; the
+question to the server as it comes up; the place shown, and "Sign Up" and the drop-down dead while the place is not
+0 (FUN_100f47ae); "Sign Up" refused with a line when no side is chosen or the character's stat 0x29e is below 1
+(FUN_100f4595), else the side set and the queue joined; "Leave Queue"; "Close". Each queue action is
+`FUN_10072a88(own identity, own identity, 0, the action, (0, side), "")`: a CharacterAction whose target is the
+character itself. The window's three lines are English in the program and are in this client's words here. Not
+read: what a change of the drop-down does by itself. Looked at offscreen (`MAO_UI_PREVIEW=signup`,
+`MAO_SIGNUP_PLACE=<n>`). **A guess in all of it: that a server answers these as the decompile reads.**
+Tests: `signing_up_needs_a_side_and_a_good_name`, `the_queues_actions_and_its_word`.

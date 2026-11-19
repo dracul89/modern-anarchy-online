@@ -40,6 +40,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   menu (list mode and ordering for the inventory and containers, the labels for the wear and inspect windows) and
   Close Window.
 - The inspect window has its own "Labels On Top".
+- The battlestation's signup terminal has its window: your place in the queue, the side, Sign up and Leave queue.
+  (Built from the original's code alone: it has not met a server yet.)
 
 ### Items
 
