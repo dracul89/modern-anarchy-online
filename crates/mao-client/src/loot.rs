@@ -602,11 +602,12 @@ impl LootWindow {
             let new = slots.iter().copied().find(|p| !known.contains_key(p)).filter(|_| !known.is_empty())?;
             Some((new, cell))
         });
-        if awaited.is_some() && self.awaited.is_none() || self.awaited_cell.is_some_and(|(_, since)| since.elapsed() > std::time::Duration::from_secs(5)) {
+        // (kept until an item comes for it, as the original keeps +0x150, FUN_100ce25d: no time-out)
+        if awaited.is_some() && self.awaited.is_none() {
             self.awaited_cell = None;
         }
         let cells = if view.placed() { crate::places::arrange(view.identity, &slots, view.room(), awaited) } else { crate::places::Cells::new() };
-        if self.awaited.is_some_and(|(place, _, since)| items.iter().any(|i| i.slot == place) || since.elapsed() > std::time::Duration::from_secs(5)) {
+        if self.awaited.is_some_and(|(place, _, _)| items.iter().any(|i| i.slot == place)) {
             self.awaited = None;
         }
         let now: Vec<(u32, u16, Option<u32>, Option<(usize, usize)>)> = items.iter().map(|i| (i.slot, i.count, i.icon.as_ref().map(|c| c.id), cells.get(&i.slot).filter(|_| hand).map(|c| (c % grid_columns, c / grid_columns)))).collect();

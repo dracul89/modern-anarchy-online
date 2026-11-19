@@ -524,7 +524,8 @@ impl ItemWindows {
             let columns = multilist::grid_columns(&view.tree, view.list).unwrap_or(5).max(1);
             let places: Vec<u32> = pack.iter().map(|i| i.slot).collect();
             let cells = if items.is_empty() { crate::places::Cells::new() } else { crate::places::arrange(crate::places::INVENTORY, &places, PACK_PLACES as usize, self.awaited.map(|a| (a.0, a.1))) };
-            if self.awaited.is_some_and(|(place, _, since)| by_slot.contains_key(&place) || since.elapsed() > std::time::Duration::from_secs(5)) {
+            // (kept until the item comes, as the original keeps +0x150 for the next item added, FUN_100ce25d: no time-out)
+            if self.awaited.is_some_and(|(place, _, _)| by_slot.contains_key(&place)) {
                 self.awaited = None;
             }
             let mut hovered_cell: Option<usize> = None;

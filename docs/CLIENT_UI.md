@@ -7281,3 +7281,7 @@ The tradeskill window's "Result will be QL n ..." line names the item the chosen
 ### Wear places take their own page's items (INV-036)
 
 The original's wear check (Gamecode FUN_100498ed, FUN_10080659) lets an item onto a wear place only when the place's page takes the item's class (weapons, clothes, implants and spirits, and on the social page clothes and weapons, a weapon only on the social hands) and the place is one of the item's placements. The client now does the same before it sends a move.
+
+### A dropped item's cell waits for it (INV-046)
+
+The original keeps the cell an item was let go on until the item comes (GUI.dll FUN_100ce25d, the view's +0x150). The client forgot it after five seconds; now it waits, so on a slow server the item still lands where it was let go.

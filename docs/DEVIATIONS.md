@@ -2475,7 +2475,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The awaited cell expires after 5 s.
 - A player notices: With a slow server the item appears in the first free cell instead of the drop cell.
 - Where: `crates/mao-client/src/invwindows.rs:364`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The cell a drop names now waits for its item without the client's 5-second time-out, in the inventory and in the containers (own backpacks, the bank): GUI.dll keeps it in the view's +0x150 until the next item is added (FUN_100ce25d), with no timer. Test: the places tests build.
 
 #### `INV-047` Stat names fall back to the client's own table
 
