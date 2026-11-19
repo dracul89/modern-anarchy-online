@@ -328,10 +328,20 @@ impl ControlCenter {
             return;
         }
         if entry.actions_for("on_invoke").next().is_some() {
+            let before = (!entry.name.is_empty()).then(|| self.store.get_bool(&entry.name));
             self.run(entry, "on_invoke", stats, out);
+            // (an invoke that changed the entry's own value: its callback runs as below)
+            if let Some(on) = before.filter(|&on| on != self.store.get_bool(&entry.name)) {
+                self.run(entry, if on { "on_deactivate" } else { "on_activate" }, stats, out);
+            }
         } else if !entry.name.is_empty() {
             let on = self.store.get_bool(&entry.name);
             self.store.set(&entry.name, Variant::from(!on));
+            // (the entry's value changed: its `on_activate` actions run when it came on, `on_deactivate` when it went
+            // off, as the entry's `DistributedValue_c` callback FUN_10065dd0 runs its lists +0x1e0 and +0x1f0
+            // (FUN_10065255, each block by its criteria). The skin's menus close the other windows there while
+            // `AutoCloseWindows` is on.)
+            self.run(entry, if on { "on_deactivate" } else { "on_activate" }, stats, out);
         }
     }
 
@@ -546,6 +556,35 @@ mod tests {
 
     /// `MAO_GAME`: every window the game's own menus name (`*_window` and the Team menu's `team_view`, in
     /// `cd_image/gui/Default/ActionMenu`) is one of the client's windows.
+    /// A window's menu entry turned on runs its `on_activate` actions (FUN_10065dd0): with `AutoCloseWindows` on, the
+    /// game's character menu closes the other windows; with it off (the game's default) nothing else changes.
+    #[test]
+    fn auto_close_windows_closes_the_others() {
+        let doc = crate::gui::xml::parse(
+            r#"<Menu><MenuEntry label="Skills" name="skill_window">
+		<Actions criteria="dvalue:AutoCloseWindows" event="on_activate">
+			<SetValue name="wear_window" value="false"/>
+			<SetValue name="nano_window" value="false"/>
+		</Actions>
+	</MenuEntry></Menu>"#,
+        );
+        let entry = crate::gui::menu::entries(&doc[0].children).remove(0);
+        let stats = BTreeMap::new();
+        for auto in [false, true] {
+            let mut cc = ControlCenter { store: Store::default(), docks: Default::default(), dirs: Vec::new(), tree: Tree::default(), root: 0, popups: Vec::new() };
+            cc.store.set("AutoCloseWindows", Variant::from(auto));
+            cc.store.set("wear_window", Variant::from(true));
+            cc.store.set("nano_window", Variant::from(true));
+            cc.invoke(&entry, egui::Rect::NOTHING, false, 0, &stats, &mut Output::default());
+            assert!(cc.store.get_bool("skill_window"));
+            assert_eq!((cc.store.get_bool("wear_window"), cc.store.get_bool("nano_window")), (!auto, !auto));
+            // (turned off again: no activate actions)
+            cc.store.set("wear_window", Variant::from(true));
+            cc.invoke(&entry, egui::Rect::NOTHING, false, 0, &stats, &mut Output::default());
+            assert!(!cc.store.get_bool("skill_window") && cc.store.get_bool("wear_window"));
+        }
+    }
+
     #[test]
     fn the_games_menus_open_the_clients_windows() {
         let Some(game) = std::env::var_os("MAO_GAME") else { return };

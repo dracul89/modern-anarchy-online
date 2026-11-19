@@ -102,6 +102,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Framed chat windows fade when the pointer leaves them like other windows (pin them to keep them solid); borderless chat windows fade as a whole to their "inactive" level unless being typed in.
 - The mission journal remembers your active mission between sessions and puts its waypoint back on the map when the journal opens or after zoning.
 - "Update Team Members" in a team mission's menu now works (sends the original's request to the server).
+- With the AutoCloseWindows preference on, opening a window from the menus closes the other character windows, as in the original.
 
 ### Items
 

@@ -1119,6 +1119,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Wear-effect lists that depend on a running nano still sum as before on the skills window.
 - [ ] Open the info of a perk-locked item and a nano crystal: the requirement lines name the perk and the nano.
 - [ ] Zone through a zone line and a grid exit: the picture holds still (no loading picture) and the new area appears; the chat says the changing-area line. Check the window does not stay frozen if a zoning is refused.
+- [ ] `/setoption AutoCloseWindows 1`, then open Skills, then Perks from the character menu: the skills window closes; with 0 both stay.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

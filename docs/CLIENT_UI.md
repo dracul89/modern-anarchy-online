@@ -7610,3 +7610,7 @@ Gamecode's `ConvertCriteria` (0x1001e2cf) writes many requirements as lines of t
 ### A zoning keeps the last picture (LCH-003)
 
 The original shows no loading screen at a zoning: `FlowControlModule_t::TeleportStartedMessage` (GUI.dll 0x10029c42) says "ChangingArea" and turns the 3D view off (`DisplaySystem_t` +0x44), so neither the world nor the interface is drawn and the last picture stays until the new playfield is in. The client now does the same: the line is said, and no frame is drawn from the zoning until the new playfield's scene is uploaded (`loading::freeze`, `frozen`, `done`); the loading picture with its 1.5 s fade, the client's own, is gone from zonings (it stays for the login, as the original's `ServerLogin3DModule_t`).
+
+### AutoCloseWindows and the menus' activate actions (SET-003)
+
+A window entry of the control center's menus runs its `on_activate` actions when its window comes on and `on_deactivate` when it goes off, as GUI.dll's `CCMenuEntry_c` value callback (FUN_10065dd0) does. The game's menus use this for `AutoCloseWindows` (false in CharPrefs.xml): with it on, opening one of the character's windows from the menu closes the others.
