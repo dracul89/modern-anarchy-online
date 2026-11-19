@@ -7606,3 +7606,7 @@ Gamecode's criteria evaluator FUN_100065d8 answers many operators from the world
 ### Requirement lines in the original's words (INV-058)
 
 Gamecode's `ConvertCriteria` (0x1001e2cf) writes many requirements as lines of their own: "must have <item> equipped", "must have nanoprogram", "affected by <nano or strain>", "must have perk <name> <rank>", "must have N free inventory slots", team, raid, organization, pet kinds, flying, indoors, Shadowlands and others. The client now writes these (texts read from text.mdb by name) instead of a plain stat line, and, as `N3Msg_CriteriaListToString` does, moves an "On Target"/"On Self" heading criterion down past the and/or/not before it. Mission-flag, weapon-flag-list, team-side, expansion-list and random-roll criteria are still written as plain stat lines.
+
+### A zoning keeps the last picture (LCH-003)
+
+The original shows no loading screen at a zoning: `FlowControlModule_t::TeleportStartedMessage` (GUI.dll 0x10029c42) says "ChangingArea" and turns the 3D view off (`DisplaySystem_t` +0x44), so neither the world nor the interface is drawn and the last picture stays until the new playfield is in. The client now does the same: the line is said, and no frame is drawn from the zoning until the new playfield's scene is uploaded (`loading::freeze`, `frozen`, `done`); the loading picture with its 1.5 s fade, the client's own, is gone from zonings (it stays for the login, as the original's `ServerLogin3DModule_t`).

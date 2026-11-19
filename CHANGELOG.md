@@ -231,6 +231,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The CC17 and TT_MIN12 fonts grow with the window's height as in the original (for example the control center's large numbers at 1080 lines).
 - The character info page (/inspect, own info) shows the side experience bonus, your tokens, veteran and victory points, ICC commendations, Freelancers Inc. tokens, specializations, and the duel, solo and team ranks.
 - Text in info pages and other read-only text views can be selected by dragging the mouse (copying it waits for the right-click menu).
+- Zoning no longer shows the loading picture: the screen holds its last picture until the new area is drawn, and "Changing area" is said in the chat, as in the original.
 
 ### Chat
 

@@ -6,8 +6,11 @@
 //! pixels above the bottom. Entering the game (`InitialiseMessage`) the picture and the text fade in over 4 s on the black;
 //! once the world is in (`StartClosingLoadscreenMessage`) all of it fades out over 7 s.
 //!
-//! The pictures are shown as they are, as the original shows them. This client's own: the screen also covers a zoning
-//! (shown at once, fading out over [`ZONE_FADE_OUT`] when the new playfield is drawn).
+//! The pictures are shown as they are, as the original shows them. A zoning shows none of it: GUI.dll's
+//! `FlowControlModule_t::TeleportStartedMessage` (0x10029c42) says "ChangingArea", draws two frames more and turns the 3D
+//! view off (`DisplaySystem_t` +0x44, without which `FUN_10079a2e` renders neither the world nor the interface's
+//! sprites), so the last picture stays on the screen until the new playfield is shown. Here the window draws no frame
+//! while [`frozen`] (from [`freeze`] until [`done`]).
 //!
 //! The game is a process of its own here, which logs in and reads the playfield before it has a window: the character
 //! list's window puts the screen up when the character's ticket has come (after the progress window, as the original's
@@ -20,8 +23,18 @@ use std::time::{Duration, Instant};
 /// The original's fades: in while entering, out once in (`_DAT_101aa1a0`, `_DAT_101aa198`).
 pub const FADE_IN: Duration = Duration::from_millis(4000);
 pub const FADE_OUT: Duration = Duration::from_millis(7000);
-/// A zoning's fade out (the client's own).
-pub const ZONE_FADE_OUT: Duration = Duration::from_millis(1500);
+/// A zoning is under way: no frame is drawn (see the module's notes).
+static FROZEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A zoning begins: the last picture stays until the new playfield is in ([`done`]).
+pub fn freeze() {
+    FROZEN.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the window draws no frame now (a zoning under way).
+pub fn frozen() -> bool {
+    FROZEN.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 #[derive(Clone, Copy, Debug)]
 struct Load {
@@ -77,8 +90,9 @@ pub fn clock_millis() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
-/// The world is in: the screen fades out.
+/// The world is in: the screen fades out, and a zoning's frozen picture goes.
 pub fn done() {
+    FROZEN.store(false, std::sync::atomic::Ordering::Relaxed);
     if let Some(l) = load().as_mut() {
         l.done.get_or_insert_with(Instant::now);
     }
@@ -162,5 +176,14 @@ mod tests {
         assert_eq!(elapsed_since(13_000, 10_000), Duration::ZERO);
         let l = Load { began: t, fade_in: FADE_IN, fade_out: FADE_OUT, done: None };
         assert_eq!(alphas(&l, t + elapsed_since(10_000, 13_000)), Some((1.0, 0.75)));
+    }
+
+    /// A zoning freezes the window's picture (no loading screen) until the new playfield is in.
+    #[test]
+    fn a_zoning_freezes_the_picture_until_the_world_is_in() {
+        freeze();
+        assert!(frozen() && load().is_none_or(|l| l.done.is_some()));
+        done();
+        assert!(!frozen());
     }
 }

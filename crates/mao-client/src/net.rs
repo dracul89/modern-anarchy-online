@@ -8795,9 +8795,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     pending_camera = true;
                 }
                 if playfield != current {
-                    // (a zoning: the loading screen until the new playfield is drawn; an arrival in the same playfield, as
-                    // the playfield message at login, draws no new one, so it must not raise the screen)
-                    crate::loading::begin(Duration::ZERO, crate::loading::ZONE_FADE_OUT);
+                    // (a zoning: `TeleportStartedMessage` says "ChangingArea" and the picture stays as it is until the new
+                    // playfield is drawn, `loading::freeze`; an arrival in the same playfield, as the playfield message at
+                    // login, draws no new one, so it must not freeze the window)
+                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("ChangingArea")));
+                    crate::loading::freeze();
                     eprintln!("zoning to playfield {playfield}");
                     // (the character is a new one with no missions; the server tells them again)
                     pending_mission_log.push(crate::missionlog::Arrived::Zoned);

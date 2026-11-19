@@ -2613,6 +2613,11 @@ impl ApplicationHandler for App {
                     w.surface.configure(&w.gpu.device, &w.config);
                     eprintln!("present mode: {:?}", w.config.present_mode);
                 }
+                // (a zoning under way: no frame, the last picture stays, as the original's 3D view is off between
+                // `TeleportStartedMessage` and the new playfield: `loading::frozen`)
+                if crate::loading::frozen() {
+                    return;
+                }
                 let frame = match w.surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
                     // (macOS: a window not on the screen is given no picture to draw into, so the window that waits hidden
