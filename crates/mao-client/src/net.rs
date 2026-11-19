@@ -854,6 +854,15 @@ const NO_MESH_SPHERE: (f32, f32) = (0.5, 1.0);
 /// A door the server opened, until it says closed.
 const SERVER_OPEN: Duration = Duration::from_secs(24 * 3600);
 
+/// Whether a trade may start with a character (Gamecode FUN_1005a1e7, asked by `N3Msg_TradeStart` 0x10019148): the
+/// distance between the two body spheres' centres, less both radii, no more than 5 m (DAT_101584fc). Spheres are
+/// (height of the centre above the feet, radius). Not here: in a dungeon, two rooms apart need the door between them
+/// open (`n3Playfield_t::IsDoorOpenBetweenRooms`).
+fn trade_in_reach(own: [f32; 3], own_sphere: (f32, f32), at: [f32; 3], sphere: (f32, f32)) -> bool {
+    let (dx, dy, dz) = (at[0] - own[0], (at[1] + sphere.0) - (own[1] + own_sphere.0), at[2] - own[2]);
+    (dx * dx + dy * dy + dz * dz).sqrt() - own_sphere.1 - sphere.1 <= 5.0
+}
+
 /// A door's body sphere from its mesh (`hazards::body_sphere`, the mesh's packed word): height of the centre, radius.
 fn door_sphere(mesh: u32) -> Option<(f32, f32)> {
     let object = ITEM_DB.get()?.get(mao_formats::resource::Id { kind: 0xf6951, instance: mesh }).ok()??;
@@ -9769,8 +9778,22 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         npc_asked = Some(((kind, id), Instant::now(), false));
                     } else if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| i.is_player()) && !state.fighting.contains_key(&own) {
                         // (another player: the default action on them is a trade, `N3Msg_DefaultActionOnDynel` ->
-                        // `N3Msg_TradeStart`, an Open naming them; the server echoes it)
-                        let _ = connection.send(&n3::trade(own, 0, [n3::CHARACTER, id, 0, 0]));
+                        // `N3Msg_TradeStart`, an Open naming them; the server echoes it. Not when the two bodies are
+                        // more than 5 m apart: FUN_1005a1e7, told `Feedback_TargetOutsideRangeForTrade`)
+                        let mut sphere_of = |who: u32, scale: f32| {
+                            characters.as_mut().zip(state.infos.get(&who)).and_then(|(c, i)| {
+                                c.ensure_body(i.breed, i.sex);
+                                let packed = c.bodies.get(&(i.breed, i.sex))?.as_ref()?.0.colour;
+                                Some(crate::hazards::body_sphere(packed, scale))
+                            })
+                        };
+                        let own_sphere = sphere_of(own, state.stats.get(&360).map_or(1.0, |&s| s as f32 / 100.0)).unwrap_or(NO_MESH_SPHERE);
+                        let their_sphere = sphere_of(id, 1.0).unwrap_or(NO_MESH_SPHERE);
+                        if state.position_of(id).is_some_and(|at| !trade_in_reach(position, own_sphere, at, their_sphere)) {
+                            state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_TargetOutsideRangeForTrade")));
+                        } else {
+                            let _ = connection.send(&n3::trade(own, 0, [n3::CHARACTER, id, 0, 0]));
+                        }
                     } else {
                         let _ = connection.send(&n3::use_object(own, uses, (kind, id)));
                     }
@@ -14429,6 +14452,16 @@ mod door_tests {
         w.approach_doors.insert(3);
         w.tick_doors([10.0, 0.0, 21.0], NO_MESH_SPHERE);
         assert!(w.doors_open.contains_key(&3));
+    }
+
+    /// FUN_1005a1e7: a trade starts while the two bodies are within 5 m of each other, sphere to sphere.
+    #[test]
+    fn a_trade_is_in_reach_within_five_metres() {
+        let body = (1.0, 0.5);
+        assert!(trade_in_reach([0.0; 3], body, [6.0, 0.0, 0.0], body));
+        assert!(!trade_in_reach([0.0; 3], body, [6.1, 0.0, 0.0], body));
+        assert!(trade_in_reach([0.0; 3], body, [0.0; 3], body));
+        assert!(!trade_in_reach([0.0; 3], body, [0.0, 7.0, 0.0], body));
     }
 
     /// A door opens as the two body spheres meet and shuts on the first frame they do not (`Door_t`'s FUN_1007ff44: no timer),

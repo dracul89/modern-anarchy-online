@@ -7245,3 +7245,7 @@ The original's container window, when shut, uses its container again (GUI.dll FU
 ### Item pages: vicinity and personal modifiers, skills to use (INV-054)
 
 GUI.dll's general item page (FUN_1003882b) shows, after the modifiers, the effects on friends and foes nearby and the personal ones (spell lists 24, 25, 26), then the skills the item is used with, then its charges; the armour and implant pages (FUN_1003826b, FUN_10038586) show the skills to use after the modifiers. The client's pages now follow that order. The shop price, the nano radius, the insurance cost, a building's upkeep and fixtures are still not shown.
+
+### A trade needs the partner within reach (INV-055)
+
+Gamecode's `N3Msg_TradeStart` (0x10019148) starts a trade only when the two characters' bodies are within 5 m of each other (FUN_1005a1e7: centre to centre less both radii), else it says the target is out of range. The client now does the same before it sends the trade's Open. The dungeon's room-and-door test is not ported.

@@ -2558,6 +2558,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Partner's items may appear unnamed or not at all.
 - Where: `docs/GUI_DLL_PARITY.md:89`; `docs/ARETE_CAPTURE.md:121`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The range check is ported: Gamecode `N3Msg_TradeStart` (0x10019148) asks FUN_1005a1e7, which takes the distance between the two bodies' sphere centres less both radii and allows the trade when that is no more than 5.0 m (DAT_101584fc); else it says `Feedback_TargetOutsideRangeForTrade` and sends nothing. `net::trade_in_reach`, with the bodies' spheres from their breed and sex meshes as the doors use them (the partner's scale is taken as 1, its stat 360 not being known); test `a_trade_is_in_reach_within_five_metres`. Left: inside a dungeon FUN_1005a1e7 also wants the door between the two rooms open (`IsDoorOpenBetweenRooms`); `N3Msg_TradeStart` does nothing at all when the target's stat 0x184 is not 0 (the client does not know others' stats); and naming the partner's items, which needs a capture of a trade with items put in by the partner.
 
 #### `INV-056` Requirement checks: only the client's own character, no apply-on target/user/secondary
 

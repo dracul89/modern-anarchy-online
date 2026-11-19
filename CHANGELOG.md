@@ -110,6 +110,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - An item let go on an empty spot of the wear window goes to its own place on that page.
 - Item and nano pages show skill locks (with your own lock time), stat sets and lock reductions.
 - Item pages show the effects on nearby friends and foes and the personal effects, and armour and implants show the skills they are used with.
+- Starting a trade with a player too far away says the target is out of range, as the original does.
 
 ### The launcher
 
