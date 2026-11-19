@@ -182,6 +182,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Some placed objects stored with a slant (ramps and tilted pieces of the second statel layout) now lean as in the original instead of standing level.
 - Effects that the game shows only on certain playfields now appear there.
 - Interiors (shops, dungeons) are seen against black, as in the original, not a very dark blue.
+- Creatures without a standing or running animation keep playing their last movement, as in the original, instead of borrowing the walk.
 
 ### Interface
 

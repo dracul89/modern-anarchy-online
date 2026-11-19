@@ -142,10 +142,44 @@ impl Template {
         }
     }
 
-    /// The animations to try for an action, best first, as (key, instance): a creature's record can name one the database does not hold
-    /// (a flier's standing animation was seen pointing nowhere), so the caller takes the first that loads.
-    /// Of an action with variants, the one `seed` picks.
+    /// The animations to try for an action, best first, as (key, instance), as the original asks the creature's own set
+    /// (FUN_1003cac9 → FUN_1003ca14: FUN_10045976 for the action, then along FUN_10010b3c's fallbacks): the walk 100, the
+    /// run 101, the sidesteps 134 and 135, the backward moves 136 and 222 and the standing 120 have no fallback; sneaking
+    /// (0x66, standing or moving) and flying (0xb3) fall to the walk. None found: FUN_1006c370 starts nothing, and what
+    /// plays goes on (the caller keeps it). A record can name one the database does not hold (a flier's standing
+    /// animation was seen pointing nowhere), so the caller takes the first that loads. Of an action with variants, the
+    /// one `seed` picks.
     pub fn animation_candidates(&self, action: Action, seed: u32) -> Vec<(u32, u32)> {
+        let first = match action {
+            Action::Walk => 100,
+            Action::Run => 101,
+            Action::StrafeLeft => 134,
+            Action::StrafeRight => 135,
+            Action::WalkBack => 136,
+            Action::RunBack => 222,
+            Action::Sneak | Action::SneakStand => 0x66,
+            Action::Hover => 0xb3,
+            _ => 120,
+        };
+        let mut found = Vec::new();
+        let mut key = first;
+        for _ in 0..8 {
+            if let Some(anim) = self.variant(key, seed) {
+                found.push((key, anim));
+            }
+            let next = crate::appearance::action_fallback(key);
+            if next == 0 || next == key || next == first {
+                break;
+            }
+            key = next;
+        }
+        found
+    }
+
+    /// The animations a creature that has played nothing yet starts in when its set has none for the action (the
+    /// client's own: the original's first animation of such a creature was not read), best first: the run and walk stand
+    /// in for each other, a missing standing falls to 127 and then the walk (held at its first frame by the caller).
+    pub fn start_candidates(&self, action: Action, seed: u32) -> Vec<(u32, u32)> {
         let find = |key: u32| self.variant(key, seed).map(|a| (key, a));
         let order: &[u32] = match action {
             Action::Walk => &[100, 101, 120, 127],
@@ -205,6 +239,12 @@ mod tests {
         assert_eq!(t.variant(0xb7, 4), Some(0x186de));
         assert_eq!(t.variant(0x1e, 0), None);
         assert_eq!(t.animation_candidates(Action::Walk, 9), vec![(100, 0x27cf)]);
+        // (NPC-007: FUN_10010b3c's fallbacks only: no run, no standing falls to the walk; sneaking and flying do)
+        assert_eq!(t.animation_candidates(Action::Run, 9), vec![]);
+        assert_eq!(t.animation_candidates(Action::Idle, 9), vec![]);
+        assert_eq!(t.animation_candidates(Action::Sneak, 9), vec![(100, 0x27cf)]);
+        assert_eq!(t.animation_candidates(Action::Hover, 9), vec![(100, 0x27cf)]);
+        assert_eq!(t.start_candidates(Action::Run, 9), vec![(100, 0x27cf)]);
         assert_eq!(t.sounds, vec![(0x1e, 0x8ee1_3fa5)]);
         assert_eq!(t.sound(0x1e, 3), Some(0x8ee1_3fa5));
     }

@@ -5208,6 +5208,9 @@ struct Characters {
     /// a creature in a fight stands in its fight stance, and plays the stance's start and stop when that changes.
     creature_fight: std::collections::HashMap<u32, bool>,
     creature_fought: std::collections::HashMap<u32, bool>,
+    /// The movement animation each creature last started, (key, instance): kept playing while its set has none for the
+    /// action (FUN_1006c370 starts nothing then).
+    creature_last: std::collections::HashMap<u32, (u32, u32)>,
     /// The weapon each character had drawn when last drawn (template and place), to play the draw and the holster.
     drawn: std::collections::HashMap<u32, Option<(u32, u32)>>,
     /// The weapon each character held when last drawn, in or out of a fight, to play the wield and the unwield.
@@ -5641,7 +5644,7 @@ impl Characters {
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
         let head_races = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, name, instance)| (instance, crate::bareskin::race_of_head(name))).collect();
         let head_bodies = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).filter_map(|(_, name, instance)| Some((instance, crate::bareskin::body_of_head(name)?))).collect();
-        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, build: 1, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default() })
+        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, build: 1, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default(), creature_last: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -5745,13 +5748,40 @@ impl Characters {
                 break;
             }
         }
+        // (no animation for the action along the original's fallbacks: FUN_1006c370 starts nothing, so the one playing goes
+        // on; a creature that has played nothing yet starts in `start_candidates`, the client's own, a standing on its walk
+        // held at the walk's first frame)
+        let (mut started, mut kept) = (false, false);
+        if death.is_none() {
+            match chosen {
+                Some(c) => {
+                    self.creature_last.insert(id, c);
+                }
+                None => {
+                    chosen = self.creature_last.get(&id).copied();
+                    kept = chosen.is_some();
+                    if chosen.is_none() {
+                        for (key, anim) in record.start_candidates(action, seed) {
+                            let loaded = self.creature_anims.entry(anim).or_insert_with(|| {
+                                let a = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: anim }).ok()??).ok()?;
+                                let length = a.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
+                                Some((a, length))
+                            });
+                            if loaded.is_some() {
+                                (chosen, started) = (Some((key, anim)), true);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let (key, anim_id) = chosen?;
         let anim_entry = self.creature_anims.get(&anim_id)?;
         let (anim, length) = anim_entry.as_ref()?;
-        // (a creature that has no standing animation holds its walk's first frame while it stands)
         // (the original's calibration file says how fast each movement animation of a creature plays)
         let rate = rate * crate::effects::calibration(record.mesh.unwrap_or(0), anim_id);
-        let hold = death.is_none() && action == mao_formats::appearance::Action::Idle && matches!(key, 100 | 101);
+        let hold = started && action == mao_formats::appearance::Action::Idle && matches!(key, 100 | 101);
         if !self.anims_by_id.contains_key(&anim_id) {
             self.anims_by_id.insert(anim_id, (Arc::new(anim.clone()), *length));
         }
@@ -5835,6 +5865,11 @@ impl Characters {
         let dt = tick.elapsed().as_secs_f32().min(0.5);
         *tick = Instant::now();
         let stack_key = (action, if death.is_some() { 9 } else { hold as u8 }, anim_id);
+        // (a kept animation is not started again: it goes on as it plays)
+        let stack_key = match self.movement_keys.get(&id) {
+            Some(&playing) if kept && playing.2 == anim_id => playing,
+            _ => stack_key,
+        };
         if self.movement_keys.get(&id) != Some(&stack_key) {
             // (a death is held at its end: direction 3 plays it once and keeps the last frame)
             let handle = stack.set_animation(anim_id, 0, -1, 2, if death.is_some() { 3 } else { 0 }, 1.0, length);
@@ -5926,13 +5961,20 @@ impl Characters {
         self.ensure_body(breed, sex);
         self.creatures.entry(template).or_insert_with(|| load_template(&db, template));
         let action = moving.unwrap_or(mao_formats::appearance::Action::Idle);
-        let (candidates, mesh_id) = {
+        let (candidates, start, mesh_id) = {
             let (record, _, _) = self.creatures.get(&template)?.as_ref()?;
-            (record.animation_candidates(action, id), record.mesh.unwrap_or(0))
+            (record.animation_candidates(action, id), record.start_candidates(action, id), record.mesh.unwrap_or(0))
         };
-        // (the first of the action's animations the database really holds)
+        // (the first of the action's animations the database really holds; none along the original's fallbacks, the one
+        // playing goes on, FUN_1006c370; none ever, the client's own start, `start_candidates`)
+        let kept = candidates.is_empty();
+        let candidates = match (kept, self.creature_last.get(&id)) {
+            (false, _) => candidates,
+            (true, Some(&last)) => vec![last],
+            (true, None) => start,
+        };
         let mut chosen = None;
-        for (_, anim) in candidates {
+        for (key, anim) in candidates {
             let loaded = self.creature_anims.entry(anim).or_insert_with(|| {
                 let a = mao_formats::catanim::parse(&db.get(Id { kind: 0xf6953, instance: anim }).ok()??).ok()?;
                 let length = a.tracks.iter().flat_map(|t| t.rotations.iter().map(|k| k.0)).fold(1.0f32, f32::max);
@@ -5941,6 +5983,9 @@ impl Characters {
             if let Some((a, length)) = loaded {
                 if !self.anims_by_id.contains_key(&anim) {
                     self.anims_by_id.insert(anim, (Arc::new(a.clone()), *length));
+                }
+                if !kept {
+                    self.creature_last.insert(id, (key, anim));
                 }
                 chosen = Some((anim, *length));
                 break;
@@ -5956,7 +6001,11 @@ impl Characters {
         let dt = tick.elapsed().as_secs_f32().min(0.5);
         *tick = Instant::now();
         // (the movement looping at priority 0 on layer 2, as a player's and a creature's)
-        let key = (action, 20, anim);
+        let key = match self.movement_keys.get(&id) {
+            // (a kept animation is not started again: it goes on as it plays)
+            Some(&playing) if kept && playing.2 == anim => playing,
+            _ => (action, 20, anim),
+        };
         if self.movement_keys.get(&id) != Some(&key) {
             let handle = stack.set_animation(anim, 0, -1, 2, 0, 1.0, length);
             stack.set_time(handle, 0.0, length);

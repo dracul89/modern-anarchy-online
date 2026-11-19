@@ -7337,3 +7337,7 @@ The original's attack key calls `N3Msg_DefaultAttack(selection, false)` (Gamecod
 ### The white at one's own death (DTH-007)
 
 When one's own death has played out, `CharDie_t` (Gamecode FUN_1007bad5) makes effect 3000, which `gfxtweak.bin` has as a `_GfxControlWhiteOut_t` (kind 1015, FUN_101052b2): a white sprite over the world whose alpha is its age over the template's time (FUN_1010509a); template 3000 gives no time, so the world is wholly white at once, and stays so (life -1) until the revival deletes the effect (FUN_1003ec1f → FUN_1003e61c), when it is gone at once. The client does the same (`whiteout.rs`): no rise and no fading out, the windows and the chat drawn over it as before.
+
+### A creature's animation for an action (NPC-007)
+
+The original takes a creature's animation for an action from its own set (FUN_1003cac9 → FUN_1003ca14 → FUN_10045976), going down FUN_10010b3c's fallbacks when the set has none (sneaking and flying fall to the walk; the walk, the run, the sidesteps, the backward moves and the standing have no fallback). Finding none, FUN_1006c370 starts nothing and the animation already playing goes on. The client does the same (`Template::animation_candidates`, `Characters::creature_last`): a creature with no run keeps whatever it played as it runs, one with no standing keeps its last movement going when it stops. Only a creature that has played nothing yet still starts in the client's own order (`Template::start_candidates`: the walk for the run, a standing on 127 or the walk's first frame).
