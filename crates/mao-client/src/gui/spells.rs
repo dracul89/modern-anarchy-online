@@ -8,8 +8,13 @@
 //! (0xcf35, 0xcf14: "Modify %s %d", "%s %d%%" for stats 689 and 535-537, "Scale %u%%" for 360 with the value plus 100),
 //! a percentage (0xcff5 "Modify %s %d%%"), a stat scaled by the level (0xcfb7: "%s at level %u %d (%d at lvl 200)",
 //! "Scale at lvl ..." for 360), a temporary set (0xcf76: "%s temp set to %d", a profession's name for 368), a change of a
-//! skill's base (0xcfc0), a nano program upload (0xcf1b), a nano cast (0xcf3b "Cast "), taunt, and the fixed texts of
-//! 0xcf48, 0xcf4c, 0xcf7e, 0xcf81, 0xcf82, 0xcf86, 0xcf87 and 0xcfaf.
+//! skill's base (0xcfc0), a nano program upload (0xcf1b), a nano cast (0xcf3b "Cast "), taunt, a stat set (0xcf22
+//! "Set %s %d"), a skill lock (0xcf29, with the reader's own time by its skill lock modifier), a reduced lock (0xcfb9),
+//! and the fixed texts of 0xcf48, 0xcf4c, 0xcf7e, 0xcf81, 0xcf82, 0xcf86, 0xcf87 and 0xcfaf. The English words are
+//! the original program's own (they are not in the text database). Not written yet: the area nano casts (0xcf4a,
+//! 0xcf5f "AOE %dm ", 0xcf61), 0xcfaa, 0xcfbe (an item's name and description), 0xcfc3 (a perk lock, by the perk's
+//! name and level), 0xcfc5, 0xcfcc, 0xcf0a, 0xcfed, 0xd006 and the other types of the switch's tail. A temporary set of
+//! the stats 0x1e5-0x1e7, 0x21b-0x21e or 0x228-0x22f writes nothing, as in the original.
 
 use mao_formats::spell::Spell;
 
@@ -86,11 +91,30 @@ pub fn printf_floats(format: &str, args: &[f32]) -> String {
     out + rest
 }
 
-/// One spell's text (the switch of `N3Msg_ConvertSpellList`); `None` for a type it does not write.
-pub fn spell_text(s: &Spell, level: u32, nano_name: &dyn Fn(u32) -> Option<String>) -> Option<String> {
+/// How long a skill lock of `seconds` lasts for a character whose skill lock modifier (stat 382) is `modifier`
+/// (`N3Msg_ConvertSpellList`, spell 0xcf29: the modifier no lower than -50, `seconds + modifier * seconds / 100.0 +
+/// 0.5`, cut to a whole number as `_ftol` cuts).
+pub fn skill_lock_seconds(seconds: i32, modifier: i32) -> i32 {
+    let modifier = modifier.max(-50);
+    (f64::from(modifier.wrapping_mul(seconds)) / 100.0 + f64::from(seconds) + 0.5) as i32
+}
+
+/// One spell's text (the switch of `N3Msg_ConvertSpellList`); `None` for a type it does not write. `skill_lock` is the
+/// reader's skill lock modifier (stat 382).
+pub fn spell_text(s: &Spell, level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>) -> Option<String> {
     let stat_name = |k: i32| super::criteria::stat_name(k as u32);
     let (a0, a39) = (s.stat(0), s.stat(39));
     Some(match s.kind {
+        // (the program's own English formats: "Set %s %d" with the stat's name, text category 2003)
+        0xcf22 => format!("Set {} {}", stat_name(a0), a39),
+        // ("%s skill locked for %d seconds", or "... for %d (%d) seconds" with the reader's own time when the
+        // modifier is not 0)
+        0xcf29 => {
+            let left = skill_lock_seconds(a39, skill_lock);
+            if skill_lock.max(-50) == 0 { format!("{} skill locked for {} seconds", stat_name(a0), a39) } else { format!("{} skill locked for {} ({}) seconds", stat_name(a0), a39, left) }
+        }
+        // ("Reduce %s by %d seconds", the name from text category 2009)
+        0xcfb9 => format!("Reduce {} by {} seconds", crate::feedback::texts().and_then(|t| t.get(2009, a0)).map(str::to_string).unwrap_or_default(), a39),
         0xcf35 | 0xcf14 => {
             if a0 == 0x168 {
                 printf(&text(1005, "ModifyScale"), &[(a39 + 100).to_string()])
@@ -111,6 +135,8 @@ pub fn spell_text(s: &Spell, level: u32, nano_name: &dyn Fn(u32) -> Option<Strin
                 printf(&text(1005, "SkillAt200"), &[stat_name(a0), level.to_string(), scaled.to_string(), a39.to_string()])
             }
         }
+        // (not for the stats 0x1e5-0x1e7, 0x21b-0x21e and 0x228-0x22f: nothing is written)
+        0xcf76 if matches!(a0, 0x1e5..=0x1e7 | 0x21b..=0x21e | 0x228..=0x22f) => return None,
         0xcf76 => {
             let what = stat_name(a0);
             if a0 == 0x170 {
@@ -137,11 +163,11 @@ pub fn spell_text(s: &Spell, level: u32, nano_name: &dyn Fn(u32) -> Option<Strin
 }
 
 /// `N3Msg_ConvertSpellList` over one list: the spells' lines.
-pub fn convert(spells: &[Spell], level: u32, nano_name: &dyn Fn(u32) -> Option<String>) -> String {
+pub fn convert(spells: &[Spell], level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>) -> String {
     let mut out = String::new();
     let mut last_target = -1;
     for s in spells {
-        let Some(line) = spell_text(s, level, nano_name) else { continue };
+        let Some(line) = spell_text(s, level, skill_lock, nano_name) else { continue };
         let target = s.stat(0x20);
         let mut heading = String::new();
         if target != 0 && target != last_target {
@@ -190,9 +216,26 @@ mod tests {
     #[test]
     fn a_modify_spell() {
         let s = Spell { kind: 0xcf35, stats: vec![(3, 1), (4, 0), (0x20, 2), (0x23, 9), (0, 16), (39, 20)], ..Default::default() };
-        let t = spell_text(&s, 200, &|_| None).unwrap();
+        let t = spell_text(&s, 200, 0, &|_| None).unwrap();
         assert!(t.starts_with("Modify ") && t.ends_with(" 20"));
         let line = format_modifier("On User:", "", &t, "");
         assert!(line.starts_with("On User:\n  Modify "));
+    }
+
+    /// N3Msg_ConvertSpellList's set, skill lock and reduce lines (0xcf22, 0xcf29, 0xcfb9).
+    #[test]
+    fn set_lock_and_reduce_spells() {
+        let spell = |kind, value| Spell { kind, stats: vec![(0, 16), (39, value)], ..Default::default() };
+        let set = spell_text(&spell(0xcf22, 5), 1, 0, &|_| None).unwrap();
+        assert!(set.starts_with("Set ") && set.ends_with(" 5"));
+        // (the lock's own time beside it unless the modifier is 0; the modifier no lower than -50, rounded)
+        assert!(spell_text(&spell(0xcf29, 60), 1, 0, &|_| None).unwrap().ends_with(" skill locked for 60 seconds"));
+        assert!(spell_text(&spell(0xcf29, 60), 1, -25, &|_| None).unwrap().ends_with(" skill locked for 60 (45) seconds"));
+        assert_eq!((skill_lock_seconds(60, -90), skill_lock_seconds(15, -33), skill_lock_seconds(10, 5)), (30, 10, 11));
+        assert!(spell_text(&spell(0xcfb9, 30), 1, 0, &|_| None).unwrap().ends_with(" by 30 seconds"));
+        // (a temporary set of some stats writes nothing)
+        let temp = |stat| Spell { kind: 0xcf76, stats: vec![(0, stat), (39, 1)], ..Default::default() };
+        assert_eq!((spell_text(&temp(0x1e6), 1, 0, &|_| None), spell_text(&temp(0x22f), 1, 0, &|_| None)), (None, None));
+        assert!(spell_text(&temp(0x1e8), 1, 0, &|_| None).is_some());
     }
 }

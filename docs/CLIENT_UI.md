@@ -7233,3 +7233,7 @@ GUI.dll FUN_100e220f: an item let go on a cell of a wear page that is no wear pl
 ### Which containers open sorted by name (INV-021)
 
 ItemContainerView_c FUN_100ce55d: a corpse, a chest, another's container, the organization's contract and a trade's list open arranged by name; one's own backpacks and the bank are placed by hand, and the reclaim terminal's list keeps the server's order. The client does the same (`loot::first_sort`).
+
+### More spell lines on item pages (INV-023)
+
+Gamecode `N3Msg_ConvertSpellList` (0x100213ec) writes a line for each spell type it knows, mostly with the program's own English formats. The client now also writes the stat set ("Set <stat> <value>"), the skill lock ("<skill> skill locked for <n> seconds", with the reader's own time in brackets when its skill lock modifier is not 0) and the reduced lock ("Reduce <line> by <n> seconds"), and writes nothing for a temporary set of the stats the original skips. The area nano casts, perk locks and a few rarer types are still not written.

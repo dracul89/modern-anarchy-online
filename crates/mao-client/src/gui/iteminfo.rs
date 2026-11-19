@@ -229,7 +229,7 @@ impl Ctx<'_> {
         let mut m = String::new();
         for list in [14, 0] {
             for (_, spells) in lists.iter().filter(|(l, _)| *l == list) {
-                m += &super::spells::convert(spells, self.level, &nano_name);
+                m += &super::spells::convert(spells, self.level, self.player(382) as i32, &nano_name);
             }
         }
         if m.is_empty() { m } else { section(&text("Modifier"), &m, 0) }
@@ -426,7 +426,7 @@ impl Ctx<'_> {
         let lists = mao_formats::spell::lists(&self.data);
         let db = self.db;
         let nano_name = |id: u32| nano_name(db, id);
-        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| super::spells::convert(spells, self.level, &nano_name)).collect();
+        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| super::spells::convert(spells, self.level, self.player(382) as i32, &nano_name)).collect();
         if m.is_empty() { m } else { section(&text(label), &format!("\n{m}"), 0) }
     }
 

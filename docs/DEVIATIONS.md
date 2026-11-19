@@ -2258,6 +2258,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some item or nano spell lines are missing or not translated.
 - Where: `crates/mao-client/src/gui/spells.rs:7`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): Gamecode `N3Msg_ConvertSpellList` (0x100213ec) read again: the English words the entry calls "fixed English" are the program's own formats, not text-database entries (`Modify %s %d`, `Cast `, `Root` ... are literals in Gamecode.dll), so the client is right to write them. Ported now: 0xcf22 "Set %s %d" (stat name, value), 0xcf29 the skill lock ("%s skill locked for %d seconds", or "... for %d (%d) seconds" with the reader's own time: skill lock modifier stat 382, no lower than -50, `seconds + modifier * seconds / 100.0 + 0.5` cut, constants 100.0 at 0x10159670 and 0.5 at 0x10156f00), 0xcfb9 "Reduce %s by %d seconds" (name from category 2009), and a temporary set (0xcf76) of the stats 0x1e5-0x1e7, 0x21b-0x21e, 0x228-0x22f now writes nothing, as the original. The item pages pass the reader's stat 382; the perk catalog (made once) passes 0. Left: the area nano casts (0xcf4a, 0xcf5f "AOE %dm ", 0xcf61), 0xcfaa, 0xcfbe (an item's name and description), 0xcfc3 (a perk lock: needs the perk's name and level, FUN_10053bb2), 0xcfc5, 0xcfcc, 0xcf0a, 0xcfed, 0xd006 and the switch's tail; each needs its text ids read from the assembly. Tests `spells::tests::set_lock_and_reduce_spells`, `a_modify_spell`.
 
 #### `INV-024` City map: pending nodes dropped when their item changes place
 

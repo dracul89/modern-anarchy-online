@@ -108,6 +108,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A mission's item (Arete's "Plant a Bug" recording device and the like) now comes into your inventory.
 - Items placed by hand in the inventory and backpacks are remembered for each character on its own.
 - An item let go on an empty spot of the wear window goes to its own place on that page.
+- Item and nano pages show skill locks (with your own lock time), stat sets and lock reductions.
 
 ### The launcher
 

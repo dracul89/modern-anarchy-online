@@ -124,9 +124,10 @@ fn modifiers(db: &ResourceDatabase, data: &[u8], parsed: Option<&Item>) -> Strin
     let lists = mao_formats::spell::lists(data);
     let nano_name = |id: u32| crate::gui::iteminfo::nano_name(db, id);
     let mut m = String::new();
+    // (made once for the catalog: a skill lock is written without the reader's own skill lock modifier)
     for list in [14, 0] {
         for (_, spells) in lists.iter().filter(|(l, _)| *l == list) {
-            m += &crate::gui::spells::convert(spells, level, &nano_name);
+            m += &crate::gui::spells::convert(spells, level, 0, &nano_name);
         }
     }
     m
