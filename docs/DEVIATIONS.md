@@ -1707,6 +1707,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a creature may show another action's animation when its own is missing
 - Where: `crates/mao-formats/src/npc.rs:146`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): Done with NPC-007 (commit 28afa7a): Template::animation_candidates now gives only the action's animation and FUN_10010b3c's fallbacks (FUN_1003ca14), and with none the creature's last animation goes on. Left: the "first that loads" among them (a record naming an animation the database lacks; the original would play nothing, then go on with what plays) and the client's start order for a creature that has played nothing yet (start_candidates).
 
 #### `NPC-004` Pet window: client's own menu; fixed buttons sorted by family
 
@@ -1716,6 +1717,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: pet window menu looks different; fixed rows can differ
 - Where: `crates/mao-client/src/pets.rs:191`; `docs/GUI_DLL_PARITY.md:94`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The fixed buttons' order already follows PetType (stat 512) through PetTypeToLocation (0x1007ed93) since 2026-11-18 (pets.rs place); what remains is the menu: the original's PetView_c icon menu (FUN_1007e75e, "Show buttons" and "Fixed Pet Buttons") against the client's menu button with two check boxes; that window shape was not ported tonight.
 
 ### NPCs and creatures: an approximation or a stand-in (9)
 
@@ -1757,6 +1759,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a vehicle could show or not depending on guessed buffs
 - Where: `docs/CLIENT_UI.md:2331`; `crates/mao-client/src/net.rs:5326`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The note's Original line is half right: the stat handler FUN_1005a3b1 does load the template when stat 0x167 (MonsterData) changes (FUN_10052686, skipped while stat 662 is set or the character's +0x50 bit 5 is up), but what sets MonsterData for a vehicle program is the program's own ChangeMesh spell 0xcf44 run on the client (FUN_100a5f4b's case 0xcf44 → FUN_100a7aa2), which is what the client already evaluates from the running program (item::vehicle_template), and since 2026-11-18 another player's MonsterData is read from its full update. What is left is a Stat message of 359 sent by the server for a character already in view, and the client's 30 s timeout of others' Buff messages: no capture has a hoverboard or hoverbike ride, so neither whether the server sends such a Stat message nor how the others' programs end can be checked. Needs a capture of a ride (one's own and another player's).
 
 #### `NPC-009` Creature animation variants fixed per creature, not re-rolled
 
@@ -1766,6 +1769,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a creature always plays the same variant of an action
 - Where: `crates/mao-client/src/net.rs:4446`; `crates/mao-formats/src/npc.rs:113`; `docs/ORIGINAL_AUDIT.md:84`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read: FUN_10045976 picks an action's variant with the CRT rand() each time an animation is asked for (FUN_1003ca14), so a creature's walk or idle variant changes from start to start, and its sounds likewise. Not ported tonight: the creature's id is threaded as the seed through creature_parts (animations, the stance, the flourishes), sounds.rs (three places) and the game-data tests that compare a creature's chosen animations by that seed; changing it means a per-start seed kept per creature and action and reworking those tests, more than this low entry is worth in one night. The client already has the CRT's rand (audio::Rand) to use for it.
 
 #### `NPC-010` Creature size taken from posed points, not rest meshes
 
@@ -1775,6 +1779,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tag heights may differ slightly
 - Where: `docs/ORIGINAL_AUDIT.md:29`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): VisualMesh_t::GetMeshHeight measures each body mesh at rest (its bounding sphere's diameter, the largest); the client sizes a creature from its posed points. Porting needs a rest-pose bounding sphere per CAT mesh kept beside the posed parts, the same work as TGT-007 (the name tag height), which went to another porter; better done once there.
 
 #### `NPC-011` Following creatures (FollowTarget type 2) stop where they are
 
@@ -1784,6 +1789,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: following creatures not shown following
 - Where: `docs/CLIENT_UI.md:2705`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FollowTargetIIR_c of type 2 follows a target, but in every capture its target identity is 0, so there is nothing to follow; the original with a zero identity finds no dynel either. A capture with a non-zero followed target is needed to port the following itself.
 
 #### `NPC-012` Grounded creature's idle held at its end; announced-sitting players not done
 
@@ -1803,6 +1809,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: totals may differ if a rule was ported wrongly
 - Where: `crates/mao-client/src/shop.rs:15`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original asks N3Msg_TradeGetInventoryCost for the two cash views; the client sums the rows priced by its port of Gamecode's vending-machine rules, which is the same computation the call wraps for a shop. What differs is the field's look (a frame drawn by hand); the cost function itself was not read line by line against the client's sum, so it stays as it is until a shop is compared live.
 
 ### NPCs and creatures: the original was not read: inferred or measured (14)
 
@@ -1824,6 +1831,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a machine or door may be refused or matched wrongly; the mail window may not open at an unlisted terminal
 - Where: `crates/mao-client/src/net.rs:12817`; `crates/mao-client/src/net.rs:11983`; `crates/mao-client/src/mailbox.rs:17`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Three different rules under one entry, none of which can be checked without the game: the original opens the mail window from the terminal's own use (its template's use spell 0xcf7b, client window 8, GUI.dll FUN_1002e2fe), on the dynel that was used, so it never looks for the nearest terminal; the client's mail command has no used terminal when opened from a command, and its KNOWN_TERMINALS table (four captured terminals) only serves playfields whose dynel table lists none. The door numbering without the playfield message's instance runs and the machine's place among its kind need the instance runs of every dungeon, which only the server sends. Porting the use-path (open the mail window only from a used terminal) would remove the client's way of opening mail where no terminal is known, and needs a live check; left for the user to decide.
 
 #### `NPC-016` Creature movement mode (ground/stand) and run speed read from measured bytes
 
@@ -1873,6 +1881,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: requests at unlisted terminals may ask for the wrong mission kind
 - Where: `crates/mao-client/src/mission.rs:18`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The client already reads the terminal's QuestOriginator_e (stat 490) from its dynel-table record or its template (main.rs mission_terminals), which is what FUN_10086b3e reads; N3Msg_GenerateMissions (0x10016276) sends the GUI's MissionGenerateInfo word 7, which the GUI fills from that stat. The fixed 5 is used only for a terminal that is neither in the playfield's dynel table nor has the stat on its template: such a terminal would be one the server announces, and its stat 490 would come with the announcement, which no capture has (every captured booth is a built-in one). Needs a capture of a server-announced mission terminal.
 
 #### `NPC-021` Backing animation inferred from moving against the facing
 
@@ -1882,6 +1891,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: back-pedalling animation may differ
 - Where: `crates/mao-client/src/net.rs:3692`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original plays walk-back/run-back from the character's own movement state (FUN_1006c370: the direction FUN_10070a37 == 2), which for another character comes from the server's movement messages; the client infers it from the move against the facing because it does not keep the others' movement direction. Porting needs the others' movement type kept from their movement messages (the same gap as NPC-038's sidesteps).
 
 #### `NPC-022` Corpse name found by scanning bytes
 
@@ -1891,6 +1901,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a corpse's name could be wrong or missing on odd messages
 - Where: `crates/mao-client/src/net.rs:119`; `crates/mao-client/src/net.rs:3383`; `docs/CLIENT_UI.md:2722`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The corpse's name sits in the CorpseFullUpdate after its stats; the original's reader of that message (the corpse's full update exec) was not read tonight, so the client's scan for the first length-prefixed name stays. Needs the reader, as NPC-018 did for creatures.
 
 #### `NPC-023` Mission terminal "need team" error box: signal slot not found
 
@@ -1900,6 +1911,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: box may differ from the original's
 - Where: `docs/ORIGINAL_AUDIT.md:36`; `docs/CLIENT_UI.md:996`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_10086b3e emits GlobalSignals_c +0x184 with QuestBooth_NeedTeam (text.mdb 102); the GUI slot connected to +0x184 was not found tonight either (no connect to that offset turned up in the GUI's signal hookups read), so the client's error box stands.
 
 #### `NPC-024` NPC template record read by a heuristic when its layout is odd
 
@@ -1909,6 +1921,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a creature with an odd record may get a wrong mesh or animation
 - Where: `crates/mao-formats/src/npc.rs:14`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The client reads a template's sections in FUN_1004de5d's order and falls back to its heuristic only when they do not read; the records that fall back were not listed tonight, so it is not known whether the fallback is ever taken on the game's data or what the original makes of those records. Needs a pass over every 0xfde97 record (a data test) to find them.
 
 #### `NPC-025` Other characters' polymorph form ends by a 30 s timeout; their movement names not done
 
@@ -1927,7 +1940,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: MORPH_ANIM_RATE 1.0 as a further factor (the 0.75 constant is gone; the calibration is applied per mesh/animation, factor 1 when unlisted or file missing); the user found the uncalibrated speed a little fast
 - A player notices: animation speed of unlisted creatures/polymorphs is client-tuned
 - Where: `crates/mao-client/src/net.rs:4094`; `crates/mao-client/src/net.rs:4496`; `crates/mao-client/src/effects.rs:2692`; `docs/CLIENT_UI.md:1991`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already the original's: the polymorph's animation rate is the calibration file's factor per mesh and animation (Setupf/animcalibration.txt, 1 when unlisted), and MORPH_ANIM_RATE is 1.0, a factor that changes nothing (the old 0.75 was removed earlier). No change.
 
 #### `NPC-027` Server-announced shop (Junk Shop) model from template stat
 
@@ -1937,6 +1951,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: placeholder names/meshes for such machines
 - Where: `crates/mao-client/src/net.rs:1860`; `docs/CLIENT_UI.md:4662`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): How the original draws a server-announced shop (a Junk Shop) was not read: its model comes from the dynel's announcement and template, and the client's rule (the template's Mesh stat, the name template, "Booth xxxx") is a reasonable reading that cannot be checked without the announcement reader for that kind; left.
 
 ### NPCs and creatures: the original does it, the client does not (11)
 
@@ -1978,6 +1993,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: not stated
 - Where: `docs/CAPTURE_GAPS.md:287`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_1005d61f's case 26 (0x1005ddba) calls FUN_1003c68e, which stores the action's value at +0x1c of the character's +0x1dc part (the animation controller); what reads +0x1c there was not found, so what the "NPC state" changes on screen is not known.
 
 #### `NPC-032` Guards' Action messages toward an attacker not ported
 
@@ -1997,6 +2013,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: team missions cannot be shared again from the journal
 - Where: `crates/mao-client/src/missionlog.rs:31`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): "Update Team Members" sends GiveQuestToMembers, a message no capture has; its layout is not known, so the entry stays disabled.
 
 #### `NPC-034` Male Watcher drawn without its gear
 
@@ -2006,6 +2023,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: an NPC appears unequipped
 - Where: `docs/CLIENT_UI.md:3483`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The Male Watcher's gear is not drawn and the cause is not known (its template's worn meshes or the announcement's clothes); needs the creature looked at with the mesh tools against the original's picture.
 
 #### `NPC-035` Mission page: shadow-knowledge pay for level 200-220 not shown
 
@@ -2025,6 +2043,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: sliders reset each time
 - Where: `docs/ORIGINAL_AUDIT.md:72`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The reading is in hand (NOTES: MissionSelectionViewConfig with show_advanced_options, difficulty and the six dimension values, written when the window goes; the toggle button hides sliders 1–6), and it is catalogued as WIN-135 (a window entry); left to that entry so the mission window is changed once.
 
 #### `NPC-037` Mission: character's flag +0x140 not read for the new-mission line
 
@@ -2033,7 +2052,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not read
 - A player notices: new-mission line may show when the original would not
 - Where: `docs/ORIGINAL_AUDIT.md:74`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Equivalent already: FUN_10056cdd asks the list owner's character +0x140, the flag of the client's own controlled character (the same flag every feedback line of FUN_10069a9f is gated on); the mission list the client keeps is only its own character's (QuestFullUpdate to oneself), so the flag is always set there and the client's new-mission line is told exactly when the original's is. No change.
 
 #### `NPC-038` Other polymorphs do not sidestep-animate
 
@@ -2043,6 +2063,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: other polymorphs do not sidestep-animate
 - Where: `docs/CLIENT_UI.md:2011`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Another character's sidestep needs its movement type from the server's movement messages (the turn and strafe types the client sends for itself, 0x86/0x87 animations by FUN_1006c370's FUN_10070a3f); the client does not keep the others' types. Same gap as NPC-021.
 
 ### NPCs and creatures: the client has it, the original does not (2)
 
@@ -2054,6 +2075,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: players can roll missions automatically, spending credits, until a wanted reward or place comes up
 - Where: `crates/mao-client/src/mission.rs:101`; `crates/mao-client/src/mission.rs:102`; `crates/mao-client/src/mission.rs:183`; `docs/LIVE_TEST_LIST.md:579`; `docs/CLIENT_UI.md:934`; `docs/CLIENT_UI.md:944` and 1 more
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: it is opt-in, sends only the original's own QuestAlternative request at a pace no faster than a player clicking (1.2 s, capped count, stops when the server stops answering) and pays the same credits; it saves the tedium players used outside helpers for. (The original has no such helper: GUI.dll's mission window FUN_100d09cb sends one request per button press.)
 
 #### `NPC-040` Clicked NPC answer echoed locally; client line for rejected items
 
@@ -2063,6 +2085,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: possible duplicate or extra lines in the conversation
 - Where: `crates/mao-client/src/npcchat.rs:291`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original writes NPC chat only from the server's KnubotAppendText, with no local echo of a clicked answer and no "N item(s) given back" line; both are lines a player of the original never sees.
 
 ## Inventory and items
 
@@ -4338,6 +4361,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: an incoming tell does not flash in the friends list
 - Where: `crates/mao-client/src/friends.rs:15`; `crates/mao-client/src/friends.rs:20`; `docs/CLIENT_UI.md:1174`; `docs/CLIENT_UI.md:1738`; `docs/GUI_DLL_PARITY.md:85`; `docs/ORIGINAL_CODE_QUESTIONS.md:61` and 1 more
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read, not ported: the flashing and the red folders hang on a count of unread lines per tell window (the tell window object's +0x34, FUN_100a5e31 by the character): FUN_100a86f6 walks the Online, Offline and Recent folders and gives a folder the label colours 0xff6666 / 0xc04c4c when one of its characters has a tell window with unread lines (else 0xffffff / 0xc0c0c0), and drops a row whose window went. The client's tell windows (chatwindow.rs open_tell) keep no unread count, are not listed under "Chat Windows", and have no own menu (FUN_100a8a69) or chatgroup:// links (FUN_100ac4f0). Porting means an unread count in the tell windows (when it rises and when reading clears it, not read yet), the friends list's flashing row, its folder colours and the window list: several windows' worth of work, past this night's budget for one entry.
 
 #### `CHT-051` Private group invitation box has no chat-window list
 
@@ -4347,6 +4371,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: you cannot choose the window for a private chat group
 - Where: `crates/mao-client/src/chatwindow.rs:1737`; `docs/CLIENT_UI.md:349`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Not ported for budget: the original's invitation question (FUN_100a76c9) carries a list of the chat windows to put the private group in, and ChatPGInviteAction 2 only marks the invitation in the friends list; the client's box has no list and the group goes to the windows that take new channels. Porting needs a window chooser inside the question box and the friends list's invitation mark (which itself needs CHT-050's rows), not done tonight.
 
 #### `CHT-052` /bank info and /items show no answer
 
@@ -4528,6 +4553,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra commands that open the client's own tools or act on the client only
 - Where: `crates/mao-client/src/chat_commands.rs:250`; `crates/mao-client/src/viewer.rs:2812`; `docs/CLIENT_UI.md:1910`; `docs/ORIGINAL_AUDIT.md:120`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the commands only open the client's own tools or act on the client (none sends anything the original would not), and a player who never types them sees the original's behaviour; /follow is the one that moves the character without the original's server-side follow, and could be dropped if strictness wins.
 
 #### `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice
 
@@ -4537,6 +4563,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra chat lines on each use
 - Where: `crates/mao-client/src/net.rs:7758`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original's use key (N3Msg_UseItem / the target's use, GUI.dll) prints no "Using X" line and no "Nothing targeted" notice; these are chat lines on every use that a player of the original never sees.
 
 #### `CHT-071` "Chat server is not connected" line
 
