@@ -1039,6 +1039,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Hover an item with unusual requirements and a stat breakdown: names read as the game's (e.g. "Max Health", "Duck-Exp"), none as "Stat N".
 - [ ] On a level 200+ character, the XP wing bar fills with shadowknowledge; on a character at the level cap it shows full, its tip "value / span".
 - [ ] With no kept place for PlanetMap (or a fresh layout), open the planet map (P): it opens at the top left, about 300 by 400.
+- [ ] With a nano buff that raises max health, compare the Stats window's health bar text with the server's current health: a computed maximum short of it shows as "current / max" with a full bar.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

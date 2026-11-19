@@ -245,10 +245,7 @@ fn char_bar(ctx: &egui::Context, skin: &Skin, at: impl Fn(egui::Vec2) -> egui::P
 
 /// One bar of the original's wings: a vertical groove (`BG`, 12 x 152) with the coloured bar (`FG`) rising in it.
 fn wing_bar(ui: &mut egui::Ui, skin: &Skin, painter: &egui::Painter, at: egui::Pos2, name: &str, tint: egui::Color32, value: Option<i64>, max: Option<i64>, label: &str) -> egui::Response {
-    let max = match (value, max) {
-        (Some(v), Some(m)) => Some(m.max(v)),
-        (_, m) => m,
-    };
+    // (the share no more than the whole, the maximum as it is: FUN_1007fed3, FUN_1006716e)
     let fraction = match (value, max) {
         (Some(v), Some(m)) if m > 0 => (v as f32 / m as f32).clamp(0.0, 1.0),
         _ => 0.0,

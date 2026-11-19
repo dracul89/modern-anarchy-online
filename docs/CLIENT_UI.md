@@ -7209,3 +7209,7 @@ The original's control center bars (`CharacterBar_c`, GUI.dll FUN_1006716e and F
 ### Planet map window's first place (WIN-100)
 
 The original makes the planet map window with the frame Rect(0, 0, 300, 400) (`PlanetMapView_c`, GUI.dll FUN_1004d92d): 300 by 400 at the screen's top left until the player moves it. The client's window now opens there too; a kept place still wins.
+
+### Bars show their maximum as it is (WIN-105)
+
+The original's bars (`PowerbarView_c`, GUI.dll FUN_1007fed3) fill to value over maximum, no more than full, and label themselves with the two numbers as they are. The client no longer raises a bar's maximum to its current value when the computed maximum is lower; the bar is full and its text shows both numbers.

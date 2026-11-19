@@ -5511,7 +5511,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: when a current value exceeds the computed maximum (active nano buffs are not all known) the maximum is raised to the current value
 - A player notices: bars show full instead of overflowing, the tooltip shows a different maximum, and a wrong maximum may be hidden
 - Where: `crates/mao-client/src/stats.rs:127`; `docs/CLIENT_UI.md:1669`; `docs/STAT_ENGINE.md:263`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The guard changed what a player sees, so it is gone: PowerbarView's update (GUI.dll FUN_1007fed3) sets the fill to value / maximum capped at 1.0 and the label "%u / %u" of the two numbers as they are (CharacterBar_c FUN_1006716e / FUN_100672bb cap the same way). stats::bar (the Stats window's and the plain strip's bars) and vitals::wing_bar no longer raise the maximum to the current value; the fill stays capped, the text shows the computed maximum, so a maximum short of an unknown nano buff now shows as "1085 / 1000" with a full bar instead of being hidden. No panic risk (the fill was already clamped). UI drawing only, no unit test; stats/vitals tests pass.
 
 #### `WIN-106` Control center falls back to a plain strip without the skin's pictures
 
