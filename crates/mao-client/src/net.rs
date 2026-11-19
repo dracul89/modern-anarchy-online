@@ -394,8 +394,6 @@ struct World {
     /// The character itself is dead (GUI.dll `FlowControlModule_t::DeadMessage`: `m_isAlive` false and the movement input
     /// mode cleared) until it is back (`AliveMessage`: the arrival in a playfield, or health again).
     own_dead: bool,
-    /// When the line of the own character's death was told (a death's messages can each carry the reason).
-    death_told: Option<Instant>,
     /// The health when it died: health above it is a revival.
     dead_health: i64,
     /// The nano casts under way, for their sounds (`CharCastNano_t`).
@@ -5064,17 +5062,14 @@ impl World {
         }
     }
 
-    /// The client's own character died of `reason` (Gamecode FUN_1005b3d8): the game's line for it, once for a death,
-    /// and no health.
+    /// The client's own character died of `reason` (Gamecode FUN_1005b3d8): the game's line for it, each time a message
+    /// carries a reason (the original keeps no count of lines told), and no health.
     fn own_died_of(&mut self, reason: i64) {
         if self.stats.insert(27, 0) != Some(0) {
             self.stats_changed = true;
         }
-        if self.death_told.is_none_or(|t| t.elapsed() > Duration::from_secs(5)) {
-            if let Some(line) = crate::feedback::death(reason) {
-                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
-                self.death_told = Some(Instant::now());
-            }
+        if let Some(line) = crate::feedback::death(reason) {
+            self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
         }
     }
 
@@ -13469,17 +13464,17 @@ mod door_tests {
         w.add(&Message { kind: 0x3710256c, identity: (0xc350, own), data: hex("0000000000fffeac760000005b000000050000c3507b0828a000000000") }.frame(1));
         assert_eq!(told(&mut w, 5), (1, 0));
         // (a shield's hit with the reason 3, on one's own)
-        (w.death_told, w.stats) = (None, [(27, 80)].into_iter().collect());
+        w.stats = [(27, 80)].into_iter().collect();
         w.add(&Message { kind: 0x25192476, identity: (0xc350, own), data: hex("00000000ad0000c3507b0828a000000003") }.frame(1));
         assert_eq!(told(&mut w, 3), (1, 0));
         // (a special attack's with 4, for its target: another character's health goes, nothing is told; one's own is told)
-        (w.death_told, w.stats) = (None, [(27, 80)].into_iter().collect());
+        w.stats = [(27, 80)].into_iter().collect();
         w.add(&Message { kind: 0x754f1115, identity: (0xc350, own), data: hex("000000000600000040ffffffff0000c3507b1abb350000009400000004") }.frame(1));
         assert_eq!((told(&mut w, 4), w.health[&other].0, w.last_hp[&other]), ((0, 80), 0, 0));
         w.add(&Message { kind: 0x754f1115, identity: (0xc350, other), data: hex("000000000600000040ffffffff0000c3507b1a00210000009400000004") }.frame(1));
         assert_eq!(told(&mut w, 4), (1, 0));
         // (the server's 0x99 with the reason 4, as this client's log has it; and hits with no reason, which tell none)
-        (w.death_told, w.stats) = (None, [(27, 80)].into_iter().collect());
+        w.stats = [(27, 80)].into_iter().collect();
         w.add(&Message { kind: 0x25192476, identity: (0xc350, own), data: hex("00000000050000c3507b0828a000000000") }.frame(1));
         assert_eq!(told(&mut w, 3), (0, 75));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000009900000000000000000000000000000000000000040000") }.frame(1));

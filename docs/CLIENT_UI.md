@@ -7381,3 +7381,7 @@ The client asks an NPC to talk once, as the original does. The client's own retr
 ### City map buttons (TGT-006)
 
 The original's city map (`BuildingMapView_c`) does not look at which mouse button was pressed: any button selects a house, drags a waiting one or scrolls. The client now does the same.
+
+### Own death line (DTH-004)
+
+Each message that tells one's own death with a reason says the game's death line (Gamecode FUN_1005b3d8), with no gate of the client's own between them.

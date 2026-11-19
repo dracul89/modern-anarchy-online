@@ -1570,7 +1570,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: tells the death line only if none was told in the last 5 seconds
 - A player notices: a repeated death message gives one line
 - Where: `crates/mao-client/src/net.rs:3873`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): (Done before the low list's DTH entries went to another porter.) Gamecode FUN_1005b3d8 says the death's line (reasons 1 to 7, FUN_10059047) every time a message with a reason calls it and keeps no count; the client's own five-second gate (World::death_told) is gone, so a death whose messages each carry a reason is told by each, as in the original. Test net::...::a_death_is_told_by_the_message_that_carries_its_reason (adjusted).
 
 #### `DTH-005` Whiteout clears over 1.5 s after arrival; only the world goes white
 
