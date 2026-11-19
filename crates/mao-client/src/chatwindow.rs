@@ -515,6 +515,11 @@ fn save_ignored(list: &std::collections::BTreeSet<String>) {
 
 /// How many lines are kept.
 const KEEP: usize = 600;
+/// The lines a chat view shows at most: ChatTextView_c takes the oldest out of its text while it has more than 200
+/// (FUN_10091d8c, after each line FUN_10093ae6 appends).
+const VIEW_LINES: usize = 200;
+/// The lines sent that the arrow keys go through (FUN_1008f5b5).
+const HISTORY: usize = 200;
 
 /// How a fading chat line is drawn `age_ms` after it came (`ChatTextView_c`'s frame timer, GUI.dll FUN_100926f6):
 /// `None` once it is older than the delay and the fade time together (the line is taken away), else its alpha, the
@@ -547,7 +552,9 @@ fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std:
     let chat_font = if crate::font::enabled() { crate::font::chat(ui.ctx()) } else { None };
     let stamps = pane.is_some_and(|p| p.timestamps);
     crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(height).min_scrolled_height(height).auto_shrink([false, false]).stick_to_bottom(true), |ui| {
-        for (k, line) in lines.iter().enumerate().filter(|(_, l)| line_shows(l, pane, only)) {
+        let shown: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| line_shows(l, pane, only)).map(|(k, _)| k).collect();
+        for &k in &shown[shown.len().saturating_sub(VIEW_LINES)..] {
+            let line = &lines[k];
             let ms = |seconds: f32| (seconds as f64 * 1000.0) as i64;
             let faint = match fade.zip(born.get(k)) {
                 Some(((delay, time), came)) => match fade_alpha(now.duration_since(*came).as_millis() as i64, ms(delay), ms(time)) {
@@ -1342,14 +1349,18 @@ impl ChatWindow {
     }
 
     /// Carries out a typed line: what to send (if anything), and the lines it adds to the window.
-    /// Remembers a sent line for the arrow keys (the same line twice in a row is kept once).
+    /// Remembers a sent line for the arrow keys (FUN_1008f5b5: the line stripped; an empty one is not kept; the same
+    /// line kept before is taken out of its place, the oldest go while there are 200 or more, and it goes last).
     fn remember(&mut self, line: &str) {
         let line = line.trim();
-        if !line.is_empty() && self.history.last().map(String::as_str) != Some(line) {
-            self.history.push(line.to_string());
-            if self.history.len() > 100 {
+        if !line.is_empty() {
+            if let Some(k) = self.history.iter().position(|l| l == line) {
+                self.history.remove(k);
+            }
+            while self.history.len() >= HISTORY {
                 self.history.remove(0);
             }
+            self.history.push(line.to_string());
         }
         self.recalled = None;
     }
@@ -2531,6 +2542,15 @@ mod tests {
         w.run("hello");
         w.run("hello");
         assert_eq!(w.history, vec!["/help", "hello"]);
+        // (a line sent again leaves its old place and goes last; the history holds 200)
+        w.remember(" /help ");
+        assert_eq!(w.history, vec!["hello", "/help"]);
+        for i in 0..250 {
+            w.remember(&format!("line {i}"));
+        }
+        assert_eq!((w.history.len(), w.history[0].as_str()), (HISTORY, "line 50"));
+        w.history = vec!["/help".into(), "hello".into()];
+        w.recalled = None;
         assert_eq!(w.recall(true).as_deref(), Some("hello"));
         assert_eq!(w.recall(true).as_deref(), Some("/help"));
         assert_eq!(w.recall(true).as_deref(), Some("/help"));

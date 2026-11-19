@@ -7874,3 +7874,7 @@ GUI.dll's ChatTextView_c fades a line by its frame timer (FUN_100926f6): `ChatTe
 ### Script words (CHT-041)
 
 GUI.dll's script loader (FUN_100b1517) cuts the command line with Utils.dll's `String::Tokenize`: blanks separate words, and a word that begins with a double quote runs to the closing quote and keeps its quotes. The client now cuts a script's command line the same way, so `/myscript "two words" x` gives `%1` = `"two words"` and `%2` = `x`.
+
+### Sent lines and how many lines a chat window shows (CHT-042)
+
+The original keeps the last 200 lines sent for the arrow keys (FUN_1008f5b5: a line sent again leaves its old place and goes last), and each chat view shows at most its last 200 lines (ChatTextView_c, FUN_10091d8c). The client now does both; its one shared list of 600 lines behind the windows stays.
