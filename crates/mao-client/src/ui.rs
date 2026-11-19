@@ -2282,7 +2282,7 @@ fn shortcut_layer(ctx: &egui::Context, bars: &mut crate::shortcutbar::ShortcutBa
                     }
                     let icon = match &action {
                         hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
-                        hotbar::Action::Special { icon: Some(id), .. } => actions.icon_by_instance(*id).cloned(),
+                        hotbar::Action::Special { id: template, icon: Some(id), .. } => actions.icon_by_instance(*id).or_else(|| actions.template_icon(*template)).cloned(),
                         _ => None,
                     };
                     match icon {
@@ -2428,7 +2428,7 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                         }
                         let icon = match action {
                             hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
-                            hotbar::Action::Special { icon: Some(id), .. } => actions.icon_by_instance(*id).cloned(),
+                            hotbar::Action::Special { id: template, icon: Some(id), .. } => actions.icon_by_instance(*id).or_else(|| actions.template_icon(*template)).cloned(),
                             _ => None,
                         };
                         match icon {

@@ -7746,3 +7746,7 @@ The original gives every normal window two borders (`WndBorder::SetBorderGfx`, G
 ### Where chat windows first come up (WIN-086)
 
 Before the player has placed them (the saved place, `Window::LoadWndConfig`, still wins), the original puts its default chat window across the foot of the screen, 224 points in from each side and from 200 above the bottom to 3 above it (FUN_100971a3 through `ChatWindow_c`'s FUN_1009829a, for the window FUN_100950df makes as "Default Window"); any other chat window has a 400 by 200 client and a tell window (`TellWindow_c`, FUN_100b243e) a 389 by 219 one, both in the middle of the screen (`MoveToCenter`). The client does the same (`chatwindow::first_place`); tell windows no longer stack 26 points apart over the chat window. The original has a single tell window; the client keeps one per character.
+
+### Action pictures (WIN-098)
+
+Every tile of the Actions window and every action shortcut is pictured by its action's item template's icon, as the original's are (Gamecode FUN_10042b17 gives each special action the template that names and pictures it). Reload now shows its own picture rather than Aimed Shot's, and the catalogue's perks their own rather than a family picked by words in their names. A shortcut saved with an older picture is drawn with its action's own.

@@ -30,51 +30,6 @@ pub enum Kind {
     Perk,
 }
 
-/// The icon (a texture name of type 0xf6958) of an action, by what it is.
-pub fn icon_name(kind: Kind, name: &str) -> &'static str {
-    match name {
-        "Burst" => "action_burst.png",
-        "Fling Shot" => "action_fling.png",
-        "Full Auto" => "action_auto.png",
-        "Brawl" => "action_brawl.png",
-        "Dimach" => "action_dimach.png",
-        "Reload" => "action_aimed.png",
-        "Use" => "action_use.png",
-        "Pick-Up" => "action_get.png",
-        "Start Combat" => "action_startattack.png",
-        "Stand" => "action_stand.png",
-        "Walk" => "action_walk.png",
-        "Sneak" => "action_sneak.png",
-        "Suspended Animation" => "action_camp.png",
-        "Crawl" => "action_crawl.png",
-        "Search" => "action_search.png",
-        _ if kind == Kind::Perk => perk_icon(name),
-        _ => "action_use.png",
-    }
-}
-
-/// A perk's icon, by the kind of thing it does (the game has a family of icons per effect; which one a perk
-/// uses is in data this client does not read, so this picks the family from the name).
-fn perk_icon(name: &str) -> &'static str {
-    let n = name.to_lowercase();
-    let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
-    if has(&["heal", "bandage", "blessing", "lifeblood", "life", "reconditioned", "bearhug"]) {
-        "perk_heals_1a.png"
-    } else if has(&["bash", "grip", "grasp", "violence", "guardian"]) {
-        "perk_dd_hammer_1a.png"
-    } else if has(&["blood", "artery", "jugular", "vein", "draw"]) {
-        "perk_dot_1a.png"
-    } else if has(&["target", "paint", "triangulate", "tracer", "acquired"]) {
-        "perk_damagebuffs_1a.png"
-    } else if has(&["armor", "absorption", "stone", "encase", "fuzz", "fuse"]) {
-        "perk_acbuffs_1a.png"
-    } else if has(&["shot", "burst", "ammunition", "fire", "napalm", "muzzle", "clip", "horde", "frenzy", "double", "initiative", "spray", "detonate"]) {
-        "perk_dd_gun_1a.png"
-    } else {
-        "perk_procs_1a.png"
-    }
-}
-
 /// Each special action's number and the item template that names and pictures it (Gamecode FUN_10042b17). The
 /// numbers are character action codes (1 pick up, 3 use, 11 and 78 start and stop combat, 17 and 18 walk and run, 19
 /// and 79 sneak, 20 and 141 crawl, 76 and 77 sit and stand, 81 and 82 camp, 110 reload, 134 search) and the stats of
@@ -388,8 +343,8 @@ pub fn describe_perks(db: &mao_formats::resource::ResourceDatabase, textures: &c
 
 pub struct ActionsWindow {
     pub open: bool,
-    /// Icons by name, once loaded.
-    icons: HashMap<&'static str, Arc<Icon>>,
+    /// The catalogue's icons by their actions' templates, once loaded.
+    icons: HashMap<u32, Arc<Icon>>,
     loaded: bool,
     /// What a click asked for: sent to the network thread by the viewer.
     pub clicked: Option<hotbar::Action>,
@@ -412,15 +367,15 @@ impl ActionsWindow {
             return;
         }
         self.loaded = true;
-        for &(_, kind, name, _, _) in ACTIONS {
-            let icon = icon_name(kind, name);
-            if !self.icons.contains_key(icon) {
-                if let Some(i) = textures.icon_named(icon) {
-                    self.icons.insert(icon, i);
-                }
+        use mao_formats::item::{self, Item};
+        // (each action pictured by its item template's icon, as the original's are: FUN_10042b17's template names and
+        // pictures it. Until 2026-11-19 the catalogue's were picked by name, and a perk's by words in its name.)
+        for &(template, ..) in ACTIONS {
+            let parsed = textures.db().get(mao_formats::resource::Id { kind: item::TEMPLATE, instance: template }).ok().flatten().as_deref().and_then(Item::parse);
+            if let Some(icon) = parsed.as_ref().and_then(|t| t.icon()).and_then(|id| textures.get(item::ICON_TYPE, id).map(|t| Arc::new(Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba }))) {
+                self.icons.insert(template, icon);
             }
         }
-        use mao_formats::item::{self, Item};
         for template in PAIRS.iter().flat_map(|p| [p.0, p.1]).filter_map(template_of).filter(|t| !ACTIONS.iter().any(|a| a.0 == *t)) {
             let parsed = textures.db().get(mao_formats::resource::Id { kind: item::TEMPLATE, instance: template }).ok().flatten().as_deref().and_then(Item::parse);
             let icon = parsed.as_ref().and_then(|t| t.icon()).and_then(|id| textures.get(item::ICON_TYPE, id).map(|t| Arc::new(Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba })));
@@ -433,10 +388,16 @@ impl ActionsWindow {
         self.icons.values().chain(self.pair_looks.values().filter_map(|l| l.1.as_ref())).find(|i| i.id == instance)
     }
 
+    /// The icon of the action whose template is `template` (a shortcut kept with a picture this client no longer
+    /// loads is drawn with its action's own).
+    pub fn template_icon(&self, template: u32) -> Option<&Arc<Icon>> {
+        self.icons.get(&template).or_else(|| self.pair_looks.get(&template).and_then(|l| l.1.as_ref()))
+    }
+
     /// A catalogue action's or a pair's other half's name and icon, by its template.
     fn look(&self, template: u32) -> Option<(String, Option<Arc<Icon>>, Kind)> {
         if let Some(&(_, kind, name, _, _)) = ACTIONS.iter().find(|a| a.0 == template) {
-            return Some((name.to_string(), self.icons.get(icon_name(kind, name)).cloned(), kind));
+            return Some((name.to_string(), self.icons.get(&template).cloned(), kind));
         }
         self.pair_looks.get(&template).map(|(name, icon)| (name.clone(), icon.clone(), Kind::Character))
     }
@@ -706,5 +667,19 @@ mod tests {
         assert_eq!(perks[0].name, "Quick Bash");
         assert_eq!(perks[0].lock, Some(201));
         assert!(perks[0].free_at.is_some());
+    }
+
+    /// `MAO_GAME`: each catalogue action is pictured by its item template's icon (FUN_10042b17's template names and
+    /// pictures the action): Reload has its own picture, not Aimed Shot's.
+    #[test]
+    fn catalogue_actions_are_pictured_by_their_templates() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let textures = crate::Textures::new(db.clone());
+        let mut window = ActionsWindow::default();
+        window.load_icons(&textures);
+        assert_eq!(window.look(245003).and_then(|l| l.1).map(|i| i.id), Some(245002));
+        assert_eq!(window.template_icon(82211).map(|i| i.id), Some(82198));
+        assert!(ACTIONS.iter().all(|a| window.template_icon(a.0).is_some()));
     }
 }

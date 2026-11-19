@@ -1165,6 +1165,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Make a character from the start: the two opening lines take about five seconds to appear and stay some fourteen seconds; on the way down two new lines (docking completed, continuing DNA) appear about four seconds in; after Done the walk starts, a line shows after a second, and about six seconds after Done the picture is black and the game starts loading.
 - [ ] Open a few windows (inventory, skills, options, chat with its frame) with the game's skin: the body is an even dark teal inside a thin light line, starting just under the title row; compare with a shot of the original. Try an AOU skin too.
 - [ ] With no saved layout (or a new character), the main chat window spans the bottom of the screen 224 points in from each side; open a tell window and a new chat window: both come up in the middle.
+- [ ] Open the Actions window (K): Reload has its own picture (not Aimed Shot's); a Reload shortcut put on a bar before this change still shows a picture; perk tiles look as in the original.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
