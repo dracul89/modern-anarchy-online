@@ -216,6 +216,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - /inspect alone no longer describes the target; it takes a character's number, as in the original.
 - Fight lines about your own pet go to the "Your pet hit by other" and "Your pet hit by nano" chat groups, as in the original.
 - /help opens the game's command help in the info window, and /help <topic> (org, pet, team, raid, ...) the page for that topic.
+- Using a target or a perk no longer adds a "Using ..." line, and the use key with nothing targeted no longer says so (the original says nothing).
 
 ### Movement
 

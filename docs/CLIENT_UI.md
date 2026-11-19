@@ -7448,3 +7448,7 @@ A nano's hit effect used to have its particles eased in over the first 0.1 s and
 ### No floating combat numbers (CMB-038)
 
 The client's own numbers floating up over the fight (damage dealt, taken and healing, coloured, for 1.6 s) are gone. As in the original, a fight is told only in chat (the Combat lines, Gamecode FUN_100a0611 for each HealthDamage); the damage meter is unchanged.
+
+### Using things says nothing (CHT-070)
+
+The client's own "Using <name>" line (on every use of the target and every perk action) and its "Nothing targeted to use" notice were removed. As in the original (N3Msg_UseItem; a perk's FUN_100427d6), a use is sent without any line, and the use key with nothing targeted does nothing.

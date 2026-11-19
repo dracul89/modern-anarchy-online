@@ -4499,7 +4499,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: every use shows "Using <name>" or "Nothing targeted to use (Tab selects)"
 - A player notices: extra chat lines on each use
 - Where: `crates/mao-client/src/net.rs:7758`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The client's "Using <name>" line on every use of the target (the E key and a clicked use), its "Using <perk>" line on a perk action and its "Nothing targeted to use (Tab selects)" notice are removed (net.rs). The original's use of the target (N3Msg_UseItem / the use sent from GUI.dll) and of a perk (Gamecode FUN_100427d6, a UsePerk) write no line; with nothing targeted the use key does nothing and says nothing, as now in the client. Build: no new warnings (mao-client 69 before and after).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original's use key (N3Msg_UseItem / the target's use, GUI.dll) prints no "Using X" line and no "Nothing targeted" notice; these are chat lines on every use that a player of the original never sees.
 
 #### `CHT-071` "Chat server is not connected" line

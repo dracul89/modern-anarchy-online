@@ -9219,25 +9219,22 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 if slot == 6 {
                     // E: use the target (talk to it, open it).
-                    match target {
-                        Some(t) => {
-                            uses += 1;
-                            let (kind, t) = state.used(state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t);
-                            if std::env::var_os("MAO_COMBAT_LOG").is_some() {
-                                let there = state.objects.get(&t).copied().or_else(|| state.entities.get(&t).map(|e| e.0));
-                                eprintln!("combat: use ({kind:#x}, {t:#x}) at {there:?}, {:?} m away", there.map(|p| ((p[0] - position[0]).powi(2) + (p[1] - position[1]).powi(2) + (p[2] - position[2]).powi(2)).sqrt()));
-                            }
-                            // (an NPC is talked to: `KnubotOpenChatWindow`, as aosharp opens a conversation)
-                            if kind == n3::CHARACTER && t != own && state.infos.get(&t).is_some_and(|i| !i.is_player()) {
-                                let _ = connection.send(&n3::npc_chat_open(own, (kind, t)));
-                            } else {
-                                let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
-                            }
-                            state.door_used(t);
-                            state.opened_by_use(&gear_db, kind, t);
-                            pending_messages.push(format!("Using {}", state.names.get(&t).map_or("the target", |n| n.0.as_str())));
+                    // (nothing targeted: nothing happens and nothing is said)
+                    if let Some(t) = target {
+                        uses += 1;
+                        let (kind, t) = state.used(state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t);
+                        if std::env::var_os("MAO_COMBAT_LOG").is_some() {
+                            let there = state.objects.get(&t).copied().or_else(|| state.entities.get(&t).map(|e| e.0));
+                            eprintln!("combat: use ({kind:#x}, {t:#x}) at {there:?}, {:?} m away", there.map(|p| ((p[0] - position[0]).powi(2) + (p[1] - position[1]).powi(2) + (p[2] - position[2]).powi(2)).sqrt()));
                         }
-                        None => pending_messages.push("Nothing targeted to use (Tab selects)".into()),
+                        // (an NPC is talked to: `KnubotOpenChatWindow`, as aosharp opens a conversation)
+                        if kind == n3::CHARACTER && t != own && state.infos.get(&t).is_some_and(|i| !i.is_player()) {
+                            let _ = connection.send(&n3::npc_chat_open(own, (kind, t)));
+                        } else {
+                            let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
+                        }
+                        state.door_used(t);
+                        state.opened_by_use(&gear_db, kind, t);
                     }
                     continue;
                 }
@@ -9736,10 +9733,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     other => match crate::actions_data::ACTIONS.iter().find(|a| a.0 == id && a.1 == crate::actions::Kind::Perk && a.3.len() == 4) {
                         // A perk: its id and its four-letter hash name it (the server uses the current target).
-                        Some(&(_, _, perk_name, hash, perk_id)) => {
+                        Some(&(_, _, _, hash, perk_id)) => {
                             let h: [u8; 4] = hash.as_bytes().try_into().unwrap_or([0; 4]);
                             let _ = connection.send(&n3::use_perk(own, perk_id, h));
-                            pending_messages.push(format!("Using {perk_name}"));
                         }
                         None => pending_messages.push(format!("{other}: its network message is not captured yet")),
                     },
@@ -9886,7 +9882,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         state.open_windows.push("missionselection");
                     }
                     state.opened_by_use(&gear_db, kind, id);
-                    pending_messages.push(format!("Using {}", state.names.get(&id).map_or("the target", |n| n.0.as_str())));
                 }
             }
             // (`/pet`: a command to all the pets)
