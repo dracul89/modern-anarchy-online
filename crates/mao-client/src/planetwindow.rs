@@ -87,12 +87,11 @@ impl PlanetWindow {
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut open = self.open;
         let title = self.map.as_ref().map_or("Planet Map".to_string(), |m| m.name.clone());
-        // The original's window sits small at the top left (the user's shots: about 400 pixels square on a 5120 by 1440
-        // display, 92 in and 77 down), the map over two rows of buttons: Zoom in / Zoom out, Character / Mission.
-        let screen = crate::layout::screen().map_or(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(2560.0, 1440.0)), |s| egui::Rect::from_min_size(ctx.content_rect().min, egui::vec2(s[0], s[1])));
-        let side = (screen.width() / 12.5).clamp(200.0, 400.0);
-        let at = egui::pos2(screen.left() + screen.width() * 0.018, screen.top() + screen.height() * 0.053);
-        crate::chrome::window(ctx, palette, "PlanetMap", &title, &mut open, |w| w.default_pos(crate::layout::pos("PlanetMap", at)).default_size(egui::vec2(side, side * 1.5)).min_size(egui::vec2(200.0, 240.0)).resizable(true), |ui| {
+        // The original's window (PlanetMapView_c, FUN_1004d92d) is made with the frame `Rect(0, 0, 300, 400)` (the floats at
+        // 0x101b1844 and 0x101b1848): 300 wide and 400 tall at the screen's top left until the player moves it (the
+        // window's place is kept), the map over two rows of buttons: Zoom in / Zoom out, Character / Mission.
+        let at = ctx.content_rect().min;
+        crate::chrome::window(ctx, palette, "PlanetMap", &title, &mut open, |w| w.default_pos(crate::layout::pos("PlanetMap", at)).default_size(egui::vec2(300.0, 400.0)).min_size(egui::vec2(200.0, 240.0)).resizable(true), |ui| {
             let mut zoom: Option<(i32, Option<egui::Vec2>)> = self.pending_zoom.take().map(|by| (by, None));
             let mut centre_on: Option<(u32, [f32; 3])> = self.pending_centre.take();
             // (the two rows of buttons under the map, and the list of maps when there is a choice)

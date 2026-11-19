@@ -5463,7 +5463,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: opens about 400 pixels square (a twelfth of the screen width, 200 to 400) at 1.8 % across and 5.3 % down, fitted to the user's screenshots on a 5120 by 1440 display
 - A player notices: the window may open at a slightly different size and place
 - Where: `crates/mao-client/src/planetwindow.rs:90`; `docs/CLIENT_UI.md:3144`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): PlanetMapView_c (GUI.dll FUN_1004d92d) makes its window with Rect(0, 0, 300, 400) (the floats at 0x101b1844 = 300 and 0x101b1848 = 400, the Rect built at 0x1004d991) before FUN_100395fd: 300 wide, 400 tall at the screen's top left; the player's saved place (PlanetMapViewConfig / the client's layout) wins afterwards. planetwindow.rs now opens at the screen's top left, 300 by 400, instead of the size and place fitted to the user's 5120x1440 screenshots (which were most likely the user's own saved place). Not unit-testable (egui window placement); built clean.
 
 #### `WIN-101` Planet maps: which map a playfield is shown on
 

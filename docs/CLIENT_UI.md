@@ -7205,3 +7205,7 @@ Gamecode names a stat by text.mdb 2003 and the stat's number (`ConvertCriteria` 
 ### Control center experience bars (WIN-090)
 
 The original's control center bars (`CharacterBar_c`, GUI.dll FUN_1006716e and FUN_100672bb) count experience from the last level's figure to the next's below level 200 and shadowknowledge from level 200 (from zero unless stat 576's bit 0 is set), alien experience from zero, each capped at a full bar. The client's wing and docked bars now do the same (they showed no bar past the figure and ignored shadowknowledge).
+
+### Planet map window's first place (WIN-100)
+
+The original makes the planet map window with the frame Rect(0, 0, 300, 400) (`PlanetMapView_c`, GUI.dll FUN_1004d92d): 300 by 400 at the screen's top left until the player moves it. The client's window now opens there too; a kept place still wins.
