@@ -7617,6 +7617,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the fade between weather states may differ in detail
 - Where: `crates/mao-formats/src/weather.rs:287`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read through: Environment_t's frame (FUN_100bd555, run for every environment of the playfield each frame by FUN_100beacd) keeps two tables, 0 (+0xc, the output) and 1 (+0x10), and two count-downs +0x14 / +0x18 that drop by ONE PER FRAME (0x100bd60e..0x100bd64e: the step is 1, 0 only when the frame's delta GameTime+0x78 equals the never-set int +0x50, i.e. a paused frame). When +0x18 runs out, table 1 is rolled for the state now in force (FUN_100b14f9 then FUN_100bcec6(1): its values scaled by the fade weight w = elapsed / fade) and +0x18 is set to fade / 255 (the double at 0x10167fa0) while it still fades, else to length - elapsed; +0x14 is set to length - elapsed each time. When +0x14 runs out, table 0 is rolled for the PREVIOUS state (FUN_100b149b, state +0x28; elapsed past its length, so at full strength). Each time either fires, table 0 = lerp(table 0, table 1, w) (FUN_100bf96e) — cumulatively. So in the original the old state is lerped away within a few seconds (a step every one or two frames, each by w), not over the whole fade, and how fast depends on the frame rate (the count-downs count frames, though they are set from seconds). The client computes the weather on the network thread as a pure function of the clock (areas.rs blend_with_weather, called twice a loop from net.rs) for the playfield's own and every area's environment; the faithful port needs a per-environment state machine stepped once per rendered frame, which the client's network-thread computation has no place for, and its result would still hang on the frame rate. Left with these findings (the client's linear fade-out of the old state is the outcome the original's numbers suggest was meant: 255 steps over the fade).
 - Looked at, left (2026-11-19, overnight): The original's Environment_t keeps a current and a next 22-float table (FUN_100bd555) and lerps them by the fade (FUN_100bf96e: the first 18 floats by the weight, 0x12-0x14 by the weights' share of +0x15). Those tables are built by FUN_100bcec6 from the area's environment, a different shape from the client's 14 rolled weather values (weather.rs roll); porting the fade means porting the table building too. Over the time box. Left.
 
 ### Rendering and world: the original was not read: inferred or measured (26)
@@ -7770,6 +7771,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: such doors and gates never block in playfields without collision surfaces
 - Where: `crates/mao-client/src/net.rs:5724`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the mesh-name rule only feeds collision built from visual meshes where a playfield has no 0xf424d surfaces (net.rs build_collision / passable_parts), the stand-in of RND-037; the original's collision there comes from the rooms' own data in N3.dll, which RND-037 leaves unported. Goes with RND-037.
 - Looked at, left (2026-11-19, overnight): Only used where collision is built from visual meshes (generated dungeons, RND-037); the original's collision there comes from the rooms' own data, not read. Left with RND-037.
 
 #### `RND-113` Plants are told by whole-word endings in the mesh file name
@@ -7841,6 +7843,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: ray timing guessed
 - Where: `crates/mao-client/src/effects.rs:2026`; `docs/ORIGINAL_AUDIT.md:266`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: every mode-13 template's duration is -1 and the client's stars_ray takes LANDING; the real length comes from what starts the hit effect (the spell's hit timing, RND-004, or a sequencer child's end, RND-170), neither ported. Goes with RND-004.
 - Looked at, left (2026-11-19, overnight): Every mode-13 template's duration is -1, so the hit's window (the spell's hit effect run) sets it in the original; that window is the hit timing of RND-004, not read. Left with RND-004.
 
 #### `RND-120` Stars modes 16/17/18 follow the decompile's shape, not its arithmetic
@@ -7914,6 +7917,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-formats/src/surface.rs:174`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: kept as the reader found. The volume decoder (FUN_10012af0) has no count of its own; without the 4000 cap a broken stream that never reads as broken grows the volume without end (memory runs out and the client ends) where the original would hang; no real volume comes near it, so nothing a player sees changes.
 - Looked at, left (2026-11-19, overnight): Safety kept: the volume decoder (FUN_10012af0) has no count of its own (999 is the end mark's odds, s.bit(1, 999), not a limit); on a broken stream that never reads as broken it would grow without end, where the original would hang. Real volumes stay far below 4000 triangles (none was refused in the playfields walked so far), so the cap changes nothing a player sees. Left.
 
 #### `RND-127` Frame trees deeper than 64 refused
@@ -7984,6 +7988,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: far machines or doors (Whom-Pah glow, propellers) stand still
 - Where: `crates/mao-client/src/net.rs:5527`; `docs/CLIENT_UI.md:3256`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked net.rs overlay_model (STATEL_ANIMATION_RANGE 250): the faithful rule is the LODManager's (hide past 50 of the statel mesh's radii, swap to the 0xf696a mesh past 6000 squared units, drop-in lodmanager.rs; mao-render LOD_CULL/LOD_FAR), but the overlay clones every moving part's vertices on the network thread each loop, so widening the range to 50 radii (a Whom-Pah's glow ~750 m) adds an unknown per-frame cost in big cities that cannot be measured without running the client. Left with that port suggested (store each AnimatedPart's statel radius and use d²/r² > 2500, from the camera as the renderer does).
 - Looked at, left (2026-11-19, overnight): The 250 m range does change what is seen: past it a statel's moving part is not drawn at all (net.rs overlay_model skips it). The original draws statel meshes under the LODManager's rule (hidden past 50 radii, RND-005) and gives every 0xf6951 mesh the time each frame. Removing the range alone would put every moving part of the playfield into the overlay rebuilt each frame on the network thread; the faithful change is to cull them by the LODManager's 50-radii rule (each part's radius from its vertices), which needs a measure of the cost on a big city before it ships. Left, with that as the suggested port.
 
 #### `RND-134` Unreadable global statel ends the global data
@@ -8291,6 +8296,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible known
 - Where: `crates/mao-client/src/lightning.rs:23`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read the note's consumers: FUN_100b8b35 adds (ground place, radius 50) to the list at DAT_102e4478 (made by FUN_100b8ab4, emptied each frame by FUN_100b8afb from FUN_1011bb78), and the list is read (FUN_100b8aae) only by Bird_c's frame (Gamecode vtable 0x1016ff74 slot +0xa4, FUN_10117edd: a bird within a strike's radius takes off, state 3) and Rabbit_c's (vtable 0x101705a4 slot +0xa4, FUN_1011d60e: a rabbit near a strike does not settle). The client has no wildlife at all (the Wildlife option switches nothing, CLIENT_UI options notes), so making the note changes nothing; it belongs with a port of Bird_c / Rabbit_c.
 - Looked at, left (2026-11-19, overnight): FUN_100b8b35's note of the bolt's ground place (radius 50) feeds whatever reads it (the note's consumers were not read); nothing visible follows from making the note alone. Left.
 
 #### `RND-164` Nano effect: rand() gate (word 24) not played
@@ -8321,6 +8327,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none now; a room playfield on an old tile-map would not draw
 - Where: `crates/mao-formats/src/rooms.rs:1364`; `docs/ORIGINAL_AUDIT.md:68`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked with the game's data: rooms::tests::every_doorway_has_its_two_sides (MAO_GAME) asserts that every room playfield's tile-map is of the GNDA form, and it passes: no room playfield of this game has an old CHGA tile-map, so the cell constructor's CHGA branch has no data to draw; porting it (a format with no drop-in reader) would change nothing a player sees.
 - Looked at, left (2026-11-19, overnight): The old CHGA tile-map branch of the room cell constructor is a format port with no reader in the drop-ins to copy; the playfields that need it are the ones the flat floor stands in for (RND-024). Over the time box. Left.
 
 #### `RND-167` Player city houses added or removed live not handled
@@ -8361,6 +8368,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some sequencer children play too long or do not loop
 - Where: `crates/mao-formats/src/gfx.rs:2449`; `docs/ORIGINAL_AUDIT.md:269`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read the sequencer (Gamecode _GfxControlSequencer_t: FUN_100ecd74 reads the entries, FUN_100ecb95 runs them): a child is made once `start ≤ elapsed` and, with end > 0, given end − start through its slot +0x20 (FUN_1010340b: the control's base duration +0x10, which 59 of the 67 control constructors fill from template word 8, and _GfxControl_t::Process ends the control past it); once every child has ended, flag 0x400 clears the children's made marks and restarts the round from now; flag 0x800 runs a dynel-bound sequencer (mode 2) even without its dynel. Surveyed gfxtweak.bin: 56 of the 522 entries carry an end, their children of kinds 2007 (30, bundles: what a bundle does with its own +0x10 not read), 3003 (12), 2004 (5, mode 4), 3031 and 3023 (3 each), 3006, 1018, 3020; 49 of the 118 sequencers loop (0x400), 7 have 0x800. A faithful port needs the cut as each child visual's word-8 duration (a set_duration over ~20 Visual kinds) and, for most of the cut entries, looping effects (an effect that never ends, through pulse_timing and every visual function's Delayed arm in effects.rs) plus the bundles' duration rule; over the time box for a low entry. Left with these findings.
 - Looked at, left (2026-11-19, overnight): The sequencer's end cutting a child's duration needs a new limited-duration visual handled by every visual function (particles, meshes, trails, shells, timing) in effects.rs; 0x400 looping and 0x800 (running without the dynel) need the scheduler's state. Over the time box for a low entry. Left.
 
 #### `RND-171` Shield2 effect: mech meshes, own material and depth modes not drawn
@@ -8371,6 +8379,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: shield variants look different or are absent
 - Where: `crates/mao-client/src/effects.rs:861`; `docs/ORIGINAL_AUDIT.md:303`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the mech meshes (word 20), the mesh's own material (0x10000) and the depth modes (0x4000/0x8000) need new depth states and a shield drawn over other meshes in the renderer, a look that can only be judged on screen, which this run cannot do. Left.
 - Looked at, left (2026-11-19, overnight): The mech meshes (word 20), the mesh's own material (0x10000) and the depth modes (0x4000/0x8000) need the shield drawn over other meshes and new depth states in the renderer; seen only. Left.
 
 #### `RND-172` Smoke effects: quads' spin, alpha blend, mode 1 wandering emitter not done
@@ -8430,7 +8439,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the playfield statels' moving parts are drawn at the clock's time; things the server announces do follow their AnimPlay/AnimPos
 - A player notices: some built-in animated props play when they should stand
 - Where: `docs/CLIENT_UI.md:626`; `crates/mao-client/src/net.rs:5498`; `crates/mao-client/src/net.rs:5451`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already the original's behaviour; no change. DisplaySystem's LODManager::Process (drop-in lodmanager.rs `process`) gives every watched 0xf6951 statel mesh the time each frame (`add_animation_time`) while its global `animate` byte is set; that byte starts at 1 (globals at 0x100ae1a4) and nothing writes it: no setter in DisplaySystem, and Gamecode's only LODManager calls are AOPlayfieldCityHolderClient_c::Enable/DisableVisibility (0x1012eadb / 0x1012ea59: AddMesh / RemoveMesh). Playfield statels are not dynels and have no AnimPlay/AnimPos of their own; the things the server announces do follow theirs in the client already (net.rs prop_anim_time). So the playfield statels' moving parts run on the clock in the original too.
 - Looked at, left (2026-11-19, overnight): Partly a misreading: DisplaySystem's LODManager::Process gives every 0xf6951 statel mesh the time each frame when its animate flag is set (drop-in lodmanager.rs, global `animate` = 1), so statels' moving parts do run on the clock in the original. Whether a statel's part can also be stopped by a state (as things are by AnimPlay/AnimPos) depends on the statel's own messages, which were not seen. Left.
 
 #### `RND-178` Sun rays do not flicker
@@ -8811,6 +8821,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a second window and a few seconds' hand-over
 - Where: `crates/mao-client/src/launcher.rs:300`; `docs/CLIENT_UI.md:1828`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the original runs the login, the character list and the game in one process and window (LoginModule_c, ServerLogin3DModule_t); the client's launcher is its own program because the game's event loop and renderer are made once per process (winit). Rebuilding the start of the game around one window is an architecture change, not a night's entry; what can be matched inside the split is (LCH-009, LCH-038, LCH-045).
 - Looked at, left (2026-11-19, overnight): The original runs the login, the character list and the game in one process and one window (GUI.dll `LoginModule_c`, `ServerLogin3DModule_t`); the client's launcher is a separate program because the game's window, event loop and renderer are set up for one playfield per process (winit allows one event loop per process: launcher.rs "an event loop cannot be made twice in one"). Putting the login into the game's window would rebuild the launcher and the game's start; far beyond a night's entry. What can be matched inside the split is matched (LCH-009, LCH-038, LCH-045).
 
 #### `LCH-002` Launcher settings pages keep their names but have this client's own contents
@@ -8915,6 +8926,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a plain turntable instead of the hall
 - Where: `crates/mao-client/src/launcher.rs:788`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the lone turning figure is only the fallback for a game folder without the hall's meshes (or the MAO_LAUNCHER_SHOT picture tool without the creation scene); with a complete game the character stands in the hall as the original's (hall::stand). The original has no such case to port.
 - Looked at, left (2026-11-19, overnight): The turntable is only the fallback for when the hall's meshes are not found in the game's files (or a picture is taken without the creation scene); with a complete game the character stands in the hall as the original's (`hall::stand`). The original has no such case to port.
 
 #### `LCH-012` Character screen and login dialog draw their own lists
@@ -8945,6 +8957,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: slightly different pick area and face close-up
 - Where: `crates/mao-client/src/launcher.rs:587`; `docs/CLIENT_UI.md:4538`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read the original's face camera: AppearanceScene_t::MoveCamereToHead (GUI.dll 0x10112571) takes the chosen character's attractor 0 (AttractorMesh::GetName(0)) through VisualCATMesh_t::GetAttractorMatrix and GetWorldMatrix, and places the camera at its translation less 0.081 in x and 0.009 in y and 1.1112 further in z (the doubles at 0x101c3858 / 0x101c3850 / 0x101c3848), with camera 2 2's rotation, over 0.3 s (0x101ae0f4). The client takes the figure's box top less 0.12 as the camera's place (launcher.rs, world.head). Porting it needs the creation figure's posed attractor frames out of ListFigure and the frames' axes matched to the hall's, which can only be checked by looking at the face close-up; the picking by mesh (instead of the seven boxes) likewise. Left with these numbers for a port with a picture check.
 - Looked at, left (2026-11-19, overnight): Picking by the figure's mesh and the head's place from its attractor need the creation figures' meshes ray-tested and their attractors read through the CCCharacter_t path (`CCCharacter_t::MoveToConnector`, the head attractor); the boxes are within a few pixels for the seven breed figures. Too much for its worth tonight.
 
 #### `LCH-015` Delete confirmation compares names case-insensitively
@@ -8965,6 +8978,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/hall.rs:7`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the original loads the hall's five meshes four times, each stage two units above the last, and shows one stage; the client's single copy draws the same picture. Nothing a player can see.
 - Looked at, left (2026-11-19, overnight): The original loads the hall's five meshes four times, a stage two units above the last, and shows one stage; the client's single copy draws the same picture (only one stage is ever shown). Nothing a player can see.
 
 #### `LCH-017` Meta-Physicist description tags taken out
@@ -9058,6 +9072,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: background may differ from the original's choice
 - Where: `crates/mao-client/src/launchwindow.rs:137`; `docs/CLIENT_UI.md:761`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked the reader's reading of Anarchy.exe: a random picture of \backgrounds\ per start from an mt19937 seeded with _time64 (0x41546a, 0x415498, 0x4154b4..0x415503); the client's clock-picked one is the same in effect (another picture each start). Matching the very picture for a second would need MSVC 2010's uniform_int reproduced bit for bit, which no player can tell apart.
 - Looked at, left (2026-11-19, overnight): Read in Anarchy.exe: the launcher lists the files of `\backgrounds\` (0x41525b on, `\backgrounds\01.bmp` the one named when there is none, 0x415196), then seeds a Mersenne twister (mt19937: 624 words, 0x6c078965 at 0x415498) with `_time64(NULL)` (0x41546a) and draws one index between 0 and count-1 (0x4154b4..0x415503, the distribution at 0x415ec1). So the original's choice is a random picture per start, seeded by the clock; the client's "seconds modulo count" is the same in effect (another picture each start, chosen by the clock). Matching the very picture for a given second would need MSVC 2010's `uniform_int` draw reproduced bit for bit, which no player could tell apart; left.
 
 #### `LCH-026` Launcher control rectangles measured, list drawn as a plain white box
@@ -9090,6 +9105,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: launcher works offline
 - Where: `crates/mao-client/src/launchwindow.rs:1206`; `crates/mao-client/src/dimensions.rs:98`; `crates/mao-client/src/dimensions.rs:45`; `docs/CLIENT_UI.md:781`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept for the user's decision, as the reader left it (the cache is the original's own; the built-in Rubi-Ka and the refusal of an empty answer are the client's, without which a first start with the dimension server down has nothing to log in to). Read the port question in Anarchy.exe's list parser (0x4147d2..0x414c55): `ports` is split at commas and each atoi'd into the dimension's port list (+0x18, 0x414b2c..0x414bec), so the original keeps every port; which one it hands the game was not followed (the start path through the copied record 0x414c57). The parser also shows a "Missing data from dimensions!" message box (0x414c4a) for a block without its connect, ports or name, where the client leaves the block out silently.
 - Looked at, left (2026-11-19, overnight): The cache is the original's own: the original launcher keeps the last list in dimensions.txt and says it is using the cached data when the server does not answer (its message, SET-013), as the client does. What is the client's alone is the built-in Rubi-Ka entry when there is no list at all, and the refusal of an answer that lists no dimension; without them a first start with the dimension server down would leave no dimension to log in to. Kept for the user to decide (removing them could make the morning's tests look like a broken launcher). Whether the original uses more than a dimension's first port was not read.
 
 #### `LCH-029` Hand-over gives up after 180 seconds
@@ -9120,6 +9136,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: smaller error page on small screens
 - Where: `crates/mao-client/src/loginviews.rs:203`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: kept as the reader found. The launcher's window is 1000 by 640, lower than the game window the original's login ran in; the original's 780 by 410 BrowserView_c plus the login window and their gaps need about 700 lines, so without the shrink the error page would run off the window's bottom. It keeps the original's size wherever it fits.
 - Looked at, left (2026-11-19, overnight): Kept: the launcher's window is 1000 by 640, lower than the original's game window the login ran in; the original's 780x410 page plus the login window and their gaps need about 700 lines, so without the shrink the page would run off the window's bottom. The page keeps the original's size wherever it fits.
 
 #### `LCH-032` Login error shown as words when no page can be opened

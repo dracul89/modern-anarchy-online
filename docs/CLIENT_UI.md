@@ -7734,3 +7734,7 @@ The original launcher (Anarchy.exe) keeps its Connection page's two time-outs in
 ### Character creation's lines and the walk to the shuttle (LCH-024)
 
 GUI.dll's TextWindowFade_t fades a line in over its first number of seconds, holds it for the second and fades it out over the first again. CharCreateModule_t makes the intro's two lines (5, 4: fourteen seconds), then, once the way down's picture has come back (state 0x44e's four-second PlainSpriteFade_t), "Docking completed" and "Continuing DNA" (StaticDoneTimerCallback 3; 6, 4), unless the camera already rests in a scene. After a character is made (state 0x4b1) the walk to the shuttle starts and a second later "Boarding shuttle" shows (1, 1); as it ends the picture goes to black in two seconds and the creation ends, the walk cut short. The camera's transition times (1.9, 3.4, 3.7, 0.3 s) are the original's. The client now does all of this.
+
+### Statels' moving parts run on the clock (RND-177)
+
+DisplaySystem's LODManager::Process gives every playfield statel mesh (0xf6951) the frame's time while its `animate` flag is set, and the flag is never cleared (it starts at 1; Gamecode only adds and removes meshes). So a playfield statel's moving parts always play on the clock in the original, as in the client; only the things the server announces follow AnimPlay/AnimPos.
