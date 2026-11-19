@@ -1141,6 +1141,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] Open a shop booth: the stock is a grid of icons with yellow prices at the bottom right, the bought and sold lists one row high; the window can be resized and the stock grid fills it.
 - [ ] Right click beside the rows (or the frame's menu button): "As a list" turns the stock into the column list; clicking a header sorts; the choice is kept the next time a shop opens.
 - [ ] Buying (click a stock item), taking out (click a bought/sold item), dragging an inventory item onto a list to sell, and Shift-click pages work as before.
+- [ ] Ask an NPC that takes items (Give): the "Trade" tab window appears right of the chat window, top aligned, and moves with it; the NPC's request shows where the answers were.
+- [ ] Drag an item onto the grid (stops at the slot count), click it to take it out, Shift-click for its page; type more credits than you have and press V: the field drops to your credits and the trade is sent; press X: the bar closes.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

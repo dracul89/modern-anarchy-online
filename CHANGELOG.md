@@ -104,6 +104,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - "Update Team Members" in a team mission's menu now works (sends the original's request to the server).
 - With the AutoCloseWindows preference on, opening a window from the menus closes the other character windows, as in the original.
 - The shop window's lists are the original's item lists: icons in a grid with their prices (or a sortable list with Name, Count, Price and Quality columns from the window's menu), the bought and sold items in one row each.
+- The NPC give-trade bar is the original's: a "Trade" tab window docked to the right of the NPC chat, an item grid of the NPC's slots, the NPC's request in place of the answers; V gives no more credits than you have and leaves the bar up, X (or Give again) closes it.
 
 ### Items
 

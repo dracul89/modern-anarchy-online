@@ -20,14 +20,21 @@
 //! (`CCNPCChatDescription`); `\n` in the text is a line break. The answers are FUN_100595ae's: a bullet
 //! (`GFX_GUI_NPCCHAT_BULLET`) and the escaped answer as a link to its number, in `CCNPCChatQuestion`.
 //!
-//! Giving (`NPCChatTradeBar_c`, FUN_10057d8b, docked as a "Trade" tab by FUN_10059236): Give asks the NPC
-//! (`KnubotStartTrade`); its answer (`KnubotStartTrade` with the slots and a text, in `CCNPCChatTrade`) opens the bar:
-//! "GIVE ITEM" / "GIVE ITEMS" over that many slots an inventory item is dropped on (`KnubotTrade` action 0, taken out
-//! again with 1), "GIVE CREDITS", and the V (`GFX_GUI_BUTTON_V_*`) and X (`GFX_GUI_BUTTON_X_*`) buttons: the trade
-//! finished (`KnubotFinishTrade` with the credits, accepted or declined: FUN_10058bf2). Items the NPC does not want come
-//! back (`KnubotRejectedItems`: the inventory's, `net.rs`; the window says nothing of them, as GUI.dll has no handler).
+//! Giving (`NPCChatTradeBar_c`, FUN_10057d8b, in a window of its own with one tab, text.mdb 10000's "Trade", docked at
+//! the chat window's right, its top at the chat window's top: FUN_10059236, `Window::DockWindow(2)`,
+//! `LayoutDockedWindows` 0x101553b5): Give asks the NPC (`KnubotStartTrade`), and Give again with the bar up is its X
+//! (FUN_10058d16). The NPC's answer (`KnubotStartTrade` with the slots and a text) puts the text in place of the answers,
+//! in `CCNPCChatTrade`, and opens the bar: "GIVE ITEM" (one slot) or "GIVE ITEMS", an item grid of that many slots
+//! (`ItemContainerView_c` FUN_100ce55d over the trade's own items, one column for one slot, else two), an inventory item
+//! dropped on it going in while there is room (`KnubotTrade` action 0, FUN_10057adc) and taken out by a click (action 1,
+//! FUN_10057c0b; with Shift its page, FUN_10057c5d), "GIVE CREDITS" over the credits field, and the V
+//! (`GFX_GUI_BUTTON_V_*`) and X (`GFX_GUI_BUTTON_X_*`) buttons. V gives (`KnubotFinishTrade` accepted, the credits no more
+//! than the character has: FUN_10057cc6) and leaves the bar up; X declines it and closes the bar (FUN_10058bf2,
+//! FUN_10058aa1). Items the NPC does not want come back (`KnubotRejectedItems`: the inventory's, `net.rs`; the window
+//! says nothing of them, as GUI.dll has no handler).
 
 use crate::gui::host::Signal;
+use crate::gui::multilist;
 use crate::gui::view::{Id, Tree};
 
 /// What the server said.
@@ -58,14 +65,63 @@ pub enum Command {
     Shop((u32, u32)),
 }
 
-/// The NPC's trade bar while it is open.
+/// The NPC's trade bar while it is open (`NPCChatTradeBar_c`): its slots, the inventory places put in, and its views
+/// (the tree, its root and the item grid), the rows the grid last showed, and when the right button went down.
 #[derive(Default)]
 pub struct Trade {
     pub slots: u32,
-    pub message: String,
     /// The inventory places put in.
     pub items: Vec<u32>,
-    pub credits: String,
+    bar: Option<(Tree, Id, Id)>,
+    shown: Vec<multilist::Item>,
+    right_since: Option<std::time::Instant>,
+}
+
+/// The bar's views as FUN_10057d8b builds them, top to bottom in a `BorderView_c`: "GIVE ITEM(S)" (font 5, 5 round it),
+/// the item grid's place, "GIVE CREDITS" (5 round it but below), the credits field in a border view (5 round it but
+/// below; the field 3 in, as wide as there is room), and V (5 round it) and X (5 round it but left) side by side. The
+/// field is the original's editable `TextView_c` (feature flags 0x200d); here the view system's text input.
+const BAR: &str = r#"<BorderView name="NPCChatTradeBar" view_layout="vertical">
+  <TextView name="GiveItems" layout_borders="Rect(5,5,5,5)" value=""/>
+  <View name="ItemDock"/>
+  <TextView name="GiveCredits" layout_borders="Rect(5,5,5,0)" value="GIVE CREDITS"/>
+  <BorderView layout_borders="Rect(5,5,5,0)">
+    <TextInputView name="Credits" layout_borders="Rect(3,3,3,3)" value=""/>
+  </BorderView>
+  <View view_layout="horizontal">
+    <Button name="Accept" layout_borders="Rect(5,5,5,5)"/>
+    <Button name="Decline" layout_borders="Rect(0,5,5,5)"/>
+  </View>
+</BorderView>"#;
+
+/// The bar's label over its slots (FUN_10057d8b): the program's own English words.
+pub fn give_label(slots: u32) -> &'static str {
+    if slots == 1 { "GIVE ITEM" } else { "GIVE ITEMS" }
+}
+
+/// The item grid's cells across and down (FUN_10057d8b's `SetViewCellCounts`, the same for the fewest and the most): one
+/// column for one slot, else two, and the rows half the slots, rounded up.
+pub fn bar_cells(slots: u32) -> (usize, usize) {
+    (usize::from(slots != 1) + 1, (slots as usize).div_ceil(2))
+}
+
+/// The C library's `atoi`: spaces, a sign, then digits as far as they go (wrapping as the 32-bit sum does).
+fn atoi(text: &str) -> i32 {
+    let t = text.trim_start_matches(|c: char| matches!(c as u32, 9..=13 | 32));
+    let (negative, digits) = match t.as_bytes().first() {
+        Some(b'-') => (true, &t[1..]),
+        Some(b'+') => (false, &t[1..]),
+        _ => (false, t),
+    };
+    let v = digits.bytes().take_while(u8::is_ascii_digit).fold(0i32, |v, d| v.wrapping_mul(10).wrapping_add(i32::from(d - b'0')));
+    if negative { v.wrapping_neg() } else { v }
+}
+
+/// FUN_10057cc6: the credits V gives: the field's number (`atoi`), and no more than the character's credits (stat 61),
+/// compared as unsigned numbers (a negative number is more than any).
+pub fn credits_given(typed: &str, own: i64) -> u32 {
+    let (asked, own) = (atoi(typed) as u32, own as u32);
+    if own < asked { own } else { asked }
 }
 
 /// The view (FUN_100596c2's layout) as the skins' views are written.
@@ -104,6 +160,10 @@ pub struct NpcChatWindow {
     /// The info page asked for (`charid://`), until taken.
     pub info_url: Option<String>,
     pub trade: Option<Trade>,
+    /// The NPC's text for the trade, shown in the answers' place until the next answers (FUN_10059236's `SetText`).
+    trade_note: Option<String>,
+    /// The character's credits (stat 61), told by the window's owner: what V gives at most.
+    pub credits: i64,
     tree: Option<(Tree, Id)>,
     /// Scroll the conversation to its end at the next drawing (and the one after).
     to_end: bool,
@@ -167,6 +227,7 @@ impl NpcChatWindow {
                     self.text.clear();
                     self.last_kind = None;
                     self.answers.clear();
+                    self.trade_note = None;
                 }
                 self.npc = npc;
                 self.name = if name.is_empty() { "NPC".into() } else { name };
@@ -186,6 +247,7 @@ impl NpcChatWindow {
                     self.apply(Event::Open(npc, String::new()));
                 }
                 self.answers = list;
+                self.trade_note = None;
             }
             Event::Close(npc) => {
                 if npc == self.npc {
@@ -197,7 +259,11 @@ impl NpcChatWindow {
                 if !self.open || self.npc != npc {
                     self.apply(Event::Open(npc, String::new()));
                 }
-                self.trade = Some(Trade { slots: slots.max(1), message, items: Vec::new(), credits: String::new() });
+                // (FUN_10059236: only while no bar is up; the NPC's text in the answers' place)
+                if self.trade.is_none() {
+                    self.trade = Some(Trade { slots, ..Default::default() });
+                    self.trade_note = Some(format!("<font color=CCNPCChatTrade>{message}</font>"));
+                }
             }
         }
     }
@@ -242,22 +308,19 @@ impl NpcChatWindow {
             }
         };
         set(tree, "Text", &self.text);
-        set(tree, "Answers", &answers(&self.answers));
+        set(tree, "Answers", &self.trade_note.clone().unwrap_or_else(|| answers(&self.answers)));
         let skin = crate::skin::skin(ctx);
         let min = crate::gui::host::preferred_pixels(tree, root, false);
         let mut open = self.open;
-        let (trade, npc) = (&mut self.trade, self.npc);
-        let skin_ref = skin.clone();
-        crate::chrome::window(ctx, palette, "NPCChat", &self.name, &mut open, |w| w.default_size(min.max(egui::vec2(340.0, 320.0))).resizable(true), |ui| {
-            // (the trade bar first: the views below take the rest of the window)
-            if let Some(t) = trade.as_mut() {
-                trade_bar(ui, palette, skin_ref.as_deref(), t, npc, items, gear, &mut commands);
-                ui.separator();
-            }
+        let shown = crate::chrome::window(ctx, palette, "NPCChat", &self.name, &mut open, |w| w.default_size(min.max(egui::vec2(340.0, 320.0))).resizable(true), |ui| {
             crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
         });
-        if trade.as_ref().is_some_and(|t| t.slots == 0) {
-            *trade = None;
+        // (the trade bar's window, docked at the chat window's right, its top at the chat window's: slot 2 of
+        // `LayoutDockedWindows`; it goes when its X closes it)
+        if let (Some(t), Some(chat)) = (self.trade.as_mut(), shown.map(|r| r.response.rect))
+            && trade_window(ctx, palette, t, self.npc, items, gear, chat.right_top(), self.credits, &mut self.info_url, &mut commands)
+        {
+            self.trade = None;
         }
         // (the conversation follows its newest line, once it has been laid out at the view's width)
         if std::mem::take(&mut self.to_end)
@@ -295,7 +358,14 @@ impl NpcChatWindow {
                 }
                 ("Desc", Signal::Clicked) => commands.push(Command::Describe(self.npc)),
                 ("Info", Signal::Clicked) => self.info_url = Some(format!("charid://{}/{}", self.npc.0, self.npc.1)),
-                ("Give", Signal::Clicked) if self.trade.is_none() => commands.push(Command::StartTrade(self.npc)),
+                // (FUN_10058d16: Give asks for a trade; with the bar up it is the bar's X)
+                ("Give", Signal::Clicked) => {
+                    if self.trade.take().is_some() {
+                        commands.push(Command::FinishTrade(self.npc, 0, false));
+                    } else {
+                        commands.push(Command::StartTrade(self.npc));
+                    }
+                }
                 ("Shop", Signal::Clicked) => commands.push(Command::Shop(self.npc)),
                 _ => {}
             }
@@ -311,63 +381,148 @@ impl NpcChatWindow {
     }
 }
 
-/// `NPCChatTradeBar_c`: the NPC's text, the item slots (an inventory item dragged onto one goes in, a click takes it
-/// out), the credits and V / X. A finished trade sets `slots` to 0 (the bar closes).
-#[allow(clippy::too_many_arguments)]
-fn trade_bar(ui: &mut egui::Ui, palette: &crate::theme::Palette, skin: Option<&crate::skin::Skin>, t: &mut Trade, npc: (u32, u32), items: &[crate::gear::GearItem], gear: &mut crate::gear::GearWindow, commands: &mut Vec<Command>) {
-    let text = egui::Color32::from_rgb(palette.text[0], palette.text[1], palette.text[2]);
-    if !t.message.is_empty() {
-        ui.label(egui::RichText::new(&t.message).color(egui::Color32::from_rgb(0xda, 0xdf, 0xba)));
+/// FUN_10057d8b: the bar's views ([`BAR`]) with the label for its slots, V's and X's pictures (0x4b/0x4c and 0x4d/0x4e),
+/// and in its place the item grid: the trade's own items (`ItemContainerView_c` of kind 2 over the character, column
+/// flags 0xb, list flags 0xe), sorted by name and arranged (FUN_100ce55d), as many slot pictures as the slots
+/// (`SetMaxItemCount`), no scroll bars, and room for [`bar_cells`] cells, no more and no fewer.
+fn build_bar(ctx: &egui::Context, slots: u32) -> Option<(Tree, Id, Id)> {
+    let doc = crate::gui::xml::parse(BAR);
+    let mut tree = Tree::default();
+    tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+    let root = doc.first().and_then(|e| crate::gui::create(&mut tree, e))?;
+    if let Some(id) = tree.find(root, "GiveItems")
+        && let Some(t) = tree.control_mut::<crate::gui::controls::TextView>(id)
+    {
+        t.set_text(give_label(slots));
     }
-    ui.label(egui::RichText::new(if t.slots == 1 { "GIVE ITEM" } else { "GIVE ITEMS" }).small().color(text));
+    for (name, normal, pressed) in [("Accept", "GFX_GUI_BUTTON_V_NORMAL", "GFX_GUI_BUTTON_V_PRESSED"), ("Decline", "GFX_GUI_BUTTON_X_NORMAL", "GFX_GUI_BUTTON_X_PRESSED")] {
+        if let Some(id) = tree.find(root, name)
+            && let Some(b) = tree.control_mut::<crate::gui::controls::Button>(id)
+        {
+            b.pictures = Some([normal.to_string(), pressed.to_string()]);
+        }
+    }
+    let dock = tree.find(root, "ItemDock")?;
+    let (across, down) = bar_cells(slots);
+    let list = multilist::create_grid(&mut tree, "ItemContainerView", slots as i32, across);
+    for (id, label, width, flags) in crate::shop::columns(0xb) {
+        multilist::add_column(&mut tree, list, id, label, width, flags);
+    }
+    multilist::set_sort(&mut tree, list, 1, 0);
+    multilist::set_scroll_modes(&mut tree, list, 0, 0);
+    multilist::set_view_cells(&mut tree, list, (across, down), (across, down));
+    multilist::click_only(&mut tree, list);
+    tree.get_mut(dock).layout = crate::gui::view::Layout::Base;
+    tree.add_child(dock, list);
+    Some((tree, root, list))
+}
+
+/// The bar's window at `at` (FUN_10059236: a `Window` of one tab, text.mdb 10000's "Trade", holding the bar); what was
+/// done in it goes to `commands`, an item's page asked for to `info`. True when the bar goes: its X, or its window
+/// closed (the client's own: the frame's close is taken for the X).
+#[allow(clippy::too_many_arguments)]
+fn trade_window(ctx: &egui::Context, palette: &crate::theme::Palette, t: &mut Trade, npc: (u32, u32), items: &[crate::gear::GearItem], gear: &mut crate::gear::GearWindow, at: egui::Pos2, own_credits: i64, info: &mut Option<String>, commands: &mut Vec<Command>) -> bool {
+    if t.bar.is_none() {
+        t.bar = build_bar(ctx, t.slots);
+    }
+    if ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+        t.right_since = Some(std::time::Instant::now());
+    }
+    let right_held = t.right_since.map_or(0.0, |s| s.elapsed().as_secs_f32());
+    let Some((tree, root, list)) = t.bar.as_mut() else { return false };
+    let (root, list) = (*root, *list);
+    // (the grid's rows: the items put in, by their places)
+    let rows: Vec<multilist::Item> = t.items.iter().filter_map(|slot| items.iter().find(|i| i.slot == *slot)).map(|i| crate::shop::row(i.slot as i64, i.icon.as_ref().map(|c| gear.texture(ctx, c)), &i.name, i.count as u32, i.quality, None)).collect();
+    if t.shown != rows {
+        multilist::set_items(tree, list, rows.clone());
+        t.shown = rows;
+    }
+    multilist::update(tree, list);
+    let skin = crate::skin::skin(ctx);
+    let min = crate::gui::host::preferred_pixels(tree, root, false);
     let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
-    ui.horizontal_wrapped(|ui| {
-        for k in 0..t.slots as usize {
-            let (rect, response) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::click());
-            if !skin.is_some_and(|s| s.draw_in(ui.painter(), crate::gui::itemslot::SLOT, rect, egui::Color32::WHITE)) {
-                ui.painter().rect_filled(rect, 2.0, egui::Color32::from_black_alpha(110));
+    let shift = ctx.input(|i| i.modifiers.shift);
+    let (mut open, mut right_act, mut tab) = (true, None, 0usize);
+    let label = crate::gui::xml::ldb_named(10000, "Trade", "Trade");
+    let (put, slots) = (t.items.clone(), t.slots);
+    let mut added = None;
+    crate::chrome::window(ctx, palette, "NPCChatTrade", "", &mut open, |w| w.current_pos(at).movable(false).resizable(false).default_size(min), |ui| {
+        crate::chrome::tab_view(ui, palette, &[label.as_str()], &mut tab, |ui, _| {
+            let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+            let origin = response.rect.min;
+            let pointer = ui.input(|i| i.pointer.hover_pos());
+            let hovered = pointer.and_then(|p| multilist::item_at(tree, list, origin, p));
+            // (an inventory item let go on the grid goes in while it holds fewer than the slots; not a split, FUN_10057adc)
+            let area = crate::gui::host::screen_rect(tree, list, origin);
+            if dragged != u32::MAX
+                && !put.contains(&dragged)
+                && put.len() < slots as usize
+                && crate::gear::split_count() == 0
+                && crate::gear::letting_go(ui.ctx())
+                && ui.input(|i| i.pointer.interact_pos().is_some_and(|p| area.contains(p)))
+            {
+                added = Some(dragged);
             }
-            if let Some(&slot) = t.items.get(k) {
-                let item = items.iter().find(|i| i.slot == slot);
-                if let Some(icon) = item.and_then(|i| i.icon.as_ref()) {
-                    ui.painter().image(gear.texture(ui.ctx(), icon), rect.shrink(4.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+            // (a right click on an item is the list's click, as a left one: FUN_1004141b; held for the menu's delay,
+            // nothing)
+            if let Some(slot) = hovered
+                && ui.input(|i| i.pointer.secondary_clicked())
+                && crate::shop::row_click(true, shift, right_held) == crate::shop::RowClick::Act
+            {
+                right_act = Some(slot);
+            }
+            if let Some(name) = hovered.and_then(|slot| items.iter().find(|i| i.slot as i64 == slot)).map(|i| i.name.clone()) {
+                response.on_hover_text(name);
+            }
+        });
+    });
+    if let Some(slot) = added {
+        t.items.push(slot);
+        commands.push(Command::TradeItem(npc, slot, true));
+    }
+    // (a click on an item takes it out, FUN_10057c0b; with Shift it shows its page, FUN_10057c5d)
+    let mut clicked: Vec<(i64, bool)> = multilist::take_events(tree).into_iter().filter_map(|(_, e)| if let multilist::ItemEvent::Clicked(slot, _) = e { Some((slot, shift)) } else { None }).collect();
+    clicked.extend(right_act.map(|slot| (slot, false)));
+    let mut close = !open;
+    for (slot, shift) in clicked {
+        let slot = slot as u32;
+        match crate::shop::row_click(false, shift, 0.0) {
+            crate::shop::RowClick::Page => {
+                if let Some(i) = items.iter().find(|i| i.slot == slot) {
+                    *info = Some(format!("itemref://{}/{}/{}", i.item_id, i.high_id, i.quality));
                 }
-                if response.clicked() {
-                    t.items.remove(k);
+            }
+            _ => {
+                if t.items.contains(&slot) {
+                    t.items.retain(|s| *s != slot);
                     commands.push(Command::TradeItem(npc, slot, false));
-                    break;
                 }
-                if let Some(i) = item {
-                    response.on_hover_text(&i.name);
-                }
-            } else if dragged != u32::MAX && !t.items.contains(&dragged) && crate::gear::letting_go(ui.ctx()) && ui.input(|i| i.pointer.interact_pos().is_some_and(|p| rect.contains(p))) {
-                t.items.push(dragged);
-                commands.push(Command::TradeItem(npc, dragged, true));
             }
         }
-    });
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("GIVE CREDITS").small().color(text));
-        ui.add(egui::TextEdit::singleline(&mut t.credits).desired_width(90.0));
-        t.credits.retain(|c| c.is_ascii_digit());
-        let mut button = |normal: &str, pressed: &str, tip: &str| -> bool {
-            let size = skin.and_then(|s| s.get(normal)).map_or(egui::vec2(22.0, 22.0), |s| s.size);
-            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-            let name = if response.is_pointer_button_down_on() { pressed } else { normal };
-            if !skin.is_some_and(|s| s.draw_in(ui.painter(), name, rect, egui::Color32::WHITE)) {
-                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, tip, egui::FontId::proportional(12.0), text);
+    }
+    let field = tree.find(root, "Credits");
+    for (id, signal) in std::mem::take(&mut tree.signals) {
+        match (tree.get(id).name.as_str(), signal) {
+            // (V: the field's credits, no more than one has, written back, and the trade given; the bar stays)
+            ("Accept", Signal::Clicked) => {
+                let typed = field.and_then(|f| crate::gui::textinput::text(tree, f)).unwrap_or("").to_string();
+                let credits = credits_given(&typed, own_credits);
+                if credits != atoi(&typed) as u32
+                    && let Some(f) = field
+                {
+                    crate::gui::textinput::set_text(tree, f, &credits.to_string());
+                }
+                commands.push(Command::FinishTrade(npc, credits, true));
             }
-            response.on_hover_text(tip).clicked()
-        };
-        if button("GFX_GUI_BUTTON_V_NORMAL", "GFX_GUI_BUTTON_V_PRESSED", "Give") {
-            commands.push(Command::FinishTrade(npc, t.credits.parse().unwrap_or(0), true));
-            t.slots = 0;
+            ("Decline", Signal::Clicked) => close = true,
+            _ => {}
         }
-        if button("GFX_GUI_BUTTON_X_NORMAL", "GFX_GUI_BUTTON_X_PRESSED", "Cancel") {
-            commands.push(Command::FinishTrade(npc, 0, false));
-            t.slots = 0;
-        }
-    });
+    }
+    // (X: declined, and the bar goes)
+    if close {
+        commands.push(Command::FinishTrade(npc, 0, false));
+    }
+    close
 }
 
 /// The server's `Knubot` messages to the window (`kind`, `data` past the identity): none for others.
@@ -410,6 +565,37 @@ mod tests {
         assert_eq!(line(2, "Yes", "Bob", "Me", Some(0), false), "<br><font color=CCNPCChatQuestion>Me: Yes</font>");
         assert_eq!(line(0, "Good", "Bob", "Me", Some(2), false), "<font color=CCNPCChatText><br>Bob: Good</font>");
         assert_eq!(answers(&["a<b".into()]), "<div indent=wrapped><img src=tdb://id:GFX_GUI_NPCCHAT_BULLET> <a href=0 style=text-decoration:none><font color=CCNPCChatQuestion>a&lt;b</font></a></div>");
+    }
+
+    /// WIN-030: FUN_10057d8b's label and grid (one column for one slot, else two; half the slots' rows), V's credits no
+    /// more than one has (FUN_10057cc6, `atoi` compared unsigned), the NPC's text in the answers' place and a second
+    /// trade's offer ignored while the bar is up (FUN_10059236).
+    #[test]
+    fn the_trade_bar_is_the_originals() {
+        assert_eq!((give_label(1), give_label(3)), ("GIVE ITEM", "GIVE ITEMS"));
+        assert_eq!([1, 2, 3, 5].map(bar_cells), [(1, 1), (2, 1), (2, 2), (2, 3)]);
+        assert_eq!(credits_given("500", 1000), 500);
+        assert_eq!(credits_given("5000", 1000), 1000);
+        assert_eq!(credits_given("-5", 1000), 1000);
+        assert_eq!((credits_given(" 12abc", 100), credits_given("", 100), credits_given("+7", 100)), (12, 0, 7));
+        let mut w = NpcChatWindow::default();
+        let npc = (0xc350, 7);
+        w.apply(Event::Answers(npc, vec!["Yes".into()]));
+        w.apply(Event::StartTrade(npc, 3, "Give me three.".into()));
+        assert_eq!(w.trade.as_ref().map(|t| t.slots), Some(3));
+        assert_eq!(w.trade_note.as_deref(), Some("<font color=CCNPCChatTrade>Give me three.</font>"));
+        w.trade.as_mut().unwrap().items.push(70);
+        w.apply(Event::StartTrade(npc, 1, "Again.".into()));
+        assert_eq!(w.trade.as_ref().map(|t| (t.slots, t.items.len())), Some((3, 1)));
+        // (the next answers take the text's place)
+        w.apply(Event::Answers(npc, vec!["Thanks".into()]));
+        assert!(w.trade_note.is_none());
+        // (the grid holds room for its cells exactly, no bars: two across and two down for three slots)
+        let ctx = egui::Context::default();
+        let (mut tree, root, list) = build_bar(&ctx, 3).unwrap();
+        multilist::update(&mut tree, list);
+        assert_eq!((tree.get(list).min_size, tree.get(list).max_limit), (crate::gui::geom::Point::new(117.0, 117.0), crate::gui::geom::Point::new(117.0, 117.0)));
+        assert!(tree.find(root, "Credits").is_some() && tree.find(root, "Accept").is_some() && tree.find(root, "Decline").is_some());
     }
 
     #[test]

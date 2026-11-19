@@ -1439,6 +1439,8 @@ impl Ui {
             }
             planet.show(&ctx, palette, hud.playfield, hud.position, hud.heading, requests.waypoint.or(hud.waypoint));
             if npc_chat.open {
+                // (the credits the trade bar's V gives at most: stat 61, FUN_10057cc6)
+                npc_chat.credits = hud.stats.get(&61).copied().unwrap_or(0);
                 requests.npc_chat.extend(npc_chat.show(&ctx, palette, &hud.gear, gear));
                 if let Some(url) = npc_chat.info_url.take() {
                     info_view.show_url(&url);

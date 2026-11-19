@@ -7662,3 +7662,7 @@ An invitation (FUN_100a7986) marks the inviter's row in the friends list, which 
 ### Shop lists are item-container lists (WIN-035)
 
 The original's trade view (GUI.dll FUN_100e121e) puts an ItemContainerView_c (FUN_100ce55d) in each dock (FUN_100e07b9, FUN_100e0942, FUN_100e0b00): a grid of item cells by default, sorted by name, with Icon/Name/Count/Price/Quality columns in list mode (no Price in one's own list or in a player trade), the stock's icons tagged with their price in yellow (FUN_100406a4), the bought and sold lists one row of cells high (SetViewCellCounts). The client builds the docks the same way on gui::multilist; the window's menu (FUN_100e03c7: List Mode, Auto Arrange) switches the stock list (a player trade: the partner's) and its order, kept per ShopViewConfig/TradeViewConfig. The window starts at the view's own 119 by 452 and can be resized.
+
+### NPC give-trade bar (WIN-030)
+
+The original's NPCChatTradeBar_c (GUI.dll FUN_10057d8b) sits in its own small window with a "Trade" tab, docked to the right of the NPC chat window (FUN_10059236, Window::DockWindow(2)): "GIVE ITEM(S)" over an item grid of the NPC's slots, "GIVE CREDITS" over the credits field, and V / X. The NPC's request replaces the answer list. The client now builds the bar the same way: drops go in while there is room, a click takes an item out, Shift-click shows its page, V gives the items and at most the credits one has (the bar stays up), X or Give again declines and closes the bar.
