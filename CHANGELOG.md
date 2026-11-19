@@ -97,6 +97,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - The special attacks shown are confirmed to be built the way the original builds them (the server's three plus
   what each weapon in a hand gives); two small corner cases of it were made the original's.
+- A special attack out of reach says so at once instead of going to the server: Brawl reaches about 5 m and Dimach about 12 m
+  between the two characters, as the original's client checks.
 
 ### Launcher
 

@@ -842,7 +842,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Brawl and Dimach go out with any weapon; no client line for range, line of sight or queue
 - Where: `crates/mao-client/src/net.rs:3821`; `crates/mao-client/src/net.rs:3822`; `docs/CLIENT_UI.md:3823`
 - Decision: [ ] port  [ ] leave
-- Done in part (2026-11-18, overnight): the held weapon's bit is asked (Feedback_SpecialAttackIsUnavailable for Brawl and Dimach with only ranged weapons held); the range, the line of sight and the queue are still the server's.
+- Done in part (2026-11-18): the range is checked as the original checks it: each weapon in a hand with the bit, then the special's own item as the server lists it (Brawl's 3 m, Dimach's 10 m), the reach its stat 287 with the stat 380 share, cut and at most 40, against the 3D distance less 1 m a body (`combat::special_reaches`). Left: the line of sight (two flags not established, the client's collision not the original's). The 'queue' was not found: that check (FUN_1002a027) is of something the reload sets and refuses silently.
 
 #### `CMB-023` Action tiles do not follow state; some tiles, CharacterAction 0xb2/0x14/0xfc, icon time text, special at attackable item undone
 

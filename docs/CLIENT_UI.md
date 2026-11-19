@@ -6681,3 +6681,30 @@ Not ported: the tiles' places kept per character (`SpecialActions.xml`).
 
 Tests: `the_window_lists_what_the_character_has_in_the_original_order`, `a_pairs_tile_shows_what_a_click_does_next`. The
 pictures `MAO_UI_PREVIEW=actions` and, with every state on, `MAO_ACTION_TOGGLES=1`.
+
+### A special attack's range is checked before it is sent (CMB-022)
+
+`N3Msg_SecondarySpecialAttack` (Gamecode 0x100281fc) checks the reach after the weapon's bit (`World::special_refusal`):
+
+- **Each weapon in a hand with the special's bit must reach the target** (the hand of place 8 first, then 6; FUN_10068c44 and
+  FUN_10067f0a). One that does not says `Feedback_TargetIsOutsideSpecialAttackRange`. With no weapon left that may, the
+  line `Feedback_SpecialAttackIsUnavailable` follows, so the two can come together, as the code reads (not seen live).
+- **Then the special's own item must reach it.** That is the item the server lists the special with (`SpecialAttackWeapon`'s
+  low template, kept by its stat: `World::special_items`; FUN_1006b14c makes an item of it at the character's level).
+  Brawl's reaches 3 m, Dimach's 10 m and the plain attack's 2 m.
+- **The reach** is the item's stat 287 and the character's stat 380 share of it in percent, cut to a whole metre and no more
+  than 40 (FUN_1009abd5: `combat::special_range`).
+- **The gap** is the distance between the two, centre to centre in three dimensions, less 1 m for the attacker's body and 1 m
+  for a character target's. It must be less than the reach, not equal (`combat::special_reaches`).
+- **The 1 m is read, not guessed.** It is the float at +0x30 of the object at a character's +0x1ec, which that object's
+  constructor sets to 1.0 (FUN_1004496c); no store to it was found in Gamecode's code.
+
+Left:
+
+- **The line of sight** (FUN_10058e4f): the rooms and a ray both ways from 1.6 m up, but only when one of the two is not a
+  player or the place is a dungeon. That reads two flags whose meaning was not established, and the client's collision is
+  not the original's.
+- **The "queue of specials not yet swung"** the catalog named was not found. The check in that place (FUN_1002a027 on the
+  weapon holder's +0x84) is of something the reload sets, and it refuses without a word.
+
+Tests: `a_special_reaches_by_its_items_range`, `a_special_needs_a_weapon_that_lets_it`.

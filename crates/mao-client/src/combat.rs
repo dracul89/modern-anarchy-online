@@ -122,6 +122,24 @@ pub fn nano_cost_modifier(stat_318: i64, breed: i64, player: bool) -> i64 {
     if player { stat_318.max(floor) } else { stat_318 }
 }
 
+/// The radius the original counts for each body in a special attack's range: the field it reads (+0x30 of the object at
+/// a character's +0x1ec, Gamecode FUN_10067f0a) is 1.0 from that object's constructor (FUN_1004496c), and nothing was found
+/// to change it.
+pub const BODY_RADIUS: f32 = 1.0;
+
+/// How far a special attack reaches with an item of this range (stat 287), for a character with this bonus (stat 380, in
+/// percent): the range and the bonus's share of it, cut to a whole metre, no more than 40 (Gamecode FUN_1009abd5).
+pub fn special_range(range: i64, bonus: i64) -> i64 {
+    ((bonus as f64 * range as f64 / 100.0 + range as f64) as i64).min(40)
+}
+
+/// Whether a special attack reaches a target this far away, centre to centre (Gamecode FUN_10067f0a): the distance less the
+/// attacker's body and, for a character, the target's, must be less than the reach (not equal).
+pub fn special_reaches(distance: f32, character: bool, range: i64, bonus: i64) -> bool {
+    let gap = distance - BODY_RADIUS - if character { BODY_RADIUS } else { 0.0 };
+    special_range(range, bonus) as f64 > gap as f64
+}
+
 /// What casting depends on: how the character moves and its nano.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Caster {
@@ -155,6 +173,16 @@ pub fn cast_refusal(caster: Caster, cost: i64, modifier: i64) -> Option<(&'stati
 
 #[cfg(test)]
 mod tests {
+    /// CMB-022: Brawl's item reaches 3 m past the two bodies, so a target 4.9 m away is reached and one 5 m away is not;
+    /// a bonus of 50 % makes it 4 m (cut, not rounded); no item reaches past 40 m.
+    #[test]
+    fn a_special_reaches_by_its_items_range() {
+        assert!(special_reaches(4.9, true, 3, 0) && !special_reaches(5.0, true, 3, 0));
+        assert!(special_reaches(3.9, false, 3, 0) && !special_reaches(4.0, false, 3, 0));
+        assert_eq!((special_range(3, 50), special_range(3, 40), special_range(30, 100)), (4, 4, 40));
+        assert!(special_reaches(11.5, true, 10, 0) && !special_reaches(12.0, true, 10, 0));
+    }
+
     #[test]
     fn casting_needs_standing_and_nano() {
         let still = Caster { nano: 100, ..Default::default() };
