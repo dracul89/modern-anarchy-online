@@ -353,7 +353,7 @@ impl ProgramsWindow {
         let key = (crate::gui::iteminfo::NANO_IDENTITY, school as u32);
         let columns = crate::gui::multilist::grid_columns(tree, list).unwrap_or(6).max(1);
         let listed: Vec<u32> = programs.iter().filter(|p| shown(p, school, &hidden)).map(|p| p.id).collect();
-        let placed = if programs.is_empty() { crate::places::remembered(key) } else { crate::places::arrange_listed(key, &listed) };
+        let placed = if programs.is_empty() { crate::places::remembered(key) } else { crate::places::arrange_listed(key, &listed, columns) };
         let rows: Vec<crate::gui::multilist::Item> = programs
             .iter()
             .filter(|p| shown(p, school, &hidden))
@@ -379,7 +379,7 @@ impl ProgramsWindow {
                 // (no program runs while one is cast or recharges: faded for the time left)
                 left: crate::actions::lock_share(crate::actions::nano_lock_left(p.id)),
                 timer: crate::actions::timer_text(crate::actions::nano_lock_left(p.id)),
-                pos: placed.get(&p.id).map(|c| (c % columns, c / columns)),
+                pos: placed.get(&p.id).copied(),
                 ..Default::default()
             })
             .collect();
@@ -412,7 +412,7 @@ impl ProgramsWindow {
                 && ui.input(|i| i.pointer.any_released())
                 && let Some(at) = ui.input(|i| i.pointer.interact_pos()).filter(|at| area.contains(*at))
             {
-                dropped_on = crate::gui::multilist::cell_at(tree, list, response.rect.min, at).map(|(x, y)| y * columns + x);
+                dropped_on = crate::gui::multilist::cell_at(tree, list, response.rect.min, at);
             }
         });
         // (FUN_100d4514: a program of this grid let go on one of its cells, in a grid placed by hand: into an empty cell;
@@ -520,7 +520,7 @@ impl ProgramsWindow {
                         // (`SetAutoArrange(false)`: each program stays in the cell the arranging had it in)
                         if new.is_none() {
                             let order = crate::gui::multilist::order(tree, list);
-                            crate::places::replace((crate::gui::iteminfo::NANO_IDENTITY, school as u32), order.into_iter().enumerate().map(|(cell, id)| (id as u32, cell)).collect());
+                            crate::places::replace((crate::gui::iteminfo::NANO_IDENTITY, school as u32), order.into_iter().enumerate().map(|(k, id)| (id as u32, (k % columns, k / columns))).collect());
                         }
                         self.arranged.insert(school, new);
                         crate::layout::set_tab(&format!("NanoViewArrange{school}"), new.map_or(0, |s| 1 + (s.0 * 2 + s.1) as usize));
@@ -613,15 +613,15 @@ mod tests {
     /// `GetFirstFreePos`); one no longer listed lets its cell go.
     #[test]
     fn programs_keep_their_cells_and_new_ones_take_the_first_free() {
-        let mut cells: crate::places::Cells = [(30, 0), (10, 2), (99, 1)].into_iter().collect();
-        crate::places::fill_listed(&mut cells, &[50, 10, 30, 40]);
-        assert_eq!(cells, [(30, 0), (10, 2), (50, 1), (40, 3)].into_iter().collect());
+        let mut cells: crate::places::Cells = [(30, (0, 0)), (10, (2, 0)), (99, (1, 0))].into_iter().collect();
+        crate::places::fill_listed(&mut cells, &[50, 10, 30, 40], 3);
+        assert_eq!(cells, [(30, (0, 0)), (10, (2, 0)), (50, (1, 0)), (40, (0, 1))].into_iter().collect());
         // (a drop on another program: the two change cells; on an empty cell: moved there)
         crate::places::swap(&mut cells, 50, 40);
-        assert_eq!((cells[&50], cells[&40]), (3, 1));
-        crate::places::move_to(&mut cells, 30, 7);
-        assert_eq!(crate::places::at(&cells, 7), Some(30));
-        assert_eq!(crate::places::at(&cells, 0), None);
+        assert_eq!((cells[&50], cells[&40]), ((0, 1), (1, 0)));
+        crate::places::move_to(&mut cells, 30, (1, 2));
+        assert_eq!(crate::places::at(&cells, (1, 2)), Some(30));
+        assert_eq!(crate::places::at(&cells, (0, 0)), None);
     }
 
     #[test]
