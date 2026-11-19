@@ -9,6 +9,7 @@
 //! `ScrollingTextView`; FUN_100c306d: `OptionCheckBox`, `OptionRadioButtonGroup`). A class not ported yet is made as a
 //! plain view that keeps its class name ([`Unported`]), so a file still lays out.
 
+pub mod bindview;
 pub mod controlcenter;
 pub mod controls;
 pub mod combobox;

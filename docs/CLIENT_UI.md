@@ -7666,3 +7666,11 @@ The original's trade view (GUI.dll FUN_100e121e) puts an ItemContainerView_c (FU
 ### NPC give-trade bar (WIN-030)
 
 The original's NPCChatTradeBar_c (GUI.dll FUN_10057d8b) sits in its own small window with a "Trade" tab, docked to the right of the NPC chat window (FUN_10059236, Window::DockWindow(2)): "GIVE ITEM(S)" over an item grid of the NPC's slots, "GIVE CREDITS" over the credits field, and V / X. The NPC's request replaces the answer list. The client now builds the bar the same way: drops go in while there is room, a click takes an item out, Shift-click shows its page, V gives the items and at most the credits one has (the bar stays up), X or Give again declines and closes the bar.
+
+### Key bindings tab (WIN-033)
+
+The option window's "Key bindings" tab is GUI.dll's `BindView_c` (FUN_100bcfb3, `gui/bindview.rs`): a Category / Function / Key list of every rebindable action this client has, one row per key ("Inactive" without one), the keys in aqua with the original's key names, sortable by any column; "Reset All" puts those actions' default keys back, "Add" binds one more key, "Change" replaces the row's key, "Clear" unbinds it. Add and Change open the original's "Bind Key" box, which takes the next keys pressed (with Ctrl, Alt, Shift) until OK or Cancel. A key bound here stays on any other action it is on (the original's bind). The keys are this client's own and are kept in `mao.ini`. "Fixed keys" stays read-only, as the original's is with the game's and the skins' files (their group is `mode="fixed"`), and writes its keys as the original does (aqua, "No Key").
+
+### The original's key editor (SET-032)
+
+See "Key bindings tab": the editor of GUI.dll's `BindView_c` over this client's own keys. Not listed: the original's providers this client has no action for (pets, team members, per-bar shortcut keys, the team/raid/research/knowledge/LFT/browser/item shop/daily login windows, next/previous camera view, copy to clipboard, switch target, create reference) and the second (`GLOBAL`) movement set, the same actions here; mouse buttons cannot be bound.

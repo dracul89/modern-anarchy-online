@@ -1143,6 +1143,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] Buying (click a stock item), taking out (click a bought/sold item), dragging an inventory item onto a list to sell, and Shift-click pages work as before.
 - [ ] Ask an NPC that takes items (Give): the "Trade" tab window appears right of the chat window, top aligned, and moves with it; the NPC's request shows where the answers were.
 - [ ] Drag an item onto the grid (stops at the slot count), click it to take it out, Shift-click for its page; type more credits than you have and press V: the field drops to your credits and the trade is sent; press X: the bar closes.
+- [ ] Options (F10) > Key bindings: the list shows Category / Function / Key with the keys in aqua; select "Attack", Add, press F, OK: a second Attack row with F, and F attacks in the game; Change it to G; Clear it; Reset All brings Q back; the keys survive a restart (mao.ini).
+- [ ] While the Bind Key box is up, keys do not move the character or open windows (they go to the box); Cancel leaves the keys as they were.
+- [ ] Fixed keys tab: the camera and target keys in aqua (NUMPAD_4 ...), chat reply/history "No Key".
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

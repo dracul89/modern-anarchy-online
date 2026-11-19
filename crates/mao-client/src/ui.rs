@@ -1140,7 +1140,9 @@ impl Ui {
                         requests.chat.push(line);
                     }
                 }
-                option_panel.show(&ctx, palette, &mut cc.store, &hud.stats, &|id| settings.keymap.original_key(id));
+                if option_panel.show(&ctx, palette, &mut cc.store, &hud.stats, &mut settings.keymap) {
+                    requests.save = true;
+                }
                 if std::mem::take(&mut option_panel.client_settings) {
                     *options_open = true;
                 }
@@ -1890,7 +1892,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             match preview_cc.as_mut() {
                 Some(cc) => {
                     cc.show(&ctx, &palette, &hud.stats, &|_| false);
-                    preview_panel.show(&ctx, &palette, &mut cc.store, &hud.stats, &|id| settings.keymap.original_key(id));
+                    preview_panel.show(&ctx, &palette, &mut cc.store, &hud.stats, &mut settings.keymap);
                     if crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &cc.docks).rollup {
                         cc.toggle_rollup();
                     }

@@ -15,10 +15,12 @@
 //! `OptionPanel/HotKeys.xml` has anything, and "Key bindings". The fixed keys (`HotKeyPanel_c` FUN_100bf5a2, filled
 //! by FUN_100beee3) are a tree of `HotKeyGroup`s (their `label` a text of category 700) holding `HotKey`s: a label
 //! and the key command's id (`down_id`, as `id:KEY_...`), each shown with the key the command is on
-//! (`InputConfig_t::GetHotkey`). Here the key is this client's own for the same command ([`fixed_keys`], and the
-//! caller's `key_of`); a command this client has no key for shows none. The original's "Key bindings" tab is its
-//! editor of every key (FUN_100bcfb3), which is not ported: this client's keys are set in its own settings window,
-//! and the tab leads there.
+//! (`InputConfig_t::GetHotkey`), written as FUN_100be60f writes it (in aqua, the original's key names; text.mdb's
+//! `NoKey` for none). Here the key is this client's own for the same command ([`fixed_keys`], and the keymap's
+//! `original_key`); a command this client has no key for shows none. The groups of the game's and the skins' files are
+//! all `mode="fixed"`, which makes their keys not editable (FUN_100beee3; the "enter a key" box FUN_100bf286 opens on a
+//! double click only on an editable one), so none is here either. "Key bindings" is the original's
+//! editor of the rebindable keys (`BindView_c` FUN_100bcfb3, `bindview.rs`), over this client's own keys.
 
 use std::collections::BTreeMap;
 
@@ -370,6 +372,8 @@ pub struct OptionPanel {
     fixed: Vec<KeyGroup>,
     /// The open tab.
     tab: usize,
+    /// The "Key bindings" tab (`BindView_c`), made with its rows when the window opens.
+    binds: Option<super::bindview::BindView>,
 }
 
 impl OptionPanel {
@@ -408,10 +412,25 @@ impl OptionPanel {
         self.selected = n;
     }
 
-    /// `key_of` names the key a key command of the original is on in this client (by the command's `KEY_...` id).
-    pub fn show(&mut self, ctx: &egui::Context, palette: &crate::theme::Palette, store: &mut Store, stats: &BTreeMap<u32, i64>, key_of: &dyn Fn(&str) -> Option<String>) {
+    /// Whether the "Key bindings" tab's "Bind Key" box waits for a key: the game's keys go to [`OptionPanel::key_entered`]
+    /// then (`InputConfig_t` +0x24).
+    pub fn wants_key(&self) -> bool {
+        self.binds.as_ref().is_some_and(|b| b.wants_key())
+    }
+
+    /// A key pressed while [`OptionPanel::wants_key`].
+    pub fn key_entered(&mut self, key: crate::settings::Binding) {
+        if let Some(b) = self.binds.as_mut() {
+            b.key_entered(key);
+        }
+    }
+
+    /// The window over this client's keys (the fixed keys shown, the rebindable ones edited in "Key bindings"); whether
+    /// the keys changed.
+    pub fn show(&mut self, ctx: &egui::Context, palette: &crate::theme::Palette, store: &mut Store, stats: &BTreeMap<u32, i64>, keymap: &mut crate::settings::Keymap) -> bool {
         if !self.open {
-            return;
+            self.binds = None;
+            return false;
         }
         let skin = crate::skin::skin(ctx);
         if !self.loaded {
@@ -419,6 +438,8 @@ impl OptionPanel {
             self.load(&dirs);
         }
         let mut open = self.open;
+        let binds = self.binds.get_or_insert_with(|| super::bindview::BindView::new(keymap));
+        let mut changed = binds.show_dialog(ctx, palette, keymap);
         let (pages, selected, client_settings, fixed, tab) = (&mut self.pages, &mut self.selected, &mut self.client_settings, &self.fixed, &mut self.tab);
         // (the original's window is "Preferences", `OptionWindowConfig` 200,200 to 1009,683 by default: 809 by 483)
         crate::chrome::window(ctx, palette, "Option panel", "Preferences", &mut open, |w| w.default_size([800.0, 480.0]).resizable(true), |ui| {
@@ -445,7 +466,15 @@ impl OptionPanel {
                                     ui.label(&key.label);
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                         ui.add_space(12.0);
-                                        ui.label(key_of(&key.id).unwrap_or_default());
+                                        // (FUN_100be60f: the key in aqua as the original names it, text.mdb 10000's
+                                        // `NoKey` without one)
+                                        let keys = keymap.original_key(&key.id);
+                                        if keys.is_empty() {
+                                            ui.label(super::xml::ldb_named(10000, "NoKey", ""));
+                                        } else {
+                                            let text = keys.iter().map(|k| super::bindview::key_name(Some(k))).collect::<Vec<_>>().join(", ");
+                                            ui.label(egui::RichText::new(text).color(egui::Color32::from_rgb(0, 255, 255)));
+                                        }
                                     });
                                 });
                             }
@@ -455,11 +484,7 @@ impl OptionPanel {
                 return;
             }
             if names[t] == "Key bindings" {
-                ui.add_space(8.0);
-                ui.label("This client's keys are set in its own settings window.");
-                if crate::chrome::button(ui, palette, "Client settings", true).clicked() {
-                    *client_settings = true;
-                }
+                changed |= binds.show(ui, palette, keymap);
                 return;
             }
             if pages.is_empty() {
@@ -522,6 +547,7 @@ impl OptionPanel {
             *tab = now;
         });
         self.open = open;
+        changed
     }
 }
 

@@ -1233,7 +1233,7 @@ impl ApplicationHandler for App {
         }
         if let Some(ui) = w.ui.as_mut() {
             // The key the options window waits for goes to it, not to the interface.
-            let capturing = ui.rebinding.is_some() && matches!(event, WindowEvent::KeyboardInput { .. });
+            let capturing = (ui.rebinding.is_some() || ui.option_panel.wants_key()) && matches!(event, WindowEvent::KeyboardInput { .. });
             // (a button let go that went down in the world is the world's, wherever the pointer is now)
             let world_release = match &event {
                 WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => self.buttons[0],
@@ -1364,6 +1364,19 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } if self.live.is_some() => {
                 let PhysicalKey::Code(code) = event.physical_key else { return };
                 let down = event.state == ElementState::Pressed;
+                if down && w.ui.as_ref().is_some_and(|u| u.option_panel.wants_key()) {
+                    // The option window's "Bind Key" box takes the key with the modifiers held (BindView_c FUN_100bcc67);
+                    // a modifier by itself is no key here, nor is a key this client has no name for.
+                    let modifier_only = matches!(code, KeyCode::ShiftLeft | KeyCode::ShiftRight | KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::AltLeft | KeyCode::AltRight | KeyCode::SuperLeft | KeyCode::SuperRight);
+                    let binding = Binding { key: code, shift: self.modifiers.shift_key(), ctrl: self.modifiers.control_key(), alt: self.modifiers.alt_key() };
+                    if !modifier_only && crate::settings::parse_binding(&crate::settings::binding_name(&binding)).is_some() {
+                        if let Some(ui) = w.ui.as_mut() {
+                            ui.option_panel.key_entered(binding);
+                        }
+                        w.window.request_redraw();
+                    }
+                    return;
+                }
                 if let Some(action) = w.ui.as_ref().and_then(|u| u.rebinding).filter(|_| down) {
                     // The options window is waiting for this key.
                     let modifier_only = matches!(code, KeyCode::ShiftLeft | KeyCode::ShiftRight | KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::AltLeft | KeyCode::AltRight | KeyCode::SuperLeft | KeyCode::SuperRight);

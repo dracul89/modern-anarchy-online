@@ -552,11 +552,39 @@ impl Keymap {
         self.bindings.insert(action, keys.split(',').filter_map(parse_binding).collect());
     }
 
-    /// The key this client has one of the original's key commands on (the `KEY_...` ids of the skins'
+    /// The original's bind of a key to an action (GUI.dll FUN_10018d71): the key is added to the action's keys unless
+    /// it has it already (false then); it stays on any other action it is on. (The keys in force become this
+    /// client's own, as with [`Keymap::assign`].)
+    pub fn bind(&mut self, action: Action, binding: Binding) -> bool {
+        let mut list = self.bindings_of(action);
+        if list.contains(&binding) {
+            return false;
+        }
+        list.push(binding);
+        self.character.remove(&action);
+        self.bindings.insert(action, list);
+        true
+    }
+
+    /// The original's unbind (FUN_10018db2): the key taken off the action; false when the action does not have it.
+    pub fn unbind(&mut self, action: Action, binding: Binding) -> bool {
+        let mut list = self.bindings_of(action);
+        let before = list.len();
+        list.retain(|b| *b != binding);
+        if list.len() == before {
+            return false;
+        }
+        self.character.remove(&action);
+        self.bindings.insert(action, list);
+        true
+    }
+
+    /// The keys this client has one of the original's key commands on (the `KEY_...` ids of the skins'
     /// `OptionPanel/HotKeys.xml`, the option window's "Fixed keys"): none for a command this client does not have
-    /// (the chat's history keys, its reply key, the place said to the chat) or has no key for.
-    pub fn original_key(&self, id: &str) -> Option<String> {
+    /// (the chat's history keys, its reply key) or has no key for.
+    pub fn original_key(&self, id: &str) -> Vec<Binding> {
         let action = match id {
+            "KEY_COMMAND_DEBUG_POSTOCHAT" => Action::Coordinates,
             "KEY_NEXT_FRIENDLY_TARGET" => Action::NextFriendlyTarget,
             "KEY_PREV_FRIENDLY_TARGET" => Action::PrevFriendlyTarget,
             "KEY_NEXT_HOSTILE_TARGET" => Action::NextHostileTarget,
@@ -569,10 +597,9 @@ impl Keymap {
             "KEY_COMMAND_ZOOM_CAMERA_OUT" => Action::CameraZoomOut,
             "KEY_COMMAND_CAMERA_SET_PREFERRED_POS" => Action::CameraSavePreferred,
             "KEY_COMMAND_CAMERA_RESET" => Action::CameraReset,
-            _ => return None,
+            _ => return Vec::new(),
         };
-        let names: Vec<String> = self.bindings_of(action).iter().map(binding_name).collect();
-        (!names.is_empty()).then(|| names.join(", "))
+        self.bindings_of(action)
     }
 
     /// The bindings of an action (none when it is unbound).
