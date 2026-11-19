@@ -1785,11 +1785,6 @@ fn run(args: &[String]) -> Result<(), String> {
                             notifications::add(line);
                         }
                     }
-                    if std::env::var_os("MAO_PLATES").is_some() {
-                        for (dx, dz, text, kind) in [(-3.0f32, -3.0f32, "1581", 0u8), (-5.0, 3.0, "49", 1), (4.0, 7.0, "120", 2)] {
-                            hud.floaters.push(ui::Floater { world: mao_render::glam::Vec3::new(449.0 + dx, 313.0 + dz, 10.0), text: text.to_string(), kind, born: std::time::Instant::now() + std::time::Duration::from_secs(60) });
-                        }
-                    }
                     // MAO_PLATES=1: sample names floating over the ground near the point the preview looks at.
                     if std::env::var_os("MAO_PLATES").is_some() {
                         // (the selected one, the one fought, a plain one with its organization; their health and consider)

@@ -461,8 +461,6 @@ struct World {
     /// The skills the server has locked (`SpecialUsed`, Gamecode FUN_10064fb4's list): until when, by the stat. A locked
     /// special is not asked for again: the game's wait line instead (`feedback::unable_to_perform`).
     special_locks: std::collections::HashMap<u32, Instant>,
-    /// Damage and healing events not yet shown as floating numbers: (target id, amount, stat).
-    damage: Vec<(u32, i64, u32)>,
     /// Lines the server's game messages made (damage, healing, "You successfully perform ..."), for the chat window.
     game_lines: Vec<crate::chatwindow::Line>,
     /// The containers (corpses, chests, the bank, the overflow, the organization's) the character has open, each in a window
@@ -3540,7 +3538,6 @@ impl World {
                 let target = m.identity.1;
                 let source = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let nano = p.value.get("Unk2").and_then(mao_net::schema::Value::as_int).filter(|&n| n != 0).map(|n| template_name(n as u32).unwrap_or_else(|| format!("item #{n}")));
-                self.damage.push((target, amount, stat));
                 if let Some(hp) = p.value.get("TargetHp").and_then(mao_net::schema::Value::as_int) {
                     self.last_hp.insert(target, hp);
                     // (the original sets the stat itself, so a later `Stat` message with the same health tells no change)
@@ -11420,16 +11417,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         .into_iter()
                         .filter_map(|(id, at)| Some(([at[0], at[2], at[1]], mao_formats::gfx::Flare::read(gfx.as_ref()?.get(id)?)?)))
                         .collect(),
-                    floaters: std::mem::take(&mut state.damage)
-                        .into_iter()
-                        .filter(|(_, amount, _)| *amount != 0)
-                        .filter_map(|(id, amount, _)| {
-                            // over the one hit (your own character stands at `position`)
-                            let at = if id == own { position } else { state.entities.get(&id)?.0 };
-                            let kind = if amount > 0 { 2 } else if id == own { 1 } else { 0 };
-                            Some(([at[0], at[2], at[1] + 2.0], amount.abs().to_string(), kind))
-                        })
-                        .collect(),
                     // (`TargetingModule_t`'s tags: the selection's and the attack's indicators, everyone's with `ShowAllNames`)
                     nameplates: {
                         let own_level = state.stats.get(&54).copied().unwrap_or(1);
@@ -14367,7 +14354,6 @@ mod door_tests {
         w.add(&Message { kind: 0x3710256c, identity: (0xc350, 0x7b017c5b), data: hex("0000004dc4fffff4ef0000005b000000000000c3500004bc8000000000") }.frame(1));
         assert_eq!(lines(&mut w), ["You hit Tower Shark with nanobots for 2833 points of melee damage."]);
         assert_eq!(w.last_hp.get(&0x7b017c5b), Some(&19908));
-        assert_eq!(w.damage.last().map(|d| d.0), Some(0x7b017c5b));
         // and the client healing itself
         w.add(&Message { kind: 0x3710256c, identity: (0xc350, 0x4bc80), data: hex("000000ce670000007400000000000000000000c3500004bc8000000000") }.frame(1));
         assert_eq!(lines(&mut w), ["You were healed for 116 points."]);

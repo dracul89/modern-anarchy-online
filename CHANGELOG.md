@@ -148,6 +148,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The attack key refuses team and raid members, and refuses while flying, with the original's lines; a refused attack also says "Unable to attack target" as the original does.
 - The friendly targeting keys pick team and raid mates of another side and one's own pets; the hostile keys skip them.
 - At one's own death the world turns wholly white at once when the death has played out, and is clear again the moment one lives, as in the original (no slow fade).
+- Damage and healing numbers no longer float over characters; the fight is told in the chat's combat lines, as in the original.
 
 ### Launcher
 

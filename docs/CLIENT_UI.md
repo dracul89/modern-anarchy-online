@@ -7444,3 +7444,7 @@ The generic emitter (kinds 1003 and 1005-1008, used by the `MAO_CAST` preview) u
 ### Hit effects keep their own fading (RND-192)
 
 A nano's hit effect used to have its particles eased in over the first 0.1 s and out over the last 0.4 s of the client's landing window. That fade of the client's own is gone: the particles show as their template fades them, as the original's hit effects do.
+
+### No floating combat numbers (CMB-038)
+
+The client's own numbers floating up over the fight (damage dealt, taken and healing, coloured, for 1.6 s) are gone. As in the original, a fight is told only in chat (the Combat lines, Gamecode FUN_100a0611 for each HealthDamage); the damage meter is unchanged.

@@ -1254,7 +1254,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: damage dealt, taken and healing rise 38 px a second over the target for 1.6 s, yellow, red or green, with a shadow
 - A player notices: combat numbers over characters
 - Where: `crates/mao-client/src/ui.rs:2179`; `docs/CLIENT_UI.md:1844`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The floating combat numbers (damage dealt in yellow, taken in red, healing in green, rising 38 px a second over the one hit for 1.6 s) are removed entirely, as the user chose: `ui::Floater`, `FLOATER_LIFE`, the hud's `floaters` and their drawing in `hud_layer`, the viewer update's `floaters`, the network thread's `damage` list filled from each `HealthDamage` (0x3710256c), and the `MAO_PLATES` preview's sample numbers. The original has no such view or setting (GUI.dll, DisplaySystem and Gamecode have none; Gamecode FUN_100a0611 tells a HealthDamage as a chat line only). Unchanged: the Combat tab's lines, the health kept per target and the damage meter, all read from the same message. Test: `net::tests::fight_lines_follow_the_originals_feedback` (its check on the removed list dropped; the hurt one is still checked by its health), 3 fight_lines tests pass; no new warnings.
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE (or put behind an option, off by default): the original draws no damage numbers over characters (no such view or setting in GUI.dll, DisplaySystem or Gamecode strings; the fight is told in chat only), and it changes what the player sees in the world.
 
 ## Targeting and mouse

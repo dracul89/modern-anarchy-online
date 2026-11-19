@@ -167,8 +167,6 @@ pub struct Update {
     pub lc_district: Option<Option<(String, i32, i32)>>,
     /// The names to float over the characters and creatures near (Z-up position over the head).
     pub nameplates: Vec<crate::nametag::Tag>,
-    /// Numbers to float over the fight: Z-up position, text and kind (see `ui::Floater`).
-    pub floaters: Vec<([f32; 3], String, u8)>,
     /// Who is under running nano programs: the character's id (0 for the player's own), whether it is the character itself, the feet
     /// (Z-up), its heading, the body (breed, sex, fatness) when known, and each program with its running effect. The whole list when it is given
     /// (an update without one leaves the last in place).
@@ -1897,9 +1895,6 @@ impl ApplicationHandler for App {
                                 crate::actions::set_lock(stat, seconds);
                             }
                         }
-                        for (world, text, kind) in std::mem::take(&mut u.floaters) {
-                            self.hud.floaters.push(crate::ui::Floater { world: mao_render::glam::Vec3::from(world), text, kind, born: std::time::Instant::now() });
-                        }
                         if let Some(auras) = u.auras.take() {
                             self.auras = auras;
                         }
@@ -1957,7 +1952,6 @@ impl ApplicationHandler for App {
                         for level in std::mem::take(&mut u.jolts) {
                             self.quake.jolt(level);
                         }
-                        self.hud.floaters.retain(|f| f.born.elapsed().as_secs_f32() < crate::ui::FLOATER_LIFE);
                         if let Some(labels) = u.labels.take() {
                             self.hud.labels = labels.into_iter().map(|(p, text)| Label { world: mao_render::glam::Vec3::from(p), text }).collect();
                         }
