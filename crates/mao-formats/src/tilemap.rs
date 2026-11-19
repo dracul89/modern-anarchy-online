@@ -112,7 +112,7 @@ pub struct NewTilemap {
     /// Each tile type's tables, in the order of `tile_types`.
     pub type_tables: Vec<TypeTable>,
     /// The chunks after the types, in order (`DCGA`, `DHGA`, `HCDA`, `IRHA`,
-    /// optionally `TAHA`, `XTHA`, `THSA`).
+    /// optionally `TAHA`, `XTHA`, `HSTA`).
     pub chunks: Vec<Chunk>,
 }
 
@@ -186,6 +186,13 @@ pub fn parse_new(object: &[u8]) -> Result<NewTilemap, Error> {
         let tag: [u8; 4] = object[at..at + 4].try_into().unwrap();
         let size = word(&object[at + 4..]) as usize;
         let version = word(&object[at + 8..]);
+        if &tag == b"HSTA" {
+            // (the type heights: FUN_10078391 reads a short for each tile type after the chunk's head, whatever its size
+            // word says; the files' size word counts the shorts alone, without the head, so it is below 12 for two types)
+            let body = object.get(at + 12..(at + 12 + 2 * tile_types.len()).min(object.len())).unwrap_or(&[]);
+            chunks.push(Chunk { tag, version, body: body.to_vec() });
+            break;
+        }
         if size < 12 || at + size > object.len() {
             break;
         }
@@ -253,4 +260,43 @@ fn material_of_name(hash: u32) -> u32 {
         ("shallows", 4), ("shinymet", 1), ("smallblockb", 0xe), ("swamp", 4), ("warsand", 2),
     ];
     NAMES.iter().find(|(name, _)| crate::sound::sound_id(name) == hash).map_or(0, |&(_, m)| m)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The type heights' chunk is read as the original reads it (FUN_10078391): a short for each tile type after its head,
+    /// although its size word (the shorts alone) is below the head's 12 bytes.
+    #[test]
+    fn the_type_heights_are_read_past_their_short_size_word() {
+        let mut o = vec![0u8; OBJECT_HEAD];
+        o.extend_from_slice(b"GNDA");
+        o.extend_from_slice(&0u32.to_le_bytes());
+        o.extend_from_slice(&1u32.to_le_bytes());
+        o.extend_from_slice(&4u16.to_le_bytes());
+        o.extend_from_slice(&4u16.to_le_bytes());
+        o.extend_from_slice(&2.0f32.to_le_bytes());
+        o.extend_from_slice(&0.2f32.to_le_bytes());
+        o.extend_from_slice(&2u16.to_le_bytes());
+        o.extend_from_slice(&[7, 0, 9, 0]);
+        // each type: no neighbours, no heights
+        o.extend_from_slice(&[0, 0, 0, 0]);
+        // a chunk of four bytes
+        o.extend_from_slice(b"DCGA");
+        o.extend_from_slice(&16u32.to_le_bytes());
+        o.extend_from_slice(&1u32.to_le_bytes());
+        o.extend_from_slice(&[1, 2, 3, 4]);
+        // the heights: 2.8 and 16 in tenths, the size word 4
+        o.extend_from_slice(b"HSTA");
+        o.extend_from_slice(&4u32.to_le_bytes());
+        o.extend_from_slice(&1u32.to_le_bytes());
+        o.extend_from_slice(&28u16.to_le_bytes());
+        o.extend_from_slice(&160u16.to_le_bytes());
+        let map = parse_new(&o).unwrap();
+        assert_eq!(map.tile_types, vec![7, 9]);
+        let tags: Vec<&[u8; 4]> = map.chunks.iter().map(|c| &c.tag).collect();
+        assert_eq!(tags, vec![b"DCGA", b"HSTA"]);
+        assert_eq!(map.chunks[1].body, vec![28, 0, 160, 0]);
+    }
 }

@@ -7799,7 +7799,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: takes 8 for the roof height where there is no entry
 - A player notices: a character may or may not count as inside a room where a type has no height
 - Where: `crates/mao-formats/src/rooms.rs:194`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Found a reading bug behind the guess: the type-height chunk's tag is HSTA (0x41545348 in RDBTilemap_t::ReadBlob, DisplaySystem FUN_10078391), not THSA, and its size word counts the shorts alone (12 for six types, 4 for two), so the client's chunk reader either missed it by name or dropped it (size below 12): every room was taken as 8 high. The original reads one short (tenths) per tile type after the chunk's head whatever the size says, into +0x8244, and n3Room_t::IsPosInside (N3 0x10011664) takes FUN_10016429(type) = table[type] with the type = cell byte & 0x7f; a type past the table would read past the array, which no room tile-map has (checked over every room playfield). tilemap::parse_new now reads HSTA that way and rooms::Grid uses it; the 8 stays only for a type past the table. Heights in the files run 2.8 to 100 (31.9 in tall halls). Tests: tilemap::tests::the_type_heights_are_read_past_their_short_size_word, rooms::tests::every_room_tilemap_has_a_height_for_each_cell_type (MAO_GAME).
 - Looked at, left (2026-11-19, overnight): The THSA table gives each tile type's height; a cell whose type has no entry gets the client's 8. What the original does with a missing entry (its lookup's default) was not read in the N3 room code tonight. Left.
 
 #### `RND-116` Room light map colours more numerous than vertices: coloured from the map's start

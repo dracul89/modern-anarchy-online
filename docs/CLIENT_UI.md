@@ -7714,3 +7714,7 @@ randy31's CAT render (FUN_100543bc, drop-in `catrender.rs`) places a vertex weig
 ### The camera's near and far planes (CAM-007)
 
 N3's game camera (`n3EngineClient_t::CreateCamera`, 0x10007842) has a 90° view, its front plane at 0.2 and its back plane at the view distance: the `ViewDistance` option × 1000, never nearer than 50.2 (FUN_1001fc91, which also gives both planes to the fog). The client's game view now draws between the same planes, so nothing beyond the view distance is drawn; other views keep planes fitted to their scenes.
+
+### Room heights from the tile-map (RND-115)
+
+Whether a point is inside a room (n3Room_t::IsPosInside, N3 0x10011664) goes up to the cell type's height from the tile-map's HSTA table (RDBTilemap_t +0x8244, read by DisplaySystem FUN_10078391 as one short in tenths per tile type after the chunk's head; the files' size word counts only the shorts), scaled by 1 + 0.25 × the cell's code. The client read the chunk under the wrong name and dropped it when its size word was below 12, so every room counted as 8 high; it now reads it as the original does (heights from 2.8 to 100).

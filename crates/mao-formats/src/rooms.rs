@@ -192,7 +192,7 @@ impl Room {
 
     /// Whether the world point (the game's frame, y up) is inside the room (`n3Room_t::IsPosInside` 0x10011664): over one of
     /// its cells, higher than half a unit under the cell's lowest corner and no higher than half a unit over its roof — the
-    /// cell type's height (the tile-map's `THSA` table, 8 where there is none) scaled by `1 + 0.25 × the cell's code`.
+    /// cell type's height (the tile-map's `HSTA` table, `RDBTilemap_t` +0x8244 indexed by the type, FUN_10016429; 8 past its end, where the original reads past the array) scaled by `1 + 0.25 × the cell's code`.
     pub fn contains(&self, grid: &Grid, p: [f32; 3]) -> bool {
         let Some((cx, cy)) = self.cell_at(grid, p[0], p[2]) else { return false };
         let surface = grid.surface();
@@ -508,7 +508,7 @@ pub struct Grid {
     pub palette: Vec<u32>,
     pub tables: Tables,
     pub words: Cells,
-    /// Each tile type's height (`THSA`: a short in tenths per type, `RDBTilemap_t` +0x8244), by its place in the type list.
+    /// Each tile type's height (`HSTA`: a short in tenths per type, `RDBTilemap_t` +0x8244), by its place in the type list.
     pub type_heights: Vec<f32>,
 }
 
@@ -599,7 +599,7 @@ impl Grid {
         let tables = Tables::new(&map.tile_types, &map.type_tables, lists);
         let images = dungeon::CellImages { width, height, places: &cells, doors: &doors, choices: choices.as_deref() };
         let words = dungeon::cells(&images, &tables);
-        let type_heights = chunk(b"THSA").map(|c| c.body.chunks_exact(2).take(map.tile_types.len()).map(|b| u16::from_le_bytes([b[0], b[1]]) as f32 / 10.0).collect()).unwrap_or_default();
+        let type_heights = chunk(b"HSTA").map(|c| c.body.chunks_exact(2).take(map.tile_types.len()).map(|b| u16::from_le_bytes([b[0], b[1]]) as f32 / 10.0).collect()).unwrap_or_default();
         Some(Grid { width, height, cells, heights: heights.into_raw(), codes, layers, tiles, scale: map.scale, step: map.second, palette, tables, words, type_heights })
     }
 
@@ -1369,5 +1369,29 @@ mod tests {
         assert!(doors > 1000 && missing * 100 < doors, "{missing} of {doors} doors unmatched");
         // (the old `CHGA` tile-maps, whose branch of the cell constructor is not ported: no room playfield has one)
         assert!(old_maps.is_empty(), "room playfields on a tile-map that is not GNDA: {old_maps:?}");
+    }
+
+    /// With `MAO_GAME`: every room playfield's tile-map has its `HSTA` heights (whose size word, counting the shorts alone,
+    /// once hid them: every room was 8 high), one for each cell type it uses.
+    #[test]
+    fn every_room_tilemap_has_a_height_for_each_cell_type() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        use crate::resource::{Id, ResourceDatabase};
+        let db = ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let (mut seen, mut maps) = (std::collections::BTreeSet::new(), 0usize);
+        for pf in crate::playfield::all(&db) {
+            let Some(object) = db.get(Id { kind: KIND, instance: pf.number }).ok().flatten() else { continue };
+            let Ok(Some(rooms)) = parse(&object) else { continue };
+            if !seen.insert(rooms.tilemap) {
+                continue;
+            }
+            let Some(map) = db.get(Id { kind: 0xf4249, instance: rooms.tilemap }).ok().flatten().and_then(|o| crate::tilemap::parse_new(&o).ok()) else { continue };
+            let Some(grid) = Grid::new(&map) else { continue };
+            maps += 1;
+            assert_eq!(grid.type_heights.len(), map.tile_types.len(), "tile-map {}", rooms.tilemap);
+            let used = grid.cells.iter().map(|c| (c & 0x7f) as usize).max().unwrap_or(0);
+            assert!(used < grid.type_heights.len(), "tile-map {}: type {used} of {}", rooms.tilemap, grid.type_heights.len());
+        }
+        assert!(maps > 50, "{maps}");
     }
 }
