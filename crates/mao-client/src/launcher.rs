@@ -129,6 +129,35 @@ struct Entering {
     since: std::time::Instant,
 }
 
+/// What the game's process writes to `MAO_TICKET_UP`: the clock when the character's ticket came, or the system message
+/// and code that refused the character instead (`LoginModule_c::SlotLoginReply` 0x10012179: 0x10 and 0x21 go to
+/// `ShowError` with their codes).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TicketNote {
+    At(u64),
+    Refused(u32, u32),
+}
+
+impl TicketNote {
+    pub fn to_text(self) -> String {
+        match self {
+            TicketNote::At(at) => at.to_string(),
+            TicketNote::Refused(kind, code) => format!("refused {kind} {code}"),
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<TicketNote> {
+        let text = text.trim();
+        match text.strip_prefix("refused ") {
+            Some(rest) => {
+                let mut words = rest.split_whitespace().map(|w| w.parse::<u32>().ok());
+                Some(TicketNote::Refused(words.next()??, words.next()??))
+            }
+            None => text.parse().ok().map(TicketNote::At),
+        }
+    }
+}
+
 /// How long the character list's window waits for the game's before it goes anyway.
 const ENTERING_LIMIT: std::time::Duration = std::time::Duration::from_secs(180);
 
@@ -358,13 +387,32 @@ impl Launcher {
         // `LoginModule_c::SlotSelectCharacter` 0x10011be1 has it (`Show(4)` 0x1001175a: the login and the character
         // list put away, a `ProgressWindow_c` of `DimensionNetworkTimeout` seconds); its time running out or Cancel is
         // `SlotSelectCharacterTimeout` 0x10011523, `Show(0)`: the login form again, the game's process ended here)
-        if let Some(e) = self.entering.as_mut()
-            && !e.loading
-            && let Some(at) = std::fs::read_to_string(&e.ticket).ok().and_then(|t| t.trim().parse::<u64>().ok())
-        {
-            e.loading = true;
-            self.progress.stop();
-            crate::loading::begin_since(crate::loading::elapsed_since(at, crate::loading::clock_millis()), crate::loading::FADE_IN, crate::loading::FADE_OUT);
+        let note = self.entering.as_ref().filter(|e| !e.loading).and_then(|e| std::fs::read_to_string(&e.ticket).ok()).and_then(|t| TicketNote::parse(&t));
+        match note {
+            Some(TicketNote::At(at)) => {
+                if let Some(e) = self.entering.as_mut() {
+                    e.loading = true;
+                }
+                self.progress.stop();
+                crate::loading::begin_since(crate::loading::elapsed_since(at, crate::loading::clock_millis()), crate::loading::FADE_IN, crate::loading::FADE_OUT);
+            }
+            // (the character refused: `ShowError`, the error's page over the login, as for a refused login)
+            Some(TicketNote::Refused(kind, code)) => {
+                if let Some(mut e) = self.entering.take() {
+                    let _ = e.child.wait();
+                    let _ = std::fs::remove_file(&e.ticket);
+                    let _ = std::fs::remove_file(&e.marker);
+                }
+                self.progress.stop();
+                self.chosen = None;
+                eprintln!("entering refused: system message {kind:#x}, code {code}");
+                self.stage = Stage::Form;
+                self.error_page = crate::dimensions::error_page(std::path::Path::new(&self.game), kind, code);
+                self.error_plain = cfg!(not(windows));
+                self.error_text = format!("The character could not be entered (system message {kind:#x}, code {code}).");
+                self.message = if self.error_page.is_some() { String::new() } else { self.error_text.clone() };
+            }
+            None => {}
         }
         if self.entering.as_ref().is_some_and(|e| !e.loading) {
             let palette = self.palette.clone();
@@ -1175,6 +1223,16 @@ pub fn run(game: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The game's note to the launcher: the ticket's time, or the refusal's message and code; written and read back.
+    #[test]
+    fn the_ticket_note_round_trips() {
+        for note in [TicketNote::At(1_763_500_000_123), TicketNote::Refused(0x10, 0), TicketNote::Refused(0x21, 7)] {
+            assert_eq!(TicketNote::parse(&note.to_text()), Some(note));
+        }
+        assert_eq!(TicketNote::parse(""), None);
+        assert_eq!(TicketNote::parse("refused 16"), None);
+    }
 
     #[test]
     fn a_character_is_described_by_level_sex_breed_and_profession() {

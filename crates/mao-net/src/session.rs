@@ -174,10 +174,18 @@ pub fn refusal_code(payload: &[u8]) -> Option<u32> {
 /// sent (`Client_t`'s `s_nCookie1`, `s_nCookie2`, `s_nEventServerType`, `s_nPlayerID`).
 static LAST_TICKET: std::sync::Mutex<Option<system::Ticket>> = std::sync::Mutex::new(None);
 
-/// Log a character in on the chat server: the game server to go to.
+/// Log a character in on the chat server: the game server to go to. Another system message in the ticket's place is
+/// a refusal ([`Error::Refused`] with its kind and code: the original's `LoginModule_c::SlotLoginReply` 0x10012179 shows
+/// 0x10 and 0x21 with their error pages, as 0xd).
 pub fn login_character(connection: &mut Connection, id: u32) -> Result<system::Ticket, Error> {
     connection.send(&system::login_character(id))?;
-    let ticket = system::ticket(&connection.receive()?)?;
+    let reply = connection.receive()?;
+    if let Ok((kind, payload)) = system::split(&reply)
+        && kind != system::CHARACTER_TICKET
+    {
+        return Err(Error::Refused { kind, code: refusal_code(payload), text: String::from_utf8_lossy(payload).chars().filter(|c| !c.is_control()).collect() });
+    }
+    let ticket = system::ticket(&reply)?;
     if let Ok(mut last) = LAST_TICKET.lock() {
         *last = Some(ticket.clone());
     }

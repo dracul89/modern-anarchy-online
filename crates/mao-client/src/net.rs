@@ -11695,7 +11695,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 .find(|c| c.name.eq_ignore_ascii_case(who) || c.id.to_string() == *who)
                 .ok_or_else(|| format!("no character {who:?} on the account (try `chars`)"))?;
             eprintln!("logging in {} ({})", character.name, character.id);
-            let ticket = session::login_character(&mut chat, character.id).map_err(|e| e.to_string())?;
+            let ticket = session::login_character(&mut chat, character.id).map_err(|e| {
+                // (started from the character list: a refusal goes back to it, which shows its error page as the
+                // original's `SlotLoginReply` does for 0x10 and 0x21)
+                if let (Some(file), session::Error::Refused { kind, code, .. }) = (std::env::var_os("MAO_TICKET_UP"), &e) {
+                    let _ = std::fs::write(file, crate::launcher::TicketNote::Refused(*kind, code.unwrap_or(0)).to_text());
+                }
+                e.to_string()
+            })?;
             eprintln!("game server {}", ticket.host());
             // (started from the character list: its progress window gives way to the loading screen now, as the
             // original's `Show(4)` does once the ticket has come; `MAO_TICKET_UP=<file>` is told the clock then, and the
@@ -11703,7 +11710,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             if let Some(file) = std::env::var_os("MAO_TICKET_UP") {
                 let now = crate::loading::clock_millis();
                 crate::loading::set_since(now);
-                let _ = std::fs::write(file, now.to_string());
+                let _ = std::fs::write(file, crate::launcher::TicketNote::At(now).to_text());
             }
             let mut world = session::enter_world(&ticket).map_err(|e| e.to_string())?;
             // The login connection must go: while it is open the server refuses the login a zoning needs.

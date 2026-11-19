@@ -7069,3 +7069,7 @@ The original's Finish (GUI.dll `NameScene_t::StartServerCreation` 0x1012015d) sa
 ### The profession text area's height (LCH-027)
 
 The original's profession scene (GUI.dll `ProfessionScene_t` 0x101216d1) gives its text area a height of 156 pixels at 480 lines, growing by 0.4 of the display's growth beyond that (193 at 768, 234 at 1080), not a share of the window. The client uses the same rule now instead of a fifth of the window.
+
+### A character refused after Play (LCH-041)
+
+When the server refuses the chosen character instead of handing out its ticket (system messages 0x10 and 0x21), the original shows that error's page over the login form, as for a refused login (GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179 → `ShowError`). The launcher now does the same: the game's process passes the refusal's message and code back through `MAO_TICKET_UP`, and the launcher's progress window gives way to the login form with the error's page above it.

@@ -145,6 +145,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Deleting a character needs its name typed exactly as it is written, capitals included, as in the original.
 - The loading screen's picture is shown in its own colours, as in the original (it was tinted blue).
 - Character creation leaves out spaces and signs typed in a name and fixes its capitals, as the original does, instead of refusing it.
+- A character the server refuses to enter now brings you back to the login with the game's error page, as in the original, instead of the launcher just closing.
 
 ### Graphics
 

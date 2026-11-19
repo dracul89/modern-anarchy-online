@@ -1016,6 +1016,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] A character with no folder under the original's Prefs: windows open at their default places, not another character's
 - [ ] Entering the game: the loading picture in its own colours, not blue
 - [ ] Character creation, profession scene: the text box under the professions is about 193 px high at 768 lines (234 at 1080)
+- [ ] (if it can be provoked: Play a character already logged in elsewhere) the login form comes back with the error page above it
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

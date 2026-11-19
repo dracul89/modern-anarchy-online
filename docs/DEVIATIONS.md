@@ -8601,6 +8601,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: those failures are not shown as the original's pages
 - Where: `docs/ORIGINAL_AUDIT.md:37`; `docs/CLIENT_UI.md:1030`; `crates/mao-client/src/launcher.rs:113`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): Ported the refusals after the list: GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179 sends 0x10 and 0x21 (as 0xd) to `ShowError` with their kind and code, the error's page over the login. `mao_net::session::login_character` now returns a system message in the ticket's place as `Error::Refused { kind, code }` (it was a type error without the code); the game's process writes it to the `MAO_TICKET_UP` file (`launcher::TicketNote::Refused`), and the launcher, whose progress window is up (LCH-038), waits for that process to end, puts the window away and shows the error's page (`dimensions::error_page(kind, code)`) over the login form, or the words where no page can be shown. Test: `launcher::tests::the_ticket_note_round_trips`. Left: the page for a connection lost after the list (the game's process would have to tell that apart from its other failures), not ported.
 
 #### `LCH-042` play.sh does not search Steam libraries on other drives
 
