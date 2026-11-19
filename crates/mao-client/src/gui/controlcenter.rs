@@ -30,7 +30,7 @@ use crate::theme::Palette;
 /// The windows the menus name and the client's names for them (`Ui::set_window`); `options` is the options window.
 pub const WINDOWS: &[(&str, &str)] = &[
     ("inventory_window", "inventory"),
-    ("wear_window", "inventory"),
+    ("wear_window", "wear"),
     ("skill_window", "skills"),
     ("perk_window", "perks"),
     ("stat_window", "stats"),

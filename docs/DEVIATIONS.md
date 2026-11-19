@@ -4804,7 +4804,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Ctrl+1 opens the worn gear, "which is the same window here"
 - A player notices: pressing Ctrl+1 and I toggle the same window
 - Where: `crates/mao-client/src/settings.rs:217`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The inventory and the wear window are separate windows now, as InventoryGUIModule_c makes them: SlotInventoryActivated (GUI.dll 0x100c766b, InventoryView_c FUN_100ccefe) on `inventory_window`, SlotWearViewActivated (0x100c76f1, WearView_c FUN_100e24b8) on `wear_window`, each created or closed on its own value. The client had one flag for both (the wear window shown whenever the inventory was). Now ItemWindows keeps `wear_open` apart; Ui::set_window/window_open know "wear"; the new Action::WearWindow is bound to Ctrl+1 (keybindings' WINDOW_WEAR maps to it, I stays the inventory alone); the control center's `wear_window` entry opens "wear"; the open windows kept between sessions include "wear"; an item in hand stays while either window is open. Tests: settings::tests::the_defaults_are_the_originals_and_no_key_is_bound_twice (now checks I and Ctrl+1 apart), the keybindings/invwindows/gear tests.
 
 #### `WIN-029` Mission selection window drawn by hand with its own words
 

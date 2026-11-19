@@ -89,6 +89,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   look round, with the characters near by side. The client's round corner map and overlay are a setting now.
 - The round corner map is the default again; the original's square map window is in the control center's Map menu.
 - A character the original client never played no longer starts with another character's window layout: its windows open at their own places.
+- The wear window is a window of its own again: Ctrl+1 and the Wear icon open it, I opens only the inventory.
 
 ### Items
 

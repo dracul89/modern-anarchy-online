@@ -122,9 +122,10 @@ enum ItemChoice {
 pub struct ItemWindows {
     inventory: Option<GridView>,
     wear: Vec<GridView>,
-    /// The wear tab shown, and whether the wear window was closed on its own.
+    /// The wear tab shown, and whether the wear window is open: a window of its own (`wear_window`,
+    /// `SlotWearViewActivated` 0x100c76f1), opened and closed apart from the inventory (`SlotInventoryActivated` 0x100c766b).
     pub tab: usize,
-    pub wear_closed: bool,
+    pub wear_open: bool,
     /// The item whose menu is open, and the place awaiting a second click to be destroyed.
     menu: Option<(u32, egui::Pos2)>,
     /// The item the right button went down on, and when: held there, its menu opens.
@@ -504,7 +505,7 @@ impl ItemWindows {
         // (placed by hand: the grid while it is not arranged)
         let hand = arranged.is_none() && !in_list;
         let mut inv_menu_at = None;
-        if let Some(view) = self.inventory.as_mut() {
+        if *open && let Some(view) = self.inventory.as_mut() {
             multilist::set_list_mode(&mut view.tree, view.list, in_list);
             if !in_list {
                 multilist::set_grid(&mut view.tree, view.list, |m| m.auto_arrange = !hand);
@@ -688,12 +689,9 @@ impl ItemWindows {
             }
         }
         *open = is_open;
-        if !is_open {
-            self.wear_closed = false;
-        }
 
         // The wear window.
-        if *open && !self.wear_closed {
+        if self.wear_open {
             let mut wear_open = true;
             let names: Vec<String> = WEAR_TABS.iter().map(|t| crate::gui::xml::ldb_text(t.name)).collect();
             let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
@@ -764,7 +762,7 @@ impl ItemWindows {
                 _ => {}
             }
             if !wear_open {
-                self.wear_closed = true;
+                self.wear_open = false;
             }
         }
 

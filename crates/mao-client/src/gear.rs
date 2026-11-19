@@ -468,6 +468,15 @@ impl GearWindow {
         }
     }
 
+    /// Whether the wear window is open (a window of its own, beside the inventory).
+    pub fn wear_open(&self) -> bool {
+        self.windows.wear_open
+    }
+
+    pub fn set_wear_open(&mut self, open: bool) {
+        self.windows.wear_open = open;
+    }
+
     /// Opens the box that asks how many to split off the stack at a place, as Ctrl+click on it does (the previews use it).
     pub fn ask_split(&mut self, place: u32) {
         self.windows.ask_split(place);

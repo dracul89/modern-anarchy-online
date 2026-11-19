@@ -1602,6 +1602,12 @@ impl ApplicationHandler for App {
                                 ui.gear_open = !ui.gear_open;
                             }
                         }
+                        Action::WearWindow if !event.repeat => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                let open = ui.window_open("wear");
+                                ui.set_window("wear", !open);
+                            }
+                        }
                         Action::ToggleOptions if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
                                 ui.toggle_options();

@@ -636,7 +636,7 @@ impl Ui {
 
     /// The windows worth reopening next time (the ones the player opens by hand).
     fn open_names(&self) -> Vec<&'static str> {
-        [(self.gear_open, "inventory"), (self.stats.open, "stats"), (self.skills.open, "skills"), (self.ncu.open, "ncu"), (self.friends.open, "friends"), (self.programs.open, "programs"), (self.perks.open, "perks"), (self.help.open, "help"), (self.actions.open, "actions"), (self.mission.open, "missions"), (self.automap.overlay, "map")]
+        [(self.gear_open, "inventory"), (self.gear.wear_open(), "wear"), (self.stats.open, "stats"), (self.skills.open, "skills"), (self.ncu.open, "ncu"), (self.friends.open, "friends"), (self.programs.open, "programs"), (self.perks.open, "perks"), (self.help.open, "help"), (self.actions.open, "actions"), (self.mission.open, "missions"), (self.automap.overlay, "map")]
             .into_iter()
             .filter_map(|(open, name)| open.then_some(name))
             .collect()
@@ -741,6 +741,7 @@ impl Ui {
         }
         match name {
             "inventory" => self.gear_open,
+            "wear" => self.gear.wear_open(),
             "skills" => self.skills.open,
             "perks" => self.perks.open,
             "help" => self.help.open,
@@ -888,6 +889,7 @@ impl Ui {
                 return false;
             }
             self.gear_open = false;
+            self.gear.set_wear_open(false);
             self.whompah_open = false;
             self.stats.open = false;
             self.skills.open = false;
@@ -957,6 +959,10 @@ impl Ui {
                     window.open = false;
                 }
             }
+            return true;
+        }
+        if name == "wear" {
+            self.gear.set_wear_open(open);
             return true;
         }
         let flag: &mut bool = match name.as_str() {
@@ -1498,7 +1504,7 @@ impl Ui {
             for url in gear.show_inspect(&ctx, &hud.inspected, &hud.stats, palette) {
                 info_view.show_url(&url);
             }
-            if *gear_open {
+            if *gear_open || gear.wear_open() {
                 let events = gear.show(&ctx, gear_open, &hud.gear, &hud.stats, palette);
                 if crate::gear::traced() && !(events.uses.is_empty() && events.combines.is_empty() && events.infos.is_empty() && events.moves.is_empty()) {
                     eprintln!("items: uses {:?}, used on {:?}, moves {:?}, infos {:?}", events.uses, events.combines, events.moves, events.infos);
@@ -1616,7 +1622,7 @@ impl Ui {
         // (the hand is empty once the item is let go, wherever; Escape puts it back, and so does the inventory
         // window going, which is where the item in hand is drawn. A split in hand the same: it is used on nothing in
         // the world (`letting_go` is not true of it), and let go anywhere but on an empty cell it is given up)
-        if crate::gear::hand_opening(&self.ctx) || self.ctx.input(|i| i.key_pressed(egui::Key::Escape)) || !self.window_open("inventory") {
+        if crate::gear::hand_opening(&self.ctx) || self.ctx.input(|i| i.key_pressed(egui::Key::Escape)) || !(self.window_open("inventory") || self.window_open("wear")) {
             crate::gear::put_down();
         }
         crate::gear::end_frame();
@@ -1705,6 +1711,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [size.0, size.1], pixels_per_point: 1.0 };
     let (mut open, mut rebinding, mut requests) = (options, None, Requests::default());
     let (mut gear_open, mut gear) = (hud.gear_open, crate::gear::GearWindow::default());
+    // (the previews show the wear window beside the inventory)
+    gear.set_wear_open(gear_open);
     if let Ok(tab) = std::env::var("MAO_GEAR_TAB") {
         gear.select_tab(&tab);
     }
@@ -2085,7 +2093,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             if let Some(window) = preview_city.as_mut() {
                 window.show(&ctx, &palette, None, None);
             }
-            if gear_open {
+            if gear_open || gear.wear_open() {
                 let _ = gear.show(&ctx, &mut gear_open, &hud.gear, &hud.stats, &palette);
             }
             if open {

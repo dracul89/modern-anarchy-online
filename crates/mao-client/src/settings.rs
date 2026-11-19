@@ -94,6 +94,8 @@ pub enum Action {
     Attack,
     /// The inventory window.
     InventoryWindow,
+    /// The wear window, a window of its own (the original's `WINDOW_WEAR`).
+    WearWindow,
     /// Sit down (which starts the 30 s logout countdown) or stand up (which cancels it).
     SitStand,
     /// Use the targeted thing (talk to an NPC, open a door).
@@ -219,8 +221,9 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::Attack, "attack", "Q"),
     (Action::SitStand, "sit_stand", "X"),
     (Action::Use, "use", "E"),
-    // The windows: I the inventory (Ctrl+1 the worn gear, which is the same window here), U the skills, Ctrl+2 to Ctrl+0 the others.
-    (Action::InventoryWindow, "inventory", "I, Ctrl+1"),
+    // The windows: I the inventory, Ctrl+1 the worn gear (each a window of its own), U the skills, Ctrl+2 to Ctrl+0 the others.
+    (Action::InventoryWindow, "inventory", "I"),
+    (Action::WearWindow, "wear_window", "Ctrl+1"),
     (Action::SkillsWindow, "skills_window", "U"),
     (Action::ActionsWindow, "actions_window", "Ctrl+2"),
     (Action::MissionWindow, "mission_window", "Ctrl+4"),
@@ -1174,7 +1177,8 @@ log_messages = on
         assert_eq!(k.keys(Action::StrafeRight), "C");
         assert_eq!(k.keys(Action::Attack), "Q");
         assert_eq!(k.keys(Action::SkillsWindow), "U");
-        assert_eq!(k.keys(Action::InventoryWindow), "I, Ctrl+1");
+        assert_eq!(k.keys(Action::InventoryWindow), "I");
+        assert_eq!(k.keys(Action::WearWindow), "Ctrl+1");
         assert_eq!(k.keys(Action::ToggleOptions), "F10");
         assert_eq!(k.keys(Action::SelectSelf), "F1");
         assert_eq!(k.keys(Action::AutoRun), "Numpad0");

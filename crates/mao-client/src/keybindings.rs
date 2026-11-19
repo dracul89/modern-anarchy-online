@@ -43,7 +43,7 @@ pub fn provider(name: &str) -> u32 {
 }
 
 /// The original's providers and this client's actions (two of the original's go to one here where the client has
-/// one action for both: the two sets of movement keys, the inventory and the wear window, the two maps). The
+/// one action for both: the two sets of movement keys, the two maps). The
 /// shortcut bar's name is the original's spelling.
 pub const PROVIDERS: &[(&str, Action)] = &[
     ("MOVEMENT_FORWARD_V3", Action::Forward),
@@ -79,7 +79,7 @@ pub const PROVIDERS: &[(&str, Action)] = &[
     ("ACTION_BOWSPECIALATTACK", Action::Quick(11)),
     ("TARGET_SELECTSELF", Action::SelectSelf),
     ("WINDOW_INVENTORY", Action::InventoryWindow),
-    ("WINDOW_WEAR", Action::InventoryWindow),
+    ("WINDOW_WEAR", Action::WearWindow),
     ("WINDOW_SKILLS", Action::SkillsWindow),
     ("WINDOW_PLANETMAP", Action::PlanetMapWindow),
     ("WINDOW_MAP", Action::MapWindow),
