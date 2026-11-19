@@ -12,11 +12,12 @@ use mao_net::inventory::Entry;
 /// The item stat that holds an item's quality level.
 const QUALITY_LEVEL: u32 = 54;
 
-/// Whether a placement is worn: the weapon tab (including the belt in 7, its NCU units in 9-14 and the second HUD place, 15 (a Dreadloch booster sat there), which add health and
-/// nano like any worn item: a level-25 character's belt gives +100 health and each unit +50), clothes and implants. The
-/// social tab (49 and up) only changes how the character looks.
+/// Whether an item in this place adds to the character's stats: any place under 0x30 (Gamecode FUN_10080fc3 runs a worn
+/// item's wear list with every spell there; from 0x30 on, the social tab, only the spells of how the character looks,
+/// none of which changes a stat). The weapon tab (with the belt in 7, its NCU units in 9-14 and the second HUD place, 15),
+/// the clothes and the implants. Until 2026-11-18 this client counted 1-15, 17-31 and 33-45.
 pub(crate) fn worn(slot: u32) -> bool {
-    matches!(slot, 1..=15 | 17..=31 | 33..=45)
+    slot < 0x30
 }
 
 /// What judges a wear spell's criteria where only the character's level is known (an item's tip): a criterion on any
@@ -395,8 +396,8 @@ pub fn shock_step(shock: i64) -> i64 {
 }
 
 /// One stat's shown value, as [`shown`] has it, without working out all the others: the original's read of a stat in
-/// mode 3 (the stat container's FUN_10059399 → FUN_10064d46: the stored value and the modifier map's part for it, with
-/// the attributes' trickle for a skill). The movement reads `RunSpeed` so (FUN_1006f2fc) and the body its `Scale`.
+/// mode 0, the windows' (the stat container's FUN_10059399 -> FUN_10065a92: the stored value, the attributes' trickle for a
+/// skill and the modifier map's part). The movement's mode 3 has no trickle: [`mode3_one`].
 pub fn shown_one(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>, stat: u32) -> i64 {
     let bonus = modifiers.get(&stat).copied().unwrap_or(0);
     let attributes = ATTRIBUTES.map(|a| stored.get(&a).copied().unwrap_or(0) + modifiers.get(&a).copied().unwrap_or(0));
@@ -411,6 +412,16 @@ pub fn shown_one(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>, st
             base + bonus - shock_penalty(stored, stat, base)
         }
     }
+}
+
+/// One stat in the original's mode 3 (the stat container's FUN_10059399 -> FUN_10064d46): the stored value and the modifier
+/// map's part, less the shock's penalty (FUN_10064b51), without the attributes' trickle that the windows' value has. The
+/// movement reads `RunSpeed` and the health so (FUN_1006f2fc). Max health is never under 1 (AddModifier, FUN_10064a0e,
+/// raises the map's part until it is not).
+pub fn mode3_one(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>, stat: u32) -> i64 {
+    let base = stored.get(&stat).copied().unwrap_or(0);
+    let value = base + modifiers.get(&stat).copied().unwrap_or(0) - shock_penalty(stored, stat, base);
+    if stat == 1 && modifiers.contains_key(&1) { value.max(1) } else { value }
 }
 
 /// A stat as the criteria evaluator reads it (Gamecode FUN_100065d8: the holder's `GetStat` in mode 0, which for a
@@ -579,6 +590,11 @@ mod tests {
     #[test]
     fn only_the_worn_places_count() {
         assert!(worn(6) && worn(7) && worn(9) && worn(21) && worn(40));
-        assert!(worn(15) && !worn(16) && !worn(49) && !worn(64));
+        assert!(worn(15) && worn(47) && !worn(48) && !worn(49) && !worn(64));
+        // (WIN-024: movement's mode 3 has no trickle; max health is never under 1 with a modifier on it)
+        let stored: BTreeMap<u32, i64> = [(156, 100), (16, 400), (17, 400), (18, 400), (19, 400), (20, 400), (21, 400), (1, 10)].into();
+        let modifiers: BTreeMap<u32, i64> = [(156, 50), (1, -40)].into();
+        assert_eq!((mode3_one(&stored, &modifiers, 156), mode3_one(&stored, &modifiers, 1)), (150, 1));
+        assert!(shown_one(&stored, &modifiers, 156) > 150);
     }
 }

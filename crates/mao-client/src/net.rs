@@ -5395,12 +5395,13 @@ fn turn_rate(stats: &BTreeMap<u32, i64>, moving: bool) -> f32 {
     }
 }
 
-/// The stats the movement's speeds are worked out from, as the original reads them (FUN_1006f2fc): `RunSpeed` (0x9c) and
-/// the greatest health (1) in mode 3, the shown value (`derived::shown_one`: what is trained, what the worn items, perks
-/// and programs add, and the attributes' trickle), and the health (0x1b), which is the character's own number in every
-/// mode. Until 2026-11-15 the stored values were used, and a vehicle's `RunSpeed` did nothing.
+/// The stats the movement's speeds are worked out from, as the original reads them (FUN_1006f2fc): `RunSpeed` (0x9c), the
+/// greatest health (1) and the health (0x1b) in mode 3 (`derived::mode3_one`: what is trained and what the worn items,
+/// perks and programs add, less the shock; not the attributes' trickle, which only the windows' value has). Until
+/// 2026-11-15 the stored values were used, and a vehicle's `RunSpeed` did nothing; until 2026-11-18 the trickle was added.
 pub(crate) fn moving_stats(stats: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>) -> BTreeMap<u32, i64> {
-    [(156, crate::derived::shown_one(stats, modifiers, 156)), (1, crate::derived::shown_one(stats, modifiers, 1)), (27, stats.get(&27).copied().unwrap_or(0))].into()
+    // (mode 3, FUN_1006f2fc: no trickle on `RunSpeed`; until 2026-11-18 the windows' value with it, which ran faster)
+    [(156, crate::derived::mode3_one(stats, modifiers, 156)), (1, crate::derived::mode3_one(stats, modifiers, 1)), (27, crate::derived::mode3_one(stats, modifiers, 27))].into()
 }
 
 /// The speeds a character moves at, in units a second, as `CharVehicle_t` sets them (FUN_1006f9eb, FUN_1006f2fc): running

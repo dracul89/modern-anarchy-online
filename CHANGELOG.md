@@ -20,6 +20,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A locked door opens for a character who may pass it, as in the original: a door that needs a key item when you
   carry the item, and the locked doors inside your own apartment or organization building. A door the server
   unlocks also opens when you walk up to it now.
+- Your run speed is the original's: the attributes' share of your skills no longer makes you run faster than the
+  original client lets you (it did since 0.1.5).
 
 ### Windows
 

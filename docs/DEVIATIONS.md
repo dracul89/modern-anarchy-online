@@ -4263,7 +4263,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: derived.rs rebuilds it: only worn places 1-15, 17-31, 33-45 count; item effects are interpolated between low and high templates by quality
 - A player notices: shown values can differ from the original's where a source is missing or a place rule is wrong
 - Where: `crates/mao-client/src/derived.rs:3`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the summing is the original's own (the server sends stored stats and lists only), so it stays; ported from the stat container: the movement's mode 3 without the trickle (FUN_1006f2fc, FUN_10064d46: `derived::mode3_one`), every place under 0x30 counting (FUN_10080fc3), max health never under 1 (FUN_10064a0e). Not ported: 0xcff5 percentage spells, nano/perk/benefit criteria, stats 0x20d-0x274, mode 4.
 
 #### `WIN-025` Chat windows of a frame are tabs of one window, others get windows of their own
 

@@ -6823,3 +6823,23 @@ reads as the same with the tower word set, is left as it was: its own command li
 
 Tests: `lines_become_commands`, `a_pet_command_is_packed_as_the_writer_packs_it`, and the pet naming in
 `a_pets_name_is_kept_and_given_back`.
+
+### Stats: movement without the trickle, and which places count (WIN-024)
+
+The catalog asked whether the client should show the server's numbers instead of summing them. It cannot: the server
+sends the stored stats and the lists (inventory, perks, running programs, organization benefits), and the original's
+client builds the modifier map itself, as `derived.rs` does; that matched the live original on three characters. Two
+differences from the original's stat container were found and ported:
+
+- **The movement reads mode 3, which has no trickle.** Gamecode's FUN_1006f2fc reads `RunSpeed`, the health and the
+  greatest health in mode 3. That is FUN_10064d46: the stored value and the modifier map's part, less the shock, and not
+  the attributes' trickle, which only the windows' mode 0 adds (`derived::mode3_one`, used by `net::moving_stats`).
+  The client added the trickle since 2026-11-15, so a character with high attributes ran faster than the original lets it.
+- **Every place under 0x30 counts** (FUN_10080fc3 runs a worn item's whole wear list there; from 0x30 on, the social tab,
+  only the look's spells run). The client counted 1-15, 17-31 and 33-45 (`derived::worn`).
+- **Max health is never under 1** with a modifier on it (AddModifier, FUN_10064a0e).
+
+Not ported (found, no player is known to meet them): the percentage spells 0xcff5 (FUN_100a8e44, in no wear list); the
+criteria of nano, perk and benefit spells beyond the level; the stats made of two others (0x20d-0x274); mode 4.
+
+Test: `only_the_worn_places_count`.
