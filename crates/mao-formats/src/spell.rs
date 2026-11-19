@@ -3,7 +3,8 @@
 //! triples), then the values of the type's format: four every format starts with (spell stats 3 "hits", 4 "delay", 0x20
 //! "target" and 0x23) and the format's own, each a 32-bit int or (complex type 1) a string (its length, then its bytes).
 //! The texture spell (0xcf2f) has a short form of its own (`TextureSpellFormat_c`); 0xcf17 and 0xcf20 carry more after
-//! their values and are not read.
+//! their values (`SpellData_t::PostBinarySpellRead`, 0x1000d3ba: a second list of criteria, and an expression). A type
+//! with no format of its own has the default one: the four common values alone.
 //!
 //! An item template keeps its spell lists as `2, <list>, (n + 1) × 1009` and then the list's n spells (list 14: worn,
 //! 0: used ...).
@@ -49,6 +50,8 @@ pub struct Spell {
     pub kind: u32,
     pub instance: u32,
     pub criteria: Vec<(u32, i32, u32)>,
+    /// The second list of criteria of a spell of type 0xcf17.
+    pub special: Vec<(u32, i32, u32)>,
     /// (spell stat, value) for an int argument; strings by index in `strings`.
     pub stats: Vec<(i32, i32)>,
     pub strings: Vec<(u32, String)>,
@@ -65,15 +68,30 @@ impl Spell {
     }
 }
 
-/// The format of a spell type: its arguments after the four common ones; `None` for an unknown type or one not read.
+/// The format of a spell type: its arguments after the four common ones. One not in the table has none
+/// (`SpellFormats_c`'s default format); `None` for a texture format other than the texture spell's.
 fn format(kind: u32) -> Option<&'static [ArgDef]> {
-    if matches!(kind, 0xcf17 | 0xcf20) {
-        return None;
-    }
-    let f = FORMATS.iter().find(|f| f.types.contains(&(kind as i32)))?;
+    let Some(f) = FORMATS.iter().find(|f| f.types.contains(&(kind as i32))) else { return Some(&[]) };
     match f.kind {
         Plain => Some(f.args),
         Texture => None,
+    }
+}
+
+/// Where an expression that starts at `at` ends (`ExpressionData_t::CreateFromStream`): a node's type, then 1 a float, 2 a
+/// stat and a flag, 3 and 4 an operator and two nodes more.
+fn expression_end(data: &[u8], at: usize, big_endian: bool, depth: u32) -> Option<usize> {
+    let bytes = data.get(at..at + 4)?;
+    let kind = if big_endian { u32::from_be_bytes(bytes.try_into().ok()?) } else { u32::from_le_bytes(bytes.try_into().ok()?) };
+    match kind {
+        1 => data.get(at + 4..at + 8).map(|_| at + 8),
+        2 => data.get(at + 4..at + 12).map(|_| at + 12),
+        3 | 4 if depth < 64 => {
+            data.get(at + 4..at + 8)?;
+            let right = expression_end(data, at + 8, big_endian, depth + 1)?;
+            expression_end(data, right, big_endian, depth + 1)
+        }
+        _ => None,
     }
 }
 
@@ -145,6 +163,20 @@ fn read_order(data: &[u8], at: usize, big_endian: bool) -> Option<(Spell, usize)
             S(..) => return None,
         }
     }
+    // (`SpellData_t::PostBinarySpellRead`)
+    if kind == 0xcf17 {
+        let prefix = word(p)?;
+        if prefix == 0 || prefix % 1009 != 0 || prefix / 1009 > 65 {
+            return None;
+        }
+        p += 4;
+        for _ in 1..prefix / 1009 {
+            spell.special.push((word(p)?, word(p + 4)? as i32, word(p + 8)?));
+            p += 12;
+        }
+    } else if kind == 0xcf20 {
+        p = expression_end(data, p, big_endian, 0)?;
+    }
     Some((spell, p))
 }
 
@@ -182,6 +214,37 @@ pub fn lists(template: &[u8]) -> Vec<(u32, Vec<Spell>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The words of a list of spells, little-endian.
+    fn bytes(words: &[u32]) -> Vec<u8> {
+        words.iter().flat_map(|w| w.to_le_bytes()).collect()
+    }
+
+    /// A type with no format has the four common values alone; 0xcf17 and 0xcf20 carry more after theirs, and a list
+    /// with one of them in it is read to its end.
+    #[test]
+    fn the_spells_that_used_to_end_a_list() {
+        const MODIFY: [u32; 10] = [0xcf35, 0, 4, 0, 1, 0, 2, 9, 16, 7];
+        let unknown = [0xcf78, 0, 4, 0, 1, 0, 2, 9];
+        let (mut special, args) = (vec![0xcf17, 0, 4, 0, 1, 0, 2, 9], format(0xcf17).expect("a format").len());
+        special.extend(std::iter::repeat_n(0, args));
+        special.extend([3 * 1009, 54, 10, 2, 60, 6, 0]);
+        let (mut expression, args) = (vec![0xcf20, 0, 4, 0, 1, 0, 2, 9], format(0xcf20).expect("a format").len());
+        expression.extend(std::iter::repeat_n(0, args));
+        // (a compound of a float and a function of a stat and a float)
+        expression.extend([3, 1, 1, 0x3f80_0000, 4, 2, 2, 54, 0, 1, 0x4000_0000]);
+        let mut words = vec![2, 14, 5 * 1009];
+        words.extend(unknown);
+        words.extend(special);
+        words.extend(expression);
+        words.extend(MODIFY);
+        let found = lists(&bytes(&words));
+        assert_eq!(found.len(), 1, "{found:?}");
+        let spells = &found[0].1;
+        assert_eq!(spells.iter().map(|s| s.kind).collect::<Vec<_>>(), [0xcf78, 0xcf17, 0xcf20, 0xcf35]);
+        assert_eq!(spells[1].special, [(54, 10, 2), (60, 6, 0)]);
+        assert_eq!((spells[3].stat(0), spells[3].stat(39)), (16, 7));
+    }
 
     #[test]
     fn reads_a_list_of_modify_spells() {

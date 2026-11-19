@@ -1307,7 +1307,7 @@ impl World {
         let actions = crate::derived::actions(db, entry);
         let own = (crate::requirements::CHARACTER, self.own);
         let level = self.stats.get(&0x36).copied().unwrap_or(1);
-        let without = off.map(|off| crate::derived::modifiers_without(db, &self.item_mods, off, level));
+        let without = off.map(|off| crate::derived::modifiers_without_by(db, &self.item_mods, off, level, self, own));
         if let Some(action) = actions.iter().find(|a| a.kind == if wield { 8 } else { 6 }) {
             let (met, told) = match &without {
                 Some(modifiers) => crate::requirements::evaluate_told(&action.criteria, own, &Stripped { world: self, modifiers: modifiers.clone() }),
@@ -1915,8 +1915,12 @@ impl World {
     fn refresh_mods(&mut self, db: &ResourceDatabase) {
         if std::mem::take(&mut self.mods_dirty) {
             let level = self.stats.get(&0x36).copied().unwrap_or(1);
-            self.mods_by_source = [crate::derived::worn_modifiers(db, &self.worn, level), crate::derived::perk_modifiers(db, &self.perks, level), crate::derived::nano_modifiers(db, &self.nanos, level), crate::derived::org_modifiers(db, &self.org_benefits, level)];
-            self.item_mods = crate::derived::modifiers(db, &self.worn, &self.perks, &self.nanos, &self.org_benefits, level);
+            // (a wear spell's criteria read the stats as they show: twice round, for one that needs what another item gives)
+            let own = (crate::requirements::CHARACTER, self.own);
+            for _ in 0..2 {
+                self.item_mods = crate::derived::modifiers_by(db, &self.worn, &self.perks, &self.nanos, &self.org_benefits, level, &*self, own);
+            }
+            self.mods_by_source = [crate::derived::worn_modifiers_by(db, &self.worn, level, &*self, own), crate::derived::perk_modifiers(db, &self.perks, level), crate::derived::nano_modifiers(db, &self.nanos, level), crate::derived::org_modifiers(db, &self.org_benefits, level)];
             self.stats_changed = true;
             // A running polymorph program turns the character into a creature.
             let id = |kind: u32, instance: u32| mao_formats::resource::Id { kind, instance };

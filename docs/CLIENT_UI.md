@@ -6538,3 +6538,34 @@ shape over what it points at is not ported.
 
 Tests: `picking`'s nine, `combat`'s attack key, `blobshadow`'s `a_body_keeps_its_box_in_its_own_axes`, the city's
 controller in `main.rs`.
+
+## A door opens at a touch, and what a worn item adds (2026-11-18)
+
+The user: "ZON-001, INV-017". Two readers on a smaller model read the original; what the ports rest on was checked
+here in the decompile and counted over the game's own data. None of it was seen in the live game.
+
+### What a worn item adds is its wear list (INV-017)
+
+The client looked through a template's bytes for anything shaped like a modify spell, in any list. Now the wear list is
+read as the original runs it (`item::wear_spells`: event 14, `e_SpellList_Equip`; Gamecode FUN_10080fc3, the executor
+FUN_100a5f4b):
+
+- **Only the wear list counts.** The scan also took the spells of an item's other lists: about 2600 modify spells of
+  the game's items are in the lists of being used, of the vicinity and of personal buffs, and a worn item with one
+  showed that bonus for as long as it was worn.
+- **A spell's criteria are judged by the evaluator** (`requirements`), on the stats as they show, and no longer on the
+  level alone: wear spells that ask for a profession, a breed or a skill now count when they hold. In an item's tip,
+  where only the level is known, such a spell is left out as before.
+- **The quality is applied to the spell**, its value and its criteria's values between the low and high template's
+  (FUN_100cbfc8, FUN_100cbe8b), the pair found by its type and stat, and the spell is judged after.
+- `spell.rs` reads what it used to give up on: a type with no format of its own (the default format), 0xcf17's second
+  criteria list and 0xcf20's expression. A list with one of these in it used to be dropped whole.
+
+Counted over the game's 120842 templates: the wear lists' only spells that add to a shown stat are 0xcf35 (about
+241000) and 0xcf14 (18). **The catalog's "other spell types" are not there**: no wear list has the percent types
+0xcff5 or 0xcfc0, nor 0xcfb7. The other stat spells of wear lists change stored stats: 0xcf22 (283), 0xcf76 (155: the
+Yalmahas' scale among them) and 0xcf93 (467). Those are not applied here. On the captured character's 19 worn items
+the old scan and the wear list agree on every number; the 2062 perks are the same by both. An organization's benefits
+keep their amounts in the list of being used and are read as before.
+
+Tests: `what_is_worn_is_the_wear_list`, `a_wear_list_at_a_quality`, `the_spells_that_used_to_end_a_list`.

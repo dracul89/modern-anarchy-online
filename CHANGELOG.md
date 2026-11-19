@@ -64,6 +64,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - An item let go over the ground now brings the original's box: for nearly every item "this is not a fixture,
   delete it instead?" with Delete and Cancel (**Delete destroys the item**); furniture is asked whether to drop
   it. Let go over a character, an item is used on that character with the original's message.
+- The skill window counts only what a worn item gives while worn: bonuses from an item's use or aura effects no longer
+  show, and bonuses that depend on your profession, breed or a skill now do.
 
 ### Items
 

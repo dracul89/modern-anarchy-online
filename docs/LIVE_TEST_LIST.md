@@ -982,6 +982,8 @@ These were written before this list; some may have been seen working since witho
   cannot be clicked; a click through one's own body selects oneself, the next what stands behind. Right click on an
   NPC talks to it and leaves the target. Double click on a terminal uses it. Shift + click shows the page. **Ctrl +
   click on a second mob in a fight: send me the log** (the attack's flag 2 was never captured).
+- [ ] Worn items' bonuses (2026-11-18): compare the Skills window with the original on an item whose bonus depends on the
+  profession or a skill. Tell me of any number that changed for the worse.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

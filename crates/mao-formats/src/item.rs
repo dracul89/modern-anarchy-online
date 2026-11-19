@@ -212,6 +212,31 @@ pub fn worn_grants_flight(template: &[u8]) -> bool {
     crate::spell::lists(template).iter().any(|(event, spells)| *event == WEAR_EVENT && spells.iter().any(|s| s.kind == FLY_SPELL))
 }
 
+/// The spells an item runs as it is worn, in their order: every list of the wear event (`e_SpellList_Equip`; chunks of one
+/// event add up, Gamecode FUN_1000210d). Only these count while it is worn: an item's lists of being used, of its
+/// vicinity or of personal buffs are other events.
+pub fn wear_spells(template: &[u8]) -> Vec<crate::spell::Spell> {
+    crate::spell::lists(template).into_iter().filter(|(event, _)| *event == WEAR_EVENT).flat_map(|(_, spells)| spells).collect()
+}
+
+/// What a spell of the wear list adds to a stat of its wearer, `(stat, amount)`: the executor FUN_100a5f4b's modifiers,
+/// 0xcf35 and 0xcf14 the spell's value (FUN_100a517a) and 0xcfb7 the value at the wearer's level over 200, cut toward zero
+/// (FUN_100a8d0b). A spell reaches the wearer with the target 2 ("On User") or 3 ("On Target": FUN_100026d0 gives it the
+/// wearer); any other runs on the item. (The game's wear lists have no others that add to what a stat shows: none has
+/// the percent types 0xcff5 and 0xcfc0, and the sets of stored stats, 0xcf22, 0xcf76 and 0xcf93, are the server's to tell.)
+pub fn wear_modifier(spell: &crate::spell::Spell, level: i64) -> Option<(u32, i64)> {
+    if !matches!(spell.stat(0x20), 2 | 3) {
+        return None;
+    }
+    let value = spell.stat(39) as i64;
+    let amount = match spell.kind {
+        0xcf35 | 0xcf14 => value,
+        0xcfb7 => (level as f64 * value as f64 / 200.0).trunc() as i64,
+        _ => return None,
+    };
+    Some((spell.stat(0) as u32, amount))
+}
+
 /// The stats an item sets for as long as it is worn: its wear list's temporary sets (0xcf76: stat 0 to stat 39) that
 /// have no criteria. The Yalmahas' set `Scale` (360) to 20. (One with criteria is left out: none was looked at.)
 pub fn worn_sets(template: &[u8]) -> Vec<(u32, i32)> {
@@ -472,6 +497,30 @@ impl Item {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only the wear list counts, and only what reaches the wearer.
+    #[test]
+    fn what_is_worn_is_the_wear_list() {
+        let spell = |kind: u32, target: u32, stat: u32, value: i32| [kind, 0, 4, 0, 1, 0, target, 9, stat, value as u32];
+        let mut words = vec![2, WEAR_EVENT, 4 * 1009];
+        words.extend(spell(0xcf35, 2, 16, 7));
+        words.extend(spell(0xcf14, 3, 17, -3));
+        // (this type has a third value of its own, spell stat 24)
+        words.push(0);
+        words.extend(spell(0xcf35, 1, 18, 9));
+        // (a list of being used: not while worn)
+        words.extend([2, 0, 2 * 1009]);
+        words.extend(spell(0xcf35, 2, 19, 50));
+        // (a second chunk of the wear event adds to the first)
+        words.extend([2, WEAR_EVENT, 2 * 1009]);
+        words.extend(spell(0xcfb7, 2, 20, 36));
+        let template: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let spells = wear_spells(&template);
+        assert_eq!(spells.len(), 4);
+        let got: Vec<(u32, i64)> = spells.iter().filter_map(|s| wear_modifier(s, 220)).collect();
+        assert_eq!(got, [(16, 7), (17, -3), (20, 39)]);
+    }
+
 
     #[test]
     fn a_change_mesh_spell_names_the_creature() {

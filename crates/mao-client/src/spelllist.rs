@@ -440,7 +440,7 @@ mod tests {
     fn spell(kind: u32, hits: i32, delay: i32, target: i32, more: &[(i32, i32)]) -> Spell {
         let mut stats = vec![(3, hits), (4, delay), (0x20, target), (0x23, 9)];
         stats.extend_from_slice(more);
-        Spell { kind, instance: 1, criteria: Vec::new(), stats, strings: Vec::new() }
+        Spell { kind, instance: 1, stats, ..Default::default() }
     }
 
     fn list(spells: Vec<Spell>, ending: bool) -> SpellList {

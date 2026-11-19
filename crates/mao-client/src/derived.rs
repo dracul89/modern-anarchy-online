@@ -19,9 +19,75 @@ pub(crate) fn worn(slot: u32) -> bool {
     matches!(slot, 1..=15 | 17..=31 | 33..=45)
 }
 
-/// An item's effects at its quality: the lowest and highest template of the item are both read and the amounts are
-/// interpolated between them by the item's quality level, as the original does.
+/// What judges a wear spell's criteria where only the character's level is known (an item's tip): a criterion on any
+/// other stat cannot be told, and the spell is left out.
+struct LevelOnly(i64);
+
+impl crate::requirements::Context for LevelOnly {
+    fn stat(&self, _: crate::requirements::Holder, stat: u32) -> Option<i64> {
+        (stat == 0x36).then_some(self.0)
+    }
+    fn is_own(&self, _: crate::requirements::Holder) -> bool {
+        true
+    }
+}
+
+const NOBODY: crate::requirements::Holder = (crate::requirements::CHARACTER, 0);
+
+/// A spell of an item's low template at the item's quality: its value (spell stat 39) and its criteria's values between
+/// the low and the high template's (Gamecode FUN_100cbfc8, FUN_100cb9a4 and FUN_100cbe8b). The high template's spell is
+/// the one at the same place in the list, or where that is not of the same type and stat the first that is.
+fn spell_between(low: &mao_formats::spell::Spell, at: usize, highs: &[mao_formats::spell::Spell], fraction: i64, span: i64) -> mao_formats::spell::Spell {
+    let same = |h: &&mao_formats::spell::Spell| h.kind == low.kind && h.stat(0) == low.stat(0);
+    let mut spell = low.clone();
+    let Some(high) = highs.get(at).filter(same).or_else(|| highs.iter().find(same)) else { return spell };
+    if matches!(low.kind, 0xcf35 | 0xcf14 | 0xcfb7) {
+        let value = between(low.stat(39) as i64, high.stat(39) as i64, fraction, span) as i32;
+        spell.stats.iter_mut().filter(|s| s.0 == 39).for_each(|s| s.1 = value);
+    }
+    if low.criteria.len() == high.criteria.len() && low.criteria.iter().zip(&high.criteria).all(|(a, b)| a.0 == b.0) {
+        for (c, h) in spell.criteria.iter_mut().zip(&high.criteria) {
+            c.1 = between(c.1 as i64, h.1 as i64, fraction, span) as i32;
+        }
+    }
+    spell
+}
+
+/// What a wear list adds to its wearer's stats, spell after spell: each at the item's quality (`high`: the high template's
+/// list, and how far the quality is along the `span` between the two), kept when its criteria hold (the executor
+/// FUN_100a5f4b asks FUN_100065d8 before every spell; what `context` cannot tell does not hold).
+fn wear_amounts(low: &[mao_formats::spell::Spell], high: Option<(&[mao_formats::spell::Spell], i64, i64)>, level: i64, context: &dyn crate::requirements::Context, holder: crate::requirements::Holder) -> Vec<(u32, i64)> {
+    low.iter()
+        .enumerate()
+        .filter_map(|(at, spell)| {
+            let spell = high.map_or_else(|| spell.clone(), |(highs, fraction, span)| spell_between(spell, at, highs, fraction, span));
+            (spell.criteria.is_empty() || crate::requirements::evaluate(&spell.criteria, holder, context) == Ok(true)).then(|| item::wear_modifier(&spell, level)).flatten()
+        })
+        .collect()
+}
+
+/// An item's effects at its quality, for a character of whom only the level is known.
 pub fn effects(db: &ResourceDatabase, entry: &Entry, level: i64) -> Vec<(u32, i64)> {
+    effects_by(db, entry, level, &LevelOnly(level), NOBODY)
+}
+
+/// What an item adds while it is worn: its wear list (`item::wear_spells`) at its quality, the criteria judged by `context`
+/// for `holder`.
+pub fn effects_by(db: &ResourceDatabase, entry: &Entry, level: i64, context: &dyn crate::requirements::Context, holder: crate::requirements::Holder) -> Vec<(u32, i64)> {
+    let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
+    let Some(low) = template(entry.low_id) else { return Vec::new() };
+    let low_spells = item::wear_spells(&low);
+    let quality_of = |data: &[u8]| Item::parse(data).and_then(|i| i.stats.iter().find(|s| s.0 == QUALITY_LEVEL).map(|s| s.1 as i64));
+    let high = (entry.high_id != entry.low_id).then(|| template(entry.high_id)).flatten();
+    let line = high.as_ref().and_then(|high| Some((item::wear_spells(high), quality_of(&low)?, quality_of(high)?)));
+    let Some((high_spells, low_ql, high_ql)) = line else { return wear_amounts(&low_spells, None, level, context, holder) };
+    let fraction = if high_ql > low_ql { (entry.quality as i64 - low_ql).clamp(0, high_ql - low_ql) } else { 0 };
+    wear_amounts(&low_spells, Some((&high_spells, fraction, (high_ql - low_ql).max(1))), level, context, holder)
+}
+
+/// An organization benefit's effects at its quality: the amounts of every list of its templates (the benefits keep theirs
+/// in the list of being used), between the low and the high template's.
+fn benefit_effects(db: &ResourceDatabase, entry: &Entry, level: i64) -> Vec<(u32, i64)> {
     let template = |id: u32| db.get(Id { kind: item::TEMPLATE, instance: id }).ok().flatten();
     let Some(low) = template(entry.low_id) else { return Vec::new() };
     let low_mods = item::modifiers_at(&low, level);
@@ -176,7 +242,7 @@ pub fn nano_modifiers(db: &ResourceDatabase, nanos: &[u32], level: i64) -> BTree
 pub fn org_modifiers(db: &ResourceDatabase, benefits: &[Entry], level: i64) -> BTreeMap<u32, i64> {
     let mut sum = BTreeMap::new();
     for benefit in benefits {
-        for (stat, amount) in effects(db, benefit, level) {
+        for (stat, amount) in benefit_effects(db, benefit, level) {
             *sum.entry(stat).or_insert(0) += amount;
         }
     }
@@ -185,7 +251,13 @@ pub fn org_modifiers(db: &ResourceDatabase, benefits: &[Entry], level: i64) -> B
 
 /// Everything that adds to the stored stats: what is worn, the perks, the active nanos and the organization benefits.
 pub fn modifiers(db: &ResourceDatabase, entries: &[Entry], perks: &[u32], nanos: &[u32], org: &[Entry], level: i64) -> BTreeMap<u32, i64> {
-    let mut sum = worn_modifiers(db, entries, level);
+    modifiers_by(db, entries, perks, nanos, org, level, &LevelOnly(level), NOBODY)
+}
+
+/// [`modifiers`], the worn items' criteria judged by `context` for `holder`.
+#[allow(clippy::too_many_arguments)]
+pub fn modifiers_by(db: &ResourceDatabase, entries: &[Entry], perks: &[u32], nanos: &[u32], org: &[Entry], level: i64, context: &dyn crate::requirements::Context, holder: crate::requirements::Holder) -> BTreeMap<u32, i64> {
+    let mut sum = worn_modifiers_by(db, entries, level, context, holder);
     for part in [perk_modifiers(db, perks, level), nano_modifiers(db, nanos, level), org_modifiers(db, org, level)] {
         for (stat, amount) in part {
             *sum.entry(stat).or_insert(0) += amount;
@@ -196,9 +268,14 @@ pub fn modifiers(db: &ResourceDatabase, entries: &[Entry], perks: &[u32], nanos:
 
 /// The summed effects of everything worn, by stat.
 pub fn worn_modifiers(db: &ResourceDatabase, entries: &[Entry], level: i64) -> BTreeMap<u32, i64> {
+    worn_modifiers_by(db, entries, level, &LevelOnly(level), NOBODY)
+}
+
+/// [`worn_modifiers`], the criteria judged by `context` for `holder`.
+pub fn worn_modifiers_by(db: &ResourceDatabase, entries: &[Entry], level: i64, context: &dyn crate::requirements::Context, holder: crate::requirements::Holder) -> BTreeMap<u32, i64> {
     let mut sum = BTreeMap::new();
     for entry in entries.iter().filter(|e| !e.is_bag() && worn(e.slot)) {
-        for (stat, amount) in effects(db, entry, level) {
+        for (stat, amount) in effects_by(db, entry, level, context, holder) {
             *sum.entry(stat).or_insert(0) += amount;
         }
     }
@@ -351,9 +428,14 @@ pub fn judged_one(stored: &BTreeMap<u32, i64>, modifiers: &BTreeMap<u32, i64>, s
 /// The modifier map as it will be with one worn item taken off: its effects less. An item in a place that adds
 /// nothing (the backpack, the social tab) changes nothing.
 pub fn modifiers_without(db: &ResourceDatabase, modifiers: &BTreeMap<u32, i64>, off: &Entry, level: i64) -> BTreeMap<u32, i64> {
+    modifiers_without_by(db, modifiers, off, level, &LevelOnly(level), NOBODY)
+}
+
+/// [`modifiers_without`], the criteria judged by `context` for `holder`, as the map was made.
+pub fn modifiers_without_by(db: &ResourceDatabase, modifiers: &BTreeMap<u32, i64>, off: &Entry, level: i64, context: &dyn crate::requirements::Context, holder: crate::requirements::Holder) -> BTreeMap<u32, i64> {
     let mut left = modifiers.clone();
     if !off.is_bag() && worn(off.slot) {
-        for (stat, amount) in effects(db, off, level) {
+        for (stat, amount) in effects_by(db, off, level, context, holder) {
             *left.entry(stat).or_insert(0) -= amount;
         }
     }
@@ -363,6 +445,26 @@ pub fn modifiers_without(db: &ResourceDatabase, modifiers: &BTreeMap<u32, i64>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn modify(stat: i32, value: i32, criteria: &[(u32, i32, u32)]) -> mao_formats::spell::Spell {
+        mao_formats::spell::Spell { kind: 0xcf35, criteria: criteria.to_vec(), stats: vec![(3, 1), (4, 0), (0x20, 2), (0x23, 9), (0, stat), (39, value)], ..Default::default() }
+    }
+
+    /// The value and the criteria come between the two templates' before the spell is judged, the high template's spell
+    /// found by its type and stat when the lists' orders differ.
+    #[test]
+    fn a_wear_list_at_a_quality() {
+        let ctx = LevelOnly(100);
+        let low = [modify(16, 10, &[]), modify(17, 100, &[(0x36, 50, 2)]), modify(18, 5, &[(0x36, 150, 2)])];
+        let high = [modify(17, 200, &[(0x36, 50, 2)]), modify(16, 30, &[]), modify(18, 5, &[(0x36, 50, 2)])];
+        // (half way: 16 and 17 in between, found across the lists' orders; the third spell's level is 100 by then, and
+        // 100 is not above it)
+        assert_eq!(wear_amounts(&low, Some((&high, 50, 100)), 100, &ctx, NOBODY), [(16, 20), (17, 150)]);
+        // (nearer the high template the third spell's criterion has come down to 60, and holds)
+        assert_eq!(wear_amounts(&low, Some((&high, 90, 100)), 100, &ctx, NOBODY), [(16, 28), (17, 190), (18, 5)]);
+        // (a criterion nothing can tell: the spell is left out)
+        assert_eq!(wear_amounts(&[modify(16, 10, &[(60, 6, 0)])], None, 100, &ctx, NOBODY), []);
+    }
 
     /// The resurrection shock lowers skills and abilities by its share of their value before the modifiers, and
     /// counts down by 27.

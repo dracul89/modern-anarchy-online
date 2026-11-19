@@ -1846,7 +1846,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Stat effects of worn items are found by scanning every byte offset for spell records of type 0xcf35, 0xcf14 and 0xcfb7; other spell types are not read.
 - A player notices: Stat bonuses of worn items from other spell types are missing in the character sheet.
 - Where: `crates/mao-formats/src/item.rs:35`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the byte scan is replaced by the wear list itself (`item::wear_spells`, event 14), every spell of it judged by the criteria evaluator and taken at the item's quality before it is judged. The entry's "other spell types" turned out not to exist: over the game's 120842 templates the wear lists' only spells that add to a shown stat are 0xcf35 and 0xcf14. What changes is that spells of an item's other lists (about 2600: use, vicinity, personal buffs) no longer count while it is worn, and criteria on more than the level are read. The sets of stored stats (0xcf22, 0xcf76, 0xcf93) are not applied. `CLIENT_UI.md` "What a worn item adds is its wear list".
 
 #### `INV-018` Mail terminals come from a fixed list
 
