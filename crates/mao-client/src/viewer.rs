@@ -93,6 +93,8 @@ pub struct Input {
     /// The teleport target window's answer: a counter that steps with each, and the row picked (its number, playfield and
     /// identity) or none.
     pub grid: (u8, crate::teleport::Answer),
+    /// What the battlestation's signup terminal asks: a counter that steps with each, and the request.
+    pub signup: (u8, crate::signup::Ask),
     /// What the city controller's window asks for: a counter that steps with each, and the command.
     pub city: (u8, crate::cityterminal::Command),
     /// A perk rank to train or untrain: a counter that steps with each, the rank and whether to train it.
@@ -283,6 +285,8 @@ pub struct Update {
     pub mail_flags: Option<(u32, u32)>,
     /// The places a grid exit leads to, when the server sends them (the teleport target window's rows).
     pub teleport: Option<Vec<crate::teleport::Row>>,
+    /// The server's word on the character's place in the battlestation's queue (the signup terminal's window).
+    pub queue_place: Option<i32>,
     /// The city controller's session as it opens or changes (`Some(None)`: it ended).
     pub city: Option<Option<crate::cityterminal::Session>>,
     /// The city's houses, the backpack's building items and the zones, for the controller's map, when the houses or
@@ -1741,6 +1745,9 @@ impl ApplicationHandler for App {
                             if let Some(rows) = u.teleport.take() {
                                 ui.teleport.set(rows);
                             }
+                            if let Some(place) = u.queue_place.take() {
+                                ui.signup.set_place(place);
+                            }
                             if let Some(session) = u.city.take() {
                                 ui.city_terminal.set(session);
                             }
@@ -3061,6 +3068,9 @@ impl ApplicationHandler for App {
                     }
                     if let Some(answer) = requests.teleport.take() {
                         self.keys.grid = (self.keys.grid.0.wrapping_add(1), answer);
+                    }
+                    if requests.signup != crate::signup::Ask::None {
+                        self.keys.signup = (self.keys.signup.0.wrapping_add(1), std::mem::take(&mut requests.signup));
                     }
                     if let Some(command) = requests.city.take() {
                         self.keys.city = (self.keys.city.0.wrapping_add(1), command);

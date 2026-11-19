@@ -244,6 +244,8 @@ pub struct Requests {
     pub cancel_nano: Option<u32>,
     /// The teleport target window closed: the row picked, or none.
     pub teleport: Option<crate::teleport::Answer>,
+    /// What the battlestation's signup terminal asks of the server.
+    pub signup: crate::signup::Ask,
     /// What the city controller's window asks for.
     pub city: Option<crate::cityterminal::Command>,
     /// A test script's `target@<id>`: the character to select.
@@ -326,6 +328,7 @@ pub struct Ui {
     pub mission: crate::mission::MissionWindow,
     pub mail: crate::mailbox::MailWindow,
     pub teleport: crate::teleport::TeleportWindow,
+    pub signup: crate::signup::SignupWindow,
     pub city_terminal: crate::cityterminal::CityTerminalWindow,
     pub shop: crate::shop::ShopWindow,
     pub npc_chat: crate::npcchat::NpcChatWindow,
@@ -605,7 +608,7 @@ impl Ui {
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), Some(gpu.device.limits().max_texture_dimension_2d as usize));
         // (the widest picture the card takes, not egui's own 2048: on a screen of two pixels to the point a skin's long strip, GFX_GUI_CONTROLCENTER_WING_LEFT, is 6000 across, and egui stops the program over a wider one)
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -941,6 +944,7 @@ impl Ui {
             "missions" | "mission" => &mut self.mission_log.open,
             "missionselection" | "mission selection" => &mut self.mission.open,
             "mail" => &mut self.mail.open,
+            "signup" => &mut self.signup.open,
             "map" | "planetmap" | "planet map" => &mut self.planet.open,
             "automap" | "overlay" => &mut self.automap.overlay,
             "chat" => &mut self.chat.open,
@@ -1032,6 +1036,7 @@ impl Ui {
         let (mission, mail, shop, actions, automap, stats_window, skills_window, ncu_window, chat_window) = (&mut self.mission, &mut self.mail, &mut self.shop, &mut self.actions, &mut self.automap, &mut self.stats, &mut self.skills, &mut self.ncu, &mut self.chat);
         let team_window = &mut self.team;
         let teleport_window = &mut self.teleport;
+        let signup_window = &mut self.signup;
         let city_terminal = &mut self.city_terminal;
         let pet_window = &mut self.pets;
         let tradeskill_window = &mut self.tradeskill;
@@ -1401,6 +1406,13 @@ impl Ui {
             if teleport_window.open {
                 requests.teleport = teleport_window.show(&ctx, palette);
             }
+            if signup_window.open {
+                let (lines, ask) = signup_window.show(&ctx, palette, &hud.stats);
+                for line in lines {
+                    chat_window.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                }
+                requests.signup = ask;
+            }
             if city_terminal.session.is_some() {
                 requests.city = city_terminal.show(&ctx, palette, automap.ground_texture(), hud.stats.get(&33).copied());
             }
@@ -1601,6 +1613,15 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_mail = hud.mail_preview.lock().ok().and_then(|mut m| m.take());
     // (MAO_UI_PREVIEW=teleport: the teleport target window with two made-up rows)
     let mut preview_teleport = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("teleport")).then(crate::teleport::TeleportWindow::sample);
+    // (MAO_UI_PREVIEW=signup: the battlestation's signup terminal; MAO_SIGNUP_PLACE=<n>: the server's word on the place)
+    let mut preview_signup = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("signup")).then(|| {
+        let mut w = crate::signup::SignupWindow::default();
+        w.open = true;
+        if let Some(place) = std::env::var("MAO_SIGNUP_PLACE").ok().and_then(|p| p.parse().ok()) {
+            w.set_place(place);
+        }
+        w
+    });
     // (MAO_UI_PREVIEW=cityterminal: the city controller's window on a made-up session; MAO_CITY_TAB picks its tab)
     let mut preview_city = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("cityterminal")).then(crate::cityterminal::CityTerminalWindow::sample);
     let mut preview_shop = hud.shop_preview.lock().ok().and_then(|mut m| m.take());
@@ -1895,6 +1916,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_teleport.as_mut() {
                 window.show(&ctx, &palette);
+            }
+            if let Some(window) = preview_signup.as_mut() {
+                window.show(&ctx, &palette, &[(0x29c, 1)].into_iter().collect());
             }
             if let Some(window) = preview_city.as_mut() {
                 window.show(&ctx, &palette, None, None);

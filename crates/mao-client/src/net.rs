@@ -537,6 +537,8 @@ struct World {
     /// The controller's map is to be told the houses and the building items again.
     city_map_due: bool,
     grid_token: Vec<u8>,
+    /// The server's word on the character's place in the battlestation's queue, for the signup terminal's window.
+    queue_place: Option<i32>,
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
     /// 0xc76a, message `4f474e05`) with their positions; targeted with Ctrl+Tab and used with E.
     objects: BTreeMap<u32, [f32; 3]>,
@@ -2038,6 +2040,9 @@ impl World {
                 self.browser = Some(crate::browser::Request { mode: crate::browser::Mode::Market, headers });
             }
             Some(8) => self.open_windows.push("mail"),
+            // (the battlestation's signup terminal: kind 3 has no test of the character in FUN_1002e2fe. Kinds 4, 5
+            // and 7, the laser target, the airstrike and the vehicles, have windows this client has not.)
+            Some(3) => self.open_windows.push("signup"),
             _ => {}
         }
     }
@@ -3649,6 +3654,10 @@ impl World {
         }
         if m.kind == DOOR_STATUS && std::env::var("MAO_TRACE").is_ok_and(|v| v == "1") {
             eprintln!("door status {:x}:{:x}: {}", m.identity.0, m.identity.1, m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        }
+        if let Some(place) = n3::queue_place(&m) {
+            eprintln!("battlestation queue: place {place}");
+            self.queue_place = Some(place);
         }
         if m.kind == DOOR_STATUS && m.identity.0 == DOOR_TYPE && self.door_ids.insert(m.identity.1) {
             self.register_doors();
@@ -7423,6 +7432,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut bag_delete_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut grid_seen = 0u8;
+        let mut signup_seen = 0u8;
         let mut city_seen = 0u8;
         let mut train_perk_seen = 0u8;
         let mut pet_seen = 0u8;
@@ -9225,6 +9235,25 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 let _ = connection.send(&mao_net::grid::selected(own, &state.grid_token, None));
             }
+            // The battlestation's signup terminal (`signup.rs`): how the character stands, the side set and the queue
+            // joined, the queue left.
+            if keys.signup.0 != signup_seen {
+                signup_seen = keys.signup.0;
+                eprintln!("battlestation queue: {:?}", keys.signup.1);
+                match keys.signup.1 {
+                    crate::signup::Ask::Info => {
+                        let _ = connection.send(&n3::queue_action(own, n3::QUEUE_INFO, 0));
+                    }
+                    crate::signup::Ask::Join(side) => {
+                        let _ = connection.send(&n3::set_stat(own, 0x29c, side as i32));
+                        let _ = connection.send(&n3::queue_action(own, n3::QUEUE_JOIN, side));
+                    }
+                    crate::signup::Ask::Leave => {
+                        let _ = connection.send(&n3::queue_action(own, n3::QUEUE_LEAVE, 0));
+                    }
+                    crate::signup::Ask::None => {}
+                }
+            }
             // The city controller's window (`mao_net::city`): its close request, the list of the city's advantages
             // (`N3Msg_OrgShowCity`: the organisation command 0x1f with no target and no text) and the cloaking
             // device's switch. Each names the city by the number the session's opening gave.
@@ -10828,6 +10857,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     missions_removed: std::mem::take(&mut pending_missions_removed),
                     mail_flags: pending_mail_flags.take(),
                     teleport: pending_teleport.take(),
+                    queue_place: state.queue_place.take(),
                     city: pending_city.take(),
                     city_map: pending_city_map.take(),
                     mail_status: pending_mail_status.take(),

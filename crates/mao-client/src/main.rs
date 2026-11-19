@@ -132,6 +132,7 @@ mod mailbox;
 mod mailmessage;
 mod tips;
 mod team;
+mod signup;
 mod teleport;
 mod pets;
 mod tradeskill;

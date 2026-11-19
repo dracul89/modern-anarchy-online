@@ -202,6 +202,33 @@ pub const STOP_LOGOUT: u8 = 0x79;
 /// character down where it comes back to life. Without it the server waits a minute.
 pub const DIE: u8 = 0x98;
 
+/// The battlestation's queue (the signup terminal's window, GUI.dll `SignupTerminal_c`): the character joins it
+/// (`N3Msg_AddToQueue`, Gamecode 0x1001d76c), asks how it stands (`N3Msg_GetInfo`, 0x1001da73) and leaves it
+/// (`N3Msg_LeaveQueue`, 0x1001dca0).
+pub const QUEUE_JOIN: u8 = 0xfd;
+pub const QUEUE_INFO: u8 = 0xfe;
+pub const QUEUE_LEAVE: u8 = 0xff;
+
+/// One of the queue's three actions. Each is `FUN_10072a88(own identity, own identity, 0, the action, (0, side), "")`:
+/// a `CharacterAction` whose target is the character itself and whose second parameter is the side (0 for the two
+/// that have none). From the decompile alone: none is in a capture.
+pub fn queue_action(character: u32, code: u8, side: u32) -> Frame {
+    let mut data = vec![0u8; 27];
+    data[4] = code;
+    data[9..13].copy_from_slice(&CHARACTER.to_be_bytes());
+    data[13..17].copy_from_slice(&character.to_be_bytes());
+    data[21..25].copy_from_slice(&side.to_be_bytes());
+    Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `QueueUpdate` (`2c2f061c`, Gamecode's `QueueUpdateIIR_t`: its reader FUN_10131ddd takes one number after the
+/// header's byte): the character's place in the battlestation's queue, below 0 when it is in it already.
+pub const QUEUE_UPDATE: u32 = 0x2c2f061c;
+
+pub fn queue_place(m: &Message) -> Option<i32> {
+    (m.kind == QUEUE_UPDATE).then(|| m.data.get(1..5).map(|b| i32::from_be_bytes(b.try_into().unwrap()))).flatten()
+}
+
 /// A `5e477770` action message (the action byte after four zero bytes, 27
 /// bytes of data).
 pub fn action(character: u32, code: u8) -> Frame {
@@ -2551,6 +2578,22 @@ impl Message {
 #[cfg(test)]
 mod entity_tests {
     use super::*;
+
+    /// The battlestation queue's actions name the character as their target and carry the side as the second
+    /// parameter; the server's word is one number.
+    #[test]
+    fn the_queues_actions_and_its_word() {
+        let frame = queue_action(0x1234_5678, QUEUE_JOIN, 1);
+        let body = &frame.body[frame.body.len() - 27..];
+        assert_eq!(body[..9], [0, 0, 0, 0, 0xfd, 0, 0, 0, 0]);
+        assert_eq!(body[9..17], [0, 0, 0xc3, 0x50, 0x12, 0x34, 0x56, 0x78]);
+        assert_eq!(body[17..], [0, 0, 0, 0, 0, 0, 0, 1, 0, 0]);
+        let word = |data: &[u8]| Message { kind: QUEUE_UPDATE, identity: (CHARACTER, 7), data: data.to_vec() };
+        assert_eq!(queue_place(&word(&[0, 0, 0, 0, 5])), Some(5));
+        assert_eq!(queue_place(&word(&[0, 0xff, 0xff, 0xff, 0xff])), Some(-1));
+        assert_eq!(queue_place(&word(&[0, 0])), None);
+        assert_eq!(queue_place(&Message { kind: 0x5e477770, identity: (CHARACTER, 7), data: vec![0; 5] }), None);
+    }
     /// A corpse's own look, from a captured announcement (a creature's remains): its CAT mesh, the body's scale, its
     /// turn, and the texture overrides after the dead one's second identity; its five clothes are all empty.
     #[test]
