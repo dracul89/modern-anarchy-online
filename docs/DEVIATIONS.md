@@ -4575,6 +4575,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Bags and inventory grids are centred instead of left-aligned.
 - Where: `crates/mao-client/src/gui/multilist.rs:197`; `docs/CLIENT_UI.md:1265`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's rule is known (the grid's first column BORDER, six pixels, in from the left, the rest of the width left over at the right), but the centring was made at the user's own request (the complaint of 2026-11-11 noted at gui/multilist.rs:197). Undoing a departure the user asked for is the user's call, not a porter's; one line to restore if the user says so: drop the centring offset in multilist's grid layout.
 
 #### `WIN-004` In-game web pages are a WebView2 overlay behind a local proxy
 
@@ -4584,6 +4585,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: pages look and behave as a modern browser, with extra buttons
 - Where: `docs/CLIENT_UI.md:243`; `crates/mao-client/src/browser.rs:220`; `crates/mao-client/src/browser.rs`; `docs/GUI_DLL_PARITY.md:64`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's BrowserWindow_c drives Awesomium (Awesomium.dll, a Chromium of 2012) and adds the game's headers with AddHTTPHeaderRule. The client must not ship Awesomium, and WebView2 has no per-request header rule for top-level navigations, which is why the aomarket:// proxy forwards each request with the game's headers; the extra Home/Back/Forward buttons and the "could not be reached" page are the client's frame (WIN-042). No faithful port exists without the original's engine; the frame's buttons are WIN-042's matter.
 
 #### `WIN-005` Map: interiors and instanced playfields get the client's own explored-grid map
 
@@ -4593,6 +4595,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: interiors show a self-revealing outline map instead of the original's picture
 - Where: `docs/ORIGINAL_AUDIT.md:211`; `crates/mao-client/src/automap.rs:8`; `crates/mao-client/src/automap.rs:412`; `docs/ORIGINAL_AUDIT.md:63`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original draws a playfield of rooms through FUN_100474b7 (each room's own map picture, placed by the room's transform) and the ground from above through FUN_10047964; the client's explored-grid map stands in where there is no ground. Porting FUN_100474b7 needs the rooms' map pictures, which today's game files do not hold for the interiors tried (see WIN-120: the map records that would carry them are absent), and a capture/picture of the original's map inside a dungeon to check against. Left with WIN-120.
 
 #### `WIN-006` Wear window grid scaled to fill the window
 
@@ -4602,6 +4605,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: wear and inspect cells are larger than the original's
 - Where: `crates/mao-client/src/gui/multilist.rs:157`; `crates/mao-client/src/invwindows.rs:203`; `docs/CLIENT_UI.md:1119`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's wear cells are 47 by 47 with icon spacing 11 by 9 on a 3 by 5 grid and the window exactly three cells wide; the scaling (GridMode::scale, gui/multilist.rs:157) was asked for by the user on 2026-11-11, as the code's own comment records. Undoing it is the user's decision; to restore the original, set the scale to 1 in invwindows.rs:203.
 
 #### `WIN-007` Closed web pages are kept hidden and opened private instead of clearing cookies
 
@@ -4777,7 +4781,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the first frame is "the client's chat window", each other frame a window of its own
 - A player notices: window behaviour may differ from the original's
 - Where: `crates/mao-client/src/chatgroups.rs:18`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already the original's shape, nothing to change: chatgroups.rs keeps each ChatGroupWindow_c as a pane with its `window_name` frame and `tab_index` (FUN_1009aecc config), and chatwindow.rs (`frame_body`, line 1579) draws every frame as one window with its panes as tabs, each other frame in a window of its own; tabs move between frames and out into frames of their own (FUN_10094701, FUN_10098038). "The client's chat window" is only the name of the window drawn for the first frame (the one Enter types into); the catalog line describes the original's own behaviour. No test needed (no change).
 
 #### `WIN-026` Control center menus are the client's own hand-written lists
 
@@ -4786,7 +4791,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Hand-written menus "as far as this client has the windows" with English labels, a "< Back" entry, an "Ask the guides" entry and a camera submenu; entries for things the client lacks are left out; Command opens the Actions window for both Emotes and Control panel.
 - A player notices: Menu entries differ from the original's.
 - Where: `crates/mao-client/src/vitals.rs:94`; `docs/CLIENT_UI.md:2016`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already ported for the skinned control center: gui/menu.rs reads the skin's ActionMenu/*.xml scripts (ControlMenu_c FUN_10071d7d / FUN_10071a6e, CCMenuEntry_c FUN_100669b6, actions FUN_100661a4) with criteria, SetValue, CloseMenu and RunChatScript, and gui/controlcenter.rs (load_script at line 278, invoke at 313) builds the menus from LeftMenu.xml / RightMenu.xml and their sub_scripts, which the game's cd_image/gui/Default/ActionMenu holds. The hand-written lists in vitals.rs:94 are only the plain strip drawn when there is no skin at all (that is WIN-106 / WIN-171), not the normal path. No change.
 
 #### `WIN-027` Fonts: Verdana drawn regular whatever the weight, sizes by egui points
 
@@ -4826,6 +4832,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The trade bar looks and behaves differently and is not a docked tab.
 - Where: `crates/mao-client/src/npcchat.rs:316`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): NPCChatTradeBar_c (GUI.dll FUN_10057d8b) is a BorderView with a TextView, an ItemContainerView grid (FUN_100ce55d, SetMaxItemCount of the slots asked, cells 0xb by 0x15 apart), the literal English texts "GIVE ITEM(S)" / "GIVE CREDITS" (no text.mdb: they are assign() of literals at 0x100580a4), a credits TextView and two Buttons with gfx 0x4b/0x4c and 0x4d/0x4e, docked by FUN_10059236 as a tab of the NPC chat window. The client's bar (npcchat.rs:316) already uses the same texts, slots, credits field and V/X buttons and sends the same KnubotTrade / KnubotFinishTrade messages; what differs is that it is drawn with egui above the conversation instead of a docked tab of the NPC chat's own tab view, which the client's NPC chat window does not have (it is not built from the original's views). Making that tab view is a rebuild of the NPC chat window, not a port of one rule.
 
 #### `WIN-031` Only some menu entries open windows
 
@@ -4845,6 +4852,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: option pages depend on AOU skins being installed; without one "No option pages were found"
 - Where: `crates/mao-client/src/gui/options.rs:267`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The catalog's Original line does not hold: GUI.dll does not build the option pages in code. FUN_100c3d62 (the panel's folder list) formats `%sOptionPanel/Root.xml` under AnarchyPath_t::GetGUIPath, loads it, and makes each top element a page with XMLObject_c::CreateObject, its `label` looked up in category 700 when it starts with '#' and split at '/' into folders; FUN_100c4315 adds HotKeys.xml's tab. No other page-making code was found (the option controls are only made by that XML reading, OptionControl_c FUN_100c29cd). So the original's panel is exactly the skin's Root.xml, which is what gui/options.rs does; with this install's 0-byte Default/OptionPanel/Root.xml the original would show an empty panel. The client's one departure is page_dirs() (options.rs:283) falling back to an AOU skin's Root.xml when the current skin's is empty; porting that "faithfully" would empty the panel for everyone without an AOU skin, so it is left. Suggest the catalog re-file it as an ADDITION ("pages taken from another skin when the skin's Root.xml is empty"), recommend KEEP, and correct the comment at options.rs:283 ("GUI.dll fills the original's panel from code") in a later docs pass.
 
 #### `WIN-033` Option window "Key bindings" tab is not the original's editor
 
@@ -4854,6 +4862,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Different key-binding UI.
 - Where: `crates/mao-client/src/gui/options.rs:14`; `docs/CLIENT_UI.md:4401`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's "Key bindings" tab (FUN_100bcfb3, with the enter-a-key box FUN_100bf286 and OptionPanelModule_c::HotKeyEnteredMessage) edits InputConfig_t's bindings of every provider (the hashed provider names of keybindings.rs, each with its modes and two keys), and its rows come from InputConfig_t's own provider table. The client's keys are its own Keymap of its own Action set (settings.rs), and about half the original's providers have no client action at all (keybindings.rs PROVIDERS maps only those it has). A faithful editor needs the client's input to be InputConfig_t's model first (providers, modes, the original's prefs file format), which is a port of the input system, not of this tab. The tab leads to the client's own key editor, which edits the same keys.
 
 #### `WIN-034` Rollup area: no drag to reorder, client's own widths, heights and docking controls
 
@@ -4863,6 +4872,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the rollup column looks and is operated differently; pages cannot be dragged
 - Where: `crates/mao-client/src/rollup.rs:10`; `docs/CLIENT_UI.md:2046`; `docs/GUI_DLL_PARITY.md:72`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): RollupController_c's page handling is spread over GUI.dll FUN_100489f9, FUN_10048e92, FUN_1004961d, FUN_10049a3c and FUN_1004a714 (layout of the pages, the drag between pages and out into a window, the dock's fade); the drag and drop of DockableViews between the rollup, other docks and free windows goes through the general docking code (DockArea_c, DockableView) that the client does not have: rollup.rs places egui windows itself. The "175 wide" of the notes was not found as a constant in those functions (the width comes from the skin's RollupControllerDock spacer, which gui/controlcenter.rs already sizes from the dock's picture), so the client's 196 cannot be swapped for a number with confidence. Page drag-to-reorder and drag-out are mouse interaction that needs the docking model and a live look; the fade (cc_rollup_controller_fade_level) belongs with WIN-080's window fading. Left as a whole.
 
 #### `WIN-035` Shop lists are hand-drawn rows with fixed sizes, not item-container lists
 
@@ -4872,6 +4882,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the shop's lists look and behave differently (no sorting, no held-button menu)
 - Where: `crates/mao-client/src/shop.rs:271`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's three shop docks are ItemContainerView_c lists (FUN_100ce55d) with Icon/Name/Count/Price/Quality columns, their sizes from the list and the generic item handlers (ItemListViewBase_c's mouse FUN_10041aa4 / FUN_1004141b, held-button menu FUN_10041c04, MultiListView_c sorting). The client's gui::multilist has the grid and list modes (the inventory uses them), but shop.rs (line 271 on) keeps its own Row type with prices computed per row and its own buy/sell drag rules; moving the three docks onto multilist means rewriting the shop window's drawing, its drag targets and its price columns together, and the result needs a look against the original's shop on screen. Too large for one entry tonight; no single rule to port.
 
 #### `WIN-036` Stats not in the server's list shown as a dash
 
@@ -4881,6 +4892,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some values are absent or computed by approximation
 - Where: `crates/mao-client/src/stats.rs:16`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original reads every value from Gamecode's own stat container, which Gamecode fills by its skill system (the stat holder's GetStat with its modifiers from items, nanos and perks). The client has only what the server sends (the full stat message carries the base values) and what derived.rs works out; a stat neither gives has no value to show. Removing the dash would mean showing a made-up number. The faithful fix is porting Gamecode's stat computation (the item/nano/perk modifier chains), a large separate job. Left.
 
 #### `WIN-037` Tool tip frame drawn as lines, not the original's surfaces
 
@@ -4890,6 +4902,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tips look different from the original's; outside XML views they cannot be kept
 - Where: `crates/mao-client/src/gui/tooltip.rs:8`; `docs/GUI_DLL_PARITY.md:49`; `docs/CLIENT_UI.md:2989`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): ToolTip_c (GUI.dll 0x10149c20) is a Window holding an InfoContainer_c (FUN_101494d9) drawn with the skin's surfaces and placed by View::MoveToMouse; gui/tooltip.rs already follows its timing (UpdateToolTip 0x10157adc, 500 ms), fonts, colour codes, margins and aspect ratio, and draws the frame as lines. The exact surface pieces (InfoContainer_c's BorderView pictures) and the click-to-keep tip need the info container's surface set and a look at a captured original tip, and egui hover texts outside the XML views are each window's own code. No single rule left that can be checked without a picture.
 
 #### `WIN-038` Alien experience bar counts from zero
 
@@ -4898,7 +4911,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: counts from zero because the previous threshold is not known; current nano, alien XP and NextXP show a dash when the server does not send them
 - A player notices: alien XP bar fill wrong above alien level 1
 - Where: `docs/CLIENT_UI.md:1667`; `crates/mao-client/src/stats.rs:202`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The catalog's Original line does not hold: the original's alien experience bars count from zero too. StatView_c's alien bar (GUI.dll FUN_10080461) is PowerbarView FUN_1007fed3(N3Msg_GetSkill 0xb2 AlienNextXP, N3Msg_GetSkill 0x28 AlienXP), and the control center's CharacterBar_c alien bar (FUN_100672bb) is AlienXP / AlienNextXP (capped at 1) with the tooltip "%d / %d"; neither reads a previous level's threshold. stats.rs:202 and vitals.rs:483 already count from zero. (The control center's past-the-end and unknown-value handling is WIN-090's matter.)
 
 #### `WIN-039` AOU skins show the game's straight bars, not their curved bars
 
@@ -4908,6 +4922,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Bars look different under AOU skins.
 - Where: `docs/ORIGINAL_UI_PLAN.md:203`; `docs/CLIENT_UI.md:2024`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The AOU wings' curved ACTIONVIEW bars (43 x 161) have no stated places in the skin's data (the CC*BarConfig rects only hint at a dock beside the wing), and the original client itself draws the game's own bars from ControlCenter.xml; without the AOU mod's own layout data there is no rule to port. Notes only.
 
 #### `WIN-040` Bitmap fonts drawn as a mesh with a 4-pixel line gap, behind a setting
 
@@ -4917,6 +4932,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: line spacing and fallback fonts are the client's
 - Where: `crates/mao-client/src/font.rs:65`; `docs/CLIENT_UI.md:2056`; `crates/mao-client/src/settings.rs:565`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The bitmap font's line metrics in the original are not understood (WIN-085: FontSystem_t's bitmap FontInfo_t heights and DisplaySystem's text drawing were not read to the line gap), so the 4-pixel gap cannot be replaced with the original's number; the `original_font` setting is the client's switch for players without the bitmap fonts. Left until the bitmap font's metrics are read (FontInfo_t +0xff0 height, the .fnt header).
 
 #### `WIN-041` BorderView three-slice and single-picture modes: ends scaled to the rect's height
 
@@ -4926,6 +4942,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible unless a skin uses them elsewhere; strip buttons stretch with their height
 - Where: `crates/mao-client/src/skin.rs:130`; `docs/GUI_DLL_PARITY.md:35`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): BorderView_c's modes are set by its SetGfx overloads (one, three or nine pictures; 0x102528f9 / 0x10252917 / 0x10252937 by name) and drawn in PreRender (named export) with GetLayoutMode; the client uses three-slice only for check boxes and the control-center strip buttons, whose pictures are drawn at their own height in every skin the client ships, so no player-visible difference was found to justify reworking skin.rs's three_slice before the PreRender reading is done.
 
 #### `WIN-042` Browser window frame is the client's own (Home, Back, Forward, status line)
 
@@ -4935,6 +4952,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Browser frame looks different.
 - Where: `crates/mao-client/src/browser.rs:161`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): BrowserWindow_c's frame (HomeButton, BackButton, ForwardButton, URL bar, StatusBar) is built around the Awesomium view; the client's web view is a WebView2 overlay (WIN-004) and its frame buttons are drawn by the client because the overlay cannot hold GUI.dll views. Rebuilding the frame from the original's views is tied to WIN-004's engine choice. Left.
 
 #### `WIN-043` Buttons in right-click menus and the launcher left as egui's
 
@@ -4944,6 +4962,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some buttons look different
 - Where: `docs/CLIENT_UI.md:2034`; `crates/mao-client/src/chrome.rs:554`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: right-click menus in the original are PopupMenu_c (their own items, not Button_c) and the launcher is not GUI.dll at all (LauncherModule is the separate launcher application); the client's egui buttons there are not a departure from a GUI.dll rule that can be ported. Nothing to change.
 
 #### `WIN-044` Character viewer is only the inventory's figure
 
@@ -4953,6 +4972,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no separate viewer
 - Where: `docs/GUI_DLL_PARITY.md:115`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: CharacterViewerModule_c / CharacterViewer_c is a 3D character viewer window (its own camera and render target); the client draws its figure inside the inventory only. Porting it is a new 3D view in the GUI, not a rule.
 
 #### `WIN-045` Chat input line and launcher text fields stay egui's
 
@@ -4962,6 +4982,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: input field look differs
 - Where: `docs/CLIENT_UI.md:2040`; `docs/CLIENT_UI.md:2050`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the chat input stays egui's at the user's own judgement ("looked foreign in the window", CLIENT_UI.md:2040); the launcher's fields are not GUI.dll's (the launcher is its own program). The skinned TextInputView_c exists (gui/textinput.rs) for XML views; switching the chat bar to it is the user's call.
 
 #### `WIN-046` Chat sub-menus replace their parent
 
@@ -4971,6 +4992,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: menu navigation looks different
 - Where: `docs/CLIENT_UI.md:308`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the chat window's menus are the client's chrome popups; making sub-menus open beside their parent needs the PopupMenu_c cascade, which the client's gui::popup has (Entry::submenu) but the chat menus were not moved onto. A rewrite of the chat menu code, not a rule; left for the chat window's own pass.
 
 #### `WIN-047` Chat Visual menu: mode rule, sliders, fading simplified
 
@@ -4980,6 +5002,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: chat window transparency/fading behave differently
 - Where: `docs/ORIGINAL_AUDIT.md:110`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the mode rule (FUN_1009a00d), the two transparency sliders and FadingTextView_c's fading were not read to their numbers here; nothing specific to port without that reading.
 
 #### `WIN-048` City map: the visible part is not capped at 128 tiles
 
@@ -4989,6 +5012,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a very large window shows more of the city map at once than the original could
 - Where: `crates/mao-client/src/cityterminal.rs:290`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The cap is not a fixed 1023: BuildingMapView_c's CalculatePreferredSize (GUI.dll FUN_100e36a7) takes the base preferred size and caps each component at size(+0x488 object +0xc4) * 128.0 (DAT_101bfd08) * the view's scale (FUN_10046506 +4) - 1.0 (DAT_101a87f0). What +0x488 +0xc4 holds (the map's size in tiles, or a fixed 8 that would give the notes' 1023) was not settled, and the client's map is not a sized Control (cityterminal.rs:290 draws it into the dock), so the cap cannot be written faithfully yet.
 
 #### `WIN-049` Control center strip texts and tips are fixed English
 
@@ -4998,6 +5022,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The control center is not translated.
 - Where: `crates/mao-client/src/vitals.rs:428`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The fixed "NCU", "CRED", "DEF", "AGG" strings are in vitals.rs's plain strip, drawn only when there is no skin (WIN-106 / WIN-171); with a skin the control center is built from the skin's XML and the game's texts (gui/controlcenter.rs). The original has no skinless strip to take texts from.
 
 #### `WIN-050` Controller window's next bill date always in English
 
@@ -5016,7 +5041,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Send with no items and no credits just closes the window
 - A player notices: no message when pressing Send on an empty deposit
 - Where: `crates/mao-client/src/marketsend.rs:141`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The client already does what the original does: Send (GUI.dll FUN_10009c40) says Feedback 110 for negative credits; otherwise it holds the credits to stat 61, collects the slots' items and calls N3Msg_SendMarketItem only when there are items or credits, and in both cases closes the window (FUN_100164af) without a word. marketsend.rs:141 does exactly that.
 
 #### `WIN-052` Escape closing: the chest option is not told apart from an own backpack
 
@@ -5025,7 +5051,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: an own backpack uses esc_backpacks, other containers none; esc_chests is absent; the escape_option list has no raid, LFT, vehicle, tower menu or city terminal windows
 - A player notices: Escape does not close a world chest (and those other windows) by their options
 - Where: `crates/mao-client/src/ui.rs:408`; `docs/GUI_DLL_PARITY.md:60`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already ported: ui.rs escape_option (line ~418) gives a world bag `esc_chests` and a corpse `esc_corpses` (InventoryView_c FUN_100ccefe), one's own backpacks `esc_backpacks`, and the raid (`esc_raid`), LFT (`esc_lft`), vehicle (`esc_vehicle`), tower build menu (`esc_towerbuildmenu`) and city terminal (`esc_cityterminal`) windows their options (FUN_10103127, FUN_100f0d2e, FUN_100e7847, FUN_100f3e80, FUN_1005cb45); they are in ESCAPABLE. The catalog line is out of date.
 
 #### `WIN-053` Faction bands and titles built into the code
 
@@ -5035,6 +5062,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: None visible unless the database differs.
 - Where: `crates/mao-client/src/factions.rs:20`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): N3Msg_GetFactionRange (Gamecode FUN_100c246b) walks a map (PTR_DAT_102c4c8c) of [low, high] pairs that Gamecode fills from the 0xf4265 records at start; the client's twelve BANDS (factions.rs:24) are those records' values, so nothing a player sees differs. Reading them at run time needs the loader's record layout (the function that fills PTR_DAT_102c4c8c was not found tonight); left for that reading, which would also take the copied numbers out of the code.
 
 #### `WIN-054` Inbox Delete unchanged from before
 
@@ -5043,7 +5071,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the inbox's own Delete is as it was (a mail with an untaken item is refused with a game line)
 - A player notices: inbox Delete enabling differs
 - Where: `docs/CLIENT_UI.md:3682`; `crates/mao-client/src/mailbox.rs:123`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The inbox's Delete is the original's: GUI.dll FUN_101096f1 (which the inbox's Delete and the message window's both reach, after FUN_1010686c's ConfirmDeleteMail question) deletes only when nothing is left to take, else says text 110 `Feedback_MailDeleteAttachments` (0x101097d1) and sends nothing; mailbox.rs delete() (line 123) does exactly that. Disabling Delete while things are untaken is the open mail's fill (FUN_10107b87), which mailmessage.rs already follows (left_in). Nothing to change.
 
 #### `WIN-055` Interface font falls back to egui's own font without Verdana
 
@@ -5053,6 +5082,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: without Verdana the interface text uses another font
 - Where: `crates/mao-client/src/font.rs:222`; `docs/PLATFORMS.md:18`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): CreateFontA("Verdana") on a system without Verdana is given a substitute by GDI's font mapper; the client's fallback to egui's own font when no verdana.ttf is found is the same situation on its side (and macOS/Linux have no GDI). No original rule to port beyond what font.rs does (search the system's fonts, else a stand-in).
 
 #### `WIN-056` Knowledge window keeps items only, no character references
 
@@ -5062,6 +5092,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: characters cannot be kept on the board
 - Where: `crates/mao-client/src/knowledge.rs:7`; `docs/GUI_DLL_PARITY.md:98`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): A charref:// entry comes from dropping a character (a name in chat or the target) onto the board; the client has no character drag source (its drags are items from the inventory window), so there is nothing to drop. Porting needs character drags first.
 
 #### `WIN-057` Knowledge window: the board's size is fixed
 
@@ -5071,6 +5102,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: at most 30 items fit
 - Where: `crates/mao-client/src/knowledge.rs:22`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The board is a MultiListView_c in grid mode whose rows grow with its items; the client's knowledge window keeps a fixed 6 by 5 grid it lays out itself (knowledge.rs:22). Moving it onto gui::multilist's grid (which can grow and scroll) is a rewrite of the window's drawing and drop code; left.
 
 #### `WIN-058` Logout timer bar drawn plainly; sit loop not played
 
@@ -5080,6 +5112,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: logout bar and sitting pose look different
 - Where: `docs/CLIENT_UI.md:2731`; `crates/mao-client/src/ui.rs:456`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The 40 s bar beside the "30 seconds" text is the original's own (TimerBar_c FUN_100519d6 runs the logout bar 40 s; text 200 LogoutStartedXseconds is fed 30), so that part is faithful already. The bar pictures 0x1a8/0x1a9 are texture records of the game's database, not skin sprites, and the client's timer bars do not load database textures for bars yet; the idle-ground sit loop is an animation matter (anim.rs). Left.
 
 #### `WIN-059` Mouse pointers are mapped from the toolkit's cursor kinds
 
@@ -5089,6 +5122,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some pointer shapes differ from the original or are the system's
 - Where: `crates/mao-client/src/pointer.rs:21`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original picks its own GFX_GUI_POINTER_* sprite from its own interface state (dragging, a link, a resize edge, a target); the client's pointer follows egui's cursor kind because egui owns the widget state. A faithful choice needs the original's pointer rules (the WindowController_c pointer selection) wired to the client's own state; pointer.rs already maps every kind it can. Left.
 
 #### `WIN-060` Name tag text falls back to the toolkit's font and a width guess
 
@@ -5098,6 +5132,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: only when the original font is missing
 - Where: `crates/mao-client/src/nametag.rs:141`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Only when the game's shell bitmap font is missing (the game folder without FontGameShell12.fnt); with it, nametag.rs draws the original's font. A fallback for a missing file is not a departure that can be ported.
 
 #### `WIN-061` Organization boxes at the pointer; invitation timer not kept
 
@@ -5127,6 +5162,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the partner-status area looks different
 - Where: `crates/mao-client/src/shop.rs:366`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): GUI.dll FUN_100e0c89 fills PartnerStatusDock with a BitmapView_c holding two pictures, AddBitmap(0x15b) and AddBitmap(0xd9), the second shown once the partner accepts. Those are numbered skin pictures (GetGuiTexture by AFCM.dll's number table), and the client does not carry AFCM's number-to-name table (gui/pictures.rs knows only four numbers), so the two pictures cannot be named. Next step: map 0x15b and 0xd9 through AFCM's table.
 
 #### `WIN-064` Popup menus longer than the screen are clipped, with no scroll bar
 
@@ -5136,6 +5172,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a very long menu cannot be scrolled
 - Where: `crates/mao-client/src/gui/popup.rs:72`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): PopupMenu_c puts its entries in a ScrollView with the vertical bar on auto and caps its height at the screen's less 100; gui/popup.rs draws its own entries and already caps the height. Adding the scroll view means moving the popup's drawing into the client's ScrollView control (gui/scrolling.rs) with its bar art; worth doing with WIN-078's scroll bar work, left tonight.
 
 #### `WIN-065` RadioButton drawn as a check box with radio pictures
 
@@ -5145,6 +5182,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/gui/controls.rs:347`; `docs/GUI_DLL_PARITY.md:37`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): RadioButton_c differs from CheckBox_c in class only as far as anything visible goes here: the client draws it with the radio pictures and the group's exclusive choice (gui/options.rs OptionRadioButtonGroup). No visible difference to port.
 
 #### `WIN-066` Rename box is the client's own small window
 
@@ -5154,6 +5192,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Look of the rename box differs.
 - Where: `crates/mao-client/src/chatconfig.rs:308`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's rename is a DialogBox_c with a text field (the text-field form of DialogBox_c), which the client's chrome::dialog does not have (WIN-124: no text-field form). Porting the rename box means adding that form to the dialog first; left with WIN-124.
 
 #### `WIN-067` Research lists rebuilt whenever the data changed
 
@@ -5163,6 +5202,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/research.rs:46`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Nothing a player sees differs: the original rebuilds the research lists on stats 53 and 60 and a finished personal rank (LAB_100f712a, LAB_100f7151, FUN_100f70b0), the client whenever the shown data changed, which includes those events; the lists come out the same.
 
 #### `WIN-068` Reset all skills count counts unknown stats as nothing
 
@@ -5172,6 +5212,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the "Reset all skills (n)" count may differ before the server sends the stats
 - Where: `crates/mao-client/src/skillwindow.rs:362`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100fae7a reads stats 348 and 691 through N3Msg_GetSkill, which for a stat the character never got returns the stat holder's own default (see WIN-083: not known yet); the client counts nothing for an unsent stat. Without that default the "original's" number cannot be written. Left with WIN-083.
 
 #### `WIN-069` Selected list row filled at 45 percent of the original's colour
 
@@ -5181,6 +5222,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: selected rows are paler
 - Where: `crates/mao-client/src/gui/multilist.rs:402`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100f1f68 gives the selected row a ViewSurface_c (flags 0xf) with SetColor(0x88aadd); ViewSurface_c::SetColor (0x10151940) keeps only the colour's low 24 bits, so the row's opacity comes from the surface's own alpha / the view's alpha in its render (ViewSurface_c::_Initialize and ViewArea_c's drawing), which was not read. Without that, replacing the client's 0.45 with "opaque" would be another guess. Next step: ViewSurface_c::_Initialize's alpha for a colour-only surface.
 
 #### `WIN-070` Stat names in tips use the client's own English table
 
@@ -5200,6 +5242,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: crowded tab strips may be split differently
 - Where: `crates/mao-client/src/chrome.rs:621`; `docs/CLIENT_UI.md:2032`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): TopBorderView_c (FUN_10147438) narrows crowded tabs by View::SpaceOut's share; the client scales all tabs in proportion. SpaceOut's rule (how it shares the shortfall between children by their preferred and minimum sizes) was not read tonight, and the result wants a picture against the original with a crowded strip. Left.
 
 #### `WIN-072` Target frame without the skin falls back to a plain box
 
@@ -5209,6 +5252,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: only when the skin lacks the pictures
 - Where: `crates/mao-client/src/ui.rs:2242`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Only when the skin lacks the target pictures: the original has no skinless target frame to follow (CreateTargetMenus always uses the skin's pictures). A fallback for missing art is not a portable rule.
 
 #### `WIN-073` Team window header leaves the team side empty
 
@@ -5218,6 +5262,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the side name is never shown in the team window header
 - Where: `crates/mao-client/src/team.rs:226`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The header is FUN_10077fff: text 10000 "TeamLvlTeamSide" fed the team level (+0x1a8) and text 2005 of the team side (+0x1a4). The side reaches TeamViewModule_c through SlotTeamEvent (0x1007ac17, which also says "TeamSide_isX" with text 2005 of +0xe8), from a team event whose server message the client does not handle yet (the team-side message 0x36 of WIN-146). Without the side the client cannot fill %s; port together with WIN-146.
 
 #### `WIN-074` Teleport target window: the single tab is not drawn
 
@@ -5227,6 +5272,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no tab header on the window
 - Where: `crates/mao-client/src/teleport.rs:7`; `docs/CLIENT_UI.md:3843`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's window (FUN_10100022) does AppendTab with the program's literal "Target List" (0x1010054b). The client leaves every single-tab window's tab undrawn (a choice across all its windows, teleport.rs:7), and the literal would have to be written in the client's own words; drawing one window's single tab alone would make it the odd one out. Better done for all single-tab windows at once in chrome::window.
 
 #### `WIN-075` Text editing keeps plain text; Home and End use new-line bounds; selection colour is the client's
 
@@ -5236,6 +5282,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Home and End in a wrapped multi-line field jump to the paragraph's ends, not the visible line's
 - Where: `crates/mao-client/src/gui/edit.rs:8`; `docs/CLIENT_UI.md:2951`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): TextRenderer_c::KeyDown (0x10164224) handles End (case 0x23) for a multi-line view with FindLineByPosition over the rendered lines (0x14-byte line records): on the last line the key goes to the listeners, otherwise the cursor goes to the next rendered line's start, or for a line ending in a new line (HTMLParser_c::IsCharNewline) to before it, then ClearSelection; Home is the mirror. The client keeps plain text and its own wrap; following that rule needs its lines in the same form (start, length) and the shift/selection variant (uVar2 & 0x8000, 0x30) read through. Not finished tonight; the reading is here for the next pass.
 
 #### `WIN-076` Tips of the day: only a few events, no reset
 
@@ -5245,6 +5292,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some tips of the original may never appear
 - Where: `docs/GUI_DLL_PARITY.md:61`; `crates/mao-client/src/tips.rs:259`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): TipSystem_t's events come from TriggerEvent calls spread through GUI.dll and Gamecode (every window and action reports its own); porting all of them is a crawl over the whole program, and /tipoftheday and the reset are part of that module's commands. Left as a whole.
 
 #### `WIN-077` Vertical layouts place a top or bottom aligned child at the left
 
@@ -5254,6 +5302,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible with the shipped skins
 - Where: `crates/mao-client/src/gui/layout.rs:190`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's VLayoutNode has no rule for a top- or bottom-aligned child (it reads a stale value and prints an error); there is nothing defined to copy, and no shipped skin uses it. Left.
 
 #### `WIN-078` Wheel: egui's own step, vertical bars only
 
@@ -5263,6 +5312,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: horizontal bars cannot be moved with the wheel
 - Where: `docs/CLIENT_UI.md:2030`; `crates/mao-client/src/gui/scroll.rs:277`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): ScrollBar_c::WheelMoved (0x10142820) moves its bar 10 a notch, and the client already converts egui's notch to that step; whether the original's wheel ever reaches a horizontal bar depends on which view WindowController_c sends the wheel to (the focused or hovered view's vertical bar), which was not read. Left.
 
 #### `WIN-079` Wide words go on a line of their own instead of splitting at a character
 
@@ -5272,6 +5322,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: very long words (URLs, names) run past the view's edge
 - Where: `crates/mao-client/src/gui/text.rs:511`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Splitting a too-wide word at the character where it overflows (GetBufferLocation) needs the wrap's lines to start and end inside a word; gui/text.rs's Line keeps whole-word indices (first/end) that the drawing, the links' rectangles and the caret's place_of/index_at all rely on. A change to the line model, not a rule; left.
 
 #### `WIN-080` Window transparency in steps of ten
 
@@ -5281,6 +5332,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no slider; ten steps
 - Where: `crates/mao-client/src/chatwindow.rs:198`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's two sliders (how solid a borderless chat window is, active and inactive) are in the chat Visual menu that WIN-047 covers; the slider values' ranges and steps were not read (FUN_1009a00d and the menu's slider entries). Left with WIN-047.
 
 #### `WIN-081` X-Platform header is always Native
 
@@ -5290,6 +5342,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Steam players are told Native
 - Where: `crates/mao-client/src/browser.rs:89`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): BrowserWindow_c's Initialize (0x1010fdb8) sends X-Platform "Steam" when the distributed value RunningSteam is true, else "Native"; RunningSteam is set by the startup when the game is launched through Steam (LoginWindow_c 0x10015544 reads it too, for its Steam button). This client is never launched by Steam's own AO launcher, so "Native" is what the original would send for it. Nothing to port unless the client gains a Steam launch.
 
 #### `WIN-082` XML window keyboard handling covers only a few keys
 
@@ -5299,6 +5352,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Other editing keys do nothing in XML text fields.
 - Where: `crates/mao-client/src/gui/host.rs:301`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): TextRenderer_c::KeyDown (0x10164224) is an 18 KB switch over the virtual keys; the client passes Enter, Backspace, Delete, Home, End, arrows, Insert, A, V, Tab and Escape. Listing which further keys the original acts on (Ctrl+C/X, Page Up/Down, ...) and their rules needs that switch read case by case; left for a pass with WIN-075.
 
 ### Windows and interface: the original was not read: inferred or measured (22)
 
@@ -5310,6 +5364,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: skill numbers for other characters may be off
 - Where: `docs/CLIENT_UI.md:1673`; `crates/mao-client/src/derived.rs:186`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's shown skill (Gamecode FUN_10065a92 -> FUN_10065a27) is the stat holder's own value through its vtable (+0xe8 object, slot +0x3c, mode 2), plus the modifier part (FUN_1013f240) and less the shock penalty (FUN_10064b51); the trickle is part of that holder's value. Where the holder's value of a skill the server never sent comes from (the "untrained skill starts at 5" of derived.rs:299, DEFAULT_SKILL, and its odd "0 when a modifier names the stat" rule at derived.rs:406) needs the real class behind that vtable call (SimpleChar_t's stat holder and its default table in GameData), which was not reached in the time; the formula itself is the one checked on a live character. What is not known: the default of an unsent skill. Left for a reading of the stat holder's GetStat (vtable.py on SimpleChar_t's +0xe8 member).
 
 #### `WIN-084` Window frame and panel translucency, title size are the client's own
 
@@ -5319,6 +5374,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: window opacity and title size may differ from the original's
 - Where: `crates/mao-client/src/chrome.rs:305`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's frames are the skin's BorderView pictures (GFX_GUI_WINDOW_*) drawn by Window_c with the window's fade level (UpdateFadeLevel) and the player's window transparency (WIN-080); there is no flat "panel at alpha 225" or a 15-point title in it to port as a number: the title is a TextView in the frame's font (FontSystem's NORMAL, Verdana 13, now drawn by the WIN-027 table) and the ground is a picture. chrome.rs:503's alpha 225 applies to the colour under the client's own frame shape. Making the frame the original's pictures is the frame renderer (frame_shape) itself, which wants a picture comparison with the original's windows (reference shots exist) rather than a blind change tonight.
 
 #### `WIN-085` Bitmap font line metrics not understood
 
@@ -5328,6 +5384,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: text spacing in the bitmap font may differ
 - Where: `docs/CLIENT_UI.md:2052`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the .fnt files' three trailing words were not identified tonight (they need the bitmap FontInfo_t loader in FontSystem_t's constructor 0x1012eef1, the else branch that reads the .fnt). Left with WIN-040.
 
 #### `WIN-086` Chat window sizes, places and tell-window stacking
 
@@ -5337,6 +5394,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: window first positions differ until the layout is saved
 - Where: `crates/mao-client/src/chatwindow.rs:1610`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's first places and sizes of chat windows were not found: FUN_100950df makes the two default windows (FUN_10094701) without a rectangle, and the window's own constructor (FUN_1009e379) shows only its fade numbers (0.8, 0.3); the places come from the saved Config.xml / layout or a default in ChatGroupWindow_c that was not reached. Left; the client's numbers stay until the layout is saved.
 
 #### `WIN-087` City cloak button switches the cloak at once
 
@@ -5346,6 +5404,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the cloak state flips before any server answer
 - Where: `docs/LIVE_TEST_LIST.md:246`; `crates/mao-client/src/net.rs:8376`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: no capture holds the cloak's request and the server's answer, so whether the original waits for the answer before showing the new state is not known from traffic; the city terminal's cloak button handler was not traced to a state change. Needs a capture of a cloak switch.
 
 #### `WIN-088` City map: building item's identity in the build request is a guess
 
@@ -5355,6 +5414,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A build request may be wrong.
 - Where: `docs/CLIENT_UI.md:3920`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the build request's item identity cannot be settled without a capture of the original building a house (none exists). Left for a capture.
 
 #### `WIN-089` Container window sizes, columns and start positions are the client's own
 
@@ -5364,6 +5424,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: windows open in different places and shapes
 - Where: `crates/mao-client/src/loot.rs:178`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original makes container windows with an empty Rect and lets the window size itself from the item grid (no fixed column count found); the bank's columns are not stated anywhere read. Without the original's numbers the client's three/eight columns and its places stay; a picture of the original's bag and bank windows would settle them (the reference shots may hold one).
 
 #### `WIN-090` Control center experience bars ignore shadowknowledge and show nothing past the next level
 
@@ -5382,7 +5443,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: solid 80 percent active and 30 percent inactive, taken from files seen
 - A player notices: none visible if right
 - Where: `crates/mao-client/src/chatgroups.rs:305`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The values are the original's own defaults: ChatGroupWindow_c's constructor (GUI.dll FUN_1009e379) stores 0.8 at +0x170 (0x1009e553, float at 0x101b8ab4) and 0.3 at +0x174 (0x1009e562, float at 0x101ae0f4) before any config is read, the same 80 percent active and 30 percent inactive the client uses (chatgroups.rs:305). (That these two fields are the active and inactive solidity is read from their matching the config's numbers; the setter that reads them back was not followed.)
 
 #### `WIN-092` List double-click is a fixed 400 ms and sorting is by plain text keys
 
@@ -5392,6 +5454,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: double-click timing and sort order may differ
 - Where: `crates/mao-client/src/gui/multilist.rs:455`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): MultiListView_c's double click and sort comparison were not read tonight (its mouse handlers and the sort callback with the column's key kind); the client's 400 ms and string keys stay until they are.
 
 #### `WIN-093` Market text field widths forced to the old browser's
 
@@ -5401,6 +5464,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Market fields look like the original's, approximately.
 - Where: `crates/mao-client/src/browser.rs:212`; `docs/CLIENT_UI.md:3458`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The market's text field widths depend on Awesomium's 2012 WebKit layout, which the client cannot run; the injected widths are the closest model of it. No original rule in the game's own code to port.
 
 #### `WIN-094` Mission booth chosen by the client within 40 m
 
@@ -5410,6 +5474,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Missions can be requested from up to 40 m away.
 - Where: `crates/mao-client/src/net.rs:8068`; `crates/mao-client/src/net.rs:8105`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): How the original picks the booth a mission request goes to was not found: MissionSelectionView_c (FUN_100d10fc) has no booth lookup, and no string or function names a terminal search in GUI.dll or Gamecode (N3Msg_GetMissionSelectionList only returns the offers). It is presumably the server-side use of the booth that opens the window with the booth's identity, which no capture shows. Needs a capture of the original using a booth.
 
 #### `WIN-095` Mission window opened by the client on a double click on a booth
 
@@ -5419,6 +5484,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The window opens on use though the server sends nothing for it.
 - Where: `crates/mao-client/src/net.rs:8300`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Same gap as WIN-094: what opens the original's mission window on a booth's use is not in the read code (the server only echoes the use in the captures seen). Needs a capture.
 
 #### `WIN-096` New-mission condition: only the message's last byte
 
@@ -5428,6 +5494,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: waypoint/new-mission line may differ
 - Where: `docs/CLIENT_UI.md:4086`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: SlotGotNewMission's second condition (the character's +0x140 flag) was not traced to the stat or message that sets it. Left.
 
 #### `WIN-097` Panel colour for a light theme is the Default colour scaled to 14 percent
 
@@ -5437,6 +5504,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: window backgrounds are the client's derived colour
 - Where: `crates/mao-client/src/theme.rs:95`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original has no derived panel colour: its window grounds are the skin's pictures (the frame's BorderView background). The client's colour stands under its own frame drawing (WIN-084); moving to the pictures is that frame work, not a colour rule.
 
 #### `WIN-098` Perk action icons are chosen from the perk's name
 
@@ -5446,6 +5514,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some perk or Reload tiles show an unrelated picture
 - Where: `crates/mao-client/src/actions.rs:56`; `docs/CLIENT_UI.md:1655`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's perk tile is the perk item template's icon; the name-word fallback in actions.rs:56 only runs when that icon is absent, and what the original shows then (an empty tile or GFX_GUI_DEFAULT_ICON48) was not read. Reload's picture likewise. Left until the special-action tile's empty case is read.
 
 #### `WIN-099` Planet map window: a new map opens at its second level
 
@@ -5455,6 +5524,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the starting zoom is the client's choice
 - Where: `crates/mao-client/src/planetwindow.rs:81`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): PlanetMapView_c (FUN_1004d92d) reads the zoom level from its saved PlanetMapViewConfig and the map from textures/PlanetMap plus a distributed value; what level a never-seen map opens at was not traced through FUN_1004d1cf's loader. Left.
 
 #### `WIN-100` Planet map window: size and place taken from screenshots
 
@@ -5474,6 +5544,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: which of the two maps opens for a playfield is the client's rule
 - Where: `crates/mao-client/src/planetmaps.rs:73`; `docs/ORIGINAL_AUDIT.md:63`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): PlanetMapView_c (FUN_1004d92d, 0x1004daf6) builds the map's path from "textures/PlanetMap/" plus a distributed value's file name, choosing by N3Msg_GetSkill(0x213, 2) (the expansion stat); the client's rule of which map shows a playfield (planetmaps.rs:73) follows from having both maps open, which the original window does not (it shows one map file at a time). Matching it needs the distributed values that name the two index files and the window's own map switch read through; left.
 
 #### `WIN-102` Team window's own bars come from the character's own stats
 
@@ -5483,6 +5554,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: own bars in the team window may differ from the original's
 - Where: `crates/mao-client/src/net.rs:7306`; `docs/CLIENT_UI.md:567`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's member view for the own character was not read (whether TeamViewModule_c draws the own row from the stat holder or from a TeamMemberInfo); no capture shows a TeamMemberInfo for oneself. Left until the member row's update (TeamViewModule_c's member signals) is read.
 
 #### `WIN-103` Text selection drawn in a fixed blue shade
 
@@ -5492,6 +5564,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: selection colour may differ from the original's
 - Where: `crates/mao-client/src/gui/controls.rs:762`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The selection band's colour in TextRenderer_c's drawing was not found tonight (BeginSelection / ExpandSelection only keep the range; the colour is in the renderer's PreRender path). Left.
 
 #### `WIN-104` Title level is worked out from the level
 
@@ -5501,6 +5574,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: title-level requirement lines depend on a fitted table, may be wrong at band edges
 - Where: `docs/CLIENT_UI.md:1689`; `crates/mao-client/src/derived.rs:187`; `crates/mao-client/src/derived.rs:300`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Stat 37 is not sent by the server and the original shows its own value, so Gamecode works it out somewhere (from the level or from a table of the database); the function was not found in the time (searches by the stat number are too broad: every use of 0x25). The fitted bands stay until that function is found (a lead: whatever handles the NewLevel message's IpResetPointsGained/title fields, see OTH-012 in NOTES).
 
 ### Windows and interface: a guard or fallback the original lacks (4)
 
@@ -5522,6 +5596,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: only when the skin is missing
 - Where: `crates/mao-client/src/vitals.rs:3`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Without the skin's pictures the original would not draw a control center at all (it always has its skin); the plain strip only appears when the client runs without a game folder's pictures, a case the original never has. Nothing a player with the game's files sees changes; keeping it is not a guard against the original's behaviour.
 
 #### `WIN-107` Skills window without the cost tables charges one IP a point
 
@@ -5531,6 +5606,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Only if the game's files are missing.
 - Where: `crates/mao-client/src/skillwindow.rs:544`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Same kind as WIN-106: only without the game's files (Gamecode's cost and cap tables are read from them); with them the original's costs and caps apply. Not a departure a player with the game sees.
 
 #### `WIN-108` Windows wait for the screen's real size before showing
 
@@ -5540,6 +5616,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Windows appear a frame or two later at start.
 - Where: `crates/mao-client/src/chrome.rs:251`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The wait compensates for egui handing over a placeholder screen size in its first frames (chrome.rs:251), something the original's toolkit does not have; without it windows would be placed against the wrong screen and land in wrong places, a new departure rather than the original's behaviour. Kept.
 
 ### Windows and interface: the original does it, the client does not (42)
 
@@ -5642,6 +5719,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the land control build and war menus cannot be opened from the map
 - Where: `crates/mao-client/src/automap.rs:620`; `docs/CAPTURE_GAPS.md:217`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The Build and War buttons are already ported (the catalog line is out of date): automap.rs control_bar (line ~683) makes them as FUN_100ecdf7 does (text 10000 "Build" / "Plafieldmap_War", tips "OpenLCbuild" / "OpenLCwar", a spacer before each, disabled without Notum Wars, stat 389), and ui.rs:1481 takes `automap.tower_menu` to toggle the tower build menu (towerbuild.rs, FUN_100ec95f / FUN_100ec9f3). Only the comment at automap.rs:666 still says "not ported". What is left is the placement circle, whose rule was found but not its trigger: PFMapRenderer_c FUN_100ea243 draws it when the land-control button is on, the land-control picture is made (+0x4b4) and MapData_c +0x75 is set: the circle picture's 0x52 square (0x80 screen pixels) in 0xdcdcdc at the character's place moved 3 units along (sin, cos) of twice (+0x494 * pi). +0x75 is toggled by the GlobalSignals +0x160 slot FUN_10042f87 with an identity ((0,0) clears it) and cleared by the +0x9c slot FUN_10042fc6 when that identity goes (both connected in FUN_100439f1); which Gamecode event raises +0x160 (presumably a tower item being placed) was not found, so the client cannot know when to draw it. Next step: find the emitter of GlobalSignals +0x160.
 
 #### `WIN-119` Mission journal does not keep columns, sort or active mission, and has no Update Team Members
 
@@ -5661,6 +5739,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the playfield map lacks shadow detail and room pictures
 - Where: `docs/ORIGINAL_AUDIT.md:106`; `crates/mao-client/src/automap.rs:417`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The shadow textures (PFMapGroundRenderer_c, FUN_100b7c29, records of type 0xf4247) and the second patch texture are absent from today's game files (the client's ground reader finds none; automap.rs:417), so there is nothing to draw; the rooms' pictures (FUN_100474b7) belong to the interior map's room rendering, which needs the room geometry of a dungeon playfield and a picture of the original's map inside one to check. Left: data absent / needs a look.
 
 #### `WIN-121` Text views that are not editable cannot be selected by mouse
 
@@ -5680,6 +5759,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: buttons with icons, drag or held-key repeat behave plainly
 - Where: `docs/GUI_DLL_PARITY.md:36`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: Button_c's icons, drag and held-key repeat are ButtonBase_c features (SetIcon, SlotBeginDrag, the repeat timer) that no window the client builds from the shipped skins needs yet; porting them without a user is code with nothing to check it against. Left.
 
 #### `WIN-123` City map: no tip with the pointer's place
 
@@ -5699,6 +5779,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Dialogs can be ignored while playing; no timed closing.
 - Where: `docs/GUI_DLL_PARITY.md:51`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: DialogBoxForm_c's text field, the close time-out and modality are each a DialogBox_c feature the client's chrome::dialog lacks; the text field form is the larger part (WIN-066's rename box needs it). Left for a dialog pass.
 
 #### `WIN-125` Factions: IsFactionTitleShown not kept between runs
 
@@ -5718,6 +5799,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No flashing friend rows for unread tells; fewer chat window entries.
 - Where: `crates/mao-client/src/friends.rs:19`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The friends window's chat-windows folder lists the chat windows (the client now has several frames, chatgroups' panes, which could be listed), but each row's menu (FUN_100a8a69: visual settings, click-through, text input) and the unread-tell flashing need the chat window's per-pane look settings and an unread flag per tell window that the client does not keep. Left.
 
 #### `WIN-127` In-game web pages unavailable where there is no web view (Linux)
 
@@ -5727,6 +5809,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No store/market/rewards pages on Linux.
 - Where: `crates/mao-client/src/browser.rs:185`; `docs/PLATFORMS.md:15`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Linux has no WebView2/WKWebView backend in the client (wry is built only for Windows and macOS here); offering the pages there needs a WebKitGTK build, a platform decision, not a port of the original.
 
 #### `WIN-128` Item slots: icon flags, open slot picture, dragging from a slot not ported
 
@@ -5736,6 +5819,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: slots in XML windows cannot be dragged from
 - Where: `docs/CLIENT_UI.md:3008`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: ItemSlotView_c's icon flags, the open-slot picture 0x11e (a numbered skin picture whose name needs AFCM's table, as WIN-063) and dragging out of a slot were not ported tonight.
 
 #### `WIN-129` LayoutGrid not ported; StringListView a plain view
 
@@ -5745,6 +5829,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: None visible with the shipped skins.
 - Where: `docs/GUI_DLL_PARITY.md:33`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: no shipped skin uses LayoutGrid or StringListView; nothing visible to port against.
 
 #### `WIN-130` List views: no column swapping by dragging, no horizontal scroll bar, no saved column layouts
 
@@ -5774,6 +5859,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: those menus are styled plainly
 - Where: `crates/mao-client/src/gui/menu.rs:5`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The `<ItemTemplate>` of CommandMenu.xml (`action_name`, `label`, `tooltip`) styles the special actions' entries that ControlMenu_c fills from the action list (special_action_category menus); the client's gui/menu.rs does not build those category menus from the action list yet, so there is nothing to style. Port together with the category menus.
 
 #### `WIN-133` Mission journal pays level 200-220 readers in experience, not shadow knowledge
 
@@ -5793,6 +5879,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No offer menu or new-mission tip.
 - Where: `crates/mao-client/src/mission.rs:592`; `docs/CLIENT_UI.md:4060`; `docs/ORIGINAL_AUDIT.md:73`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The offer's right-click menu (its info page, "Upload to map") and the new-mission tip (OnReceiveMission -> TipSystem_t) were not read through tonight; the tip also depends on WIN-076's tip events. Left.
 
 #### `WIN-135` Mission request window does not keep its sliders or hide the advanced ones
 
@@ -5813,6 +5900,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no clickable links in notifications; a saved window shape is not used
 - Where: `crates/mao-client/src/notifications.rs:17`; `docs/GUI_DLL_PARITY.md:103`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Links need the notification lines kept as markup and drawn by the text renderer (with ClickableLinks), and the saved frame needs NotificationWindowConfig's reader; notifications.rs keeps plain lines and draws them itself. Not reached tonight.
 
 #### `WIN-137` PowerbarView draws no labels
 
@@ -5822,6 +5910,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Bars in XML windows show no label text.
 - Where: `crates/mao-client/src/gui/powerbar.rs:11`; `docs/CLIENT_UI.md:3048`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): No shipped skin's XML gives `label`, `left_label` or `right_label`; labels come only from code (SetLabel, as FUN_1007fed3 does for the Stats window's bars, which the client draws itself). Drawing them in gui/powerbar.rs needs PowerbarView_c::SetLabel's text view placement (its child TextViews and fonts), not read tonight.
 
 #### `WIN-138` Reclaim window absent
 
@@ -5831,6 +5920,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no reclaim
 - Where: `docs/GUI_DLL_PARITY.md:105`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the reclaim window (reclaim_window, /reclaim) shows the reclaim container (identity type 0xdeae, see INV-072 in NOTES) whose items no capture holds; a window without data to test is left.
 
 #### `WIN-139` Research window: the research blink is not cleared and requirement text differs
 
@@ -5840,6 +5930,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The research blink stays on; requirement wording may differ.
 - Where: `crates/mao-client/src/research.rs:52`; `docs/GUI_DLL_PARITY.md:100`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The window clears `got_tech` on opening, but the client never sets got_tech in the first place (NewLevel's got_ip/got_perk/got_tech hints are left, OTH-012), so there is no blink to clear; the requirement text (N3Msg_GetCriteriaString rather than GetUseByString) needs Gamecode's criteria-string builder ported. Left.
 
 #### `WIN-140` Reward claims are asked for each time; lock 0x8c not kept
 
@@ -5879,6 +5970,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: sliders all look alike and move freely
 - Where: `docs/GUI_DLL_PARITY.md:40`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: Slider_c's gfxid_slider art choice and its steps are not given by any shipped skin's XML (WIN-144); nothing to check against tonight.
 
 #### `WIN-144` Slider knob and track: picture-number overrides not read, plain fallbacks drawn
 
@@ -5888,6 +5980,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: sliders look plain with skins lacking the art
 - Where: `docs/CLIENT_UI.md:3040`; `crates/mao-client/src/gui/controls.rs:427`; `crates/mao-client/src/gui/controls.rs:447`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): gfxid_slider / gfxid_background are numbered skin pictures (AFCM's number table, which the client does not carry: see WIN-063) and no shipped skin gives them; the plain fallbacks only draw when a skin lacks the slider art, which the original's skins always have. Left with the AFCM table.
 
 #### `WIN-145` Team: raid window's menu and team search's invite not ported
 
@@ -5897,6 +5990,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: missing menus, Invite does nothing
 - Where: `docs/ORIGINAL_AUDIT.md:105`; `crates/mao-client/src/lft.rs:86`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The raid window's menu and the team search's Search/Invite/Tell send messages none of the captures hold (the looking-for-team server traffic is not in the captures); porting them blind would invent message layouts. Needs a capture.
 
 #### `WIN-146` Team: team side message 0x36, leader's own button, grey of members away not done
 
@@ -5906,6 +6000,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: missing team window features
 - Where: `docs/CAPTURE_GAPS.md:299`; `docs/GUI_DLL_PARITY.md:91`; `docs/CLIENT_UI.md:573`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the team side message 0x36 (TeamSide_isX, SlotTeamEvent 0x1007ac17 with text 2005 of +0xe8) is not in a capture, so its layout is unknown; the leader's own button and the grey (0x888888) of members away depend on team state the client does not keep yet. Also blocks WIN-073.
 
 #### `WIN-147` Text input: no right-click menu, no IME, no name-entry dialog
 
@@ -5915,6 +6010,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No context menu in text fields, no IME composition.
 - Where: `docs/GUI_DLL_PARITY.md:44`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: TextInputView_c's right-click menu, IME composition and the name-entry dialog (TextInputDialogForm_c) are each sizeable; egui owns the chat input (WIN-045). Left.
 
 #### `WIN-148` Tradeskill window: build feedback signals not handled
 
@@ -5924,6 +6020,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some build feedback lines never appear.
 - Where: `crates/mao-client/src/tradeskill.rs:23`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The two global signals (+0x1d8 into FUN_100de45e, and +0x1d4) have senders that were not traced (no emitter found in the time), so what feeds them and with what text is unknown. Left until the emitters are found.
 
 #### `WIN-149` ViewSelector: no list view link; HotSpot_t etc. not ported
 
@@ -5933,6 +6030,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `docs/GUI_DLL_PARITY.md:57`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: ViewSelector_c's list link and the HotSpot_t / NewGuiSpot_t / ClearRect_t / RenderInfoView_t classes have no visible use in the shipped skins.
 
 #### `WIN-150` Wear and Shop icons do not fit the control-center strip
 
@@ -5973,6 +6071,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a settings window the original does not have
 - Where: `crates/mao-client/src/ui.rs:943`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original's option panel is only the skin's Root.xml (FUN_100c3d62, see WIN-032) and has no display mode, renderer, upscaling or theme settings for this client's own renderer; the client's settings window holds exactly those and is reached only when the skin has no panel or from the panel's "Client settings" entry, so it does not replace an original page.
 
 #### `WIN-154` Client's own message box for 14 seconds
 
@@ -5982,6 +6081,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: transient status lines outside the chat window
 - Where: `crates/mao-client/src/ui.rs:2250`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original has no such box; its messages go to the chat window as feedback lines (and some, like the screenshot, say nothing at all: FlowControlModule_t::SlotScreenshot 0x1002848e only asks DisplaySystem for the picture), so the box's lines should become System chat lines where the original has a line and disappear where it has none.
 
 #### `WIN-155` Hotbar "is not ready: queued" message and own cooldowns
 
@@ -5991,6 +6091,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: different messages and a press that fires later
 - Where: `crates/mao-client/src/hotbar.rs:171`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the queueing and own cooldowns belong to the client's smart hotbars, an optional bar of its own (`smart_hotbar = off` gives the original's shortcut bars, which follow the original: the skill-wait line UnableToPerformActionSkill and nothing sent); a player who wants the original's behaviour has it.
 
 #### `WIN-156` Map: dots for nearby characters and the character arrow
 
@@ -6000,6 +6101,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the map shows creatures and players as live coloured dots
 - Where: `crates/mao-client/src/automap.rs:572`; `crates/mao-client/src/net.rs:9581`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the dots and the arrow are drawn only on the client's own round corner map and its overlay (automap.rs show, lines 848 and 880), which is itself a setting (`round_map`/own_map) beside the original's playfield map window (PlayfieldMapView_c, which the client ports separately without them).
 
 #### `WIN-157` A skin without its own TextColors.xml takes the game's
 
