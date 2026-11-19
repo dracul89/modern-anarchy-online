@@ -1696,7 +1696,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a mission already in the list takes its old row; the list is emptied at a zoning
 - A player notices: none visible in normal play
 - Where: `crates/mao-client/src/missionlog.rs:255`; `docs/ORIGINAL_AUDIT.md:74`; `docs/CLIENT_UI.md:4082`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Gamecode FUN_10056cdd adds each mission of the QuestFullUpdate to the character's list with a plain vector push_back (FUN_100458bb), looking at nothing; the client's own replacing of a mission already in the list is gone (missionlog::MissionLog::arrived), so a mission told again stands twice, as in the original. The list emptied at a zoning stays: the original's character is a new one after a zoning, with an empty list. Test missionlog::tests::a_second_mission_stands_beside_the_first (adjusted).
 
 #### `NPC-003` Candidate animations for a creature's action are an invented order
 

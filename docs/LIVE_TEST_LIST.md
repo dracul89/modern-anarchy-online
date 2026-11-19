@@ -1070,6 +1070,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] In an interior with rooms of different districts (a city's buildings, a dungeon with a boss room), the music changes as you pass between them.
 - [ ] Talk to a few NPCs (and one right after a relog): the chat opens at once; note any NPC that stays silent.
 - [ ] /help, /help pet, /help nothing: the index page, the pet page, and the error line.
+- [ ] Watch the journal after accepting a second mission and after a team member's mission update: note whether a mission is ever listed twice.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

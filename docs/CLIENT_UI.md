@@ -7385,3 +7385,7 @@ The original's city map (`BuildingMapView_c`) does not look at which mouse butto
 ### Own death line (DTH-004)
 
 Each message that tells one's own death with a reason says the game's death line (Gamecode FUN_1005b3d8), with no gate of the client's own between them.
+
+### The mission journal's list (NPC-002)
+
+The server's missions are added to the journal as the original adds them (Gamecode FUN_10056cdd: pushed onto the list without looking), so a mission told again is listed again; a zoning empties the list, as the original's new character has none.

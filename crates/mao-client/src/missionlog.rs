@@ -254,9 +254,9 @@ pub struct Shown {
 }
 
 impl MissionLog {
-    /// What the server sent. A message's missions are added to the list (Gamecode FUN_10056cdd), they do not replace
-    /// it: a second mission accepted stands beside the first. This client's own: one that is in the list already takes
-    /// its old row's place (the original adds without looking, its list being empty after a zoning).
+    /// What the server sent. A message's missions are added to the list (Gamecode FUN_10056cdd, a vector's push_back
+    /// FUN_100458bb), they do not replace it: a second mission accepted stands beside the first, and one told again is
+    /// added again, as the original adds without looking. A zoning empties the list (the original's character is a new one).
     pub fn arrived(&mut self, what: Arrived) {
         match what {
             Arrived::Zoned => self.missions.clear(),
@@ -265,10 +265,7 @@ impl MissionLog {
                     if new {
                         self.fresh.push(m.id);
                     }
-                    match self.missions.iter_mut().find(|have| have.id == m.id) {
-                        Some(have) => *have = m,
-                        None => self.missions.push(m),
-                    }
+                    self.missions.push(m);
                 }
             }
         }
@@ -554,7 +551,8 @@ mod tests {
 
     /// The missions stack: a second accepted mission comes alone in its message and stands beside the first (the
     /// user's of 2026-11-15: one accepted in Old Athen, one in ICC, and the journal had the second only). A mission
-    /// told again takes its own row; a zoning empties the list for the server's telling it again.
+    /// told again is added again (NPC-002: FUN_10056cdd's push_back looks at nothing); a zoning empties the list for the
+    /// server's telling it again.
     #[test]
     fn a_second_mission_stands_beside_the_first() {
         let with = |id: u32, title: &str| Mission { id: (MISSION_TYPE, id), title: title.into(), ..mission(&[]) };
@@ -564,7 +562,7 @@ mod tests {
         log.arrived(Arrived::Missions(vec![with(2, "second")], true));
         assert_eq!(ids(&log), [(1, "first".to_string()), (2, "second".to_string())]);
         log.arrived(Arrived::Missions(vec![with(1, "first, told again")], false));
-        assert_eq!(ids(&log), [(1, "first, told again".to_string()), (2, "second".to_string())]);
+        assert_eq!(ids(&log), [(1, "first".to_string()), (2, "second".to_string()), (1, "first, told again".to_string())]);
         log.remove((MISSION_TYPE, 1));
         assert_eq!(ids(&log), [(2, "second".to_string())]);
         log.arrived(Arrived::Zoned);
