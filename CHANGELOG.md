@@ -169,6 +169,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Movement
 
 - Other characters' walk and run animations follow their walk/run mode instead of their measured speed.
+- One's own character is no longer pulled back to a place the server's echo names; the server's own put-backs (teleports) still move it.
 
 ## 0.1.6 (2026-11-18)
 

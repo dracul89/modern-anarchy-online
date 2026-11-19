@@ -755,7 +755,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a full report more than 5 m from us that is none of the places we told it in the last 4 s makes the client go back there (`own_report`)
 - A player notices: the client snaps back when the server refuses a move
 - Where: `docs/CLIENT_UI.md:3274`; `crates/mao-client/src/net.rs:3682`; `crates/mao-client/src/net.rs:7041`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The client no longer moves its own character back to a full report (0x16) the server sends of it. The original ignores all of the server's movement messages of its own character: FUN_1006c20f (CharDCMoveIIR_t's dynel lookup) clears a message that is not ToBePassedOn (one from the server) when its dynel is the client control dynel and returns none, so the activation FUN_1006bd94 does nothing; only a locally made message (to be passed on) is stamped with the current place and UpdateLastMotionMessageData. The captures agree that the server echoes every own movement (same counts both ways; 36 of ~8,700 echoes name a place up to ~3.5 m off). Real put-backs still come through SetPos and N3Teleport, which the client follows. The far report is still written to the log ("the server names us at ... and stay"). No unit test (game-loop code); built.
 
 #### `MOV-018` Stun flags default when stat 224 is missing
 

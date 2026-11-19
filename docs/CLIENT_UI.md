@@ -7097,3 +7097,7 @@ The original's `LoginModule_c::SlotInitialize` 0x100123ee, called on the way bac
 ### Others walk or run by their mode (MOV-005)
 
 The original picks another character's walk or run animations by its movement mode (FUN_1006c370 over FUN_10070a2f), not by how fast it goes. The client keeps that mode per character (`World::walk_modes`): from the announcement (mode 2 walk, 3 run), from the walk/run mode switches (0x18/0x19) the server passes on and from a server path's walk/run byte. Only a character whose mode was never told is still judged by its speed (over 2.2 a second is a run).
+
+### The server's echo of one's own movement (MOV-017)
+
+The server sends back each movement message of one's own character. The original ignores those for the client's own character (FUN_1006c20f clears a message from the server when its dynel is the client control dynel; CharDCMoveIIR_t's activation FUN_1006bd94 then does nothing). The client did the same except for a full report more than 5 m away that was none of its own in the last 4 s, which put the character back there; now such a report is only logged. Put-backs by SetPos and N3Teleport are followed as before.

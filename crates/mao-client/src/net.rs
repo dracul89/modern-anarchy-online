@@ -482,7 +482,8 @@ struct World {
     silent_bags: std::collections::BTreeSet<(u32, u32)>,
     bags_changed: bool,
     /// The last full position report (`0x16`) the server sent of one's own character (its echo of ours, or its own when it
-    /// refuses a move: then it repeats the last place it took, every few seconds).
+    /// refuses a move: then it repeats the last place it took, every few seconds). Only logged: the original ignores the
+    /// server's movement messages of one's own character (FUN_1006c20f).
     own_report: Option<[f32; 3]>,
     /// An `N3Teleport` within the playfield of one's own character (a generated mission's move): the destination and rotation,
     /// for the play loop to put the character at at once.
@@ -8324,26 +8325,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             }
             crate::prof::add("net-burst", Duration::from_micros(burst as u64));
             burst = 0;
-            // The server refusing a move: it sends back the last place it took (a full report far from us that is none of
-            // ours), and keeps to it: uses there are "too far away", so the character goes back to it.
-            // (kept a minute, for the log when the server puts us back; only the last 4 s count as our own reports' echoes)
+            // The server's own copy of one's movement messages (it sends each back): the original leaves the character where it
+            // is, whatever place one names (FUN_1006c20f: for the client's own dynel a message not "to be passed on", one
+            // from the server, is cleared and CharDCMoveIIR_t's activation FUN_1006bd94 does nothing). Until 2026-11-19 the
+            // client went back to a full report far from it that was none of its own; now that is only logged.
+            // (kept a minute, for that log; only the last 4 s count as our own reports' echoes)
             while told.front().is_some_and(|t| t.1.elapsed() > Duration::from_secs(60)) {
                 told.pop_front();
             }
             if let Some(p) = state.own_report.take() {
                 let far = |a: [f32; 3], b: [f32; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
                 if far(p, position) > 5.0 && !told.iter().any(|t| t.1.elapsed() < Duration::from_secs(4) && far(t.0, p) < 1.0) {
-                    eprintln!("the server put us back at {p:?} (we were at {position:?}); our reports of the last minute:");
+                    eprintln!("the server names us at {p:?} (we are at {position:?}, and stay); our reports of the last minute:");
                     for (at, when) in &told {
-                        eprintln!("  {:5.1}s ago ({:.2}, {:.2}, {:.2}){}", when.elapsed().as_secs_f32(), at[0], at[1], at[2], if far(*at, p) < 1.0 { "  <- where it put us" } else { "" });
+                        eprintln!("  {:5.1}s ago ({:.2}, {:.2}, {:.2}){}", when.elapsed().as_secs_f32(), at[0], at[1], at[2], if far(*at, p) < 1.0 { "  <- the place it names" } else { "" });
                     }
-                    position = p;
-                    base = p[1];
-                    airborne = false;
-                    rise = 0.0;
-                    jumping = false;
-                    body_reset = true;
-                    room_placed = true;
                 }
             }
             // The server moved us within the playfield (`N3Teleport`, a generated mission's move): at the destination with its
