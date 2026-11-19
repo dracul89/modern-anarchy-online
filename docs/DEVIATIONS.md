@@ -43,9 +43,9 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | | all | done | part done | looked at, left | left by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 46 | 7 | 0 | 1 | 0 | **0** |
-| **medium** | 158 | 20 | 11 | 31 | 0 | 25 | **71** |
-| **low** | 725 | 62 | 14 | 362 | 0 | 45 | **242** |
-| **all** | 937 | 128 | 32 | 393 | 1 | 70 | **313** |
+| **medium** | 158 | 30 | 24 | 50 | 0 | 33 | **21** |
+| **low** | 725 | 86 | 17 | 466 | 0 | 47 | **109** |
+| **all** | 937 | 162 | 48 | 516 | 1 | 80 | **130** |
 
 ### By area
 
@@ -56,11 +56,11 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | Targeting and mouse (`TGT`) | 17 | 2 | 0 | 0 | 1 | 0 | **14** |
 | Death and revival (`DTH`) | 14 | 2 | 0 | 0 | 0 | 0 | **12** |
 | NPCs and creatures (`NPC`) | 40 | 5 | 4 | 1 | 0 | 0 | **30** |
-| Inventory and items (`INV`) | 84 | 12 | 3 | 4 | 0 | 0 | **65** |
+| Inventory and items (`INV`) | 84 | 30 | 12 | 36 | 0 | 6 | **0** |
 | Nano programs (`NAN`) | 60 | 6 | 3 | 46 | 0 | 5 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 4 | 0 | 19 | 0 | 5 | **0** |
 | Chat and commands (`CHT`) | 80 | 13 | 0 | 51 | 0 | 10 | **6** |
-| Windows and interface (`WIN`) | 180 | 16 | 5 | 1 | 0 | 0 | **158** |
+| Windows and interface (`WIN`) | 180 | 32 | 12 | 92 | 0 | 4 | **40** |
 | Camera (`CAM`) | 13 | 1 | 0 | 0 | 0 | 0 | **12** |
 | Rendering and world (`RND`) | 194 | 20 | 4 | 158 | 0 | 12 | **0** |
 | Sound and music (`SND`) | 17 | 1 | 0 | 0 | 0 | 0 | **16** |
@@ -115,30 +115,21 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `NPC-020` Mission request scope for an unknown terminal kind is a fixed 5 (GUESS)
 - `NPC-039` Mission helper: "Looking for" lists and "Keep asking until one fits" (ADDITION)
 
-**Inventory and items** (22)
+**Inventory and items** (13)
 
-- `INV-005` Item tooltip is the client's own layout, with requirements and "When worn" list (OWN-RULE)
-- `INV-006` Moves by use go one at a time with a wait (OWN-RULE)
-- `INV-007` Right click takes an item out of a corpse (OWN-RULE)
-- `INV-008` Splitting a stack asks by a number box (OWN-RULE)
-- `INV-019` Item cells counted along rows and kept in one places.ini for all characters (SIMPLIFIED)
-- `INV-020` Item dropped on a wear cell is sent without the original's drop handling (SIMPLIFIED)
-- `INV-021` Loot windows keep the server's place order instead of sorting by name (SIMPLIFIED)
-- `INV-022` Right click sends Use; wear/take-off rule not in the window (SIMPLIFIED)
-- `INV-023` Spell texts: only listed spell types written, some English words fixed (SIMPLIFIED)
-- `INV-038` Using a bag again closes/shows its window locally, sending nothing (GUESS)
-- `INV-051` Client does not send bank use (0x6a), corpse slot action (0x8e), pet command (0x80) (MISSING)
-- `INV-052` Inventory behaviours left from the original reading (ground drop, use on a character, and others) (MISSING)
-- `INV-053` Item effects with requirements other than level are left out (MISSING)
-- `INV-054` Item pages: shop price, nano radius, armour/implant/nano sections, fixtures, towers, buildings missing (MISSING)
-- `INV-055` Player trade: partner's items not named; no out-of-range check (MISSING)
-- `INV-056` Requirement checks: only the client's own character, no apply-on target/user/secondary (MISSING)
-- `INV-057` Requirement operators needing world state give "unknown" (MISSING)
-- `INV-058` Requirement texts: special criteria, breed/gender names, apply-on reordering not ported (MISSING)
-- `INV-079` Auto loot of fresh corpses (ADDITION)
-- `INV-080` Container and overflow windows have a "Take all" button (ADDITION)
-- `INV-081` Tradeskill guide made from item descriptions (ADDITION)
-- `INV-084` A swap by right click is judged without the item that comes off (ADDITION)
+- `INV-006` Moves by use go one at a time with a wait (OWN-RULE) - looked at, left
+- `INV-008` Splitting a stack asks by a number box (OWN-RULE) - looked at, left
+- `INV-019` Item cells counted along rows and kept in one places.ini for all characters (SIMPLIFIED) - part done
+- `INV-020` Item dropped on a wear cell is sent without the original's drop handling (SIMPLIFIED) - part done
+- `INV-023` Spell texts: only listed spell types written, some English words fixed (SIMPLIFIED) - part done
+- `INV-038` Using a bag again closes/shows its window locally, sending nothing (GUESS) - looked at, left
+- `INV-051` Client does not send bank use (0x6a), corpse slot action (0x8e), pet command (0x80) (MISSING) - part done
+- `INV-053` Item effects with requirements other than level are left out (MISSING) - looked at, left
+- `INV-054` Item pages: shop price, nano radius, armour/implant/nano sections, fixtures, towers, buildings missing (MISSING) - part done
+- `INV-055` Player trade: partner's items not named; no out-of-range check (MISSING) - part done
+- `INV-056` Requirement checks: only the client's own character, no apply-on target/user/secondary (MISSING) - part done
+- `INV-057` Requirement operators needing world state give "unknown" (MISSING) - part done
+- `INV-058` Requirement texts: special criteria, breed/gender names, apply-on reordering not ported (MISSING) - part done
 
 **Nano programs** (6)
 
@@ -164,37 +155,28 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `CHT-069` Chat commands of the client's own (ADDITION)
 - `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice (ADDITION)
 
-**Windows and interface** (29)
+**Windows and interface** (20)
 
-- `WIN-002` Dark themes draw controls in the border colour instead of the skin's Default (OWN-RULE)
-- `WIN-003` Grid columns centred in the width (OWN-RULE)
-- `WIN-004` In-game web pages are a WebView2 overlay behind a local proxy (OWN-RULE)
-- `WIN-005` Map: interiors and instanced playfields get the client's own explored-grid map (OWN-RULE)
-- `WIN-006` Wear window grid scaled to fill the window (OWN-RULE)
-- `WIN-025` Chat windows of a frame are tabs of one window, others get windows of their own (SIMPLIFIED)
-- `WIN-026` Control center menus are the client's own hand-written lists (SIMPLIFIED)
-- `WIN-027` Fonts: Verdana drawn regular whatever the weight, sizes by egui points (SIMPLIFIED)
-- `WIN-028` Inventory and wear windows share one key and one window (SIMPLIFIED)
-- `WIN-029` Mission selection window drawn by hand with its own words (SIMPLIFIED)
-- `WIN-030` NPC give-trade bar drawn by hand with its own texts (SIMPLIFIED)
-- `WIN-031` Only some menu entries open windows (SIMPLIFIED)
-- `WIN-032` Option panel pages come from an AOU skin's Root.xml, not the original's built-in pages (SIMPLIFIED)
-- `WIN-033` Option window "Key bindings" tab is not the original's editor (SIMPLIFIED)
-- `WIN-034` Rollup area: no drag to reorder, client's own widths, heights and docking controls (SIMPLIFIED)
-- `WIN-035` Shop lists are hand-drawn rows with fixed sizes, not item-container lists (SIMPLIFIED)
-- `WIN-036` Stats not in the server's list shown as a dash (SIMPLIFIED)
-- `WIN-037` Tool tip frame drawn as lines, not the original's surfaces (SIMPLIFIED)
-- `WIN-083` Skill values for other characters are computed and unchecked (GUESS)
-- `WIN-084` Window frame and panel translucency, title size are the client's own (GUESS)
-- `WIN-116` Character info page leaves out several of the original's parts (MISSING)
-- `WIN-118` Land control Build and War buttons and placement circle not ported (MISSING)
+- `WIN-003` Grid columns centred in the width (OWN-RULE) - looked at, left
+- `WIN-004` In-game web pages are a WebView2 overlay behind a local proxy (OWN-RULE) - looked at, left
+- `WIN-005` Map: interiors and instanced playfields get the client's own explored-grid map (OWN-RULE) - looked at, left
+- `WIN-006` Wear window grid scaled to fill the window (OWN-RULE) - looked at, left
+- `WIN-027` Fonts: Verdana drawn regular whatever the weight, sizes by egui points (SIMPLIFIED) - part done
+- `WIN-029` Mission selection window drawn by hand with its own words (SIMPLIFIED) - part done
+- `WIN-030` NPC give-trade bar drawn by hand with its own texts (SIMPLIFIED) - looked at, left
+- `WIN-032` Option panel pages come from an AOU skin's Root.xml, not the original's built-in pages (SIMPLIFIED) - looked at, left
+- `WIN-033` Option window "Key bindings" tab is not the original's editor (SIMPLIFIED) - looked at, left
+- `WIN-034` Rollup area: no drag to reorder, client's own widths, heights and docking controls (SIMPLIFIED) - looked at, left
+- `WIN-035` Shop lists are hand-drawn rows with fixed sizes, not item-container lists (SIMPLIFIED) - looked at, left
+- `WIN-036` Stats not in the server's list shown as a dash (SIMPLIFIED) - looked at, left
+- `WIN-037` Tool tip frame drawn as lines, not the original's surfaces (SIMPLIFIED) - looked at, left
+- `WIN-083` Skill values for other characters are computed and unchecked (GUESS) - looked at, left
+- `WIN-084` Window frame and panel translucency, title size are the client's own (GUESS) - looked at, left
+- `WIN-116` Character info page leaves out several of the original's parts (MISSING) - part done
+- `WIN-118` Land control Build and War buttons and placement circle not ported (MISSING) - looked at, left
 - `WIN-119` Mission journal does not keep columns, sort or active mission, and has no Update Team Members (MISSING) - part done
-- `WIN-120` Playfield map: shadow textures absent, no second patch texture, no rooms' pictures (MISSING)
-- `WIN-121` Text views that are not editable cannot be selected by mouse (MISSING)
-- `WIN-153` Client settings window beside the original's option panel (ADDITION)
-- `WIN-154` Client's own message box for 14 seconds (ADDITION)
-- `WIN-155` Hotbar "is not ready: queued" message and own cooldowns (ADDITION)
-- `WIN-156` Map: dots for nearby characters and the character arrow (ADDITION)
+- `WIN-120` Playfield map: shadow textures absent, no second patch texture, no rooms' pictures (MISSING) - looked at, left
+- `WIN-121` Text views that are not editable cannot be selected by mouse (MISSING) - part done
 
 **Camera** (1)
 
@@ -257,6 +239,12 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `MOV-033` (low) Walk/run mode announced on entering each playfield: Addition: recommend REMOVE: the original never sends the walk/run mode on entering a playfield: across all captures (several zonings) its own movement messages 
 - `CMB-037` (medium) Damage meter window (client's own): Addition: recommend KEEP: the original has no damage meter (no such window or text in GUI.dll or Gamecode); the user asked for it (the client's own tools of 202
 - `CMB-038` (medium) Floating combat numbers: Addition: recommend REMOVE (or put behind an option, off by default): the original draws no damage numbers over characters (no such view or setting in GUI.dll, 
+- `INV-079` (medium) Auto loot of fresh corpses: Addition: recommend KEEP: an option, off by default (`auto_loot`), that changes nothing of the original's look or rules until the player turns it on; no auto lo
+- `INV-080` (medium) Container and overflow windows have a "Take all" button: Addition: recommend REMOVE: GUI.dll's container window has no "Take all" button or handler (docs/INVENTORY_ORIGINAL.md section 4, confirmed in `InventoryView_c`
+- `INV-081` (medium) Tradeskill guide made from item descriptions: Addition: recommend KEEP: a window of the client's own among its other own tools (damage meter, item finder, mission helper), opened only when asked for; it cha
+- `INV-082` (low) Backpack count heading: Addition: recommend REMOVE: the "Backpack 12/30" heading is no longer in the client's code (no such text in the inventory window); only docs/CLIENT_UI.md:1957 s
+- `INV-083` (low) Item finder (/find) is the client's own tool: Addition: recommend KEEP: one of the client's own tools the user asked for (2026-11-12 batch: damage meter, item finder, mission helper), opened only by `/find`
+- `INV-084` (medium) A swap by right click is judged without the item that comes off: Addition: recommend KEEP: added on 2026-11-18 at the user's own wish ("we should be checking requirements before starting equipment swaps that could cause probl
 - `NAN-056` (medium) Nano landing glow: three widening rings, colour from stats or school: Addition: recommend REMOVE: the original draws only the gfxtweak.bin effect a nano names (no rings of its own; the EffectRed/Green/Blue stats feed those effects
 - `NAN-057` (medium) Programs fade while a cast or recharge runs; locks from the client's own timing: Addition: recommend KEEP for now: the original does lock casting while a cast and its recharge run (the server's 0xaa locks and FUN_1004fbe4's refusals), but ho
 - `NAN-058` (low) "Nano programs available." chat line: Addition: recommend REMOVE: no such line exists in the original (no text of that kind in GUI.dll's or Gamecode's strings, none sent by name from text.mdb); the 
@@ -277,6 +265,10 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `CHT-078` (low) Own confirmation lines for several commands: Addition: recommend REMOVE: the original says nothing for these commands (e.g. /gfx); the lines are the client's own.
 - `CHT-079` (low) Scripts folder beside the client's settings is searched first: Addition: recommend KEEP: the original's folder is still searched; the client's own folder beside its settings only adds a place.
 - `CHT-080` (low) Team invitation text is the client's own: Addition: recommend KEEP until the original's invitation text is found (the box's line was not read); the box is needed to accept an invitation.
+- `WIN-153` (medium) Client settings window beside the original's option panel: Addition: recommend KEEP: the original's option panel is only the skin's Root.xml (FUN_100c3d62, see WIN-032) and has no display mode, renderer, upscaling or th
+- `WIN-154` (medium) Client's own message box for 14 seconds: Addition: recommend REMOVE: the original has no such box; its messages go to the chat window as feedback lines (and some, like the screenshot, say nothing at al
+- `WIN-155` (medium) Hotbar "is not ready: queued" message and own cooldowns: Addition: recommend KEEP: the queueing and own cooldowns belong to the client's smart hotbars, an optional bar of its own (`smart_hotbar = off` gives the origin
+- `WIN-156` (medium) Map: dots for nearby characters and the character arrow: Addition: recommend KEEP: the dots and the arrow are drawn only on the client's own round corner map and its overlay (automap.rs show, lines 848 and 880), which
 - `RND-183` (medium) Anti-aliasing, anisotropic filtering, mips and hemisphere light: Addition: recommend KEEP: anti-aliasing, anisotropic filtering and mips are display-quality settings with no rule of the original's to break (its DirectX 7 devi
 - `RND-184` (medium) Coloured boxes stand in for characters with no model: Addition: recommend KEEP: the original has a model for every character (its fallback is `unfinished-breed.cir`, see RND-028), so the boxes only show where this 
 - `RND-185` (medium) Distance haze when the area has no fog: Addition: recommend REMOVE: the original's only fog is the area's VisualFog_t; with none it draws clear to its far clip, so the haze is a look of the client's o
@@ -473,12 +465,12 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Inventory and items**
 
-- [ ] `INV-079` Auto loot of fresh corpses
-- [ ] `INV-080` Container and overflow windows have a "Take all" button
-- [ ] `INV-081` Tradeskill guide made from item descriptions
-- [ ] `INV-082` Backpack count heading
-- [ ] `INV-083` Item finder (/find) is the client's own tool
-- [ ] `INV-084` A swap by right click is judged without the item that comes off (added 2026-11-18)
+- [ ] `INV-079` Auto loot of fresh corpses **(your call)**
+- [ ] `INV-080` Container and overflow windows have a "Take all" button **(your call)**
+- [ ] `INV-081` Tradeskill guide made from item descriptions **(your call)**
+- [ ] `INV-082` Backpack count heading **(your call)**
+- [ ] `INV-083` Item finder (/find) is the client's own tool **(your call)**
+- [ ] `INV-084` A swap by right click is judged without the item that comes off (added 2026-11-18) **(your call)**
 
 **Nano programs**
 
@@ -515,10 +507,10 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 - [x] `WIN-151` Fog-of-war corner map and overlay map are the client's own **(done)**
 - [x] `WIN-152` Smart hotbars with priority lists and queued presses **(done)**
-- [ ] `WIN-153` Client settings window beside the original's option panel
-- [ ] `WIN-154` Client's own message box for 14 seconds
-- [ ] `WIN-155` Hotbar "is not ready: queued" message and own cooldowns
-- [ ] `WIN-156` Map: dots for nearby characters and the character arrow
+- [ ] `WIN-153` Client settings window beside the original's option panel **(your call)**
+- [ ] `WIN-154` Client's own message box for 14 seconds **(your call)**
+- [ ] `WIN-155` Hotbar "is not ready: queued" message and own cooldowns **(your call)**
+- [ ] `WIN-156` Map: dots for nearby characters and the character arrow **(your call)**
 - [ ] `WIN-157` A skin without its own TextColors.xml takes the game's
 - [ ] `WIN-158` Actions tooltip has the client's own text
 - [ ] `WIN-159` AOU mod skins bundled and selectable
