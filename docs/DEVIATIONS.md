@@ -4672,6 +4672,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: web pages persist while hidden; reopening shows the home page
 - Where: `docs/CLIENT_UI.md:3231`; `docs/CLIENT_UI.md:3463`; `crates/mao-client/src/browser.rs:402`; `crates/mao-client/src/browser.rs:456`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: dropping the WebView2 page ended the web session and the site refused the ticket the second time; hiding it and opening it private keeps the original's fresh cookies (awe_webcore_clear_cookies) without losing the session. Clearing as the original would break the second visit.
 
 #### `WIN-008` Fixed dialogs and the client's own windows keep no place
 
@@ -4681,6 +4682,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: those windows always open at the centre
 - Where: `crates/mao-client/src/layout.rs:27`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The windows without a kept place are the dialogs (`DialogBox_c`, no config in the original either), the launcher's screens, and the client's own Options and Whom-Pah windows; the original's option panel ("Option panel", `OptionWindowConfig`) keeps its place here as there. Nothing of the original's to port.
 
 #### `WIN-009` Inbox size shows the server's count, not the list's row count
 
@@ -4700,6 +4702,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Window size on first open.
 - Where: `crates/mao-client/src/gui/infoview.rs:156`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): What size the original's info view opens at was not read (its window's constructor and XML were not found with a size); 360x480 stands until then.
 
 #### `WIN-011` Land control view: district text placed under the button
 
@@ -4719,6 +4722,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: bigger click targets
 - Where: `docs/CLIENT_UI.md:1562`; `crates/mao-client/src/gui/controls.rs:818`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): How the original's text view hit-tests a link (only the words' boxes or the line between them) was not read; stretching the words is the client's guess. Left until `TextView_c`'s link hit test is read.
 
 #### `WIN-013` Mail without a recipient or subject is not sent
 
@@ -4738,6 +4742,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Different wording from the original's window text.
 - Where: `crates/mao-client/src/net.rs:6981`; `docs/CLIENT_UI.md:941`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's sentence is in its program (GUI.dll FUN_100d0e71's own words, not text.mdb), and the user's rule is that such strings are written in the client's own words. Nothing to change.
 
 #### `WIN-015` Mission window uses the terminal first when opened another way
 
@@ -4747,6 +4752,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Missions can be requested from a window not opened at the booth.
 - Where: `crates/mao-client/src/net.rs:8089`; `docs/CLIENT_UI.md:4038`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept for the user's word: when the window was opened at the booth the client already sends the request alone, as the original's button (FUN_100d09cb); using the terminal first happens only for a window opened another way, where the original has no terminal to ask. Removing it would make Request Missions do nothing from such a window, which the user has tried live.
 
 #### `WIN-016` Nano programs window docked layout is the client's own
 
@@ -4756,6 +4762,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The layout does not follow the window's width.
 - Where: `crates/mao-client/src/nanoprograms.rs:290`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original lays the school buttons in rows as wide as the window (`SchoolSelector_c`, FUN_100d6051) and the grid takes as many columns as fit; porting it means laying the buttons by width each frame and the grid's columns by the list's width, a layout change that was more than this entry's time.
 
 #### `WIN-017` Original's shortcut bar frames not used
 
@@ -4775,6 +4782,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: scroll bar colours follow the client's theme
 - Where: `crates/mao-client/src/gui/scroll.rs:174`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The tint is the theme's accent, which for the game's own skin is GUIColors.xml's `Default` colour (theme.rs `from_gui_colors`), the colour the original tints its greyscale skin pictures with; whether the original's scroll bar pictures are tinted, and by which entry, was not read in `ScrollBar_c`. Left until it is.
 
 #### `WIN-019` TextButton sized to the widest of its three texts
 
@@ -4804,6 +4812,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A window can be dragged by its body.
 - Where: `crates/mao-client/src/chrome.rs:4`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Moving only by the title strip means replacing egui's window move with a drag handle on the frame's title for every window (`chrome::window` draws them without egui's title bar, which is why the whole body drags); a change to every window, more than this entry's time. The hover texts of the pin, dock and close buttons are the client's words where the original has none.
 
 ### Windows and interface: an approximation or a stand-in (61)
 
@@ -6365,6 +6374,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the planet map window shows maps the original does not have
 - Where: `CHANGELOG.md:76`; `crates/mao-formats/src/planetmap.rs:12`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the maps made here (Atlas of Rubi-Ka) are the user's own work; the game's maps are still listed and the default.
 
 #### `WIN-177` The client's own tool windows (damage meter, item finder, guide)
 
@@ -6374,6 +6384,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Extra windows and chat commands.
 - Where: `crates/mao-client/src/extras.rs:1`; `crates/mao-client/src/ui.rs:343`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the client's own tools the user asked for.
 
 #### `WIN-178` Web pages: loading page and 8 s / 30 s proxy time-outs
 
@@ -6383,6 +6394,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A loading line instead of a blank pane; a silent site is reported in seconds.
 - Where: `crates/mao-client/src/browser.rs:302`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the loading line and the time-outs only show while a page is coming or a site is silent.
 
 #### `WIN-179` Window icon is the client's own emblem on a slate square
 
@@ -6392,6 +6404,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the window icon differs from the original's
 - Where: `README.md:87`; `crates/mao-client/src/icon.rs:1`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the icon is the original's own emblem picture (GFX_GUI_AO_LOGO); a program must have one.
 
 #### `WIN-180` Windows that can be docked include ones the original does not dock
 
@@ -6401,6 +6414,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: more windows have a dock button
 - Where: `crates/mao-client/src/rollup.rs:23`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: docking more windows is an option a player chooses; the original's docked windows are docked by default as there.
 
 ## Camera
 
