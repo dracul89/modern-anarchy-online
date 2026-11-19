@@ -2278,7 +2278,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: removes the item from the inventory window immediately and says "Item deleted"; a refused delete is not taken back (notes)
 - A player notices: no wait for the server
 - Where: `crates/mao-client/src/net.rs:8424`; `docs/CLIENT_UI.md:1862`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Gamecode `N3Msg_DeleteItem` (0x1001c864) only sends `CharacterAction` 0x70; the item leaves when the server answers with the same action (net.rs already handles 0x70 on `(0x68, place)`); there is no line of its own. It refuses a worn item (FUN_100474a9, the wear inventories 0x65-0x67 and 0x73: `Feedback_ItemsMustBeUnequippedToBeDeleted`) and a bag whose `Chest_t` holds items (FUN_1002a398: `Todeleteabagyoumustremoveallcontents`, judged here only for a bag whose contents the client has seen). The client took the item out at once and said "Item deleted"; now it waits. `net::delete_refusal`, test `a_delete_is_refused_for_worn_items_and_full_bags`.
 
 #### `INV-026` Drag and drop covers only part of the original's targets
 

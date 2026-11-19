@@ -859,6 +859,20 @@ const NO_MESH_SPHERE: (f32, f32) = (0.5, 1.0);
 /// A door the server opened, until it says closed.
 const SERVER_OPEN: Duration = Duration::from_secs(24 * 3600);
 
+/// Why `N3Msg_DeleteItem` (Gamecode 0x1001c864) refuses to destroy the item at an inventory place, by the feedback's
+/// name: a worn item (a place below the backpack's: the wear inventories 0x65-0x67 and 0x73, FUN_100474a9), or a bag
+/// that still holds something. (An implant in the implant inventory asks for a surgery clinic, but a worn item is
+/// refused first.)
+fn delete_refusal(place: u32, full_bag: bool) -> Option<&'static str> {
+    if place < inventory::BACKPACK_FIRST {
+        Some("Feedback_ItemsMustBeUnequippedToBeDeleted")
+    } else if full_bag {
+        Some("Todeleteabagyoumustremoveallcontents")
+    } else {
+        None
+    }
+}
+
 /// Whether a trade may start with a character (Gamecode FUN_1005a1e7, asked by `N3Msg_TradeStart` 0x10019148): the
 /// distance between the two body spheres' centres, less both radii, no more than 5 m (DAT_101584fc). Spheres are
 /// (height of the centre above the feet, radius). Not here: in a dungeon, two rooms apart need the door between them
@@ -9994,16 +10008,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     None => eprintln!("[{:6.1}] not deleting place {place} of the container {handle:#x}: it is no longer the item {low}/{high}", clock.elapsed().as_secs_f32()),
                 }
             }
-            // An item destroyed: asked of the server and taken out of the inventory window at once.
+            // An item destroyed: asked of the server (Gamecode `N3Msg_DeleteItem` 0x1001c864); the item leaves the window
+            // when the server answers with the same action (0x70 above). Not a worn one
+            // (`Feedback_ItemsMustBeUnequippedToBeDeleted`, FUN_100474a9) nor a bag whose contents are known and not
+            // empty (the bag's `Chest_t` with items, FUN_1002a398: `Todeleteabagyoumustremoveallcontents`).
             if keys.delete.0 != delete_seen {
                 delete_seen = keys.delete.0;
                 let place = keys.delete.1;
-                if let Some(i) = state.worn.iter().position(|e| e.slot == place) {
-                    let entry = state.worn.remove(i);
-                    let _ = connection.send(&n3::delete_item(own, place, entry.low_id, entry.high_id));
-                    state.mods_dirty = true;
-                    pending_gear = Some(crate::gear::from_entries(&gear_db, &gear_textures, &state.worn, state.stats.get(&0x36).copied().unwrap_or(1)));
-                    pending_messages.push("Item deleted".into());
+                if let Some(entry) = state.worn.iter().find(|e| e.slot == place).cloned() {
+                    let full_bag = entry.is_bag() && state.bags.get(&entry.container).is_some_and(|b| !b.entries.is_empty());
+                    match delete_refusal(place, full_bag) {
+                        Some(name) => state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name))),
+                        None => {
+                            let _ = connection.send(&n3::delete_item(own, place, entry.low_id, entry.high_id));
+                        }
+                    }
                 }
             }
             // A corpse that just opened is emptied when the setting says so.
@@ -14489,6 +14508,14 @@ mod door_tests {
         assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x13), (54, 50, 2)], own, &w), Ok(false));
         assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x6e), (54, 5, 2)], own, &w), Ok(false));
         assert!(crate::requirements::evaluate(&[(0, 0, 0x12), (54, 5, 2)], own, &w).is_err());
+    }
+
+    /// N3Msg_DeleteItem: not a worn item, not a bag with something in it.
+    #[test]
+    fn a_delete_is_refused_for_worn_items_and_full_bags() {
+        assert_eq!(delete_refusal(6, false), Some("Feedback_ItemsMustBeUnequippedToBeDeleted"));
+        assert_eq!(delete_refusal(inventory::BACKPACK_FIRST, true), Some("Todeleteabagyoumustremoveallcontents"));
+        assert_eq!(delete_refusal(inventory::BACKPACK_FIRST + 3, false), None);
     }
 
     /// FUN_1005a1e7: a trade starts while the two bodies are within 5 m of each other, sphere to sphere.

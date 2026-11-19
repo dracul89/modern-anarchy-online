@@ -7269,3 +7269,7 @@ In the original a corpse's item list ignores a plain right click (GUI.dll FUN_10
 ### Item tips (INV-005)
 
 The original's item tip (GUI.dll FUN_10042193) has the item's name in its rarity colour as its title, and under it the item's own info page as a tip shows it (FUN_10038f6b with its "tip" argument: no header and no description, and on the general and implant pages no requirements and no skills to use), while the `ItemDescriptionTooltips` preference is on, which it is by default. The client's tips are now that, drawn as markup; the client's own tip (slot, QL, stack, requirement lines in green and red, "When worn" effects) is gone.
+
+### Destroying an item (INV-025)
+
+The original's `N3Msg_DeleteItem` (0x1001c864) asks the server and the item goes when the server answers; it refuses to destroy a worn item or a bag with something in it, with the game's lines. The client now does the same; it no longer takes the item out before the answer or says "Item deleted".
