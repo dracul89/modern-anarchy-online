@@ -97,6 +97,30 @@ pub fn for_window(expansion_playfield: i64) -> Option<Arc<PlanetMap>> {
     chosen(window_kind(expansion_playfield))
 }
 
+/// The ExpansionPlayfield (stat 531) the original's client gives its character on entering a playfield (Gamecode
+/// FUN_1005997f: 0, then 1 when `PlayfieldAnarchy_t::IsShadowlandPF`, 0x10121e59, finds bit 1 of the playfield record's
+/// +0x50 word, `playfield::flag_words`' first); the server does not send it. 0 without the game's database. Read once
+/// per playfield.
+pub fn expansion_playfield(playfield: u32) -> i64 {
+    static READ: Mutex<Option<(u32, i64)>> = Mutex::new(None);
+    let mut read = READ.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((pf, value)) = *read
+        && pf == playfield
+    {
+        return value;
+    }
+    let Some(db) = crate::net::item_db() else { return 0 };
+    let record = db.get(mao_formats::resource::Id { kind: mao_formats::playfield::KIND, instance: playfield }).ok().flatten();
+    let value = shadowland_flag(record.as_deref().and_then(mao_formats::playfield::flag_words).map_or(0, |w| w[0]));
+    *read = Some((playfield, value));
+    value
+}
+
+/// `IsShadowlandPF`'s bit of the record's first flag word, as the stat's value.
+fn shadowland_flag(word: u32) -> i64 {
+    i64::from((word >> 1) & 1)
+}
+
 /// Uses another map for its kind (the option saved).
 pub fn choose(index: &str) {
     let Some(found) = available().iter().find(|f| f.index.eq_ignore_ascii_case(index)) else { return };
@@ -226,5 +250,14 @@ mod tests {
     #[test]
     fn the_window_shows_the_map_of_the_expansion_playfield() {
         assert_eq!([0, 1, 2, 3].map(window_kind), ["Rubika", "Shadowlands", "Rubika", "Shadowlands"]);
+        assert_eq!([0, 1, 2, 3, 6].map(shadowland_flag), [0, 0, 1, 1, 1]);
+    }
+
+    /// `MAO_GAME`: Nascense Wilds (4310) is a Shadowlands playfield, Athen Shire (540) not.
+    #[test]
+    fn a_shadowlands_playfield_sets_the_stat() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        crate::net::set_item_db(Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap()));
+        assert_eq!((expansion_playfield(4310), expansion_playfield(540)), (1, 0));
     }
 }

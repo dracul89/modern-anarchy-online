@@ -1440,7 +1440,7 @@ impl Ui {
             if let Some(url) = shown.info {
                 info_view.show_url(&url);
             }
-            planet.show(&ctx, palette, hud.playfield, hud.stats.get(&531).copied().unwrap_or(0), hud.position, hud.heading, requests.waypoint.or(hud.waypoint));
+            planet.show(&ctx, palette, hud.playfield, crate::planetmaps::expansion_playfield(hud.playfield), hud.position, hud.heading, requests.waypoint.or(hud.waypoint));
             if npc_chat.open {
                 // (the credits the trade bar's V gives at most: stat 61, FUN_10057cc6)
                 npc_chat.credits = hud.stats.get(&61).copied().unwrap_or(0);
@@ -2044,7 +2044,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 }
             }
             if let Some(window) = preview_planet.as_mut() {
-                window.show(&ctx, &palette, hud.playfield, hud.stats.get(&531).copied().unwrap_or(0), hud.position, hud.heading, hud.waypoint);
+                window.show(&ctx, &palette, hud.playfield, crate::planetmaps::expansion_playfield(hud.playfield), hud.position, hud.heading, hud.waypoint);
                 // (the tiles come from a thread: give it time between the frames)
                 std::thread::sleep(std::time::Duration::from_millis(150));
             }

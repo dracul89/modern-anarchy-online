@@ -2228,8 +2228,6 @@ fn run(args: &[String]) -> Result<(), String> {
                         let mut window = planetwindow::PlanetWindow::default();
                         window.toggle();
                         hud.playfield = number;
-                        // (the map is picked by the ExpansionPlayfield stat, which a preview has not: set as the playfield's map says)
-                        hud.stats.insert(531, i64::from(planetmaps::for_playfield(number).is_some_and(|m| m.kind.eq_ignore_ascii_case("Shadowlands"))));
                         hud.waypoint = std::env::var("MAO_WAYPOINT").ok().and_then(|v| {
                             let p: Vec<f32> = v.split(',').filter_map(|n| n.trim().parse().ok()).collect();
                             (p.len() == 3).then(|| (p[0] as u32, [p[1], 0.0, p[2]]))
