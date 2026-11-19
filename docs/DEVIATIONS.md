@@ -2795,6 +2795,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The NCU figure may differ from the server's when a nano is missing from the list.
 - Where: `crates/mao-client/src/ui.rs:1088`; `crates/mao-client/src/ncu.rs:244`; `docs/CLIENT_UI.md:1695`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The original keeps stat 180 itself: when a nano starts on the character, FUN_100517f3 (0x100518a7..0x10051922) adds the nano's stat 54 to stat 180, but only for a nano whose flags (stat 0; the item's +0x4c, set with stat 0 by FUN_10003d43, tested by FUN_10003d5b) have 0x10000 and none of 0x4000, 0x8000 (hostile) and 0x100. The client summed every running nano's stat 54; now it sums only those (ncu::ncu_cost). Over the game's nanos, heals (flags 0x80000002) and hostile programs lack 0x10000 or carry 0x8000, so a debuff or a heal on the character no longer counts. Left: the original's taking-away when a nano ends was not found in the decompile (no other write of stat 180), so the client still sums the running list instead of keeping a running total; the result is the same while the list is right. Test: ncu::tests::only_lasting_friendly_nanos_take_ncu.
 
 #### `NAN-005` Others' nano times are the client's estimate, counted from first announcement
 

@@ -7109,3 +7109,7 @@ The attack key and Ctrl+click follow N3Msg_DefaultAttack (Gamecode 0x10028147): 
 ### A hit and the health message after it (CMB-004)
 
 The server sends a weapon or special hit and then the victim's new health. The original lowers the victim's health by the hit when it tells it (FUN_1009b6b7, FUN_1006af0e), so the health message finds nothing more to tell; a drop beyond the hits is told as "attacked with nanobots for N points of unknown damage" (FUN_100a2006, event 0x1b). The client does the same now; it used to forget hits after 2 seconds instead.
+
+### NCU in use (NAN-004)
+
+The original adds a running nano's NCU (its stat 54) to stat 180 only for nanos flagged 0x10000 and none of 0x4000, 0x8000 (hostile) and 0x100 (Gamecode FUN_100517f3). The NCU window's title and the strip sum the running nanos by that rule (`ncu::ncu_cost`), so heals and hostile nanos running on the character take no NCU.

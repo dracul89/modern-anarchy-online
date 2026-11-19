@@ -173,6 +173,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Other characters' walk and run animations follow their walk/run mode instead of their measured speed.
 - One's own character is no longer pulled back to a place the server's echo names; the server's own put-backs (teleports) still move it.
 
+### Nanos
+
+- The NCU in use no longer counts hostile nanos or heals running on the character.
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher
