@@ -4241,7 +4241,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A catalogue (actions_data.rs) read from a running client is filtered by what the server listed; before the list arrives everything shows; a weapon's attacks are recomputed and de-duplicated.
 - A player notices: Which tiles show can differ (before the lists arrive, two weapons with the same attack).
 - Where: `crates/mao-client/src/actions.rs:1`; `crates/mao-client/src/actions.rs:184`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the window lists what the original's list holds, in its order: the nine character actions, then the special attacks (the server's, then the weapons' and Reload), then the server's perk actions; nothing else before the server's lists, one tile for an action listed twice (`actions::listed_templates`). The tiles' kept places (SpecialActions.xml) are not ported.
 
 #### `WIN-023` All non-own containers share one window named "loot"
 
@@ -5071,8 +5072,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the catalogue always shows Stand, Walk, Sneak, Start Combat, Suspended Animation and Crawl
 - A player notices: the tile does not change when you sit, run, fight or sneak
 - Where: `crates/mao-client/src/actions.rs:45`
-- Decision: [ ] port  [ ] leave
-- Looked at, left (2026-11-18, overnight): read in full (FUN_1004300e shows the other number of a pair; its callers by pair; both templates of each pair are in actions::TEMPLATES); the tiles now act by the state but do not change their picture: that touches the window, the hotbar and the HUD's update.
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): a pair's tile shows what a click does next (FUN_1004300e: `actions::shown_number`) by the states the network thread sets every frame (fighting, sitting, walking, sneaking, camping; crawling is not kept), named and pictured by its template; the shortcut bars and the smart hotbars follow; Sneak and Stop Sneaking go by number. Pictures only, not seen live.
 
 #### `WIN-114` Window chrome: no "?" help button, docking, auto-fade, original titles or art
 

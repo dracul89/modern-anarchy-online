@@ -9434,7 +9434,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     };
                 match name {
                     _ if numbered.is_some() || grounded_only || keyed => {}
-                    "Sneak" => {
+                    // (either half of the pair: the tile shows Stop Sneaking while sneaking)
+                    _ if matches!(number, Some(0x13 | 0x4f)) => {
                         // (`N3Msg_TryEnterSneakMode`, 0x10029581: not in a vehicle; one who sneaks already leaves it, the
                         // toggled entry's movement action 0x24)
                         if state.sneaking.contains(&own) {
@@ -10041,6 +10042,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 mode_told = true;
                 send(&mut connection, if state.own_walking { movement::WALK_MODE } else { movement::RUN_MODE }, heading, position, &mut sent);
             }
+            // (what the pairs' tiles follow: `actions::shown_number`)
+            crate::actions::set_toggles(crate::actions::Toggles {
+                fighting: state.fighting.contains_key(&own),
+                sitting,
+                walking: state.own_walking,
+                sneaking: state.sneaking.contains(&own),
+                camping: crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).is_some(),
+                crawling: false,
+            });
             heading += keys.turn as f32 * turn_rate(&state.stats, walk != 0 || keys.strafe != 0) * dt;
             // (fighting, the character turns to its target while it stands: `Facing`; any steering counts as moving)
             if let Some(target_at) = state.fighting.get(&own).and_then(|&t| state.position_of(t)) {

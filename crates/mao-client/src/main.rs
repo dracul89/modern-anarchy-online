@@ -2096,6 +2096,10 @@ fn run(args: &[String]) -> Result<(), String> {
                     if preview.as_deref() == Some("actions") {
                         let mut window = actions::ActionsWindow::default();
                         window.open = true;
+                        // (`MAO_ACTION_TOGGLES=1`: fighting, sitting, walking, sneaking and camping, so every pair shows its other half)
+                        if std::env::var_os("MAO_ACTION_TOGGLES").is_some() {
+                            actions::set_toggles(actions::Toggles { fighting: true, sitting: true, walking: true, sneaking: true, camping: true, crawling: true });
+                        }
                         window.load_icons(&textures.clone_handle());
                         *hud.actions_preview.lock().unwrap() = Some(window);
                     }

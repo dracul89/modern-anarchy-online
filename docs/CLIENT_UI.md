@@ -6641,3 +6641,43 @@ the appearance scene. `MAO_CREATURE_BODY=<breed>,<sex>` gives the `creature` pre
 
 Tests: `the_green_is_exact`, `the_naked_texture_shows_where_the_green_is`, `the_naked_textures_names`, `a_pair_has_one_number`,
 `a_head_names_its_body`.
+
+## The Action window, container windows, special attack range and the shortcut bars (2026-11-18)
+
+The user: "WIN-022, WIN-023, WIN-113, CMB-022, WIN-001 with the option to switch to the smart hotbar". Four readers on a
+smaller model read the original; what the ports rest on was checked here in the decompile and the game files. None of
+it was seen in the live game.
+
+### The Action window lists what the character has, and its pairs change (WIN-022, WIN-113)
+
+The window showed the whole catalogue read from a running client: every special attack until the server listed them, and
+every catalogue perk while the character had none. Now it lists what the original's list holds (`actions::listed_templates`,
+`N3Msg_GetSpecialActionList`), in its order:
+
+- **The character's nine actions**, as Gamecode's FUN_1004326f adds them when the character is made: Use, Pick-Up, Start
+  Combat, Sit, Walk, Sneak, Suspended Animation, Crawl and Search.
+- **The special attacks** next: the server's list (`SpecialAttackWeapon`), then what the weapons in the hands give, Reload
+  with them.
+- **Then the perk actions** the server listed (`CharacterAction` 0xb4).
+- **Before the server's lists** there are the nine and nothing else.
+- **An action listed twice shows once** (GUI.dll FUN_100dc05e finds a tile by its identity).
+
+**Six of the nine come in pairs** (FUN_1004326f): start and end combat, sit and stand, walk and run, sneak and stop sneaking,
+suspended animation and disrupt, crawl and stop crawling. Gamecode's FUN_1004300e is given the number just done or entered,
+and the entry then shows the other one: the tile always shows what a click does next (`actions::shown_number`).
+
+- **The callers swap a pair when its state changes**: a fight starts or stops, the character sits or stands, changes its pace,
+  sneaks, camps or crawls.
+- **A fresh character** shows Start Combat, Sit, Walk (it runs), Sneak, Suspended Animation and Crawl.
+- **The client follows its own states** (`actions::Toggles`, set by the network thread every frame): fighting, sitting,
+  walking, sneaking and the camp under way. Crawling is not kept here, so Crawl stays Crawl.
+- **The other half is named and pictured by its template**: End Combat, Stand, Run, Stop Sneaking, Disrupt Suspended
+  Animation.
+- **The shortcut bars and the smart hotbars follow the swap too**, as the original's bar does (GlobalSignals +0xa8, GUI.dll
+  FUN_100d9380). A click does what the tile shows; Sneak and Stop Sneaking are told apart by their numbers now, not the
+  tile's name.
+
+Not ported: the tiles' places kept per character (`SpecialActions.xml`).
+
+Tests: `the_window_lists_what_the_character_has_in_the_original_order`, `a_pairs_tile_shows_what_a_click_does_next`. The
+pictures `MAO_UI_PREVIEW=actions` and, with every state on, `MAO_ACTION_TOGGLES=1`.

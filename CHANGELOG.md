@@ -70,6 +70,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   seconds. Doors the game marks as locked now stay shut until the server unlocks them.
 - Characters show their real bare skin: each breed, sex and Solitus race has its own instead of one tan for everybody.
 - Creatures' eyes, lamps and other lights glow from their textures, and see-through parts of characters are see-through.
+- The Action window lists only what your character has, in the original's order. The Sit/Stand, Walk/Run, Sneak, combat and
+  Suspended Animation tiles change with what you are doing, on the shortcut bars as well.
 
 ### Items
 

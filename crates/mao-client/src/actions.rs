@@ -223,13 +223,73 @@ pub fn weapon_numbers(can: u32) -> impl Iterator<Item = u32> {
     WEAPON_CAN.into_iter().filter(move |f| can & f.0 != 0).map(|f| f.1)
 }
 
-/// Whether a catalogue action is shown, given the numbers of the special actions the character has from the server's
-/// list and from its weapons (`None`: not told yet, everything shows): a special attack or Reload only when among them.
-pub fn shows(template: u32, listed: Option<&[u32]>) -> bool {
-    match number_of(template) {
-        Some(number) if number > 0x8d || number == RELOAD => listed.is_none_or(|l| l.contains(&number)),
-        _ => true,
+/// The character's own actions, in the order the original lists them when the character is made (Gamecode FUN_1004326f):
+/// use, pick up, start combat, sit, walk, sneak, suspended animation, crawl and search. Each pair's first number is the
+/// one the list starts with ([`PAIRS`]).
+pub const CHARACTER_ORDER: [u32; 9] = [3, 1, 0xb, 0x4c, 0x11, 0x13, 0x51, 0x14, SEARCH];
+
+/// The character's actions that come in pairs, each with the number it toggles to (FUN_1004326f): start and end combat, sit
+/// and stand, walk and run, sneak and stop sneaking, suspended animation and disrupt, crawl and stop crawling.
+pub const PAIRS: [(u32, u32); 6] = [(0xb, 0x4e), (0x4c, 0x4d), (0x11, 0x12), (0x13, 0x4f), (0x51, 0x52), (0x14, 0x8d)];
+
+/// The states a pair's tile follows, as the network thread last saw them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Toggles {
+    pub fighting: bool,
+    pub sitting: bool,
+    pub walking: bool,
+    pub sneaking: bool,
+    pub camping: bool,
+    pub crawling: bool,
+}
+
+static TOGGLES: std::sync::Mutex<Toggles> = std::sync::Mutex::new(Toggles { fighting: false, sitting: false, walking: false, sneaking: false, camping: false, crawling: false });
+
+/// The network thread tells the states the pairs' tiles follow.
+pub fn set_toggles(t: Toggles) {
+    *TOGGLES.lock().unwrap_or_else(|e| e.into_inner()) = t;
+}
+
+pub fn toggles() -> Toggles {
+    *TOGGLES.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Which of a pair a tile shows: the one a click does next. The original swaps the entry when the state changes (Gamecode
+/// FUN_1004300e, given the number just done or entered, shows the other one of its pair; called when a fight starts or
+/// stops, the character sits or stands, changes its pace, sneaks, camps or crawls), and the Action window and the shortcut
+/// bars follow (GlobalSignals +0xa8). A fresh character shows start combat, sit, walk (it runs), sneak, suspended animation
+/// and crawl. A number of no pair is itself.
+pub fn shown_number(number: u32, t: Toggles) -> u32 {
+    let Some(&(first, second)) = PAIRS.iter().find(|p| p.0 == number || p.1 == number) else { return number };
+    let on = match first {
+        0xb => t.fighting,
+        0x4c => t.sitting,
+        0x11 => t.walking,
+        0x13 => t.sneaking,
+        0x51 => t.camping,
+        _ => t.crawling,
+    };
+    if on { second } else { first }
+}
+
+/// [`shown_number`] by the action's template.
+pub fn shown_template(template: u32, t: Toggles) -> u32 {
+    number_of(template).map(|n| shown_number(n, t)).and_then(template_of).unwrap_or(template)
+}
+
+/// The templates the Action window lists, in the original's order (`N3Msg_GetSpecialActionList`, the list FUN_10042f09
+/// adds to): the character's own actions as their pairs stand, the special attacks (the server's list, then what the
+/// weapons in the hands give, Reload with them), then the perk actions the server listed. Nothing else: before the server
+/// lists them there are no special attacks and no perks. The window shows one tile for an action listed twice
+/// (FUN_100dc05e finds the tile by its identity).
+pub fn listed_templates(specials: &[u32], perks: &[u32], t: Toggles) -> Vec<u32> {
+    let mut out: Vec<u32> = Vec::new();
+    for template in CHARACTER_ORDER.iter().filter_map(|&n| template_of(n)).map(|template| shown_template(template, t)).chain(specials.iter().copied()).chain(perks.iter().copied()) {
+        if !out.contains(&template) {
+            out.push(template);
+        }
     }
+    out
 }
 
 /// A special attack the server lists for the character whose stat has an action: the stat, the action's template
@@ -300,11 +360,14 @@ pub struct ActionsWindow {
     /// What a click asked for: sent to the network thread by the viewer.
     pub clicked: Option<hotbar::Action>,
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
+    /// The other halves of the pairs the catalogue does not have (end combat, sit, run, stop sneaking, disrupt, stop
+    /// crawling): named and pictured by their templates.
+    pair_looks: HashMap<u32, (String, Option<Arc<Icon>>)>,
 }
 
 impl Default for ActionsWindow {
     fn default() -> Self {
-        ActionsWindow { open: false, icons: HashMap::new(), loaded: false, clicked: None, views: None }
+        ActionsWindow { open: false, icons: HashMap::new(), loaded: false, clicked: None, views: None, pair_looks: HashMap::new() }
     }
 }
 
@@ -323,11 +386,36 @@ impl ActionsWindow {
                 }
             }
         }
+        use mao_formats::item::{self, Item};
+        for template in PAIRS.iter().flat_map(|p| [p.0, p.1]).filter_map(template_of).filter(|t| !ACTIONS.iter().any(|a| a.0 == *t)) {
+            let parsed = textures.db().get(mao_formats::resource::Id { kind: item::TEMPLATE, instance: template }).ok().flatten().as_deref().and_then(Item::parse);
+            let icon = parsed.as_ref().and_then(|t| t.icon()).and_then(|id| textures.get(item::ICON_TYPE, id).map(|t| Arc::new(Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba })));
+            self.pair_looks.insert(template, (parsed.map_or_else(|| format!("Action {template}"), |t| t.name), icon));
+        }
     }
 
     /// The icon behind a hotbar entry's `icon` number (an index into the action icons).
     pub fn icon_by_instance(&self, instance: u32) -> Option<&Arc<Icon>> {
-        self.icons.values().find(|i| i.id == instance)
+        self.icons.values().chain(self.pair_looks.values().filter_map(|l| l.1.as_ref())).find(|i| i.id == instance)
+    }
+
+    /// A catalogue action's or a pair's other half's name and icon, by its template.
+    fn look(&self, template: u32) -> Option<(String, Option<Arc<Icon>>, Kind)> {
+        if let Some(&(_, kind, name, _, _)) = ACTIONS.iter().find(|a| a.0 == template) {
+            return Some((name.to_string(), self.icons.get(icon_name(kind, name)).cloned(), kind));
+        }
+        self.pair_looks.get(&template).map(|(name, icon)| (name.clone(), icon.clone(), Kind::Character))
+    }
+
+    /// A shortcut's action as its pair stands (the shortcut bar follows the swap, GUI.dll FUN_100d9380): a click does what
+    /// the tile shows, the network thread going by the pair's numbers.
+    pub fn paired(&self, action: hotbar::Action) -> hotbar::Action {
+        let hotbar::Action::Special { id, .. } = &action else { return action };
+        let shown = shown_template(*id, toggles());
+        match self.look(shown) {
+            Some((name, icon, _)) if shown != *id => hotbar::Action::Special { id: shown, name, icon: icon.map(|i| i.id) },
+            _ => action,
+        }
     }
 
     /// The window, GUI.dll's `SpecialActionView_c` (FUN_100dc9b1): "Actions", a grid of the special actions in the
@@ -348,27 +436,27 @@ impl ActionsWindow {
             tree.add_child(root, list);
             self.views = Some((tree, root, list));
         }
-        // (the weapon and character actions from the catalogue; the perk actions the server listed for this character, or the
-        // catalogue's until it has: `N3Msg_GetSpecialActionList`)
+        // (the original's list, `listed_templates`: the character's own actions as their pairs stand, the special attacks
+        // the server and the weapons give, the perk actions the server listed. Until 2026-11-18 the whole catalogue showed
+        // until the server had listed them, and its perks whenever the character had none.)
         let now = std::time::Instant::now();
-        // (the special attacks the server listed: a catalogue action that is one of theirs only when listed)
-        let listed: Option<Vec<u32>> = specials.map(|s| s.iter().map(|s| s.stat).collect());
-        let mut actions: Vec<(hotbar::Action, String, Option<Arc<Icon>>, String, Option<(f32, f32)>)> = ACTIONS
-            .iter()
-            .filter(|a| a.1 != Kind::Perk || perks.is_empty())
-            .filter(|a| a.1 == Kind::Perk || shows(a.0, listed.as_deref()))
-            .map(|&(id, kind, name, _, _)| {
-                let icon = self.icons.get(icon_name(kind, name)).cloned();
-                (hotbar::Action::Special { id, name: name.to_string(), icon: icon.as_ref().map(|i| i.id) }, name.to_string(), icon, (if kind == Kind::Weapon { "Weapon attack" } else if kind == Kind::Perk { "Perk action" } else { "Character action" }).to_string(), lock_left(id))
-            })
-            .collect();
-        // (a listed special the catalogue does not have: named and pictured by its action's template)
-        for s in specials.unwrap_or_default().iter().filter(|s| !ACTIONS.iter().any(|a| a.0 == s.template)) {
-            actions.push((hotbar::Action::Special { id: s.template, name: s.name.clone(), icon: None }, s.name.clone(), s.icon.clone(), if s.description.is_empty() { "Weapon attack".to_string() } else { s.description.clone() }, lock_left(s.template)));
-        }
-        for p in perks {
-            let left = p.free_at.map(|(t, total)| (t.saturating_duration_since(now).as_secs_f32(), total)).filter(|&(s, _)| s > 0.0);
-            actions.push((hotbar::Action::Special { id: p.template, name: p.name.clone(), icon: None }, p.name.clone(), p.icon.clone(), if p.description.is_empty() { "Perk action".to_string() } else { p.description.clone() }, left));
+        let specials = specials.unwrap_or_default();
+        let templates = listed_templates(&specials.iter().map(|s| s.template).collect::<Vec<_>>(), &perks.iter().map(|p| p.template).collect::<Vec<_>>(), toggles());
+        let mut actions: Vec<(hotbar::Action, String, Option<Arc<Icon>>, String, Option<(f32, f32)>)> = Vec::new();
+        for template in templates {
+            if let Some(p) = perks.iter().find(|p| p.template == template) {
+                let left = p.free_at.map(|(t, total)| (t.saturating_duration_since(now).as_secs_f32(), total)).filter(|&(s, _)| s > 0.0);
+                actions.push((hotbar::Action::Special { id: p.template, name: p.name.clone(), icon: None }, p.name.clone(), p.icon.clone(), if p.description.is_empty() { "Perk action".to_string() } else { p.description.clone() }, left));
+                continue;
+            }
+            // (a listed special the catalogue does not have: named and pictured by its action's template)
+            let (name, icon, what) = match (self.look(template), specials.iter().find(|s| s.template == template)) {
+                (Some((name, icon, kind)), _) => (name, icon, (if kind == Kind::Weapon { "Weapon attack" } else { "Character action" }).to_string()),
+                (None, Some(s)) => (s.name.clone(), s.icon.clone(), if s.description.is_empty() { "Weapon attack".to_string() } else { s.description.clone() }),
+                (None, None) => continue,
+            };
+            let shortcut_icon = icon.as_ref().map(|i| i.id).filter(|&i| self.icon_by_instance(i).is_some());
+            actions.push((hotbar::Action::Special { id: template, name: name.clone(), icon: shortcut_icon }, name, icon, what, lock_left(template)));
         }
         if actions.iter().any(|a| a.4.is_some()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -497,16 +585,33 @@ mod tests {
         assert_eq!(item_lock_left(291043), None);
     }
 
+    /// WIN-022: the window lists the character's nine actions first, then the specials as given, then the perks; nothing
+    /// before the server's lists; an action listed twice shows once.
+    #[test]
+    fn the_window_lists_what_the_character_has_in_the_original_order() {
+        let fresh = listed_templates(&[], &[], Toggles::default());
+        assert_eq!(fresh, [0xc1a3, 0xc1aa, 0xc1a5, 0xc1a8, 0xc1a2, 0xc1a7, 0x14124, 0x39c7d, 0x1d9d7]);
+        let all = listed_templates(&[0x14125, 0x14122, 0x14123, 0x14123, 0x3bd0b], &[0x374d7], Toggles::default());
+        assert_eq!(all[9..], [0x14125, 0x14122, 0x14123, 0x3bd0b, 0x374d7]);
+    }
+
+    /// WIN-113: a pair's tile shows what a click does next (FUN_1004300e).
+    #[test]
+    fn a_pairs_tile_shows_what_a_click_does_next() {
+        let t = Toggles::default();
+        assert_eq!([0xb, 0x4c, 0x11, 0x13, 0x51, 0x14].map(|n| shown_number(n, t)), [0xb, 0x4c, 0x11, 0x13, 0x51, 0x14]);
+        let on = Toggles { fighting: true, sitting: true, walking: true, sneaking: true, camping: true, crawling: true };
+        assert_eq!([0xb, 0x4c, 0x11, 0x13, 0x51, 0x14].map(|n| shown_number(n, on)), [0x4e, 0x4d, 0x12, 0x4f, 0x52, 0x8d]);
+        // (either half of a pair goes the same way; a number of no pair is itself)
+        assert_eq!((shown_number(0x4d, t), shown_number(0x4e, on), shown_number(3, on), shown_number(148, on)), (0x4c, 0x4e, 3, 148));
+        // (by template: the catalogue's Stand tile is Sit while standing)
+        assert_eq!((shown_template(0xc1a6, t), shown_template(0xc1a6, Toggles { sitting: true, ..t })), (0xc1a8, 0xc1a6));
+    }
+
     #[test]
     fn the_listed_specials_decide_which_skill_actions_show() {
         // (the table: a number's template and back; the plain attack, stat 100, has no action)
         assert_eq!((template_of(144), template_of(142), template_of(100), number_of(0x14123)), (Some(0x14125), Some(0x14122), None, Some(148)));
-        // (Dimach and Brawl only when the server lists them; everything before it has told)
-        let listed = [100, 144];
-        assert!(shows(0x14125, Some(&listed)) && !shows(0x14122, Some(&listed)) && shows(0x14122, None));
-        // (the character's own actions do not wait for the list; a weapon's attacks and Reload are the weapon's)
-        assert!(shows(0xc1a3, Some(&[])) && shows(0x39c7d, Some(&[])));
-        assert!(!shows(0x3bd0b, Some(&[])) && !shows(0x14123, Some(&[])) && shows(0x3bd0b, Some(&[RELOAD])) && shows(0x14123, Some(&[148])));
         // (a weapon's flags: burst and full auto; fling shot, aimed shot and fast attack; none)
         assert_eq!(weapon_numbers(0x2800 | 0x4d).collect::<Vec<_>>(), [148, 167]);
         assert_eq!(weapon_numbers(0x45000).collect::<Vec<_>>(), [150, 151, 147]);

@@ -2177,7 +2177,8 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                 for slot in 0..hotbar::SLOTS {
                     let (rect, response) = ui.allocate_exact_size(egui::vec2(slot_size, slot_size), egui::Sense::click());
                     let queued = bars.is_queued(bar, slot);
-                    let shown = bars.slot(bar, slot).display(now).map(|d| (d.entry.action.clone(), d.entry.cooldown, d.remaining));
+                    // (a pair's half as the pair stands: the original's shortcut bar swaps it with the Action window's tile)
+                    let shown = bars.slot(bar, slot).display(now).map(|d| (actions.paired(d.entry.action.clone()), d.entry.cooldown, d.remaining));
                     let count = bars.slot(bar, slot).entries.len();
                     let hovering = response.dnd_hover_payload::<hotbar::Action>().is_some();
                     let painter = ui.painter();
