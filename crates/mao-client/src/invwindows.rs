@@ -899,7 +899,8 @@ impl ItemWindows {
         if let Some(slot) = self.confirm {
             match by_slot.get(&slot) {
                 Some(item) => {
-                    let question = format!("Destroy <font color=yellow>{}</font>? It cannot be brought back.", item.name);
+                    // (`ReallyDeleteItemX` fed the item's name, FUN_100ca997; the client's words without the game's texts)
+                    let question = crate::feedback::texts().and_then(|t| t.named(10000, "ReallyDeleteItemX")).map_or_else(|| format!("Destroy <font color=yellow>{}</font>? It cannot be brought back.", item.name), |t| mao_formats::ldb::format(t, &[mao_formats::ldb::Arg::Text(&item.name)]));
                     if let Some(yes) = crate::chrome::question(ctx, palette, "delete-item", &crate::gui::xml::ldb_named(10001, "Warning", "Warning"), &question) {
                         if yes {
                             events.deletes.push(slot);

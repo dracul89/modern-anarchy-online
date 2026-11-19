@@ -2134,7 +2134,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Asks "Destroy <item>? It cannot be brought back." with its own text.
 - A player notices: Different wording of the delete question.
 - Where: `crates/mao-client/src/invwindows.rs:637`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The inventory's delete question is now the game's `ReallyDeleteItemX` (text category 10000, fed the item's name) under 10001's "Warning", as GUI.dll FUN_100ca997 asks and as the container windows already did; the client's own sentence stays only without the game's texts.
 
 #### `INV-011` Dragging out of a corpse or chest takes the item up onto the pointer
 
