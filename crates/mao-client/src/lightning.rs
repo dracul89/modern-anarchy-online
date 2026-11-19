@@ -20,8 +20,15 @@
 //! fading (FUN_100f5a77 makes them, FUN_100f5783 runs them). A rock that falls into a liquid (not of type 2) splashes twice
 //! (gfx 0x859b at it, and 0x2c), and in it the frame's velocity and spin are halved.
 //!
-//! Not here: FUN_100b8b35's note of the bolt's ground place (radius 50), the splash's sound (FUN_100f5573 asks `GetSoundID`
-//! for no name), and the pools: each strike gets its own effects, so none is ever refused.
+//! The environment's effects come from pools made once per kind (DisplaySystem `VisualEnvFX_t::ActivateFX`, its counts set by
+//! FUN_1006228f): two cloud lights (kind 8), ten bolts (kind 9) and twenty rocks of each of the seven kinds (0xb to 0x11). An
+//! effect is taken from its pool as it starts and given back when it is done (`FrameProcess`); with its pool empty
+//! `ActivateFX` refuses it ([`CLOUD_POOL`], [`BOLT_POOL`], [`ROCK_POOL`]). A refused cloud light starts no bolts; a refused
+//! rock's `EnvFXGravityObject_t` is still made (FUN_100afc4c hands FUN_100b103b the null effect) and flies, drawing its
+//! random numbers and splashing, unseen.
+//!
+//! Not here: FUN_100b8b35's note of the bolt's ground place (radius 50) and the splash's sound (FUN_100f5573 asks
+//! `GetSoundID` for no name).
 
 use crate::ambience::R250;
 use crate::audio::Rand;
@@ -62,7 +69,14 @@ pub struct Rock {
     done: bool,
     /// In a liquid (+0x40).
     wet: bool,
+    /// Whether its pool gave it a visual (`ActivateFX`); one without flies unseen.
+    shown: bool,
 }
+
+/// The pools' sizes (`VisualEnvFX_t`'s per-kind counts, FUN_1006228f: +0x3a0, +0x3a4 and +0x3ac to +0x3c4).
+pub const CLOUD_POOL: usize = 2;
+pub const BOLT_POOL: usize = 10;
+pub const ROCK_POOL: usize = 20;
 
 /// `EnvFXGravityObject_t`'s constants: the throw's force (+0x1a0 set to 5, DAT_101584fc), the bounce's divisor and the drag
 /// in water (+0x44 and +0x4c, 4), the fall (+0x48, 9.8 a second a second).
@@ -135,6 +149,10 @@ impl Sky {
             (at, low)
         };
         let (place, low) = settle(at, [at[0], at[1] - 70.0, at[2]]);
+        // (both cloud lights still lit: `ActivateFX` refuses the strike, and nothing of it is made)
+        if self.clouds.len() >= CLOUD_POOL {
+            return;
+        }
         let cloud = self.cloud(place);
         let mut bolts = vec![(place, low)];
         // (FUN_100508bd's activation: the scattered flashes, each four times in ten a bolt of its own)
@@ -153,6 +171,10 @@ impl Sky {
         }
         self.clouds.push(Cloud { flashes, ..cloud });
         for (from, to) in bolts {
+            // (the bolts' pool empty: this one is refused)
+            if self.bolts.len() >= BOLT_POOL {
+                continue;
+            }
             let (from, to) = settle(from, to);
             let bolt = self.bolt(from, to);
             self.bolts.push(bolt);
@@ -228,7 +250,8 @@ impl Sky {
         }
         let axis = normalized([velocity[2], 0.0, -velocity[0]]);
         let spin = (self.rand.next() % 4000) as f32 / 1000.0 + 2.0;
-        self.rocks.push(Rock { mesh, at, velocity, axis, spin, angle: 0.0, bounces: 7, done: false, wet: false });
+        let shown = self.rocks.iter().filter(|r| r.shown && r.mesh == mesh).count() < ROCK_POOL;
+        self.rocks.push(Rock { mesh, at, velocity, axis, spin, angle: 0.0, bounces: 7, done: false, wet: false, shown });
     }
 
     /// A landing's effect (FUN_100452d3: `SetFXPos` the vehicle's place, `SetFXForce`, then FUN_100afc4c's 0x2c): its splash at
@@ -317,7 +340,7 @@ impl Sky {
     /// The rocks thrown and still flying, for the viewer to draw (Z up).
     pub fn rocks(&self) -> Vec<crate::effects::Rock> {
         let z_up = |v: [f32; 3]| [v[0], v[2], v[1]];
-        self.rocks.iter().map(|r| crate::effects::Rock { mesh: r.mesh, at: z_up(r.at), axis: z_up(r.axis), angle: r.angle.rem_euclid(std::f32::consts::TAU) }).collect()
+        self.rocks.iter().filter(|r| r.shown).map(|r| crate::effects::Rock { mesh: r.mesh, at: z_up(r.at), axis: z_up(r.axis), angle: r.angle.rem_euclid(std::f32::consts::TAU) }).collect()
     }
 
     /// A frame of `dt` seconds (`ground` the ground's height under a point, Y up): the rocks fly (FUN_100b0d0f: their turn on
@@ -532,5 +555,29 @@ mod tests {
             assert!(sky.rocks.iter().all(|r| r.at[1] >= 10.0 - 1e-3));
         }
         assert!(sky.is_empty());
+    }
+
+    /// The pools (`ActivateFX`): a third strike while two cloud lights are lit is refused whole; at most ten bolts at once;
+    /// at most twenty rocks of a kind shown, the rest flying unseen.
+    #[test]
+    fn the_pools_refuse_effects_when_empty() {
+        let mut sky = Sky::default();
+        let ground = |_: f32, _: f32| Some(10.0);
+        for k in 0..6 {
+            sky.strike([100.0 + k as f32, 50.0, 200.0], 0x1234 + k, &ground);
+            assert!(sky.clouds.len() <= CLOUD_POOL && sky.bolts.len() <= BOLT_POOL);
+        }
+        assert_eq!(sky.clouds.len(), CLOUD_POOL);
+        let bolts = sky.bolts.len();
+        sky.strike([0.0, 50.0, 0.0], 9, &ground);
+        assert_eq!((sky.clouds.len(), sky.bolts.len()), (CLOUD_POOL, bolts));
+        for _ in 0..30 {
+            sky.step(0.016, &ground);
+            for mesh in sky.rocks.iter().map(|r| r.mesh) {
+                assert!(sky.rocks.iter().filter(|r| r.shown && r.mesh == mesh).count() <= ROCK_POOL);
+            }
+        }
+        assert!(sky.rocks.iter().any(|r| !r.shown));
+        assert_eq!(sky.rocks().len(), sky.rocks.iter().filter(|r| r.shown).count());
     }
 }

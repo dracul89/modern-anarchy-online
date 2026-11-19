@@ -7173,7 +7173,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: each strike gets its own effects, none refused
 - A player notices: in a storm the client never drops a strike the original might
 - Where: `crates/mao-client/src/lightning.rs:24`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The pools were read through in the DisplaySystem drop-in: `VisualEnvFX_t::ActivateFX` takes an effect from its kind's pool and refuses it when empty; FUN_1006228f sets the per-kind counts (kind 8 cloud light +0x3a0 = 2, kind 9 bolt +0x3a4 = 10, kinds 0xb-0x11 rocks +0x3ac-+0x3c4 = 0x14 = 20 each); FrameProcess gives done effects back. Gamecode FUN_100afc4c: a refused cloud light starts nothing (its activation queues the bolts), a refused bolt is skipped, a refused rock still gets its EnvFXGravityObject_t (FUN_100b103b is handed the null effect), which flies, draws its random numbers and splashes but shows nothing (SetPosition on a null object returns). lightning.rs now has CLOUD_POOL/BOLT_POOL/ROCK_POOL and a `shown` flag on rocks. Test `lightning::tests::the_pools_refuse_effects_when_empty`.
 - Looked at, left (2026-11-19, overnight): The pools' sizes (the 50-control limit DAT_102ea974 and the effect handler's own pools) were not read through, and a storm rarely fills them; porting the refusal needs the pool counts of every effect kind a strike starts. Low value against the time box. Left.
 
 #### `RND-055` Lightning rock bounce normal estimated from heights
