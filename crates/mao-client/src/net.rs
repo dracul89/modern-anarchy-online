@@ -2755,7 +2755,9 @@ impl World {
                             self.names.insert(m.identity.1, (name, false));
                         }
                         None => {
-                            self.names.entry(m.identity.1).or_insert_with(|| (format!("Booth {:x}", m.identity.1 & 0xffff), false));
+                            // (FUN_100809a0's last word for an item with no name of its own and none from its name
+                            // template: Gamecode's "NameMissing")
+                            self.names.entry(m.identity.1).or_insert_with(|| ("Name missing".to_string(), false));
                         }
                     }
                 }

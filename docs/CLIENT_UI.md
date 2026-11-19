@@ -7838,3 +7838,7 @@ The original reads a corpse's announcement (`CorpseFullUpdateIIR_t`, Gamecode FU
 ### NPC templates read only as the original reads them (NPC-024)
 
 Gamecode reads a creature's template (type 0xfde97) section by section (FUN_1004de5d). The client had a second, guessing reader for records that did not read so; a pass over all 1470 of the game's templates found none, so the guess is gone and the pass is kept as a test.
+
+### A machine with no name is "Name missing" (NPC-027)
+
+Gamecode names an item (FUN_100809a0) by its own name, else by its NameTemplate's (stat 446) template's name, else with "NameMissing". The client fell back to "Booth" and the machine's number; it now uses the original's word.
