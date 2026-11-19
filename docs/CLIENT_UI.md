@@ -7464,3 +7464,7 @@ The client's own "Sent N items and X credits to the market." line was removed. A
 ### Inspecting opens the info page only (CHT-076)
 
 The client's own chat line with the inspected character's name, level, profession and health was removed. As in the original, /inspect, the target-info key and Shift+click open the character's info page (FUN_1003482c) and say nothing in chat.
+
+### Commands confirm nothing (CHT-078)
+
+The client's own confirmation lines for /macro, /waypoint, /befriend, /viewdist, /chardist, /char&viewdist and /bug were removed. As in the original (FUN_100b8c82, FUN_100b9966, FUN_100b69a7, FUN_100b68dc, FUN_100b6a54, FUN_100b6019), these commands do their work silently; /reply with nobody to answer and /ignore keep the lines the original has.

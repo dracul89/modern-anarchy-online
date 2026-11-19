@@ -1241,11 +1241,10 @@ impl ChatWindow {
                 None
             }
             // (`/macro`, FUN_100b8c82 and the shortcut bar's FUN_100d8c4a: the macro made and saved, and carried by
-            // the pointer to where it is dropped; the line saying so is this client's)
+            // the pointer to where it is dropped; nothing is said)
             Parsed::Macro { name, command } => {
                 let id = crate::macros::create(&name, &command);
                 let name = crate::macros::get(id).map_or(name, |m| m.name);
-                self.push(Line::new(Kind::System, format!("Macro \"{name}\" is on the pointer: click a hotbar slot to put it there.")));
                 self.macro_made = Some((id, name));
                 None
             }
@@ -1353,16 +1352,12 @@ impl ChatWindow {
                 None
             }
             // (FUN_100b6019 asks in a box and then hands the text to `BugReport_t::SendUserMadeBugReport`, the
-            // original's report to its makers about their own client: not sent from this one)
-            Parsed::Bug => {
-                self.push(Line::new(Kind::System, "/bug is the original client's report to Funcom about itself; this client does not send one."));
-                None
-            }
+            // original's report to its makers about their own client: not sent from this one, and nothing is said)
+            Parsed::Bug => None,
             Parsed::Nothing => None,
-            // (FUN_100b6a54: both distances)
+            // (FUN_100b6a54: both distances, set without a word)
             Parsed::BothDist { characters, view } => {
                 self.outs.push(Out::CharDist(characters.min(4000)));
-                self.push(Line::new(Kind::System, format!("View distance {}, characters up to {} away.", view.clamp(200, 4000), characters.min(4000))));
                 Some(Out::ViewDist(view.clamp(200, 4000)))
             }
             // (`/afk`: FUN_100b82a7)
@@ -1387,24 +1382,17 @@ impl ChatWindow {
                 }
             }
             Parsed::Assist { name } => Some(Out::Assist { name: name.map(|n| self.expand(&n)) }),
-            Parsed::Waypoint { x, z } => {
-                self.push(Line::new(Kind::System, format!("Walking to {x:.0}, {z:.0} (any movement key stops).")));
-                Some(Out::Waypoint { x, z })
-            }
+            // (FUN_100b9966: the waypoint's signal, nothing said)
+            Parsed::Waypoint { x, z } => Some(Out::Waypoint { x, z }),
             Parsed::SelectSelf => Some(Out::SelectSelf),
             Parsed::SetOption { name, value } => Some(Out::SetOption { name, value }),
             Parsed::InspectEquipment { id } => {
                 crate::charinfo::ask_equipment(id);
                 None
             }
-            Parsed::ViewDist { distance: Some(d) } => {
-                self.push(Line::new(Kind::System, format!("View distance {}.", d.clamp(200, 4000))));
-                Some(Out::ViewDist(d.clamp(200, 4000)))
-            }
-            Parsed::CharDist { distance: Some(d) } => {
-                self.push(Line::new(Kind::System, if d == 0 { "Drawing all characters.".to_string() } else { format!("Drawing characters up to {} away.", d.min(4000)) }));
-                Some(Out::CharDist(d.min(4000)))
-            }
+            // (FUN_100b69a7, FUN_100b68dc: the distance set without a word)
+            Parsed::ViewDist { distance: Some(d) } => Some(Out::ViewDist(d.clamp(200, 4000))),
+            Parsed::CharDist { distance: Some(d) } => Some(Out::CharDist(d.min(4000))),
             Parsed::CharDist { distance: None } => {
                 self.push(Line::new(Kind::System, "Usage: /chardist <distance, 0 for all>"));
                 None
@@ -1428,10 +1416,7 @@ impl ChatWindow {
                 }
                 None
             }
-            Parsed::Befriend { name } => {
-                self.push(Line::new(Kind::System, format!("Adding {name} to your friends.")));
-                Some(Out::Befriend { name })
-            }
+            Parsed::Befriend { name } => Some(Out::Befriend { name }),
             // (FUN_1009cdfe, FUN_1009d028: the first channel of the organization's kind, of the team's)
             Parsed::Org { text } => match chatgroups::of_kind(3) {
                 Some(group) => self.say_in(pane, &group, self.expand(&text)),

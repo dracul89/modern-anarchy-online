@@ -4587,7 +4587,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: /macro, /waypoint, /befriend, /viewdist, /chardist, /char&viewdist, /ignore, /bug, /reply with nobody add a system line of the client's own
 - A player notices: extra feedback lines in chat
 - Where: `crates/mao-client/src/chatwindow.rs:1170`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The client's own system lines after /macro ("Macro ... is on the pointer"), /waypoint ("Walking to x, z"), /befriend ("Adding X to your friends."), /viewdist ("View distance N."), /chardist ("Drawing characters up to N away."), /char&viewdist (both) and /bug (the explanation that no report is sent) are removed (chatwindow.rs). The original's handlers write none: /macro FUN_100b8c82 and /waypoint FUN_100b9966 only emit their signals, /viewdist FUN_100b69a7, /chardist FUN_100b68dc and /char&viewdist FUN_100b6a54 only set ViewDistance / DisplayCharViewDistance, /bug FUN_100b6019 asks in a box and sends a report (not sent from this client, so it now does nothing). Kept, being the original's: /reply with nobody to reply to (FUN_100baa1e writes "You have not received any tell messages yet."; the client's "There is nobody to reply to." is its wording of it) and /ignore's lines (FUN_100bafeb's ChatCmdFeedback_Ignore_* texts and its "Ignored characters:" list header). Not changed (other departures, not this entry): the usage lines of /viewdist and /chardist without a number (the original says "Error: To few arguments") and the client's 200..4000 clamp. No new warnings (69).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original says nothing for these commands (e.g. /gfx); the lines are the client's own.
 
 #### `CHT-079` Scripts folder beside the client's settings is searched first
