@@ -347,11 +347,17 @@ pub mod place {
     pub const NEXT: [f32; 2] = [0.925, 0.95];
     pub const BACK: [f32; 2] = [0.8, 0.95];
     /// The text areas: middle x, middle y, width, height. The profession scene's height is not a share in the
-    /// original (156 units of its lowest resolution, scaled): 0.2 of the window here, by the original's pictures.
+    /// original: [`profession_text_height`] gives it (the 0.2 here is not used).
     pub const BREED_TEXT: [f32; 4] = [0.575, 0.85, 0.55, 0.25];
     pub const APPEARANCE_TEXT: [f32; 4] = [0.68, 0.77, 0.5, 0.2];
     pub const PROFESSION_TEXT: [f32; 4] = [0.325, 0.8125, 0.6, 0.2];
     pub const NAME_TEXT: [f32; 4] = [0.68, 0.77, 0.6, 0.25];
+
+    /// The profession scene's text area height in the display's pixels (`ProfessionScene_t` 0x101216d1: the display's
+    /// height over 480, `GetScaleFromLowestResolution`, brought 0.4 of the way from 1, times 156, rounded down).
+    pub fn profession_text_height(display_height: f32) -> f32 {
+        (156.0 * ((display_height / 480.0 - 1.0) * 0.4 + 1.0)).floor()
+    }
     /// The breed scene's label of the chosen breed.
     pub const BREED_LABEL: [f32; 2] = [0.17, 0.82];
     /// The appearance scene (0x10112c4d).
@@ -498,7 +504,20 @@ impl Canvas<'_> {
     /// The text area (`CreateTextArea` 0x10122f56, `SetNewInfoText` 0x1012367c): a head line in 0xeeeeee and the text
     /// in 0xcccccc on the purple.
     fn text_area(&mut self, frame: [f32; 4], head: &str, body: &str) {
-        let size = egui::vec2((self.size.x * frame[2]).floor(), (self.size.y * frame[3]).floor());
+        let height = (self.size.y * frame[3]).floor();
+        self.text_area_of(frame, height, head, body);
+    }
+
+    /// The profession scene's text area, whose height is its own rule ([`place::profession_text_height`], in the
+    /// display's pixels).
+    fn profession_text_area(&mut self, head: &str, body: &str) {
+        let pixels = self.ui.ctx().pixels_per_point();
+        let height = place::profession_text_height(self.size.y * pixels) / pixels;
+        self.text_area_of(place::PROFESSION_TEXT, height, head, body);
+    }
+
+    fn text_area_of(&mut self, frame: [f32; 4], height: f32, head: &str, body: &str) {
+        let size = egui::vec2((self.size.x * frame[2]).floor(), height);
         let middle = self.at([frame[0], frame[1]]);
         let rect = egui::Rect::from_min_size(egui::pos2((middle.x - size.x * 0.5).floor(), (middle.y - size.y * 0.5).floor()), size);
         let painter = self.ui.painter().with_clip_rect(rect);
@@ -849,9 +868,9 @@ impl Creating {
                         }
                     };
                     if self.message.is_empty() || canvas.over.is_some() {
-                        canvas.text_area(place::PROFESSION_TEXT, &plain_text(&text(&head)), &plain_text(&text(&body)));
+                        canvas.profession_text_area(&plain_text(&text(&head)), &plain_text(&text(&body)));
                     } else {
-                        canvas.text_area(place::PROFESSION_TEXT, &self.message, "");
+                        canvas.profession_text_area(&self.message, "");
                     }
                 }
                 Scene::Name => {
@@ -978,6 +997,14 @@ impl Creating {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The profession text area's height: 156 pixels at 480 lines, 0.4 of the display's growth beyond.
+    #[test]
+    fn the_profession_text_height() {
+        assert_eq!(place::profession_text_height(480.0), 156.0);
+        assert_eq!(place::profession_text_height(768.0), 193.0);
+        assert_eq!(place::profession_text_height(1080.0), 234.0);
+    }
 
     /// The Keeper and the Shade: the Shadowlands' flag or the list's `s_nSLProfsEnabled`.
     #[test]

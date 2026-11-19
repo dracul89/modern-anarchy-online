@@ -8463,7 +8463,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: 0.2 of the window, by the original's pictures
 - A player notices: text box a bit different in size
 - Where: `crates/mao-client/src/charcreate.rs:306`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Read: GUI.dll `ProfessionScene_t` 0x101216d1 takes `GetScaleFromLowestResolution` (the display over 640x480; the y share, [ebp-0x34]), brings it 0.4 of the way from 1 (`(s - 1) * 0.4 + 1`, `_DAT_101a9150`), multiplies by 156 (`_DAT_101c4f98`) and floors: the text area's height in display pixels; the width is `floor(width * 0.6)` and the middle at 0.325 / 0.8125 of the display (as the client already had). `charcreate::place::profession_text_height` is that rule and the profession scene's text area uses it (in the display's pixels, turned into points); test `charcreate::tests::the_profession_text_height` (480 → 156, 768 → 193, 1080 → 234).
 
 ### Launcher, login, character creation: a guard or fallback the original lacks (6)
 

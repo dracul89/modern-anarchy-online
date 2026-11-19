@@ -7065,3 +7065,7 @@ The original's loading screen (GUI.dll `ServerLogin3DModule_t::SetupScreen` 0x10
 ### A new character's name is made as the original makes it (LCH-018)
 
 The original's Finish (GUI.dll `NameScene_t::StartServerCreation` 0x1012015d) says `MustEnterName` for an empty field; otherwise it makes the name itself (FUN_10124093): the first typed character a capital, the rest small, and everything that is not a letter or digit left out (so "sad-lee" becomes "Sadlee"), and only then checks its length and digits. The client now does the same, where it used to refuse such a name as not alphanumeric.
+
+### The profession text area's height (LCH-027)
+
+The original's profession scene (GUI.dll `ProfessionScene_t` 0x101216d1) gives its text area a height of 156 pixels at 480 lines, growing by 0.4 of the display's growth beyond that (193 at 768, 234 at 1080), not a share of the window. The client uses the same rule now instead of a fifth of the window.
