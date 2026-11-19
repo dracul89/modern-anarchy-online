@@ -7608,8 +7608,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // (the backpack places put into the open shop's trade: gone from the backpack when the trade completes. The server
         // says nothing more of them: a sale's log has `AddItem` for each place, then `Complete`, then the shop opened anew.)
         let mut shop_sold: Vec<u32> = Vec::new();
-        // (where the character stood when the shop opened: see `SHOP_REACH`)
-        let mut shop_opened_at: Option<[f32; 3]> = None;
         // (the player a trade is open with)
         let mut player_trade: Option<u32> = None;
         let (mut shop_rates, mut shop_rows, mut pending_shop_changes) = (crate::shop::Rates { buy: 0, sell: 0, kind: 0 }, Vec::<crate::shop::Row>::new(), Vec::<crate::shop::Change>::new());
@@ -7905,7 +7903,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 shop_rows = stock.iter().map(|s| crate::shop::Row { item: [0; 4], name: s.name.clone(), icon: s.icon.clone(), count: 1, quality: s.quality, price: s.price }).collect();
                                 let name = table.map(|d| d.4.clone()).filter(|n| !n.is_empty()).or_else(|| state.vendor_names.get(&m.identity.1).cloned()).or_else(|| item.map(|i| i.name)).unwrap_or_default();
                                 shop_booth = Some(m.identity);
-                                shop_opened_at = Some(position);
                                 shop_sold.clear();
                                 pending_shop = Some(crate::shop::ShopState { shop: m.identity, name, stock, buy_only: shop_rates.buy_only() });
                             }
@@ -9058,26 +9055,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                 }
             }
-            // (a shop walked away from: its trade is declined and its window closed. The server only answers "You are too
-            // far away" to what is tried from afar and leaves the trade open; where the original's client ends it was not
-            // found, and the distance is this client's.)
-            const SHOP_REACH: f32 = 8.0;
-            if shop_booth.is_some()
-                && let Some(at) = shop_opened_at
-                && ((at[0] - position[0]).powi(2) + (at[2] - position[2]).powi(2)).sqrt() > SHOP_REACH
-            {
-                let _ = connection.send(&n3::trade_decline(own));
-                shop_booth = None;
-                shop_opened_at = None;
-                shop_sold.clear();
-                pending_shop_changes.push(crate::shop::Change::Left);
-            }
+            // (A shop is not left by walking away from it: nothing in the original's client ends a vending machine's
+            // trade by distance. `TradeView_c` has no slot on the character's place, a `VendingMachine_t` runs the
+            // plain dynel's frame function, and Gamecode's range test FUN_1005a1e7 is asked for a player's trade as
+            // it starts, a use, a combine, the mission booth and terminal, chests and the spell-opened windows, never
+            // for an open shop. The trade ends by its Decline, by Escape, or by the server.)
             while let Ok(command) = shop_rx.try_recv() {
                 match command {
                     crate::shop::ShopCommand::Close => {
                         let _ = connection.send(&n3::trade_decline(own));
                         shop_booth = None;
-                        shop_opened_at = None;
                         shop_sold.clear();
                         player_trade = None;
                     }

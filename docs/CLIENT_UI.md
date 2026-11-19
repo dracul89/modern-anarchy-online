@@ -3535,7 +3535,8 @@ with a build that has the notes).
   character walks off and answering "You are too far away" to what is tried from afar. Where the original ends it
   was not found (Gamecode's range test FUN_1005a1e7 is called when a trade starts; no caller for an open one was
   found). The client now declines the trade and closes the window once the character is more than 8 units from
-  where it stood when the shop opened: the rule and the distance are this client's. Not tried live.
+  where it stood when the shop opened: the rule and the distance are this client's. Not tried live. (Taken out
+  on 2026-11-18: the original has no such rule, "A shop stays open when the character walks away".)
 - The screenshot's notes match the target by its name (the target's line has its health and distance after it).
   The message log is now read by the game itself (`[debug] log_messages`), and the log says "message log: on/off":
   the first run with the setting had none of the server's messages in it, and why the login's process did not pass
@@ -6364,3 +6365,18 @@ trade, cannot afford it: `CannotAffordThisItem` with the shortfall), and its ref
 with a full inventory. The server answers those here.
 
 Tests: `shop`'s `one_click_on_a_row_acts`, `invwindows`' click table.
+
+### A shop stays open when the character walks away (INV-001)
+
+The client's own rule (the trade declined and the window closed 8 m from where the shop was opened) is gone:
+nothing in the original ends a vending machine's trade by distance. `TradeView_c` has no slot on the character's
+place and its one timer is the credits field's; a `VendingMachine_t` (and a `PlayerShop_t`) runs the plain
+dynel's frame function; and Gamecode's range test FUN_1005a1e7 (5 m between the two surfaces, an open door
+between rooms) is asked for a **player's** trade as it starts, a use, a tradeskill combine, the mission
+booth's own check every two seconds, the mission terminal's messages (`ACGQuestIIR_t`,
+`QuestAlternativeIIR_t`, `CreateQuestIIR_t`), a loop over chests and the windows a spell opens. No capture
+shows the server ending a shop either.
+
+So the shop's window stays until Decline, Escape, the server's Complete or Decline, or another trade's start,
+as in the original; what is tried from afar the server answers with "too far away" (the client's own earlier
+log). Not found in the original: what zoning does to an open trade, and whether the window has a close box.

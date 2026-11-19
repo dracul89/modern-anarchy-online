@@ -965,6 +965,9 @@ These were written before this list; some may have been seen working since witho
   items", a second click a second one; a click on a bought row takes it out; Shift + click opens the page; the
   right button held for a moment and let go does nothing. Ctrl + right click on a backpack item puts it under
   "Sold items"; a plain right click still uses it.
+- [ ] A shop left open (2026-11-18): open a shop, walk 20 m off: the window stays; a click on a stock row there
+  brings the server's "too far away" line and nothing else; Decline closes it. Send me the log if the server
+  does anything else.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

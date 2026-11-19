@@ -54,6 +54,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Shops work by the original's clicks: **one** click (left or right) on a stock item puts it into the purchase
   and one click on a bought or sold item takes it out; Shift + click shows the item. Two clicks buy two. An
   inventory item is offered for sale by Ctrl + right click (or by dropping it on the window, as before).
+- A shop's window no longer closes by itself when the character walks away from the shop (the original keeps it
+  open; the server refuses what is tried from too far).
 
 ### Items
 

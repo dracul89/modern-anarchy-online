@@ -1692,7 +1692,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: declines the trade and closes the window once the character is more than 8 units from where the shop opened
 - A player notices: shop windows close by themselves when walking away
 - Where: `crates/mao-client/src/net.rs:7947`; `docs/CLIENT_UI.md:3535`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the rule is taken out. Nothing in the original's client ends a vending machine's trade by distance (`TradeView_c` has no slot on the character's place; `VendingMachine_t` runs the plain dynel's frame function; the range test FUN_1005a1e7 has no caller on a shop's path), and no capture shows the server doing it. The window stays until Decline, Escape, the server's word or another trade. `CLIENT_UI.md` "A shop stays open when the character walks away".
 
 #### `INV-002` Item picked up by a press that moves (drag), not only on release
 

@@ -81,8 +81,6 @@ pub enum Change {
     Confirmed { ours: bool },
     /// The trade was declined (action 2).
     Declined,
-    /// The character walked away from the shop: its window closes.
-    Left,
 }
 
 /// What a click on a row of one of the trade's three lists does.
@@ -359,10 +357,6 @@ impl ShopWindow {
                 }
                 // (both sides done: FUN_100e0f5b's "TradeDoubleConfirmDlg")
                 self.asking = self.confirmed.0 && self.confirmed.1;
-            }
-            Change::Left => {
-                self.open = false;
-                self.asking = false;
             }
             Change::Declined => {
                 if self.partner.take().is_some() {
