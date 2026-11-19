@@ -7846,3 +7846,7 @@ Gamecode names an item (FUN_100809a0) by its own name, else by its NameTemplate'
 ### Friends coming and going (CHT-010)
 
 The original writes nothing in the chat when a friend logs on or off: the chat library's S2C_ADD_BUDDY handler (GUI.dll FUN_1016d6f4) updates its buddy list, and FriendListController_c (FUN_100a6581, FUN_100a72c5) and FriendListView_c (FUN_100a8a4c) move the friend between the online and offline rows of the friend list. The client now does the same; its own "is now online" line is gone.
+
+### Lines typed while the chat is down (CHT-011)
+
+The original's chat requests wait in ChatGUIModule_c's queue, which its tick (GUI.dll FUN_1008a2c1) works through only while the chat socket is open, and the chat library holds a message until it has logged in (FUN_1016c84a → FUN_1017265d). The client now keeps what was typed while the chat server was away and sends it after reconnecting, instead of dropping it.

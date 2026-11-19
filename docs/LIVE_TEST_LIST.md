@@ -1184,6 +1184,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Narrow a window with many tabs (chat with several tabs, a dock area with four views): short tabs keep their width, long ones shrink, and at the narrowest each tab shows at least its first letter.
 - [ ] With a pet out, press the pet window's frame icon: a menu with Show buttons, Fixed Pet Buttons and Remember Pet Names, each ticked as set; choosing one toggles it.
 - [ ] A friend logs on or off: no chat line; the friend moves between the online and offline rows of the friend list.
+- [ ] With the chat connection lost (e.g. the network cable out for a moment), type a line in vicinity and a tell; after "Connected to the chat server again." both go out.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

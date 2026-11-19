@@ -3920,7 +3920,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: discards what was typed while there was no connection instead of sending it late
 - A player notices: a line typed during an outage is lost
 - Where: `crates/mao-client/src/net.rs:6031`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original keeps what was typed while the chat server was away. Every chat request (vicinity, group and private lines, tells, friend and ignore requests) is an entry in ChatGUIModule_c's queue (+0x14), which its tick GUI.dll FUN_1008a2c1 works through only when the chat library reports its socket open (flag 0x100 from FUN_1016f6e3); while the connection is down the entries wait. Once the socket is open, FUN_1016c84a sends a message at once when logged in (state 4) and otherwise holds it in the library's own out-queue (FUN_1017265d) until the login is done. The client no longer empties its outgoing channel on reconnect: the lines go out after the new login. No unit test (the thread's reconnect loop; the change is one removed drain).
 - Looked at, left (2026-11-19, overnight): Original not stated: what the original does with lines typed while the chat is down depends on its reconnect (CHT-022), not read. Left.
 
 #### `CHT-012` Macro text cut to 99 bytes, not 100

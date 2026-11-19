@@ -7861,8 +7861,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     chat.login(own, &user, &password)?;
                     logged_in = true;
                     if again {
-                        // (what was typed while there was no connection is not sent late)
-                        while out_rx.try_recv().is_ok() {}
+                        // (what was typed while there was no connection waits and goes out now, as the original's
+                        // requests wait in ChatGUIModule_c's queue until the socket is open again [FUN_1008a2c1] and
+                        // the chat library holds them until it has logged in [FUN_1016c84a → FUN_1017265d])
                         CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "Connected to the chat server again."));
                     }
                     // The read waits a moment, so what the window sends goes out promptly.
