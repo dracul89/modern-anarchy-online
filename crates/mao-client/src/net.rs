@@ -109,8 +109,6 @@ enum Route {
 /// How fast the walked creatures go (m/s): a walk is `CharVehicle_t`'s mode 2, whose speed FUN_1006f9eb sets to
 /// [`WALK_SPEED`] for every character, the same 1.5 the wandering creatures were measured at live.
 const PATH_SPEED: f32 = WALK_SPEED;
-/// The shortest wait for the nano programs (a cast and its recharge, seconds) whose end is told in the chat.
-const NANO_WAIT_TOLD: f32 = 2.0;
 /// A running creature's speed when neither its `RunSpeed` nor its paths tell it: the rule's speed at a RunSpeed of nothing.
 const RUN_SPEED: f32 = 5.0;
 const CHASE_NEAR: f32 = 1.5;
@@ -449,9 +447,6 @@ struct World {
     timers_moved: Option<Instant>,
     /// The client's own nano cast under way (FUN_1005141d's cast, +0x18 its timer's place) and when it lands.
     own_cast: Option<(usize, Instant)>,
-    /// The nano programs are busy until then (the cast and the program's recharge), and for how long in all: when it
-    /// is over the client says so (its own line, as the game says a skill is available again).
-    nano_lock: Option<(Instant, f32)>,
     /// The CRT's `rand()` for the attack timers' start (FUN_10068331).
     timer_rand: crate::audio::Rand,
     /// The characters the server put in the sneak mode (`CharacterAction` 0xa2: movement 0x1c), until another movement mode.
@@ -1793,7 +1788,6 @@ impl World {
         // this client's own showing of it)
         let busy = seconds.max(0.0) + nano_stat(nano, 210).unwrap_or(0).max(0) as f32 / 100.0;
         if busy > 0.0 {
-            self.nano_lock = Some((Instant::now() + Duration::from_secs_f32(busy), busy));
             crate::actions::set_nano_lock(busy);
         }
         if seconds <= 0.0 {
@@ -1811,13 +1805,6 @@ impl World {
     /// (FUN_1003badb).
     fn tick_timers(&mut self) {
         let now = Instant::now();
-        // (the programs are free again: said for a wait worth saying, this client's own line)
-        if let Some((_, total)) = self.nano_lock.filter(|l| now >= l.0) {
-            self.nano_lock = None;
-            if total >= NANO_WAIT_TOLD {
-                self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, "Nano programs available.".to_string()));
-            }
-        }
         if self.own_cast.is_some_and(|(_, at)| now >= at) {
             let (place, _) = self.own_cast.take().unwrap();
             self.timers.remove(place);

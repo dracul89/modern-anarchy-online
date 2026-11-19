@@ -7472,3 +7472,7 @@ The client's own confirmation lines for /macro, /waypoint, /befriend, /viewdist,
 ### Camera mode changes silently (CAM-013)
 
 The client's own "Camera: third person ..." line was removed; choosing a camera mode in the interface sets it without a word, as the original's menu does.
+
+### No "Nano programs available." line (NAN-058)
+
+The client's own line telling that the nano programs are free again after a long cast and recharge was removed; as in the original, nothing is said when the programs can be cast again.

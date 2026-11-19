@@ -3462,7 +3462,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: After a cast and recharge of two seconds or more, chat says "Nano programs available."
 - A player notices: An extra chat line after long waits.
 - Where: `crates/mao-client/src/net.rs:1339`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The client's "Nano programs available." chat line after a cast and recharge of 2 s or more is removed (net.rs), with what only it used: the `nano_lock` timer and `NANO_WAIT_TOLD`. No such text exists in text.mdb, GUI.dll or Gamecode, so the original says nothing when the programs are free again. The windows' fading of the programs for the cast and recharge (`actions::set_nano_lock`, the client's own showing) is untouched. No new warnings (69).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: no such line exists in the original (no text of that kind in GUI.dll's or Gamecode's strings, none sent by name from text.mdb); the client invented it.
 
 #### `NAN-059` Nano program and NCU tips are the client's own layout

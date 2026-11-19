@@ -236,6 +236,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The NCU window's list shows self-only nanos as such.
 - A nano's cast effect lasts as long as the cast itself; instant nanos show no cast effect.
 - Nano programs no longer draw the client's own coloured rings over their target; only the program's own effect shows, as in the original.
+- The "Nano programs available." chat line after a long recharge is gone (the original has no such line).
 
 ### Sound
 
