@@ -5117,6 +5117,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Pages that follow AcceptLanguage always get English.
 - Where: `crates/mao-client/src/browser.rs:458`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): BrowserModule_c::GetLocaleName (GUI.dll 0x1010b794), which BrowserWindow_c's Initialize (0x1010fdb8) gives the page as AnarchyOnline.AcceptLanguage, is GetLocaleInfoA(LOCALE_USER_DEFAULT, 0x59 ISO 639 language) + "-" + GetLocaleInfoA(.., 0x5a ISO 3166 country), e.g. "en-US"; the client always wrote "en". The workspace forbids unsafe code, so the Win32 call cannot be made: on Windows the page now takes WebView2's own navigator.language (the system's language-country in the same form), elsewhere LANG ("en_US.UTF-8" -> "en-US", "en" when unset). Part because navigator.language is the system's UI language where the original reads the user's regional-format locale; they differ only on systems set up with a different region than language. Test: browser::tests::the_locale_name_is_language_dash_country (and page_script's assertions).
 
 #### `WIN-063` Player trade: partner status is painted text
 

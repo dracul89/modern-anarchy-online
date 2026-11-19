@@ -7193,3 +7193,7 @@ The original writes the next bill's date with `strftime("%#x")`; the game never 
 ### Organization boxes' places (WIN-061)
 
 The original raises the organization's leave box (`LeaveOrg` 0x10052c90) and promotion box (`OpenPromotionDialog` 0x10052e53) in the screen's middle (`Window::MoveToCenter` after `Go`) and the disband, invitation and tax boxes at the pointer, where every `DialogBox_c` comes up. The client now does the same.
+
+### Web pages' AcceptLanguage (WIN-062)
+
+The original hands the in-game pages `AnarchyOnline.AcceptLanguage` as the user's locale, language and country ("en-US", `BrowserModule_c::GetLocaleName` 0x1010b794). The client now gives the system's language and country too (WebView2's own on Windows, `LANG` elsewhere) instead of a fixed "en".

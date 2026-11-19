@@ -1035,6 +1035,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Click a link in an item info page and an NPC dialogue answer: it acts on the press, once.
 - [ ] With the AOU Translucent theme, look at a window with buttons, check boxes and tabs (Options, Wear): controls tinted in the skin's Default, inactive tab texts black; compare with the original's look under that skin.
 - [ ] /org leave: the question box comes up in the screen's middle; an organization invitation's box comes up at the pointer.
+- [ ] Open the item store or market page; nothing changes for an English system (the page sees "en-US"); with MAO_BROWSER_TRACE the script object's AcceptLanguage shows the system's language.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

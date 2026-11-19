@@ -172,6 +172,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A character's info page names the profession title and the defender rank instead of showing their numbers.
 - Links in info pages, NPC dialogue and tips open as the mouse button goes down, as in the original.
 - Dark skins (AOU Translucent) draw buttons, check boxes and tabs in the skin's own Default colour, as the original does.
+- In-game web pages are told the system's language and country, as the original tells them.
 
 ### Chat
 

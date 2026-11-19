@@ -196,9 +196,32 @@ The page was {}", mode.home())).wrap());
 }
 
 /// The script the page gets before its own: the `AnarchyOnline` object.
-pub fn page_script(language: &str) -> String {
+/// `BrowserModule_c::GetLocaleName` (GUI.dll 0x1010b794), the page's `AcceptLanguage`: the user's language
+/// (`GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_SISO639LANGNAME)`), "-", and the country (`LOCALE_SISO3166CTRYNAME`), as
+/// "en-US". This client calls no system function for it (its code is free of `unsafe`): off Windows the same two parts
+/// come from `LANG` ("en_US.UTF-8"); on Windows `None`, and the page takes the web view's own `navigator.language`, the
+/// system's language and country in the same form.
+pub fn locale_name() -> Option<String> {
+    if cfg!(windows) {
+        return None;
+    }
+    Some(locale_from_lang(&std::env::var("LANG").unwrap_or_default()))
+}
+
+/// `LANG`'s language and country ("en_US.UTF-8" -> "en-US"); "en" when it names none.
+fn locale_from_lang(lang: &str) -> String {
+    let base = lang.split(['.', '@']).next().unwrap_or("");
+    match base.split_once('_') {
+        Some((l, c)) if !l.is_empty() => format!("{l}-{c}"),
+        _ if !base.is_empty() && base != "C" && base != "POSIX" => base.to_string(),
+        _ => "en".to_string(),
+    }
+}
+
+pub fn page_script(language: Option<&str>) -> String {
+    let language = language.map_or_else(|| "navigator.language".to_string(), |l| format!("{l:?}"));
     format!(
-        "window.AnarchyOnline = {{ AcceptLanguage: {language:?}, IsInGame: true, \
+        "window.AnarchyOnline = {{ AcceptLanguage: {language}, IsInGame: true, \
          OpenMarketSendWindow: function() {{ window.ipc.postMessage('OpenMarketSendWindow'); }} }};"
     )
 }
@@ -455,7 +478,7 @@ impl Page {
             // to a cookie of an earlier game session.)
             .with_incognito(true)
             .with_bounds(rect(bounds))
-            .with_initialization_script(page_script("en"))
+            .with_initialization_script(page_script(locale_name().as_deref()))
             .with_initialization_script(if matches!(request.mode, Mode::Market) { INPUT_WIDTHS } else { "" })
             .with_initialization_script(proxy_script(&site))
             .with_initialization_script(if std::env::var_os("MAO_BROWSER_TRACE").is_some() { TRACE_SCRIPT } else { "" })
@@ -562,6 +585,13 @@ fn rect((x, y, w, h): (i32, i32, u32, u32)) -> wry::Rect {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_locale_name_is_language_dash_country() {
+        assert_eq!(super::locale_from_lang("en_US.UTF-8"), "en-US");
+        assert_eq!(super::locale_from_lang("de_DE@euro"), "de-DE");
+        assert_eq!((super::locale_from_lang("C"), super::locale_from_lang("")), ("en".to_string(), "en".to_string()));
+    }
+
     use super::*;
 
     #[test]
@@ -583,7 +613,9 @@ mod tests {
         assert_eq!(get("X-Anarchy-ServerID"), Some("3000"));
         assert_eq!(get("X-Anarchy-Appearance"), Some("1 2 3 4"));
         assert_eq!(get("X-Platform"), Some("Native"));
-        assert!(page_script("en").contains("OpenMarketSendWindow"));
+        assert!(page_script(Some("en")).contains("OpenMarketSendWindow"));
+        assert!(page_script(Some("de-DE")).contains("AcceptLanguage: \"de-DE\""));
+        assert!(page_script(None).contains("AcceptLanguage: navigator.language"));
         // (the market's text fields: only the sized ones without a width of their own, also those added later)
         assert!(INPUT_WIDTHS.contains("input[size]") && INPUT_WIDTHS.contains("!x.style.width") && INPUT_WIDTHS.contains("MutationObserver"));
     }
