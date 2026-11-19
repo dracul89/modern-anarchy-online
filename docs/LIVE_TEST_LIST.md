@@ -1131,6 +1131,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] Open the page of a city building item or a tower and of an NF crystal: upkeep/size, tower type (Roman numerals), and the formula's nano page appear.
 - [ ] In a dungeon or shop interior, ask a player standing in the next room behind a shut door for a trade: "out of range for trade" is told; with the door open it starts.
 - [ ] Enter playfield 4221 (a generated-building template; its first room) and 1186: the room props stand where the walls are, none floating or missing.
+- [ ] Cast a nano with a cast time of a second or more: the sparkle streaks come from both hands and follow them through the casting animation.
+- [ ] A hit effect on a target (stars or lightning of a nuke) and a running buff's sparkles sit at the body part (head, chest, hands) rather than at fixed heights; check on a small and a large body.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

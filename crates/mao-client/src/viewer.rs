@@ -2378,7 +2378,9 @@ impl ApplicationHandler for App {
                                     *ran = true;
                                     shells.extend(state.shells(&trail));
                                 }
-                                sparks.extend(crate::effects::pulse_particles(aura, feet, heading, age, *body));
+                                // (made at their attach points where they are on the posed body)
+                                let place = |attach: i32| c.as_ref().and_then(|c| crate::effects::body_place(attach, &c.attractors, c.translation));
+                                sparks.extend(crate::effects::pulse_particles_on(aura, feet, heading, age, *body, &place));
                                 // (a highlight tints the body itself: the last one running on it is the one seen, as the original's
                                 // controls set the frame in turn; a sustained one is remembered for its fade-out)
                                 for (k, (h, local)) in crate::effects::visual_highlights(aura, age).into_iter().enumerate() {
@@ -2434,7 +2436,10 @@ impl ApplicationHandler for App {
                     // (a cast effect emits for a second and lives out its particles' lives)
                     self.bursts.retain(|(began, cast)| began.elapsed().as_secs_f32() < cast.length);
                     for (began, cast) in &self.bursts {
-                        sparks.extend(crate::effects::cast_particles(cast, began.elapsed().as_secs_f32()));
+                        // (the hand parts at the caster's posed hands)
+                        let c = body_at(cast.feet);
+                        let place = |attach: i32| c.as_ref().and_then(|c| crate::effects::body_place(attach, &c.attractors, c.translation));
+                        sparks.extend(crate::effects::cast_particles_on(cast, began.elapsed().as_secs_f32(), &place));
                     }
                     // (a lone flare lasts its duration, or a while for one that runs for ever)
                     self.flares.retain(|(began, _, f)| began.elapsed().as_secs_f32() < if f.duration >= 0.0 { f.duration } else { 30.0 });
@@ -2497,7 +2502,10 @@ impl ApplicationHandler for App {
                             .filter(|(d, _)| *d < 2.0)
                             .min_by(|a, b| a.0.total_cmp(&b.0))
                             .map(|(_, c)| crate::effects::Body { points: &c.points, normals: &c.normals });
-                        sparks.extend(shot.particles(began.elapsed().as_secs_f32(), body));
+                        // (the hit made at its attach point on the target's posed body)
+                        let target = body_at(shot.to);
+                        let place = |attach: i32| target.as_ref().and_then(|c| crate::effects::body_place(attach, &c.attractors, c.translation));
+                        sparks.extend(shot.particles_on(began.elapsed().as_secs_f32(), body, &place));
                         // (its streaks, across the line as the last frame's eye sees it)
                         let eye = w.camera.eye();
                         shells.extend(shot.shells(began.elapsed().as_secs_f32(), [eye.x, eye.y, eye.z]));
@@ -2505,7 +2513,7 @@ impl ApplicationHandler for App {
                         if let Some(hit) = &shot.hit {
                             let landed = began.elapsed().as_secs_f32() - if shot.from != shot.to { crate::effects::FLIGHT } else { 0.0 };
                             if landed >= 0.0 {
-                                let c = body_at(shot.to);
+                                let c = &target;
                                 if let Some(c) = &c {
                                     shells.extend(crate::effects::visual_shells(hit, &c.surface, c.translation, landed));
                                 }

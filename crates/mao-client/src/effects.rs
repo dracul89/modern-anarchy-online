@@ -583,12 +583,21 @@ pub fn flare_particles(f: &Flare, at: [f32; 3], t: f32, stop: f32, colours: Opti
 /// (`length`: the casting state machine deletes the effect). Phases 3 and 4 (the projectile and the impact) are not played:
 /// no program names a template that has them.
 pub fn cast_particles(c: &CastShow, t: f32) -> Vec<Particle> {
+    cast_particles_on(c, t, &|_| None)
+}
+
+/// [`cast_particles`] with the places of the caster's attach points when its posed body is known (see [`body_place`]): the
+/// Spell1's two hand locators are its left and right hand attractors (2001, 2000: FUN_100f331d's `FUN_10106be2` on the caster),
+/// and each frame its run (FUN_100f3f59) takes their places and moves the hand parts there (FUN_100f2bab); the standing figures
+/// of [`anchor`] only when the body is not known.
+pub fn cast_particles_on(c: &CastShow, t: f32, place: &dyn Fn(i32) -> Option<[f32; 3]>) -> Vec<Particle> {
     let mut out = Vec::new();
     let s = &c.cast;
     if t < 0.0 || t >= c.length {
         return out;
     }
-    let hands = [attach_point(2001, 0.0, c.feet, c.heading), attach_point(2000, 0.0, c.feet, c.heading)];
+    let hand = |attach: i32| place(attach).unwrap_or_else(|| attach_point(attach, 0.0, c.feet, c.heading));
+    let hands = [hand(2001), hand(2000)];
     let [start, stop, end] = [s.times[0], s.times[1], s.times[2]];
     if t >= start && t <= end {
         for (flare, hand) in s.flares.iter().zip(hands) {
@@ -3432,6 +3441,12 @@ impl Shot {
     /// The sparks of the shot `age` seconds after it was cast; `body` is the target's posed surface when it is known (the hits
     /// thrown from it, Stars mode 15, use it).
     pub fn particles(&self, age: f32, body: Option<Body>) -> Vec<Particle> {
+        self.particles_on(age, body, &|_| None)
+    }
+
+    /// [`Shot::particles`] with the places of the target's attach points when its posed body is known (see [`body_place`]): the
+    /// hit is made where its attach point is on the body, as the original's locator finds it (FUN_10106591).
+    pub fn particles_on(&self, age: f32, body: Option<Body>, place: &dyn Fn(i32) -> Option<[f32; 3]>) -> Vec<Particle> {
         let mut out = Vec::new();
         let travelling = self.from != self.to;
         if let (Some(tracer), true) = (&self.tracer, travelling && age < FLIGHT) {
@@ -3454,7 +3469,7 @@ impl Shot {
                 (Visual::Stars(s), Some(b)) if s.mode == 15 => Some(stars_off_body(s, b, landed)),
                 _ => None,
             };
-            out.extend(from_body.unwrap_or_else(|| visual_particles(hit, [self.to[0], self.to[1], self.to[2] - 1.0], landed, Reach::Medium)));
+            out.extend(from_body.unwrap_or_else(|| visual_particles_on(hit, [self.to[0], self.to[1], self.to[2] - 1.0], landed, Reach::Medium, place)));
         }
         out
     }
@@ -3470,37 +3485,33 @@ pub enum Reach {
 
 /// The sparks of any visual at `time` seconds with its feet (or centre, for a ball and a flash) at `feet`.
 pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> Vec<Particle> {
+    visual_particles_on(v, feet, time, reach, &|_| None)
+}
+
+/// [`visual_particles`] on a body whose attach points' places are known (`place`, see [`body_place`]): a visual made at an attach
+/// point is made where that point is on the posed body (the original's locator, FUN_10106591 / FUN_10105e6d, each frame), and at
+/// the standing figures of [`anchor`] above `feet` only when the place is not known.
+pub fn visual_particles_on(v: &Visual, feet: [f32; 3], time: f32, reach: Reach, place: &dyn Fn(i32) -> Option<[f32; 3]>) -> Vec<Particle> {
+    // (the attach point's place: a tracer carries the point itself)
+    let on = |attach: i32| match reach {
+        Reach::Small => feet,
+        _ => place(attach).unwrap_or([feet[0], feet[1], feet[2] + anchor(attach).0]),
+    };
     match v {
         // (the attach point's height on a standing body; a tracer carries the point itself)
         Visual::Stars(s) => {
             // (mode 22 runs over the body's edges from the feet)
-            let up = match reach {
-                Reach::Small => 0.0,
-                _ if s.mode == 22 => 0.0,
-                _ => anchor(s.attach).0,
-            };
-            stars_particles(s, [feet[0], feet[1], feet[2] + up], time, false)
+            let centre = if s.mode == 22 { feet } else { on(s.attach) };
+            stars_particles(s, centre, time, false)
         }
-        Visual::Sparks(s) => {
-            let up = match reach {
-                Reach::Small => 0.0,
-                _ => anchor(s.attach).0,
-            };
-            sparks_particles(s, [feet[0], feet[1], feet[2] + up], time)
-        }
+        Visual::Sparks(s) => sparks_particles(s, on(s.attach), time),
         // (bends the target's mesh instead: see `deform_parts`)
         Visual::Deform(_) => Vec::new(),
         // (needs both ends of its line: `Shot::particles` draws it; alone, a short cord up from the point)
         Visual::Cords(c) => cords_particles(c, feet, [feet[0], feet[1], feet[2] + 1.0], time),
         // (the locator's point is the feet; the turn is drawn from the point so one effect keeps its turn)
         Visual::VolGrid(g) => volgrid_particles(g, feet, time, feet[0].to_bits() ^ feet[1].to_bits().rotate_left(13)),
-        Visual::BParticles(b) => {
-            let up = match reach {
-                Reach::Small => 0.0,
-                _ => anchor(b.attach).0,
-            };
-            bparticles(b, [feet[0], feet[1], feet[2] + up], time)
-        }
+        Visual::BParticles(b) => bparticles(b, on(b.attach), time),
         // (a streak along a shot's line: see `tracer5_shell`, `tracer1_shells`, `tracer3_particles`)
         Visual::Tracer5(_) | Visual::Tracer1(_) | Visual::Tracer3(_) => Vec::new(),
         // (crossed strips and cones: see `tparticle_shells`, `skyflash_shells`)
@@ -3511,36 +3522,13 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         // (it shakes the camera: see `shake`)
         Visual::GroundShake { .. } => Vec::new(),
         Visual::Nano(n) => {
-            let up = match reach {
-                Reach::Small => 0.0,
-                _ => anchor(n.attach).0,
-            };
-            let at = [feet[0], feet[1], feet[2] + up];
+            let at = on(n.attach);
             nano_particles(n, &|_| at, time, None, None)
         }
-        Visual::BParticle(b) => {
-            let up = match reach {
-                Reach::Small => 0.0,
-                _ => anchor(b.attach).0,
-            };
-            bparticle_particles(b, [feet[0], feet[1], feet[2] + up], time)
-        }
-        Visual::Sprite(s) => {
-            let up = match reach {
-                Reach::Small => 0.0,
-                _ => anchor(s.attach).0,
-            };
-            // (the frame's random spot changes each frame: the time's bits are the salt)
-            sprite_particles(s, [feet[0], feet[1], feet[2] + up], time, time.to_bits())
-        }
-        // (the attach point's height on a standing body; a tracer carries the point itself)
-        Visual::Smoke(s) => {
-            let up = match reach {
-                Reach::Small => 0.0,
-                _ => anchor(s.attach).0,
-            };
-            smoke_particles(s, [feet[0], feet[1], feet[2] + up], time)
-        }
+        Visual::BParticle(b) => bparticle_particles(b, on(b.attach), time),
+        // (the frame's random spot changes each frame: the time's bits are the salt)
+        Visual::Sprite(s) => sprite_particles(s, on(s.attach), time, time.to_bits()),
+        Visual::Smoke(s) => smoke_particles(s, on(s.attach), time),
         // (the placeholders' rings at their attach points; a tracer carries them at its point)
         Visual::Spiral(aura) => {
             let mut out = Vec::new();
@@ -3564,25 +3552,15 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
         Visual::EffectMesh(_) | Visual::ShockWave(_) => Vec::new(),
         // (a trail keeps its samples: see `TrailState`; rocks are meshes: `vulcan_rocks`)
         Visual::Trail2(_) | Visual::VulcanRocks(_) => Vec::new(),
-        Visual::Suns(s) => {
-            let up = match reach {
-                Reach::Small => 0.0,
-                _ => anchor(s.attach).0,
-            };
-            suns_particles(s, [feet[0], feet[1], feet[2] + up], time)
-        }
+        Visual::Suns(s) => suns_particles(s, on(s.attach), time),
         Visual::Electra { material, attach, colour_a, colour_b, duration, size, reach: out_to, life } => {
-            let up = match reach {
-                Reach::Small => 0.0,
-                _ => anchor(*attach).0,
-            };
-            electra_particles(*material, *colour_a, *colour_b, *duration, *size, *out_to, *life, [feet[0], feet[1], feet[2] + up], time)
+            electra_particles(*material, *colour_a, *colour_b, *duration, *size, *out_to, *life, on(*attach), time)
         }
         // (a bundle's children all run, each while its own life lasts)
-        Visual::Meta(children) => children.iter().filter(|c| time < pulse_timing(c).1).flat_map(|c| visual_particles(c, feet, time, reach)).collect(),
+        Visual::Meta(children) => children.iter().filter(|c| time < pulse_timing(c).1).flat_map(|c| visual_particles_on(c, feet, time, reach, place)).collect(),
         // (a resolved toggle's child, from its start)
         Visual::Delayed(child, start) => {
-            if time >= *start && time - start < pulse_timing(child).1 { visual_particles(child, feet, time - start, reach) } else { Vec::new() }
+            if time >= *start && time - start < pulse_timing(child).1 { visual_particles_on(child, feet, time - start, reach, place) } else { Vec::new() }
         }
         Visual::Toggle { .. } => Vec::new(),
         // (each copy of the child at its place from its birth; a looping round starts again when every copy has ended)
@@ -3593,7 +3571,8 @@ pub fn visual_particles(v: &Visual, feet: [f32; 3], time: f32, reach: Reach) -> 
             let mut out = Vec::new();
             for (born, offset) in children {
                 if t >= *born && t - born < life {
-                    out.extend(visual_particles(child, [feet[0] + offset[0], feet[1] + offset[1], feet[2] + offset[2]], t - born, reach));
+                    let shifted = |attach: i32| place(attach).map(|p| [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]]);
+                    out.extend(visual_particles_on(child, [feet[0] + offset[0], feet[1] + offset[1], feet[2] + offset[2]], t - born, reach, &shifted));
                 }
             }
             out
@@ -3641,6 +3620,17 @@ fn anchor(attach: i32) -> (f32, f32, f32) {
     }
 }
 
+/// Where attach point `attach` is on a posed body whose attractors and bones are `attractors` (by name, their frames in the
+/// server's frame) and whose own frame stands at `origin` (world, Z up), as the original's locator takes it each frame
+/// (FUN_10106591): 0 the body's own frame (FUN_10105e6d leaves it as it is), 1000–1018 and 2000–2023 the bone or attractor
+/// [`Locator::attractor`] finds (else the head's); none for the others (the weapon, 3000, is not given here).
+pub fn body_place(attach: i32, attractors: &[(String, mao_formats::model::Matrix)], origin: [f32; 3]) -> Option<[f32; 3]> {
+    if attach == 0 {
+        return Some(origin);
+    }
+    Locator::attractor(attach, attractors).map(|l| l.origin)
+}
+
 /// The world point of an attach point with the template's `offset`, for a character whose feet are at `feet` facing `heading`.
 pub fn attach_point(attach: i32, offset: f32, feet: [f32; 3], heading: f32) -> [f32; 3] {
     let (height, right, dir) = anchor(attach);
@@ -3652,6 +3642,13 @@ pub fn attach_point(attach: i32, offset: f32, feet: [f32; 3], heading: f32) -> [
 /// (world, Z up) facing `heading`, and whose body is `(breed, sex, fatness)` when known. `Visual::Spiral` is the kind-1001 pair of placeholders; a
 /// shield is drawn as a shell (`shield_shell`).
 pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body: Option<(i32, i32, i32)>) -> Vec<Particle> {
+    pulse_particles_on(v, feet, heading, age, body, &|_| None)
+}
+
+/// [`pulse_particles`] on a body whose attach points' places are known (`place`, see [`body_place`]): the effects made at an
+/// attach point are made where it is on the posed body, as the original's locator finds it each frame (FUN_10106591), rather
+/// than at the standing figures of [`anchor`]. (The buff rings still sit by their standing figures and the template's table.)
+pub fn pulse_particles_on(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body: Option<(i32, i32, i32)>, place: &dyn Fn(i32) -> Option<[f32; 3]>) -> Vec<Particle> {
     let mut out = Vec::new();
     match v {
         Visual::Spiral(aura) => {
@@ -3666,17 +3663,17 @@ pub fn pulse_particles(v: &Visual, feet: [f32; 3], heading: f32, age: f32, body:
         }
         Visual::Meta(children) => {
             for c in children.iter().filter(|c| age < pulse_timing(c).1) {
-                out.extend(pulse_particles(c, feet, heading, age, body));
+                out.extend(pulse_particles_on(c, feet, heading, age, body, place));
             }
         }
         // (a fire's disc and flight are in the body's frame)
         Visual::Fire(f) => out.extend(fire_particles(f, feet, heading, age)),
         Visual::Delayed(child, start) => {
             if age >= *start && age - start < pulse_timing(child).1 {
-                out.extend(pulse_particles(child, feet, heading, age - start, body));
+                out.extend(pulse_particles_on(child, feet, heading, age - start, body, place));
             }
         }
-        other => return visual_particles(other, feet, age, Reach::Body),
+        other => return visual_particles_on(other, feet, age, Reach::Body, place),
     }
     out
 }
@@ -5115,6 +5112,51 @@ mod tests {
         let long = CastShow { length: 10.0, ..show.clone() };
         let beam = cast_particles(&long, 4.2);
         assert!(beam.iter().any(|p| p.sprite == 8 && (p.size - 0.25).abs() < 0.6));
+    }
+
+    #[test]
+    fn a_cast_runs_at_the_posed_hands_and_a_hit_at_its_posed_attach_point() {
+        // (a body's frames in the server's frame, Y up: the left hand at x 3, height 1.4, z 5; the right at x 4; the head at 1.8)
+        let at = |x: f32, y: f32, z: f32| {
+            let mut m = [0.0f32; 16];
+            (m[0], m[5], m[10], m[15]) = (1.0, 1.0, 1.0, 1.0);
+            (m[12], m[13], m[14]) = (x, y, z);
+            m
+        };
+        let attractors = vec![("Attractor03_lefthand".to_string(), at(3.0, 1.4, 5.0)), ("Attractor02_righthand".to_string(), at(4.0, 1.4, 5.0)), ("Attractor01_head".to_string(), at(3.5, 1.8, 5.0))];
+        let origin = [3.5, 5.0, 0.0];
+        // the body's own frame for 0, the attractors by name (Z up in the world), the head for a bone the body lacks, none else
+        assert_eq!(body_place(0, &attractors, origin), Some(origin));
+        assert_eq!(body_place(2001, &attractors, origin), Some([3.0, 5.0, 1.4]));
+        assert_eq!(body_place(2000, &attractors, origin), Some([4.0, 5.0, 1.4]));
+        assert_eq!(body_place(1013, &attractors, origin), Some([3.5, 5.0, 1.8]));
+        assert_eq!(body_place(3000, &attractors, origin), None);
+        let place = |attach: i32| body_place(attach, &attractors, origin);
+        // the hand flares stream from those places, not from the standing figures round the feet
+        let flare = |attach: i32| Flare { duration: -1.0, material: 15, rate: 16.0, width: (0.05, 0.1), colour_a: [1.0; 4], colour_b: [0.0, 1.0, 1.0, 1.0], gate: 0, azimuth: (0.0, 6.283), elevation: (-1.571, 1.571), speed: (0.35, 0.85), head: -0.3, tail: 1.0, life: (0.5, 1.0), attach, burst: 0 };
+        let cast = Cast { material: 8, colour_a: [1.0; 4], colour_b: [0.0, 1.0, 1.0, 1.0], times: [0.0, 6.0, 8.0, 4.0, 5.0, 64.35, 70.0, 70.0, 80.0], flares: [Some(flare(2001)), Some(flare(2000))], released: false };
+        let show = CastShow { feet: [100.0, 100.0, 0.0], heading: 0.0, cast, length: 10.0 };
+        let sparks = cast_particles_on(&show, 0.8, &place);
+        assert!(!sparks.is_empty());
+        let hands = [[3.0, 5.0, 1.4], [4.0, 5.0, 1.4]];
+        let near = |p: &Particle| hands.iter().map(|h| ((p.position[0] - h[0]).powi(2) + (p.position[1] - h[1]).powi(2) + (p.position[2] - h[2]).powi(2)).sqrt()).fold(f32::MAX, f32::min);
+        assert!(sparks.iter().all(|p| near(p) <= 0.85 + 1e-3));
+        assert!(sparks.iter().any(|p| p.position[0] < 3.5) && sparks.iter().any(|p| p.position[0] > 3.5));
+        // the beam between them
+        let beam: Vec<_> = cast_particles_on(&show, 4.2, &place).into_iter().filter(|p| p.sprite == 8).collect();
+        assert!(!beam.is_empty() && beam.iter().all(|p| (p.position[1] - 5.0).abs() < 1e-3 && (p.position[2] - 1.4).abs() < 1e-3 && p.position[0] > 2.9 && p.position[0] < 4.1));
+        // with no body known, the standing figures
+        assert_eq!(cast_particles_on(&show, 0.8, &|_| None), cast_particles(&show, 0.8));
+        // a hit's stars stand round the posed head (attach 1006 finds the head here), a running one's too, and not when the point
+        // is a tracer's
+        let s = Stars { mode: 19, colour_a: [1.0; 4], colour_b: [1.0; 4], size: 0.1, radius: 0.2, life: 1.0, swirl: 0.0, material: 15, attach: 1006, duration: -1.0, word11: 0.0, word30: 1000 };
+        let shot = Shot { from: origin, to: [origin[0], origin[1], origin[2] + 1.2], tracer: None, hit: Some(Visual::Stars(s.clone())) };
+        let hit = shot.particles_on(FLIGHT + 0.3, None, &place);
+        assert!(!hit.is_empty() && hit.iter().all(|p| ((p.position[0] - 3.5).powi(2) + (p.position[1] - 5.0).powi(2) + (p.position[2] - 1.8).powi(2)).sqrt() <= 0.2 + 1e-3));
+        let running = pulse_particles_on(&Visual::Stars(s.clone()), origin, 0.0, 0.3, None, &place);
+        assert_eq!(running, visual_particles_on(&Visual::Stars(s.clone()), origin, 0.3, Reach::Body, &place));
+        assert!(!running.is_empty() && running.iter().all(|p| (p.position[2] - 1.8).abs() <= 0.2 + 1e-3));
+        assert_eq!(visual_particles_on(&Visual::Stars(s.clone()), origin, 0.3, Reach::Small, &place), visual_particles(&Visual::Stars(s), origin, 0.3, Reach::Small));
     }
 
     #[test]
