@@ -15,8 +15,8 @@ use crate::theme::Palette;
 pub struct PlanetWindow {
     pub open: bool,
     map: Option<Arc<PlanetMap>>,
-    /// The playfield the map was picked for, and the map's index (to notice a new choice).
-    picked_for: Option<u32>,
+    /// The playfield and ExpansionPlayfield the map was picked for (to notice a new choice).
+    picked_for: Option<(u32, i64)>,
     level: usize,
     /// The level's pixel in the middle of the view, and whether it follows the character.
     centre: Option<egui::Pos2>,
@@ -67,16 +67,19 @@ impl PlanetWindow {
         self.level = new;
     }
 
-    /// Draws the window: `own` the character's playfield, place (server x, y, z) and heading; `waypoint` the mission's.
-    pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, playfield: u32, own: Option<[f32; 3]>, heading: f32, waypoint: Option<(u32, [f32; 3])>) {
+    /// Draws the window: `own` the character's playfield, place (server x, y, z) and heading; `waypoint` the mission's;
+    /// `expansion_playfield` the character's stat 531, which picks the map (`planetmaps::window_kind`).
+    pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, playfield: u32, expansion_playfield: i64, own: Option<[f32; 3]>, heading: f32, waypoint: Option<(u32, [f32; 3])>) {
         self.tiles.update(ctx);
         if !self.open {
             return;
         }
-        if self.picked_for != Some(playfield) || std::mem::take(&mut self.repick) {
+        if self.picked_for != Some((playfield, expansion_playfield)) || std::mem::take(&mut self.repick) {
             let old = self.map.as_ref().map(|m| (m.root.clone(), m.name.clone()));
-            self.map = crate::planetmaps::for_playfield(playfield);
-            self.picked_for = Some(playfield);
+            // (the original's rule, FUN_1004d92d: the Shadowlands map when the ExpansionPlayfield's bit 0 is set, else
+            // Rubi-Ka's. Until 2026-11-19 the map that had the playfield, so a Shadowlands dungeon showed Rubi-Ka.)
+            self.map = crate::planetmaps::for_window(expansion_playfield);
+            self.picked_for = Some((playfield, expansion_playfield));
             if self.map.as_ref().map(|m| (m.root.clone(), m.name.clone())) != old {
                 // (a new map opens at its second level, or its first)
                 self.level = self.map.as_ref().map_or(0, |m| 1.min(m.levels.len().saturating_sub(1)));

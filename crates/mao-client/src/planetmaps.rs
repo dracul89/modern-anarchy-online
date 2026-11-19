@@ -84,6 +84,19 @@ pub fn for_playfield(playfield: u32) -> Option<Arc<PlanetMap>> {
     rubika.or(shadowlands)
 }
 
+/// The kind of map the original's planet map window shows (`PlanetMapView_c`, FUN_1004d92d): the Shadowlands' index
+/// (`ShadowlandMapIndexFile`, by default `Shadowlands/ShadowlandsMap.txt`) when bit 0 of the character's
+/// ExpansionPlayfield (stat 531, `N3Msg_GetSkill(0x213, 2)`) is set, else Rubi-Ka's (`PlanetMapIndexFile`,
+/// `Normal/PlanetMapIndexNormal.txt`).
+pub fn window_kind(expansion_playfield: i64) -> &'static str {
+    if expansion_playfield & 1 != 0 { "Shadowlands" } else { "Rubika" }
+}
+
+/// The map the planet map window shows for a character whose ExpansionPlayfield is `expansion_playfield` (`window_kind`).
+pub fn for_window(expansion_playfield: i64) -> Option<Arc<PlanetMap>> {
+    chosen(window_kind(expansion_playfield))
+}
+
 /// Uses another map for its kind (the option saved).
 pub fn choose(index: &str) {
     let Some(found) = available().iter().find(|f| f.index.eq_ignore_ascii_case(index)) else { return };
@@ -202,5 +215,16 @@ impl Tiles {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FUN_1004d92d: the window's map is the Shadowlands' when bit 0 of ExpansionPlayfield is set, else Rubi-Ka's.
+    #[test]
+    fn the_window_shows_the_map_of_the_expansion_playfield() {
+        assert_eq!([0, 1, 2, 3].map(window_kind), ["Rubika", "Shadowlands", "Rubika", "Shadowlands"]);
     }
 }

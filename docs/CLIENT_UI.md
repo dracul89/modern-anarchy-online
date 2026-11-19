@@ -7750,3 +7750,7 @@ Before the player has placed them (the saved place, `Window::LoadWndConfig`, sti
 ### Action pictures (WIN-098)
 
 Every tile of the Actions window and every action shortcut is pictured by its action's item template's icon, as the original's are (Gamecode FUN_10042b17 gives each special action the template that names and pictures it). Reload now shows its own picture rather than Aimed Shot's, and the catalogue's perks their own rather than a family picked by words in their names. A shortcut saved with an older picture is drawn with its action's own.
+
+### Which planet map the window shows (WIN-101)
+
+The original's planet map window (`PlanetMapView_c`, FUN_1004d92d) shows one map: the Shadowlands one (`ShadowlandMapIndexFile`) when bit 0 of the character's ExpansionPlayfield (stat 531) is set, else Rubi-Ka's (`PlanetMapIndexFile`). The game's own client sets that stat on entering a playfield, 1 for a playfield whose record marks it a Shadowlands one (Gamecode FUN_1005997f, `IsShadowlandPF` 0x10121e59). The client does the same (`planetmaps::expansion_playfield`, `window_kind`): in a Shadowlands dungeon the window now shows the Shadowlands map; before, a playfield on neither map showed Rubi-Ka's.
