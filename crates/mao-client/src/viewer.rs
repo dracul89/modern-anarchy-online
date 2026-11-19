@@ -722,6 +722,11 @@ struct App {
     camera_body: crate::vehicle::Body,
     /// Where on the character the camera looks (`camera::LookTarget`).
     look_target: crate::camera::LookTarget,
+    /// The input is stopped (the own character is dead), as last seen: `net::INPUT_STOPPED`.
+    input_stopped: bool,
+    /// How solid the player's own body is drawn: 0 in first person without `ShowMyCharacter`, less than 1 while the
+    /// camera is near its head (`own_fade`).
+    own_alpha: f32,
     /// The interior's rooms, which of them are drawn, the room the character was last found in, and when the camera's
     /// attractor was last chosen (`RunCameraSelectionCollChecks` runs every tenth of a second).
     interior: Option<std::sync::Arc<crate::interior::Interior>>,
@@ -884,6 +889,21 @@ fn fog_mode(fog: Option<([f32; 3], f32)>, mode: Option<f64>) -> Option<([f32; 3]
 }
 
 /// The fog's start and end for a view distance: the haze begins a seventh of the way out (250 of the default 1800), or at 40.
+/// How solid the player's own character is drawn with the camera `distance` from its head
+/// (`VisualCATMesh_t::RefreshAlpha`, DisplaySystem.dll 0x10073b7f, as the drop-in ports it; only the client's own
+/// character has the flag that fades it, N3.dll 0x1001a0d9): 1 from the start distance on, falling to the floor,
+/// one less the "end alpha", at the end distance (the nearer of the two) and nearer.
+pub fn own_fade(distance: f32, start: f32, end: f32, end_alpha: f32) -> f32 {
+    let (far, near, floor) = (start, end.min(start), 1.0 - end_alpha);
+    if distance >= far {
+        1.0
+    } else if distance > near {
+        (distance - near) / (far - near) * (1.0 - floor) + floor
+    } else {
+        floor
+    }
+}
+
 pub fn fog_for(distance: f32) -> (f32, f32) {
     ((distance / 7.2).max(40.0), distance)
 }
@@ -953,7 +973,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     }
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), weather_fx: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), weather_fx: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false, own_alpha: 1.0, input_stopped: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         // (started from the character list, whose window has had the screen up since Play was pressed: it goes on from
@@ -1652,8 +1672,12 @@ impl ApplicationHandler for App {
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
                 };
                 if self.live.is_some() {
-                    // (a notch up zooms the game's camera in)
-                    self.wheel -= lines;
+                    // (a notch up zooms the game's camera in, when the wheel over the world is set to zoom:
+                    // `MouseWheel` 0, which N3.dll's camera connects its zoom by, 0x100215c8. 1 scrolls the control
+                    // center's side bar in the original, 40 a step, which is not done here; 2 does nothing.)
+                    if crate::prefs::get("MouseWheel").unwrap_or(0.0) == 0.0 {
+                        self.wheel -= lines;
+                    }
                 } else {
                     let closest = w.scene.radius * 0.1;
                     w.camera.distance = (w.camera.distance * (1.0 - lines * 0.1)).max(closest);
@@ -2126,7 +2150,10 @@ impl ApplicationHandler for App {
                             mouse: if self.buttons == [false; 2] { (0.0, 0.0) } else { self.mouse_look },
                             wheel: std::mem::take(&mut self.wheel),
                             reset: std::mem::take(&mut self.cam_reset),
+                            hold_third: !crate::prefs::on("ZoomTo1stPerson"),
                         };
+                        // (the own character's head, for its fading as the camera comes close)
+                        let own_head = self.casters.iter().find(|c| c.own).map(|c| c.shifted(self.follow_shift)).and_then(|c| c.attractors.iter().find(|(n, _)| n == "Attractor01_head").map(|(_, m)| [m[12], m[13], m[14]]));
                         self.mouse_look = (0.0, 0.0);
                         // The look target: the body's camera attractor in the character's frame (the posed body moved on with the
                         // character), smoothed as the original smooths it, then turned by the facing and put at the feet.
@@ -2199,6 +2226,18 @@ impl ApplicationHandler for App {
                             });
                         }
                         let (eye, at) = self.steering.update(dt, look, self.heading, speed, inputs, &mut surface);
+                        // (the own body: not drawn in first person unless `ShowMyCharacter` is on, N3.dll's
+                        // `n3VisualDynel_t::Run` 0x10019927; else faded as the camera nears its head, `own_fade`)
+                        self.own_alpha = if self.steering.is_first_person() && !crate::prefs::get("ShowMyCharacter").is_some_and(|v| v != 0.0) {
+                            0.0
+                        } else {
+                            let pref = |name: &str, or: f32| crate::prefs::get(name).map_or(or, |v| v as f32);
+                            let distance = own_head.map(|h| ((h[0] - eye[0]).powi(2) + (h[1] - eye[1]).powi(2) + (h[2] - eye[2]).powi(2)).sqrt());
+                            match distance {
+                                Some(d) if pref("FadeCharacter", 1.0) != 0.0 => own_fade(d, pref("FadeCharacterStartDist", 1.5), pref("FadeCharacterEndDist", 0.7), pref("FadeCharacterEndAlpha", 0.15)),
+                                _ => 1.0,
+                            }
+                        };
                         // (`MAO_CAMERA_TRACE=1`: every frame's time, eye, look target and feet, to measure how steadily the
                         // camera goes)
                         static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -2370,6 +2409,12 @@ impl ApplicationHandler for App {
                             overlay_tints.extend(self.character_parts.iter().filter(|(c, _)| c == id).map(|(_, r)| (r.clone(), *tint)));
                         }
                     }
+                    // (the own body's fade is its alpha, over whatever tint it is under)
+                    let follow_tint = match follow_tint {
+                        Some([r, g, b, a]) => Some([r, g, b, a * self.own_alpha]),
+                        None if self.own_alpha < 1.0 => Some([0.0, 0.0, 0.0, self.own_alpha]),
+                        None => None,
+                    };
                     w.scene.set_tints(&w.gpu, &overlay_tints, follow_tint);
                     self.shake.0 = shaking;
                     // (a trail that did not run this frame has ended)
@@ -3193,6 +3238,18 @@ impl ApplicationHandler for App {
 #[cfg(test)]
 mod camera_tests {
     use super::*;
+
+    /// The own body's fade as the camera nears its head: solid from the start distance on, at its floor from the
+    /// end distance in.
+    #[test]
+    fn the_own_body_fades_near_the_camera() {
+        assert_eq!(own_fade(3.0, 1.5, 0.7, 0.15), 1.0);
+        assert_eq!(own_fade(1.5, 1.5, 0.7, 0.15), 1.0);
+        assert!((own_fade(0.5, 1.5, 0.7, 0.15) - 0.85).abs() < 1e-6);
+        assert!((own_fade(1.1, 1.5, 0.7, 0.15) - 0.925).abs() < 1e-6);
+        // (an end beyond the start counts as the start)
+        assert!((own_fade(1.0, 1.5, 4.0, 1.0) - 0.0).abs() < 1e-6);
+    }
 
     /// The `FogMode` option at 0 leaves a tenth of the fog; every other value, and none, all of it.
     #[test]

@@ -10401,7 +10401,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 state.tick_doors(position);
                 // (characters farther than the setting are not drawn; 0 draws all)
                 let reach = keys.char_distance;
-                let near = |id: u32| reach <= 0.0 || state.entities.get(&id).is_none_or(|e| ((e.0[0] - position[0]).powi(2) + (e.0[2] - position[2]).powi(2)).sqrt() <= reach);
+                // (by the distance in all three directions, as `n3VisualDynel_t::Run` measures it, N3.dll 0x100199c0)
+                let near = |id: u32| reach <= 0.0 || state.entities.get(&id).is_none_or(|e| ((e.0[0] - position[0]).powi(2) + (e.0[1] - position[1]).powi(2) + (e.0[2] - position[2]).powi(2)).sqrt() <= reach);
                 // Other characters under a polymorph or a vehicle program: the programs running on them (`others_nanos`),
                 // less those whose time is up (a few seconds' grace: the server's `Buff` is what ends one in view).
                 state.others_nanos.retain(|_, nanos| {

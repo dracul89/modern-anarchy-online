@@ -44,6 +44,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   (Built from the original's code alone: it has not met a server yet.)
 - The vehicles window (Shift+V): the vehicles your side has researched, with their descriptions, Order Vehicle and
   Leave vehicle. (Built from the original's code alone: ordering has not met a server yet.)
+- More of the options act: "Zoom in and out of first person", the mouse wheel over the world (zoom or nothing),
+  "Show my character in first person view", the fading of your own character when the camera is close to it, and
+  the view distance and character distance sliders.
 
 ### Items
 

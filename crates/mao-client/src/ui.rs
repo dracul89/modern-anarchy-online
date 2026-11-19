@@ -1104,6 +1104,17 @@ impl Ui {
                     settings.vsync = wait;
                     settings.save();
                 }
+                // (the original's view distance is a share of 1000: the camera's far plane, not under 50.2, N3.dll
+                // 0x1001fc91. It sets this client's own view distance, which goes further when set in the launcher.)
+                if let Some(share) = out.changed.iter().find(|c| c.0 == "ViewDistance").map(|c| c.1 as f32) {
+                    settings.view_distance = (share * 1000.0).max(50.2);
+                    settings.save();
+                }
+                // (and its character distance, 5 to 80 and 70 for anything else, N3.dll 0x1001f964, this client's own)
+                if let Some(metres) = out.changed.iter().find(|c| c.0 == "DisplayCharViewDistance").map(|c| c.1 as f32) {
+                    settings.char_distance = if (5.0..=80.0).contains(&metres) { metres.round() } else { 70.0 };
+                    settings.save();
+                }
                 for command in out.commands {
                     if let Some(line) = chat_window.run(&command) {
                         requests.chat.push(line);

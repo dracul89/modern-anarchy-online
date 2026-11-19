@@ -6153,3 +6153,37 @@ times a second from its own animation stack; the idle loops under the fidgets (t
 character) and the choice is made each time the idle's length or a fidget's has passed. Seen in my own test
 launcher's window (`win_shot.py figure play 7,9,12,16,20 MAO_LAUNCHER_DEMO=1`): the figure differs between the
 pictures. Test: `the_list_figure_fidgets_one_time_in_five`.
+
+### The options that were left (SET-030)
+
+The four names an earlier reader gave figures for "in no decompile at hand" are read by N3.dll, which has no
+decompile here: found now by their names in the binaries and disassembled (`DLL=N3.dll xdis.py`). `ViewDistance`
+and the `FadeCharacter*` four are preferences of the kind `IndependentPrefs_t` keeps; the others are the option
+panel's own values.
+
+- **`ZoomTo1stPerson`** (on at first; N3.dll 0x100200ef, 0x10020866, 0x1002118c, 0x10022841): it gates both ways.
+  On: zooming in past the nearest distance, 0.8, goes into first person, and zooming out of first person leaves
+  it. Off: the camera stops at 0.8, and first person is not left by zooming. Here: `camera::Inputs::hold_third`.
+- **`MouseWheel`** (0 at first): the wheel over the world, when no window is under the pointer (GUI.dll
+  `WindowController_c::HandleMouseWheel`). 0: the camera connects its zoom to it (N3.dll 0x100215c8). 1: the
+  control center's side bar scrolls by it, 40 a step (GUI.dll FUN_10048822). 2: nothing. Here: 0 and 2; **1 is not
+  done** (it does nothing, as 2).
+- **`ShowMyCharacter`** (off at first; N3.dll 0x10019927 in `n3VisualDynel_t::Run`): the player's own body is not
+  drawn in first person unless it is on. Here it was always drawn; now by the option.
+- **`FadeCharacter`, `FadeCharacterStartDist`, `FadeCharacterEndDist`, `FadeCharacterEndAlpha`** (1, 1.5, 0.7,
+  0.15; DisplaySystem.dll's `VisualCATMesh_t::RefreshAlpha` 0x10073b7f, as the drop-in ports it; only the client's
+  own character has the flag for it, N3.dll 0x1001a0d9): the own body fades as the camera nears its head: solid from
+  the start distance on, down to one less the "end alpha" at the end distance and nearer. Here: `viewer::own_fade`,
+  drawn as the own body's alpha (the renderer draws a tinted body blended, and none at 0).
+- **`ViewDistance`** (0.8 of 0 to 1; N3.dll 0x1001fc91): the camera's far plane is the value times 1000, not under
+  the near plane's 0.2 and 50. Here the option's slider sets this client's own view distance to that (which the
+  launcher's own setting can put further, to 4000).
+- **`DisplayCharViewDistance`** (80 of 5 to 80; N3.dll 0x1001f964 and `n3VisualDynel_t::Run` 0x100199c0): other
+  characters and creatures further than it from the player's own, in all three directions, are not drawn, on a
+  ground playfield; a value outside 5 to 80 counts as 70. Here the option's slider sets this client's own
+  character distance to that, and the distance is measured in all three directions now (it was level). **Kept as
+  they were**: this client's own default, which draws everybody, and its cap inside rooms too (the original has
+  another rule there, not read).
+
+Not seen running: no offscreen picture has a camera near a body. Tests: the camera's zoom test (the switch
+off), `the_own_body_fades_near_the_camera`.

@@ -182,6 +182,10 @@ pub struct Inputs {
     /// Mouse-wheel notches (positive zooms out), applied as that many quarter seconds of zoom.
     pub wheel: f32,
     pub reset: bool,
+    /// `ZoomTo1stPerson` is off: zooming in stops at the nearest distance instead of going into first person, and
+    /// zooming out does not leave first person (N3.dll's four readers of it: 0x100200ef, 0x10020866, 0x1002118c,
+    /// 0x10022841).
+    pub hold_third: bool,
 }
 
 const MASS: f32 = 20.0;
@@ -466,7 +470,7 @@ impl SteeringCamera {
     }
 
     /// The turn and zoom by key or mouse (FUN_1002118c) applied to the camera's vector from the look target.
-    fn turn_and_zoom(&mut self, look: [f32; 3], heading: f32, across: f32, up: f32, zoom: f32) -> bool {
+    fn turn_and_zoom(&mut self, look: [f32; 3], heading: f32, across: f32, up: f32, zoom: f32, hold_third: bool) -> bool {
         let mut v = sub(self.pos, look);
         if length(v) < 1e-6 {
             v = scale(rotate_y(self.pref_dir, heading), self.pref_dist.max(MIN_DISTANCE));
@@ -480,9 +484,13 @@ impl SteeringCamera {
         v = add(v, scale(normalize(v), zoom * ZOOM_SPEED));
         let len = length(v);
         if len < MIN_DISTANCE && zoom < 0.0 {
-            // zoomed right in: first person
-            self.set_mode(Mode::First);
-            return false;
+            if !hold_third {
+                // zoomed right in: first person
+                self.set_mode(Mode::First);
+                return false;
+            }
+            // (with `ZoomTo1stPerson` off the camera stops at the nearest distance)
+            v = scale(normalize(v), MIN_DISTANCE);
         }
         if len > MAX_DISTANCE {
             v = scale(normalize(v), MAX_DISTANCE);
@@ -528,7 +536,7 @@ impl SteeringCamera {
         if self.mode == Mode::First {
             self.first_yaw += inputs.mouse.0 + (inputs.rotate_right as i32 - inputs.rotate_left as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * (dt * 60.0);
             self.first_pitch = (self.first_pitch + inputs.mouse.1 + (inputs.rotate_up as i32 - inputs.rotate_down as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * (dt * 60.0)).clamp(-PITCH_LIMIT, PITCH_LIMIT);
-            if inputs.zoom_out || inputs.wheel > 0.0 {
+            if !inputs.hold_third && (inputs.zoom_out || inputs.wheel > 0.0) {
                 // (`ZoomTo1stPerson`: zooming out leaves first person)
                 self.set_mode(self.preferred);
                 self.pos = add(look, scale(rotate_y(self.pref_dir, heading), self.pref_dist));
@@ -551,7 +559,7 @@ impl SteeringCamera {
         let up = inputs.mouse.1 + (inputs.rotate_up as i32 - inputs.rotate_down as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * frames;
         let zoom = (inputs.zoom_out as i32 - inputs.zoom_in as i32) as f32 * dt + inputs.wheel * 0.25;
         if across != 0.0 || up != 0.0 || zoom != 0.0 {
-            if !self.turn_and_zoom(look, heading, across, up, zoom) {
+            if !self.turn_and_zoom(look, heading, across, up, zoom, inputs.hold_third) {
                 return self.update(0.0, look, heading, char_speed, Inputs::default(), surface);
             }
         }
@@ -801,6 +809,17 @@ mod tests {
         // zooming out comes back to the locked camera
         c.update(0.016, look, 0.0, 7.0, Inputs { zoom_out: true, ..Default::default() }, &mut Sight(clear));
         assert_eq!(c.mode, Mode::Locked);
+        // (with `ZoomTo1stPerson` off, zooming in stops at the nearest distance, and first person is not left by zooming)
+        let mut held = SteeringCamera::new(Mode::Locked);
+        held.update(0.016, look, 0.0, 7.0, Inputs::default(), &mut Sight(clear));
+        for _ in 0..600 {
+            held.update(0.016, look, 0.0, 7.0, Inputs { zoom_in: true, hold_third: true, ..Default::default() }, &mut Sight(clear));
+        }
+        assert_eq!(held.mode, Mode::Locked);
+        assert!(length(sub(held.pos, look)) < MIN_DISTANCE + 0.3);
+        held.set_mode(Mode::First);
+        held.update(0.016, look, 0.0, 7.0, Inputs { zoom_out: true, hold_third: true, ..Default::default() }, &mut Sight(clear));
+        assert_eq!(held.mode, Mode::First);
     }
 
     #[test]
