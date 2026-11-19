@@ -7153,3 +7153,7 @@ The team window's header shows GetTeamLevel (GUI.dll 0x1007a5d3), the level inte
 ### Every mail in the inbox list (CHT-046)
 
 The inbox list reads every entry the server's count gives; the client used to stop at 64.
+
+### /cc alone (CHT-004)
+
+FUN_100ba6f4 answers `/cc` with no command by a fixed line that the syntax is invalid. The client now says that (in its own words) instead of its usage line.

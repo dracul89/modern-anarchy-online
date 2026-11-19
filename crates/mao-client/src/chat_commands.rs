@@ -350,6 +350,10 @@ pub fn expand(text: &str, names: &Names) -> String {
     out
 }
 
+/// `/cc` alone: the line FUN_100ba6f4 gives when its command has fewer than two pieces (a fixed line of the program's,
+/// no text of the game's), in this client's words.
+const CC_SYNTAX: &str = "That is not valid syntax.";
+
 /// The CRT's `strtoul(text, NULL, 10)` on a 32-bit `unsigned long`: blanks skipped, a sign, the digits up to the first
 /// other character (0 when there are none), ULONG_MAX on overflow, a minus negating the value.
 fn strtoul10(text: &str) -> u32 {
@@ -694,7 +698,9 @@ pub fn parse(line: &str) -> Parsed {
         // is wrong.
         "cc" => {
             let words: Vec<String> = text.split_whitespace().map(str::to_string).collect();
-            if words.is_empty() { Parsed::Usage("/cc <command> [words]") } else { Parsed::Cc { words } }
+            // (FUN_100ba6f4: fewer than two pieces is a line of the program's own saying the syntax is invalid, here in
+            // this client's words; no usage line)
+            if words.is_empty() { Parsed::Text { text: CC_SYNTAX.to_string() } } else { Parsed::Cc { words } }
         }
         // `/assist [name]` (FUN_100b81b4 -> `N3Msg_AssistFight`): fight whomever the target, or the named one, fights.
         "assist" => Parsed::Assist { name: text.split_whitespace().next().map(str::to_string) },
@@ -844,7 +850,7 @@ mod tests {
         assert_eq!(parse("/invite Zed now"), Parsed::PrivateByName { what: 3, name: "Zed now".into() });
         assert!(PIECES.iter().all(|(c, _)| known(c).is_some()), "{:?}", PIECES.iter().filter(|(c, _)| known(c).is_none()).collect::<Vec<_>>());
         assert_eq!(parse("/cc addbuddy  Zed"), Parsed::Cc { words: vec!["addbuddy".into(), "Zed".into()] });
-        assert_eq!(parse("/cc"), Parsed::Usage("/cc <command> [words]"));
+        assert_eq!(parse("/cc"), Parsed::Text { text: CC_SYNTAX.to_string() });
         assert_eq!(parse("/afk  back at nine "), Parsed::Afk { text: "back at nine".into() });
         assert_eq!(parse("/macro Heal /pet heal  now"), Parsed::Macro { name: "Heal".into(), command: "/pet heal  now".into() });
         assert_eq!(parse("/macro Heal"), Parsed::Usage("/macro <name> <command>"));

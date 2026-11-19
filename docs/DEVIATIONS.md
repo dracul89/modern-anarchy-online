@@ -3764,7 +3764,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: prints the usage line "/cc <command> [words]"
 - A player notices: different message
 - Where: `crates/mao-client/src/chat_commands.rs:610`; `crates/mao-client/src/chat_commands.rs:614`; `docs/CLIENT_UI.md:4251`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): GUI.dll's /cc (FUN_100ba6f4) answers a line of fewer than two pieces with a fixed line of the program's that the syntax is invalid (assigned at 0x100ba88c, shown in system colour 0x51), no usage line. The client printed its own "/cc <command> [words]" usage; it now prints that the syntax is not valid, in its own words (the program's literal, not a game text). Test: chat_commands::tests (the /cc assertion).
 
 #### `CHT-005` /inspect with no number is the client's own
 
