@@ -34,6 +34,259 @@ client does today, what a player notices, and where it is in the code.
 - "The original" under ADDITION entries means the original has no such thing; whether a thing is wanted is yours
   to say.
 
+
+<!-- status: made by status.py; run it again after marking entries -->
+## Where it stands
+
+Counted from the entries' own marks on 2026-11-18. "Open" is not looked at yet; "looked at, left" was read and not ported for a reason its entry gives; "left by decision" is your call to keep the client's way.
+
+| | all | done | part done | looked at, left | left by decision | open |
+|---|---:|---:|---:|---:|---:|---:|
+| **high** | 54 | 46 | 5 | 0 | 1 | **2** |
+| **medium** | 158 | 6 | 4 | 0 | 0 | **148** |
+| **low** | 725 | 14 | 10 | 8 | 0 | **693** |
+| **all** | 937 | 66 | 19 | 8 | 1 | **843** |
+
+### By area
+
+| Area | all | done | part done | looked at, left | left by decision | open |
+|---|---:|---:|---:|---:|---:|---:|
+| Movement (`MOV`) | 33 | 4 | 1 | 0 | 0 | **28** |
+| Combat (`CMB`) | 38 | 1 | 2 | 1 | 0 | **34** |
+| Targeting and mouse (`TGT`) | 17 | 2 | 0 | 0 | 1 | **14** |
+| Death and revival (`DTH`) | 14 | 2 | 0 | 0 | 0 | **12** |
+| NPCs and creatures (`NPC`) | 40 | 5 | 4 | 1 | 0 | **30** |
+| Inventory and items (`INV`) | 84 | 12 | 3 | 4 | 0 | **65** |
+| Nano programs (`NAN`) | 60 | 2 | 2 | 0 | 0 | **56** |
+| Zoning and playfields (`ZON`) | 28 | 2 | 0 | 1 | 0 | **25** |
+| Chat and commands (`CHT`) | 80 | 4 | 0 | 0 | 0 | **76** |
+| Windows and interface (`WIN`) | 180 | 16 | 5 | 1 | 0 | **158** |
+| Camera (`CAM`) | 13 | 1 | 0 | 0 | 0 | **12** |
+| Rendering and world (`RND`) | 194 | 7 | 1 | 0 | 0 | **186** |
+| Sound and music (`SND`) | 17 | 1 | 0 | 0 | 0 | **16** |
+| Launcher, login, character creation (`LCH`) | 51 | 2 | 0 | 0 | 0 | **49** |
+| Settings and files (`SET`) | 54 | 3 | 0 | 0 | 0 | **51** |
+| Network and protocol (`NET`) | 13 | 1 | 0 | 0 | 0 | **12** |
+| Other (`OTH`) | 21 | 1 | 1 | 0 | 0 | **19** |
+
+### High weight not finished
+
+- `CMB-022` Special attacks are not checked before sending (weapon bit, range, line of sight, queue) (MISSING) - part done
+- `NPC-006` Vehicle riders and other characters use plain/medium bodies only (SIMPLIFIED) - part done
+- `WIN-112` Several character action tiles do nothing (MISSING) - part done
+- `WIN-114` Window chrome: no "?" help button, docking, auto-fade, original titles or art (MISSING) - part done
+- `RND-137` Statels of generated buildings and rendering effects get no effects (MISSING) - part done
+- `LCH-035` No account activation window and no limbo window (MISSING)
+- `LCH-036` Patching and licence dialog not done (MISSING)
+
+### Medium weight not finished, by area
+
+**Movement** (7)
+
+- `MOV-001` Own flight also read from worn items and running programs (OWN-RULE)
+- `MOV-004` Own walking and collision where a playfield has no surfaces (and with noclip) (SIMPLIFIED)
+- `MOV-005` Walk or run of other characters told by speed (SIMPLIFIED)
+- `MOV-017` Client goes back to a place the server reports (SAFETY)
+- `MOV-021` Flight: entering effect and the ways flight ends missing (MISSING) - part done
+- `MOV-027` /follow is the client's own walk-after-target (ADDITION)
+- `MOV-028` Walk-to-place with its own obstacle detours (ADDITION)
+
+**Combat** (7)
+
+- `CMB-003` Attack key checks only the first refusals (SIMPLIFIED)
+- `CMB-004` Health drops in Stat messages become "unknown damage" lines (SIMPLIFIED)
+- `CMB-005` Start Combat action attacks the target directly (SIMPLIFIED)
+- `CMB-016` Creature with weapon points but no weapon swings the unarmed swing (GUESS)
+- `CMB-023` Action tiles do not follow state; some tiles, CharacterAction 0xb2/0x14/0xfc, icon time text, special at attackable item undone (MISSING)
+- `CMB-037` Damage meter window (client's own) (ADDITION)
+- `CMB-038` Floating combat numbers (ADDITION)
+
+**Targeting and mouse** (2)
+
+- `TGT-004` Attack key: can-attack check is partial (SIMPLIFIED)
+- `TGT-005` Friendly means the same side only for targeting keys (SIMPLIFIED)
+
+**Death and revival** (1)
+
+- `DTH-007` White fade at own death: that effect 3000 is the white is a guess (GUESS)
+
+**NPCs and creatures** (10)
+
+- `NPC-001` Silent NPC is told its chat is closed and asked again after two seconds (OWN-RULE)
+- `NPC-007` A creature with no standing animation holds its walk's first frame (SIMPLIFIED)
+- `NPC-008` Hoverboards/hoverbikes drawn from a template worked out from the program (SIMPLIFIED)
+- `NPC-015` Built-in machines, doors and mail terminals found by inferred rules (GUESS)
+- `NPC-016` Creature movement mode (ground/stand) and run speed read from measured bytes (GUESS)
+- `NPC-017` Creature run speed is the characters' rule, learnt or fallback, not read (GUESS)
+- `NPC-018` Creature template found by scanning, not by the original's field order (GUESS)
+- `NPC-019` Creatures walk at a flat 1.5 m/s (GUESS)
+- `NPC-020` Mission request scope for an unknown terminal kind is a fixed 5 (GUESS)
+- `NPC-039` Mission helper: "Looking for" lists and "Keep asking until one fits" (ADDITION)
+
+**Inventory and items** (22)
+
+- `INV-005` Item tooltip is the client's own layout, with requirements and "When worn" list (OWN-RULE)
+- `INV-006` Moves by use go one at a time with a wait (OWN-RULE)
+- `INV-007` Right click takes an item out of a corpse (OWN-RULE)
+- `INV-008` Splitting a stack asks by a number box (OWN-RULE)
+- `INV-019` Item cells counted along rows and kept in one places.ini for all characters (SIMPLIFIED)
+- `INV-020` Item dropped on a wear cell is sent without the original's drop handling (SIMPLIFIED)
+- `INV-021` Loot windows keep the server's place order instead of sorting by name (SIMPLIFIED)
+- `INV-022` Right click sends Use; wear/take-off rule not in the window (SIMPLIFIED)
+- `INV-023` Spell texts: only listed spell types written, some English words fixed (SIMPLIFIED)
+- `INV-038` Using a bag again closes/shows its window locally, sending nothing (GUESS)
+- `INV-051` Client does not send bank use (0x6a), corpse slot action (0x8e), pet command (0x80) (MISSING)
+- `INV-052` Inventory behaviours left from the original reading (ground drop, use on a character, and others) (MISSING)
+- `INV-053` Item effects with requirements other than level are left out (MISSING)
+- `INV-054` Item pages: shop price, nano radius, armour/implant/nano sections, fixtures, towers, buildings missing (MISSING)
+- `INV-055` Player trade: partner's items not named; no out-of-range check (MISSING)
+- `INV-056` Requirement checks: only the client's own character, no apply-on target/user/secondary (MISSING)
+- `INV-057` Requirement operators needing world state give "unknown" (MISSING)
+- `INV-058` Requirement texts: special criteria, breed/gender names, apply-on reordering not ported (MISSING)
+- `INV-079` Auto loot of fresh corpses (ADDITION)
+- `INV-080` Container and overflow windows have a "Take all" button (ADDITION)
+- `INV-081` Tradeskill guide made from item descriptions (ADDITION)
+- `INV-084` A swap by right click is judged without the item that comes off (ADDITION)
+
+**Nano programs** (9)
+
+- `NAN-001` Target NCU windows are turned on with /setoption (OWN-RULE)
+- `NAN-004` NCU memory in use is summed by the client (SIMPLIFIED)
+- `NAN-006` Spell criteria the client cannot decide count as failing (SIMPLIFIED)
+- `NAN-028` Cast, tracer, hit and spiral effects: partial decode with chosen sizes and timings (GUESS)
+- `NAN-038` Cast effect: hand cords draw nothing; phases 3-4 (projectile, impact) not played (MISSING)
+- `NAN-039` Nano programs window: programs cannot be placed by hand; radius value, widths and sort not kept (MISSING) - part done
+- `NAN-040` NCU list: no Auto Arrange submenu, radius value or kept widths and sort (MISSING) - part done
+- `NAN-056` Nano landing glow: three widening rings, colour from stats or school (ADDITION)
+- `NAN-057` Programs fade while a cast or recharge runs; locks from the client's own timing (ADDITION)
+
+**Zoning and playfields** (6)
+
+- `ZON-003` Door zoning by distance to the table door's place (SIMPLIFIED)
+- `ZON-004` Own door use opens the door for a fixed 5 seconds (SIMPLIFIED)
+- `ZON-006` Instanced playfield object ids read from live bytes (GUESS)
+- `ZON-024` Client says the Shadowlands expansion is missing at the Jobe booth (ADDITION)
+- `ZON-025` Whom-Pah destinations learned from play and remembered (ADDITION)
+- `ZON-026` Whom-Pah window with a Go button that walks to the booth (ADDITION)
+
+**Chat and commands** (6)
+
+- `CHT-002` /help and /version show the client's own text (OWN-RULE)
+- `CHT-016` Fight lines cannot tell a pet hit or a player attacker (SIMPLIFIED)
+- `CHT-050` Friends list: no flashing row for unread tells, no red folders, tell windows not under Chat Windows, no tell-window menu (MISSING)
+- `CHT-051` Private group invitation box has no chat-window list (MISSING)
+- `CHT-069` Chat commands of the client's own (ADDITION)
+- `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice (ADDITION)
+
+**Windows and interface** (29)
+
+- `WIN-002` Dark themes draw controls in the border colour instead of the skin's Default (OWN-RULE)
+- `WIN-003` Grid columns centred in the width (OWN-RULE)
+- `WIN-004` In-game web pages are a WebView2 overlay behind a local proxy (OWN-RULE)
+- `WIN-005` Map: interiors and instanced playfields get the client's own explored-grid map (OWN-RULE)
+- `WIN-006` Wear window grid scaled to fill the window (OWN-RULE)
+- `WIN-025` Chat windows of a frame are tabs of one window, others get windows of their own (SIMPLIFIED)
+- `WIN-026` Control center menus are the client's own hand-written lists (SIMPLIFIED)
+- `WIN-027` Fonts: Verdana drawn regular whatever the weight, sizes by egui points (SIMPLIFIED)
+- `WIN-028` Inventory and wear windows share one key and one window (SIMPLIFIED)
+- `WIN-029` Mission selection window drawn by hand with its own words (SIMPLIFIED)
+- `WIN-030` NPC give-trade bar drawn by hand with its own texts (SIMPLIFIED)
+- `WIN-031` Only some menu entries open windows (SIMPLIFIED)
+- `WIN-032` Option panel pages come from an AOU skin's Root.xml, not the original's built-in pages (SIMPLIFIED)
+- `WIN-033` Option window "Key bindings" tab is not the original's editor (SIMPLIFIED)
+- `WIN-034` Rollup area: no drag to reorder, client's own widths, heights and docking controls (SIMPLIFIED)
+- `WIN-035` Shop lists are hand-drawn rows with fixed sizes, not item-container lists (SIMPLIFIED)
+- `WIN-036` Stats not in the server's list shown as a dash (SIMPLIFIED)
+- `WIN-037` Tool tip frame drawn as lines, not the original's surfaces (SIMPLIFIED)
+- `WIN-083` Skill values for other characters are computed and unchecked (GUESS)
+- `WIN-084` Window frame and panel translucency, title size are the client's own (GUESS)
+- `WIN-116` Character info page leaves out several of the original's parts (MISSING)
+- `WIN-118` Land control Build and War buttons and placement circle not ported (MISSING)
+- `WIN-119` Mission journal does not keep columns, sort or active mission, and has no Update Team Members (MISSING) - part done
+- `WIN-120` Playfield map: shadow textures absent, no second patch texture, no rooms' pictures (MISSING)
+- `WIN-121` Text views that are not editable cannot be selected by mouse (MISSING)
+- `WIN-153` Client settings window beside the original's option panel (ADDITION)
+- `WIN-154` Client's own message box for 14 seconds (ADDITION)
+- `WIN-155` Hotbar "is not ready: queued" message and own cooldowns (ADDITION)
+- `WIN-156` Map: dots for nearby characters and the character arrow (ADDITION)
+
+**Camera** (1)
+
+- `CAM-006` Mouse turn, zoom speed and wheel step are fixed numbers (GUESS)
+
+**Rendering and world** (25)
+
+- `RND-001` Client's own sky and light when the scripts give none (OWN-RULE)
+- `RND-002` Plants kept cut out at half alpha instead of blended (OWN-RULE)
+- `RND-004` Spell flight 0.45 s and landing 1.4 s are the client's own timings (OWN-RULE)
+- `RND-005` Statels farther than 50 radii not drawn (OWN-RULE)
+- `RND-006` Terrain keeps slope lighting and shadow map instead of the original's flat-lit ground (OWN-RULE)
+- `RND-022` Attach points use fixed figures for a standing body, not the posed skeleton (SIMPLIFIED)
+- `RND-023` Buff ring ribbon drawn as sprites, clocks tied to 30 frames per second (SIMPLIFIED)
+- `RND-024` Flat grey floor under interiors whose ground is not read (SIMPLIFIED)
+- `RND-025` Flat water sheet where a playfield has no water triangles (SIMPLIFIED)
+- `RND-026` Map: ground picture shrunk and averaged (SIMPLIFIED)
+- `RND-027` Name tags hidden by a line-of-sight test through the surfaces, a fourth of them per frame (SIMPLIFIED)
+- `RND-028` Player body and head mesh names listed for seven breed/sex pairs only (SIMPLIFIED)
+- `RND-098` Atlas of Rubi-Ka map coordinates measured (GUESS)
+- `RND-099` Shadowlands sky still wrong, cause not found (GUESS)
+- `RND-124` Statel effects limited to 150 units of the eye (SAFETY)
+- `RND-139` Effect locators: bone, weapon and mesh attractors; effect mesh details not drawn (MISSING)
+- `RND-140` Statel zones of the second layout are not read (MISSING)
+- `RND-141` Statels' own matrix (second flag layout) not applied (MISSING)
+- `RND-142` Worn meshes: the original's two hiding modes not ported (MISSING)
+- `RND-183` Anti-aliasing, anisotropic filtering, mips and hemisphere light (ADDITION)
+- `RND-184` Coloured boxes stand in for characters with no model (ADDITION)
+- `RND-185` Distance haze when the area has no fog (ADDITION)
+- `RND-186` Name plates are the client's own (ADDITION)
+- `RND-187` Plants sway in the wind and bend away from the player (ADDITION)
+- `RND-188` Real sun shadows from the playfield's props, shadow-map options (ADDITION)
+
+**Sound and music** (1)
+
+- `SND-002` Indoors the zone is always 0 (music, district info) (SIMPLIFIED)
+
+**Launcher, login, character creation** (9)
+
+- `LCH-001` Launcher is its own window and process that starts the game (OWN-RULE)
+- `LCH-002` Launcher settings pages keep their names but have this client's own contents (OWN-RULE)
+- `LCH-003` Loading screen picture is tinted blue; zoning also shows it (OWN-RULE)
+- `LCH-004` Wide window keeps the 4:3 view height in the login hall and character creation (OWN-RULE)
+- `LCH-009` A new character is not logged straight in; the list is fetched again (SIMPLIFIED)
+- `LCH-038` No progress window between Play and the loading screen; the loading screen goes up at the press of Play (MISSING)
+- `LCH-043` An account with no characters is sent back to the form (ADDITION)
+- `LCH-044` Character screen figure is dressed from a remembered look (looks.ini) (ADDITION)
+- `LCH-045` Logging out (/camp) restarts the launcher and logs in again (ADDITION)
+
+**Settings and files** (14)
+
+- `SET-001` Chat window layout kept in chatwindows.ini (OWN-RULE)
+- `SET-002` Hotbars saved in hotbar.ini (OWN-RULE)
+- `SET-003` New windows start at the original client's frame, scaled; another character's layout used (OWN-RULE)
+- `SET-004` Original chat font is a setting (OWN-RULE)
+- `SET-005` Window places, sizes and open windows kept in the client's own ini files (OWN-RULE)
+- `SET-026` Some default keys are assumed, not read from the original (GUESS)
+- `SET-032` Original's key editor not ported; Key bindings tab leads to the client's own settings (MISSING)
+- `SET-038` Character draw distance and auto-loot settings (ADDITION)
+- `SET-039` Frame limit, background limit and vsync choice (ADDITION)
+- `SET-040` Interface size setting (ADDITION)
+- `SET-041` Item finder files of what was seen (ADDITION)
+- `SET-042` Own graphics and display options (presets, scale, FSR, shadows, monitor, distances) (ADDITION)
+- `SET-043` Themes, skin folders and the built-in palette (ADDITION)
+- `SET-044` Window modes with F11 / Alt+Enter and a chosen monitor (ADDITION)
+
+**Network and protocol** (1)
+
+- `NET-003` Organisation and many other messages built from the decompile only (GUESS)
+
+**Other** (2)
+
+- `OTH-006` Tradeskill guide is a reading of prose, not a recipe table (GUESS)
+- `OTH-018` Help assistant: a small language model run inside the client (ADDITION)
+
+Low weight: see the counts above and each area's lists below.
+<!-- /status -->
+
 ## The numbers
 
 | Area | OWN-RULE | SIMPLIFIED | GUESS | SAFETY | MISSING | ADDITION | all | high |
@@ -63,96 +316,96 @@ The `high` entries that are not additions, by area. The full entries are below u
 
 **Movement**
 
-- [ ] `MOV-020` Other characters' flight and crafts known only from spell lists (MISSING)
+- [x] `MOV-020` Other characters' flight and crafts known only from spell lists (MISSING) **(done)**
 
 **Combat**
 
-- [ ] `CMB-015` Special-attack list built from worn weapons (GUESS)
-- [ ] `CMB-022` Special attacks are not checked before sending (weapon bit, range, line of sight, queue) (MISSING)
+- [x] `CMB-015` Special-attack list built from worn weapons (GUESS) **(done)**
+- [ ] `CMB-022` Special attacks are not checked before sending (weapon bit, range, line of sight, queue) (MISSING) **(part done)**
 
 **Targeting and mouse**
 
-- [ ] `TGT-001` The character itself is last on a click line (OWN-RULE)
-- [ ] `TGT-003` Mouse picking uses cylinders, not the dynels' collision (SIMPLIFIED)
+- [x] `TGT-001` The character itself is last on a click line (OWN-RULE) **(done)**
+- [x] `TGT-003` Mouse picking uses cylinders, not the dynels' collision (SIMPLIFIED) **(done)**
 
 **Death and revival**
 
-- [ ] `DTH-013` Corpse whose body is missing is not drawn (MISSING)
-- [ ] `DTH-014` Own death: reasons, death music, resurrection line and windows' signal not ported (MISSING)
+- [x] `DTH-013` Corpse whose body is missing is not drawn (MISSING) **(done)**
+- [x] `DTH-014` Own death: reasons, death music, resurrection line and windows' signal not ported (MISSING) **(done)**
 
 **NPCs and creatures**
 
-- [ ] `NPC-005` Per-pet command never captured; /pet sends an empty list (SIMPLIFIED)
-- [ ] `NPC-006` Vehicle riders and other characters use plain/medium bodies only (SIMPLIFIED)
-- [ ] `NPC-014` Shop: double-click buys or removes, right click opens the page (GUESS)
-- [ ] `NPC-028` Other characters and humanoid NPCs are drawn at scale 100 (MISSING)
-- [ ] `NPC-029` Pet window: no running-nano list per pet, no Remember Pet Names (MISSING)
+- [x] `NPC-005` Per-pet command never captured; /pet sends an empty list (SIMPLIFIED) **(done)**
+- [ ] `NPC-006` Vehicle riders and other characters use plain/medium bodies only (SIMPLIFIED) **(part done)**
+- [x] `NPC-014` Shop: double-click buys or removes, right click opens the page (GUESS) **(done)**
+- [x] `NPC-028` Other characters and humanoid NPCs are drawn at scale 100 (MISSING) **(done)**
+- [x] `NPC-029` Pet window: no running-nano list per pet, no Remember Pet Names (MISSING) **(done)**
 
 **Inventory and items**
 
-- [ ] `INV-001` A shop is left when the character walks 8 m away (OWN-RULE)
-- [ ] `INV-002` Item picked up by a press that moves (drag), not only on release (OWN-RULE)
-- [ ] `INV-003` No use of an item by double click (OWN-RULE)
-- [ ] `INV-004` Right click with an item in hand always does a tradeskill combine (OWN-RULE)
-- [ ] `INV-016` Item let go over the world from a container is used on what is there (SIMPLIFIED)
-- [ ] `INV-017` Item stat effects: only some spell types read (SIMPLIFIED)
-- [ ] `INV-018` Mail terminals come from a fixed list (SIMPLIFIED)
-- [ ] `INV-048` Backpack stacks cannot be joined or split inside a bag window (MISSING)
-- [ ] `INV-049` Item use sent at once instead of after the item timer (MISSING)
-- [ ] `INV-050` No item menu in container windows (MISSING)
+- [x] `INV-001` A shop is left when the character walks 8 m away (OWN-RULE) **(done)**
+- [x] `INV-002` Item picked up by a press that moves (drag), not only on release (OWN-RULE) **(done)**
+- [x] `INV-003` No use of an item by double click (OWN-RULE) **(done)**
+- [x] `INV-004` Right click with an item in hand always does a tradeskill combine (OWN-RULE) **(done)**
+- [x] `INV-016` Item let go over the world from a container is used on what is there (SIMPLIFIED) **(done)**
+- [x] `INV-017` Item stat effects: only some spell types read (SIMPLIFIED) **(done)**
+- [x] `INV-018` Mail terminals come from a fixed list (SIMPLIFIED) **(done)**
+- [x] `INV-048` Backpack stacks cannot be joined or split inside a bag window (MISSING) **(done)**
+- [x] `INV-049` Item use sent at once instead of after the item timer (MISSING) **(done)**
+- [x] `INV-050` No item menu in container windows (MISSING) **(done)**
 
 **Zoning and playfields**
 
-- [ ] `ZON-001` Doors open on approach within 4 m (OWN-RULE)
-- [ ] `ZON-017` Doors: sound, own closing time and locked-door check not ported (MISSING)
+- [x] `ZON-001` Doors open on approach within 4 m (OWN-RULE) **(done)**
+- [x] `ZON-017` Doors: sound, own closing time and locked-door check not ported (MISSING) **(done)**
 
 **Chat and commands**
 
-- [ ] `CHT-001` Chat tabs moved by menu entries instead of dragging (OWN-RULE)
-- [ ] `CHT-048` /raid opens the raid window instead of running raid commands (MISSING)
-- [ ] `CHT-049` Raid window shows only the own team and its buttons do nothing (MISSING)
+- [x] `CHT-001` Chat tabs moved by menu entries instead of dragging (OWN-RULE) **(done)**
+- [x] `CHT-048` /raid opens the raid window instead of running raid commands (MISSING) **(done)**
+- [x] `CHT-049` Raid window shows only the own team and its buttons do nothing (MISSING) **(done)**
 
 **Windows and interface**
 
-- [ ] `WIN-001` Shortcut bars are the client's own design (OWN-RULE)
-- [ ] `WIN-022` Actions window lists a fixed catalogue, not the character's own list (SIMPLIFIED)
-- [ ] `WIN-023` All non-own containers share one window named "loot" (SIMPLIFIED)
-- [ ] `WIN-024` Stat bonuses are summed by the client from items, perks, nanos and organization (SIMPLIFIED)
-- [ ] `WIN-109` Bag, bank, inventory and wear windows have no List Mode, Auto Arrange, Labels On Top or Unlock All menus (MISSING)
-- [ ] `WIN-110` City controller window: no land-buying dialog, no item lock or pointer tip, no Escape option (MISSING)
-- [ ] `WIN-111` Popup menus lack icons, sub-menus, sliders, separators, type-to-search (MISSING)
-- [ ] `WIN-112` Several character action tiles do nothing (MISSING)
-- [ ] `WIN-113` Toggling character actions always show the same tile (MISSING)
-- [ ] `WIN-114` Window chrome: no "?" help button, docking, auto-fade, original titles or art (MISSING)
+- [x] `WIN-001` Shortcut bars are the client's own design (OWN-RULE) **(done)**
+- [x] `WIN-022` Actions window lists a fixed catalogue, not the character's own list (SIMPLIFIED) **(done)**
+- [x] `WIN-023` All non-own containers share one window named "loot" (SIMPLIFIED) **(done)**
+- [x] `WIN-024` Stat bonuses are summed by the client from items, perks, nanos and organization (SIMPLIFIED) **(done)**
+- [x] `WIN-109` Bag, bank, inventory and wear windows have no List Mode, Auto Arrange, Labels On Top or Unlock All menus (MISSING) **(done)**
+- [x] `WIN-110` City controller window: no land-buying dialog, no item lock or pointer tip, no Escape option (MISSING) **(done)**
+- [x] `WIN-111` Popup menus lack icons, sub-menus, sliders, separators, type-to-search (MISSING) **(done)**
+- [ ] `WIN-112` Several character action tiles do nothing (MISSING) **(part done)**
+- [x] `WIN-113` Toggling character actions always show the same tile (MISSING) **(done)**
+- [ ] `WIN-114` Window chrome: no "?" help button, docking, auto-fade, original titles or art (MISSING) **(part done)**
 
 **Camera**
 
-- [ ] `CAM-001` WoW-style camera controls (OWN-RULE)
+- [x] `CAM-001` WoW-style camera controls (OWN-RULE) **(done)**
 
 **Rendering and world**
 
-- [ ] `RND-020` Character meshes drawn fully opaque (SIMPLIFIED)
-- [ ] `RND-021` Character skin colour is a plain tan (SIMPLIFIED)
-- [ ] `RND-135` Other characters' crafts not drawn (MISSING)
-- [ ] `RND-136` Statel effects with their own colour or radius not drawn (MISSING)
-- [ ] `RND-137` Statels of generated buildings and rendering effects get no effects (MISSING)
-- [ ] `RND-138` Weather: cloud layer (and other weather sprites) not drawn (MISSING)
+- [x] `RND-020` Character meshes drawn fully opaque (SIMPLIFIED) **(done)**
+- [x] `RND-021` Character skin colour is a plain tan (SIMPLIFIED) **(done)**
+- [x] `RND-135` Other characters' crafts not drawn (MISSING) **(done)**
+- [x] `RND-136` Statel effects with their own colour or radius not drawn (MISSING) **(done)**
+- [ ] `RND-137` Statels of generated buildings and rendering effects get no effects (MISSING) **(part done)**
+- [x] `RND-138` Weather: cloud layer (and other weather sprites) not drawn (MISSING) **(done)**
 
 **Launcher, login, character creation**
 
-- [ ] `LCH-034` Character creation: figures and ships do not animate, no selection glow, no expansion rules (MISSING)
+- [x] `LCH-034` Character creation: figures and ships do not animate, no selection glow, no expansion rules (MISSING) **(done)**
 - [ ] `LCH-035` No account activation window and no limbo window (MISSING)
 - [ ] `LCH-036` Patching and licence dialog not done (MISSING)
-- [ ] `LCH-037` The picked character and the hall's figures cannot be turned or animated (MISSING)
+- [x] `LCH-037` The picked character and the hall's figures cannot be turned or animated (MISSING) **(done)**
 
 **Settings and files**
 
-- [ ] `SET-030` Option panel: many preferences kept but not acted on (MISSING)
-- [ ] `SET-031` Per-character Prefs.xml key bindings not read (MISSING)
+- [x] `SET-030` Option panel: many preferences kept but not acted on (MISSING) **(done)**
+- [x] `SET-031` Per-character Prefs.xml key bindings not read (MISSING) **(done)**
 
 **Other**
 
-- [ ] `OTH-010` Notum Wars windows absent (MISSING)
+- [x] `OTH-010` Notum Wars windows absent (MISSING) **(done)**
 
 ## The client's own additions
 
@@ -175,7 +428,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Targeting and mouse**
 
-- [ ] `TGT-017` Double click uses what the first click took; Shift/Ctrl/Alt clicks not ported
+- [x] `TGT-017` Double click uses what the first click took; Shift/Ctrl/Alt clicks not ported **(left by decision)**
 
 **NPCs and creatures**
 
@@ -224,8 +477,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Windows and interface**
 
-- [ ] `WIN-151` Fog-of-war corner map and overlay map are the client's own
-- [ ] `WIN-152` Smart hotbars with priority lists and queued presses
+- [x] `WIN-151` Fog-of-war corner map and overlay map are the client's own **(done)**
+- [x] `WIN-152` Smart hotbars with priority lists and queued presses **(done)**
 - [ ] `WIN-153` Client settings window beside the original's option panel
 - [ ] `WIN-154` Client's own message box for 14 seconds
 - [ ] `WIN-155` Hotbar "is not ready: queued" message and own cooldowns
