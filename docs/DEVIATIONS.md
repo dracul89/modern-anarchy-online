@@ -6101,6 +6101,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: lighting in interiors and sky colour differ from the original
 - Where: `crates/mao-render/src/lib.rs:465`; `docs/CLIENT_UI.md:2134`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The stand-in sky and light are used only where no effect script gives them (interiors, playfields without sky scripts). What the original shows there is set by the environment scripts it runs for every playfield kind (playfield.rs sky_scripts by environment kind) and by the rooms' light maps; which of those an interior gets, and what colour the original clears to when there is no sky, is not stated in what was read tonight and can only be settled against original screenshots of an interior (the capture folders) with the game hour matched. Left for a comparison session.
 
 #### `RND-002` Plants kept cut out at half alpha instead of blended
 
@@ -6110,6 +6111,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tree crowns stay dense at a distance; edges may differ
 - Where: `crates/mao-render/src/lib.rs:239`; `docs/CLIENT_UI.md:686`; `docs/CLIENT_UI.md:3723`; `docs/ORIGINAL_AUDIT.md:22`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original draws plants by their materials' states with no alpha test (randy31 render state 15 = 0) and blends; the reason its crowns do not thin to a veil with distance (most likely how its D3D7 mip chain treats alpha, not a rule in the program) was not found. Switching the client to blending brought the veil back before, and the cut-out at half alpha is a stand-in for an unfound cause; deciding needs a side-by-side look at a distant tree. Left.
 
 #### `RND-003` Rain, fallout and sand dust are the client's own particles
 
@@ -6129,6 +6131,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: spell flight and hit durations are the client's
 - Where: `crates/mao-client/src/effects.rs:2919`; `crates/mao-client/src/effects.rs:2931`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The flight time is not one number in the original: _EffectHandler_t::CreateGfxControlTracer (Gamecode 0x100d176c) builds a different control for each tracer kind (0x3f5 FUN_100fe22f, 0x3fb FUN_100fec4e, 0x3fd FUN_100ff48e, 0x3fe FUN_100ff933, 0x400 FUN_10100268, 0x401 FUN_10100b0d, 0x402 FUN_101018ef, 0x403 FUN_101021eb, 0xbd2 FUN_10114e83), each with its own travel words, and the hit effect is started by the spell's own message timing; replacing the client's FLIGHT/LANDING means porting each tracer control's run and the hit's start, a set of effect ports (several catalogued on their own: RND-092, RND-110) well over the time box. Left.
 
 #### `RND-005` Statels farther than 50 radii not drawn
 
@@ -6137,7 +6140,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a statel more than 50 of its radii from the camera is not drawn at all
 - A player notices: far scenery vanishes at a set distance
 - Where: `crates/mao-formats/src/model.rs:211`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already the original's rule, the catalog line is wrong: DisplaySystem's LODManager::Process (drop-in lodmanager.rs, globals at 0x100ae1a4) hides a watched statel mesh whose squared distance over its squared radius exceeds 2500 (50 radii) and swaps 0xf6951/0xf696a at 6000/4000 squared units beyond the radius, the same three numbers as mao-render's LOD_CULL/LOD_FAR/LOD_NEAR. Small differences remain: the original looks at 20 meshes a frame round the set (so a change can lag a few frames) and measures from the mesh's position with its bounding volume's radius, where the client measures every frame from the world box's centre and half diagonal. Not changed.
 
 #### `RND-006` Terrain keeps slope lighting and shadow map instead of the original's flat-lit ground
 
@@ -6147,6 +6151,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: terrain is shaded by slope where the original is flat-lit
 - Where: `docs/ORIGINAL_AUDIT.md:186`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only. The original's flat-lit ground gets its relief from the 0xf4247 ground shadow pictures, which are not in this installation's database; flattening the client's normals without them would lose the relief the original does show. Left until those pictures (or their source) are found.
 
 #### `RND-007` Blended parts sorted per part, faint pixels dropped
 
@@ -6156,6 +6161,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: slight differences in blended sorting
 - Where: `docs/CLIENT_UI.md:688`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the original draws list 6 far to near in distance buckets and writes depth for any alpha; skipping faint pixels' depth is the client's guard against halos that the original's buckets avoid differently. Changing it is the same pipeline port as RND-033, judged by eye. Left.
 
 #### `RND-008` Door record without its own mesh draws nothing (template door stands in at shuttle hatches)
 
@@ -6165,6 +6171,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a small white leaf in some shuttle hatches, or no door
 - Where: `docs/CLIENT_UI.md:3787`; `docs/CLIENT_UI.md:2098`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the notes disagree about the client's own behaviour (whether a door without a mesh draws nothing or the template's leaf); the original's rule (record's mesh, else the template's) needs the shuttle hatches seen in game to settle. Left.
 
 #### `RND-009` Interiors use a dark sky backdrop, not black
 
@@ -6184,6 +6191,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/effects.rs:3152`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The hand-set left-limb directions belong to the buff rings' fixed figures (RND-022): with the rings on the posed bones' frames the mirrored left frames come from the rig itself. Left with RND-022.
 
 #### `RND-011` Map: the planet map stands in for a missing ground picture
 
@@ -6193,6 +6201,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some playfields show the planet map picture in the minimap
 - Where: `crates/mao-client/src/automap.rs:6`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Original not stated: the original's corner map has no picture where a playfield has none; the stand-in from the planet map is the client's own. Removing it would leave those maps empty; a choice for the user, not a rule to port. Left.
 
 #### `RND-012` Name tag height held at the first height seen
 
@@ -6202,6 +6211,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tag does not bob with a run, but may be a few hundredths off
 - Where: `crates/mao-client/src/nametag.rs:38`; `docs/CLIENT_UI.md:4160`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original measures the mesh at rest once (N3Msg_GetMeshHeight in FUN_10025603); the client's plates are its own (RND-186) and are drawn from the posed body, which has no separate rest measure in the client's tag code. Left with RND-186.
 
 #### `RND-013` Outline map: reach and walls by the client's own rule
 
@@ -6211,6 +6221,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the outline map's walls and reach are the client's rule
 - Where: `crates/mao-client/src/automap.rs:29`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The walked outline map is the client's own feature (the original has no walked grid); its rules have no original counterpart. Left.
 
 #### `RND-014` Planet map defaults to aftermarket maps
 
@@ -6220,6 +6231,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: different map art by default
 - Where: `crates/mao-client/src/settings.rs:580`; `docs/CLIENT_UI.md:3152`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The default map is a settings choice the user made (the aftermarket maps); the game's own planet map is selectable. Not a rule to port. Left.
 
 #### `RND-015` Renderer uses wgpu instead of Direct3D 7
 
@@ -6229,6 +6241,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a different graphics backend
 - Where: `docs/PLATFORMS.md:12`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the renderer API is the client's platform choice. Left.
 
 #### `RND-016` Stray statels of room playfields dropped
 
@@ -6248,6 +6261,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: long, steep shadows at dawn and dusk
 - Where: `crates/mao-render/src/lib.rs:2204`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The shadow map is the client's own (RND-188); holding its sun above the horizon is part of that feature. Left with RND-188.
 
 #### `RND-018` Wielded weapon not hung where worn meshes fill that hand
 
@@ -6257,6 +6271,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a wielded weapon may not show in that hand
 - Where: `crates/mao-client/src/net.rs:5409`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_1009cda2 hangs the wielded weapon's mesh with CharacterMesh::AddAttractorMesh(place 1 or 2, mesh, flags 2 (3 mirrored), 0): a bit-1 mesh, so it is shown alone at that hand, and of two bit-1 meshes at one place the last added wins (FUN_10071e5d keeps them in front). Which comes last, the wield or the server's appearance list (AddAttractors), depends on the order the messages arrive, so the faithful rule cannot be written without knowing that order for a wield; the client's skip avoids a double weapon where the list already holds one. Left.
 
 #### `RND-019` Wind steps at 30 a second with its own random generator
 
@@ -6266,6 +6281,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: gust strength same at any frame rate; gust pattern differs
 - Where: `crates/mao-client/src/wind.rs:14`; `crates/mao-client/src/wind.rs:38`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The wind steps once a drawn frame in the original (FUN_100bff68 / FUN_100bfc80) with rand(); the client's fixed 30 a second and own generator are the same law (frame-rate dependence and RND-063). Left.
 
 ### Rendering and world: an approximation or a stand-in (78)
 
@@ -6297,6 +6313,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: effects sit at typical heights, not on the real body part when animated or of non-standard size
 - Where: `crates/mao-client/src/effects.rs:3139`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original places a buff ring through FUN_10105e6d (Gamecode): attach 1000-1018 is the posed bone of that name from the table at 0x102c63a8 (`Bip01 Pelvis_ac`, `Bip01 Spine_ac` ... `Bip01 R Hand_ac`, exact match in RCATMesh_t::GetBoneMatrix), falling back to the head attractor; then `_GfxControlBuffPlaceHolder_t`'s Run (0x100d52c3) lays each step at the locator's origin plus cos/sin times the radius along the locator frame's axes (FUN_1010640a origin, FUN_10106439 / FUN_1010646a the frame's x and y axes, all overridden by fixed axes when the locator is the dynel itself). The bone lookup itself is ported under RND-139 (see there). Moving the rings from the client's per-attach figures (`effects.rs` anchor(), with its left-limb mirror rule tuned against screenshots) onto the posed bone frames changes every buff ring's placement and orientation and can only be judged by eye against the original, which cannot be done tonight; the placeholder's own offset/step fields (0x6c, 0x90, 0x94, 0x98) would also need reading against the template words. Left for a session with screenshots.
 
 #### `RND-023` Buff ring ribbon drawn as sprites, clocks tied to 30 frames per second
 
@@ -6306,6 +6323,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: buff rings look beaded and run at a fixed speed regardless of frame rate
 - Where: `crates/mao-client/src/effects.rs:2740`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read again: `_GfxControlBuffPlaceHolder_t` Run (Gamecode 0x100d52c3) takes `FUN_1013f240` (ftol) whole steps of 0.45 rad a frame and runs its cord child once per step with the frame's own step time, so the cord's clocks (link life, drift held to 0.01..0.025, 0x10161994/0x1016c558) depend on how many frames the machine draws; `GfxVisualCord4` draws a ribbon through the newest 32 links. The client's `ring()` (effects.rs) is a stateless function of the pulse time at a fixed 1/30 s frame. Following the original needs (a) a per-ring state kept across frames and fed the real frame time, and (b) a new ribbon (triangle strip) primitive in the renderer instead of sprites; both change only how the rings look and can only be judged by eye against the original on the same frame rate. Left.
 
 #### `RND-024` Flat grey floor under interiors whose ground is not read
 
@@ -6315,6 +6333,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: interiors without a readable floor show a plain slab
 - Where: `crates/mao-client/src/net.rs:3947`; `crates/mao-client/src/net.rs:7166`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The slab (net.rs floor_part, laid only when a playfield has neither a readable tile-map ground nor readable rooms) stands in for a floor the original reads from the old CHGA tile-map layout of rooms, which this client cannot parse (catalogued separately as RND-166). The original has no stand-in floor of its own, so the only faithful change is reading that layout (RND-166, a format port with no reader in the drop-ins to copy from); taking the slab away alone would leave the player standing over nothing, which the original never shows either. Left with RND-166.
 
 #### `RND-025` Flat water sheet where a playfield has no water triangles
 
@@ -6334,6 +6353,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the map's ground looks blurrier than the original's
 - Where: `crates/mao-client/src/automap.rs:74`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's PFMapGroundRenderer_c draws each ground patch with its own hi texture (CreateHiTexture) at the texture's resolution, patch by patch as the map is drawn. The client builds one picture of the whole ground (automap.rs ground_picture) that must fit one texture, so it averages each tile to 8/4/2/1 pixels. Following the original means drawing the map ground as many textured patches (a new map renderer path with per-patch textures and their own memory budget), not a rule that can be checked as a function; the result is only judged by looking at the map. Left.
 
 #### `RND-027` Name tags hidden by a line-of-sight test through the surfaces, a fourth of them per frame
 
@@ -6343,6 +6363,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a name can show or vanish up to three frames late behind a wall; non-surface props may not hide it
 - Where: `crates/mao-client/src/nametag.rs:55`; `docs/CLIENT_UI.md:3207`; `docs/CLIENT_UI.md:1334`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): In the original the name tags are VisualSprite_t placed in the world (HandleNametags 0x100268ee, FUN_100258b3) and the depth buffer hides them behind anything drawn, walls and props alike. The client's tags are its own egui plates drawn over the picture (catalogued as the addition RND-186), so the only way to get the original's hiding is to draw the tags as world sprites in the renderer's depth-tested pass, which is the RND-186 question (the tags' look) and a renderer change judged only by eye. Left with RND-186.
 
 #### `RND-028` Player body and head mesh names listed for seven breed/sex pairs only
 
@@ -6392,6 +6413,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: suns and smoke puffs do not rotate
 - Where: `crates/mao-client/src/effects.rs:642`; `crates/mao-client/src/effects.rs:2190`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The client's particles have no rotation field: billboards are drawn by the renderer's sprite pass with fixed corners (mao-render Particle has position, size, colour, sprite rect and world axes only). Spinning the suns' quads (FUN_100fc425) and the smoke's Type0 quads needs a rotation per particle in the renderer's vertex layout and shader, plus each effect's spin words; the result is only seen, not testable as a rule. Left.
 
 #### `RND-033` Blended parts ordered by own distance; per-visual sort, frame fade and environment-mapped pass missing
 
@@ -6401,6 +6423,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: transparent things can overlap in a different order or look wrong in rare cases
 - Where: `crates/mao-render/src/lib.rs:2376`; `docs/CLIENT_UI.md:689`; `docs/ORIGINAL_AUDIT.md:22`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's transparent ordering (RVisual_t::AddToRenderList's distance buckets, the per-visual `sorted` flag, the frame's fade, the environment-mapped pass and the run-time alpha modes FUN_10040645) is a renderer pipeline port across randy31 and DisplaySystem; the client's per-part far-to-near sort differs only in rare overlaps, judged by eye. Left.
 
 #### `RND-034` BParticle2 integrated in steps with hashed rebirth
 
@@ -6410,6 +6433,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: particle paths and rebirth rhythm approximate
 - Where: `crates/mao-client/src/effects.rs:2440`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original integrates each BParticle2 once per drawn frame (gravity pull and damping) and rebirths by rand() in mode 1, so its paths depend on the frame rate and the C library's random sequence; the client's stateless 60-steps-a-second integration with hashed rebirth gives the same law at a fixed step. Following it exactly needs per-effect state across frames and the original's rand() stream (RND-063), and is only judged by eye. Left.
 
 #### `RND-035` City map door and guard dots use the whole picture
 
@@ -6429,6 +6453,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: lighting differs where scripts give none
 - Where: `crates/mao-render/src/lib.rs:505`; `docs/ORIGINAL_AUDIT.md:161`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Same question as RND-001: the stand-in light is used only where no script gives one, and what the original shows there needs a comparison against original screenshots, not a reading. Left with RND-001.
 
 #### `RND-037` Collision from visual meshes where no collision surfaces exist
 
@@ -6438,6 +6463,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: blocking can differ in such playfields
 - Where: `crates/mao-client/src/net.rs:5681`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Playfields without 0xf424d surfaces are the generated dungeons, whose collision in the original comes from the room pieces through the rooms' own data (the N3 room code), not read tonight; the client's props-triangle stand-in is the only collision it has there, and replacing it needs the rooms' collision format and a live walk to check. Left.
 
 #### `RND-038` Collision surfaces keep only triangles
 
@@ -6447,6 +6473,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no visible change; different cost and edge cases
 - Where: `crates/mao-formats/src/surface.rs:10`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): No visible change: the original's KD tree (n3SurfaceResource_t) only orders the volumes for its queries; the triangles and the answers are the same. Porting the tree changes cost, not behaviour. Left.
 
 #### `RND-039` Cords without a shot are a short cord upward
 
@@ -6456,6 +6483,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: stand-in shape
 - Where: `crates/mao-client/src/effects.rs:3026`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): A cord spans two ends in the original; a cord drawn with no shot has no second end in the client (it comes from statel or aura places with only one point), so there is no original rule for this case to port; the stand-in shape stays until the place that starts such a cord gives the second end. Left.
 
 #### `RND-040` Crazy cone tracks in closed form, texture offsets not drawn
 
@@ -6465,6 +6493,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: cone motion slightly off; texture does not scroll
 - Where: `crates/mao-client/src/effects.rs:1739`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100d6dcc steps the cone's tracks by speed and acceleration once per drawn frame, so the original's motion depends on the frame rate; the closed form is that motion at an infinitely small step. Following it needs per-effect state fed the real frame time, and the texture offsets need a texture-scroll input in the renderer's shell pass; both only judged by eye. Left.
 
 #### `RND-041` Default water light and ambient without the effect scripts
 
@@ -6474,6 +6503,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: liquid brightness may differ where scripts give no water light
 - Where: `crates/mao-render/src/lib.rs:2319`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Same as RND-001: the default water light only stands in where the scripts give no WaterLightCurrent/Direction; what the original's liquid looks like there needs an original screenshot. Left.
 
 #### `RND-042` Effect scripts' eye is the character, with a fixed camera rotation
 
@@ -6483,6 +6513,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: sky and cloud effects ignore where the camera is turned
 - Where: `crates/mao-client/src/net.rs:9015`; `docs/ORIGINAL_AUDIT.md:93`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The scripts run on the network thread (net.rs, crate::fxs::set_game), which has the character's place but not the camera: the camera's eye and turn live in the viewer. Feeding the frame block the camera (FUN_100b05b4) means sharing the viewer's camera with the script thread each frame (a new shared slot) and checking that the sky and clouds then follow the camera's turn, which can only be seen. Left.
 
 #### `RND-043` Effect spell 0xcfd4 draws the effect only
 
@@ -6492,6 +6523,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: such effects look plainer
 - Where: `crates/mao-client/src/spelllist.rs:23`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100a9159 starts the effect with repetitions (stat 0xa1), start and stop colours (stats 0x99-0xa0 over 255) and a scale (stat 0x32 / 100 + 1); the client's effect path has no colour or scale inputs for a running effect (pulses and visuals are drawn as their templates say), so this needs a tint and scale carried through effects.rs to every visual kind. Over the time box for a low entry. Left.
 
 #### `RND-044` Eruption rocks: one mesh kind, unlit, no scene collision
 
@@ -6501,6 +6533,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: eruption rocks look flat and differ
 - Where: `crates/mao-client/src/effects.rs:1168`; `docs/ORIGINAL_AUDIT.md:299`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): VisualTinyRock_t's lit triangle meshes, the other material kinds and the collision with statics need lit effect meshes (RND-154) and the statics' collision in the effect code; judged by eye. Left.
 
 #### `RND-045` Fire and global smoke seen without a frame use heading 0
 
@@ -6510,6 +6543,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: flames and smoke sit in the world's frame, not the caster's
 - Where: `crates/mao-client/src/effects.rs:3041`; `crates/mao-client/src/effects.rs:3091`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The fires and smokes seen without a dynel are the statels' and the environment's; their locator in the original is the connector's frame on the statel's mesh, and the client's statel effect list (main.rs statel_effects) keeps only the point, not the frame. Carrying the connector's turn needs that list widened and the fire/smoke code fed a heading; small but only checkable by eye. Left.
 
 #### `RND-046` Fixed sun direction when no script gives one
 
@@ -6519,6 +6553,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: light and shadows do not move with the hour unless scripts supply a sun
 - Where: `crates/mao-render/src/lib.rs:771`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): As RND-001: the fixed direction stands in only where no script gives a sun; the original's light there has to be compared on screenshots. Left.
 
 #### `RND-047` Flare streak drawn as three sprites
 
@@ -6528,6 +6563,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: streaks look beaded/shorter
 - Where: `crates/mao-client/src/effects.rs:573`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): GfxVisualFlareType0 draws one streak quad from head to tail; the client has no streak (stretched quad) primitive for particles, only billboards and world quads with fixed axes. A world quad along the streak could stand in but its facing to the camera is the renderer's to do; judged by eye. Left.
 
 #### `RND-048` Flying craft plays the walk animation
 
@@ -6536,7 +6572,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the Yalmaha craft (template 99470, scale 20) has no animation for the fly action (179), so the walk is played
 - A player notices: craft shows a walk loop while flying
 - Where: `crates/mao-client/src/net.rs:12378`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): It is the original's rule: Gamecode FUN_10010b3c, the action fallback table, sends 0xb3 (hover-norm, the fly action) and 0x66 (sneakcool) to 100, the walk; a craft template with no animation for 0xb3 therefore plays its walk in the original too. The client follows that chain (appearance.rs action_fallback, npc.rs animation_candidates). Nothing to change; the catalog line should say so.
 
 #### `RND-049` Fogged sky backdrops faded with a reconstruction
 
@@ -6546,6 +6583,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the sky dome's fade toward the horizon may differ (Shadowlands)
 - Where: `crates/mao-client/src/viewer.rs:3333`; `docs/CLIENT_UI.md:1210`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original fades a fogged sky draw with Direct3D's fixed-function fog, and whether that fog is by distance or by depth (range fog or not) is not known from the reading; the client's reconstruction can only be checked against original screenshots of the Shadowlands sky. Left.
 
 #### `RND-050` FXS [LENGTH] double operand and unscannable literal give 0
 
@@ -6555,6 +6593,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: malformed or quirky script values read as 0
 - Where: `crates/mao-client/src/fxs/mod.rs:1980`; `crates/mao-client/src/fxs/parser.rs:510`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's values here are memory addresses (a double operand's multiplier is the formula entry's address; an unscannable unsigned literal is the address of its text, FUN_1000ca20): numbers that differ every run and that no script can rely on. There is nothing to reproduce; 0 stays. Left.
 
 #### `RND-051` FXS [STORE] into an array does nothing
 
@@ -6564,6 +6603,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: scripts that store into an array leave it unchanged
 - Where: `crates/mao-client/src/fxs/mod.rs:1460`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FXS.dll's [STORE] (FUN_10005600, drop-in fxs/src/eval.rs) copies the value's bytes to the variable's value block +8 whenever the variable's kind matches, without looking at whether it is an array; for an array that block holds the element list's own pointers, so the original overwrites its list with the value's bits (a corrupt list the next read follows). Rust cannot write over the list's pointers; the client's skip is the only safe reading. Left.
 
 #### `RND-052` Global smoke births modelled at 60 per second
 
@@ -6573,6 +6613,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: birth rhythm differs with frame rate
 - Where: `crates/mao-client/src/effects.rs:2269`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's global smoke births run once per drawn frame, so their rhythm follows the frame rate; reproducing it needs per-effect state fed the real frame time, and the result is only seen. Left.
 
 #### `RND-053` Helmet face takes the head's whole material
 
@@ -6582,6 +6623,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a helmet's face colour may differ
 - Where: `crates/mao-client/src/net.rs:4111`; `docs/CLIENT_UI.md:4645`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_1006d3e2 puts only the head's texture on the face's own material; the face material is the modeller's plain blue, so how the original's face looks depends on how its D3D7 stage modulates that colour with the texture (the client found it a blue patch when it followed the reading). Needs an original screenshot of a helmeted face to settle. Left.
 
 #### `RND-054` Lightning has no limit on effects at once
 
@@ -6591,6 +6633,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: in a storm the client never drops a strike the original might
 - Where: `crates/mao-client/src/lightning.rs:24`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The pools' sizes (the 50-control limit DAT_102ea974 and the effect handler's own pools) were not read through, and a storm rarely fills them; porting the refusal needs the pool counts of every effect kind a strike starts. Low value against the time box. Left.
 
 #### `RND-055` Lightning rock bounce normal estimated from heights
 
@@ -6600,6 +6643,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: rocks bounce slightly differently
 - Where: `crates/mao-client/src/lightning.rs:103`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The probe FUN_100ada15 asks the playfield's collision object (its +0x60 member's virtual calls) and the previous liquid test, so its normal is the collision surface's (statels included), not the tile-map's; the client's lightning code has only a height function. Porting needs the collision surfaces' normal query handed to the lightning code and is only seen in a rock's bounce. Left.
 
 #### `RND-056` Liquid tests ignore the zones' lists
 
@@ -6609,6 +6653,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: in overlapping liquids a different surface may be found
 - Where: `crates/mao-client/src/liquid.rs:13`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original tests a zone's own list of water infos (n3Zone_t's liquid data, per zone) in order; the client builds one list for the playfield from the definition's water triangles and has no per-zone split of them (the zones' liquid lists are made when N3 loads each zone). Splitting needs the zone each triangle belongs to, which was not read. Left.
 
 #### `RND-057` Liquid types 0x10 and 0x11 not drawn; wave offsets and lava second pass left out
 
@@ -6618,6 +6663,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible by the notes
 - Where: `crates/mao-formats/src/liquid.rs:39`; `docs/CLIENT_UI.md:2180`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes say nothing visible: the wave offsets are set to 0 by the scripts and the lava's second pass has alpha 1 (contributes nothing); types 0x10 and 0x11 do not occur in the playfields' triangles the client reads. Nothing a player would see to port. Left.
 
 #### `RND-058` Map ground dimmed by a plain veil, no shadow textures
 
@@ -6627,6 +6673,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the map ground has no shadow shading; brightness may differ
 - Where: `crates/mao-client/src/automap.rs:421`; `docs/CLIENT_UI.md:593`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The shadow textures (type 0xf4247) are not in this installation's database, so the original's multiply over them cannot be done; the plain veil at 0xbb is the reading without them. Left until the textures are found.
 
 #### `RND-059` Material render states read only in part
 
@@ -6636,6 +6683,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: materials with other states draw plainly
 - Where: `crates/mao-formats/src/model.rs:346`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The remaining render states and texture stage states are a renderer port (randy31's state blocks onto wgpu pipelines), many combinations, judged only by eye. Left.
 
 #### `RND-060` Mesh vertex formats: only the first texture-coordinate pair kept
 
@@ -6645,6 +6693,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: multi-texture materials use one set of coordinates
 - Where: `crates/mao-formats/src/model.rs:411`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Keeping the second texture-coordinate pair only matters with a second texture stage, which the client's renderer does not draw (RND-059); reading the pair alone changes nothing on screen. Left with RND-059.
 
 #### `RND-061` Nano effect: direction not turned by the locator (also pool size, sprite spin)
 
@@ -6654,6 +6703,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: nano sprites fly in world directions, not relative to the caster/locator
 - Where: `crates/mao-client/src/effects.rs:160`; `docs/ORIGINAL_AUDIT.md:294`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Turning the nano effect's directions by the locator needs the locator's frame passed into the particle code (pulse_particles has the feet and heading only), the rand() gate is RND-164, the pool size and the sprite spin need the renderer's spin (RND-032); seen only. Left.
 
 #### `RND-062` Nano effect: wind push in 12 steps, at most 600 sprites
 
@@ -6663,6 +6713,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: negligible
 - Where: `crates/mao-client/src/effects.rs:183`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes say negligible: the push summed in 12 steps differs from a per-frame sum only by the frame rate, and 600 sprites is above what the templates make. Left.
 
 #### `RND-063` Particle effects use hashed random numbers, not the original's rand()
 
@@ -6672,6 +6723,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: particles are identical each time instead of random
 - Where: `crates/mao-client/src/effects.rs:114`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's rand() is one CRT stream shared by every effect and everything else in the process (msvcr100's state times 214013 plus 2531011), so a particle's numbers depend on everything that called rand() before it; the client cannot reproduce that sequence, only its law. Hashing per particle gives fixed patterns; a per-cast seed would vary them but would still not be the original's numbers. Left for the user's choice (a seeded stream per cast is a small change if variety is wanted).
 
 #### `RND-064` Parts drawn in a different order
 
@@ -6681,6 +6733,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: z-fighting outcome may change
 - Where: `docs/CLIENT_UI.md:1414`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: drawing in upload order instead of the client's sorted, instanced order only changes which of two exactly coplanar surfaces wins; giving up the instancing for that is not worth it. Left.
 
 #### `RND-065` Plasma band: 8 sprites displaced up, no line sampling
 
@@ -6690,6 +6743,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: plasma band and orbs look different
 - Where: `crates/mao-client/src/effects.rs:783`; `docs/ORIGINAL_AUDIT.md:272`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): GfxVisualPlasma (FUN_1001bbf2) draws 75 segments displaced across the view, sampling one line of its texture: a strip primitive with a one-texel-line sampling and per-frame random nudges, a renderer feature judged by eye. Left.
 
 #### `RND-066` Playfield-level environment taken as zero when the database has none
 
@@ -6699,6 +6753,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible if the original does the same
 - Where: `crates/mao-formats/src/areas.rs:15`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The note itself says the original makes an empty table when none is given, which is what zero is; nothing differs. Left.
 
 #### `RND-067` Room floor drawn apart, unbaked colour
 
@@ -6708,6 +6763,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none stated
 - Where: `crates/mao-formats/src/rooms.rs:733`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original draws the room floor from the height map without light-mapping, as the client does; the remaining difference (a quad per cell, colour unbaked, the first texture layer) is in RND-117's open question of the texture layer. Nothing further to port without a comparison. Left.
 
 #### `RND-068` Room left stays drawn two seconds
 
@@ -6717,6 +6773,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the old room lingers briefly
 - Where: `crates/mao-client/src/interior.rs:12`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original hides a room when its locality monitor loses it; the monitor's rules (which rooms it keeps, from where) were not read tonight, and the client's two seconds stand in for them to hide the gap while the next room's locality comes in. Removing the linger without the monitor's rule would make rooms blink. Left.
 
 #### `RND-069` Room shell corner heights from a smoothing rule
 
@@ -6726,6 +6783,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: room floors and ramps approximate the original's geometry
 - Where: `docs/CLIENT_UI.md:1705`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the original's rule for the room shell's corner heights was not stated; the client's smoothing was checked against shop booths only. Needs the original's room shell reader to compare. Left.
 
 #### `RND-070` Scripted environment draws honour a subset of render states
 
@@ -6735,6 +6793,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: scripted sky visuals may blend or light differently
 - Where: `crates/mao-client/src/fxs/visuals.rs:164`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The remaining state blob render states and multi-texture stages are a renderer port for the scripted sky (SRCBLEND, more texture stages), judged by eye. Left.
 
 #### `RND-071` Shield shells ignore the character's heading
 
@@ -6744,6 +6803,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: shield texture and shimmer do not turn with the character
 - Where: `crates/mao-client/src/effects.rs:804`; `docs/ORIGINAL_AUDIT.md:275`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The shield shell's mapping, point and shimmer are in the model frame (FUN_1001c94f / FUN_1001d569); the shell code gets the character's surface in world space and no heading (visual_shells takes the surface and translation only). Turning needs the heading carried into shield_shell; seen only in the texture's direction. Left.
 
 #### `RND-072` Shield2 texture mappings 3-5 use a hash
 
@@ -6753,6 +6813,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: fixed instead of random texture scatter
 - Where: `crates/mao-client/src/effects.rs:895`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The random place per vertex comes from the process-wide rand() (see RND-063); the hash gives a fixed scatter of the same law. Left with RND-063.
 
 #### `RND-073` Shock wave rings follow the feet
 
@@ -6762,6 +6823,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: ring moves with a walking caster instead of staying put
 - Where: `crates/mao-client/src/effects.rs:1328`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original keeps a ring's centre from its first frames; the client's shock wave is a stateless function of the current feet, so keeping the centre needs per-effect state (the place at the effect's start) kept in the pulse scheduler. Seen only with a walking caster. Left.
 
 #### `RND-074` ShockWave: blending without 0x800 drawn additive; ring centre follows feet
 
@@ -6771,6 +6833,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: shock rings look brighter or different
 - Where: `crates/mao-client/src/effects.rs:1321`; `docs/ORIGINAL_AUDIT.md:301`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The blend without 0x800 is ONE onto INVSRCCOLOR, which the renderer's shell pass does not offer (it has alpha and additive only); the ring centre is RND-073. A new blend mode in the renderer, judged by eye. Left.
 
 #### `RND-075` Single clouds only the realistic 10 by 10 mesh
 
@@ -6780,6 +6843,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no lower cloud-quality variant
 - Where: `crates/mao-client/src/fxs/clouds.rs:6`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_10053681 builds the cloud mesh at a size chosen by the quality settings; the client has no cloud-quality setting and keeps the realistic 10 by 10 mesh, the highest. A lower variant is an option to add, not a rule to port. Left.
 
 #### `RND-076` Skin pictures linearly filtered and stretched
 
@@ -6789,6 +6853,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: scaled pictures look smoothed
 - Where: `crates/mao-client/src/skin.rs:113`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Original not stated: the GUI's sprites go through DisplaySystem with its own filtering, not read. Seen only. Left.
 
 #### `RND-077` Skinned normals use the first bone only; unknown bones fall back to rest pose
 
@@ -6798,6 +6863,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: slight shading differences while limbs bend
 - Where: `crates/mao-formats/src/catmesh.rs:40`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Original not stated: the original skins on the card through randy31's CAT render, whose normal blend was not read tonight; the client's first-bone normal only changes shading at joints, seen only. Left.
 
 #### `RND-078` Sky flash: always follows the point, torso radius taken as 0.5, texture extents not read as floats
 
@@ -6807,6 +6873,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: flash width differs on bodies not 0.5 wide; moves with the caster when it would stay
 - Where: `crates/mao-client/src/effects.rs:1623`; `crates/mao-client/src/effects.rs:1624`; `docs/ORIGINAL_AUDIT.md:290`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): _GfxControlSkyFlash_t (FUN_100ef141) needs the body's torso radius for a negative word 18 (the client has a torso sphere in hazards.rs but not in the effect's call), the follow flags 0x800/0x1000 need the effect's start place kept (state), and the texture extents read as floats change only the cone's texture repeat. All seen only. Left.
 
 #### `RND-079` Sparks: alpha blend of flag 0x800 not done (client adds)
 
@@ -6816,6 +6883,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: sparks brighter/different
 - Where: `docs/ORIGINAL_AUDIT.md:270`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: flag 0x800's alpha blend for sparks needs a blended particle pass beside the additive one in the renderer; seen only. Left.
 
 #### `RND-080` Sparks: burst frame gate and wind push approximated
 
@@ -6825,6 +6893,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: spark timing and wind drift slightly different
 - Where: `crates/mao-client/src/effects.rs:118`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100f24c8's frame gate and the per-frame push both follow the drawn frames; the client models them at fixed steps. Per-effect state fed the frame time would be needed; seen only. Left.
 
 #### `RND-081` Spiral (coil) strips drawn as sprites, texture repeat and scroll not done
 
@@ -6834,6 +6903,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: coil is a string of dots instead of a ribbon, texture static
 - Where: `crates/mao-client/src/effects.rs:741`; `docs/ORIGINAL_AUDIT.md:271`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): GfxVisualSpiral (FUN_10021924) draws textured strips with repeat and scroll; the client has no strip with scrolling texture coordinates in the particle path (the shells could carry it, but the coil's run would need porting onto them). Seen only. Left.
 
 #### `RND-082` Sprite effect: standing templates all face the camera, billboards square
 
@@ -6843,6 +6913,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: standing quads turn with the view; sprites differently shaped
 - Where: `crates/mao-client/src/effects.rs:2349`; `docs/ORIGINAL_AUDIT.md:280`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Standing templates in the locator's frame need the locator passed to the sprite effect (as RND-061), and billboards of their own height need a non-square particle in the renderer (Particle has one size); seen only. Left.
 
 #### `RND-083` Stars mode 15: stand-in ring and stars riding the sample
 
@@ -6852,6 +6923,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: stars follow the moving body instead of staying where born; off-body shape differs
 - Where: `crates/mao-client/src/effects.rs:278`; `crates/mao-client/src/effects.rs:1984`; `docs/ORIGINAL_AUDIT.md:266`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100f740b keeps 30 skinned vertices and normals and each star keeps its birth place; the client samples the blob caster's posed points each frame. Keeping birth places needs per-star state across frames; seen only. Left.
 
 #### `RND-084` Stars mode 2 keeps each star's colour mix instead of re-rolling every frame
 
@@ -6861,6 +6933,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: star colours do not flicker
 - Where: `docs/ORIGINAL_AUDIT.md:266`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: re-rolling each star's colour mix every frame draws from the process rand() (RND-063); with a hash it would flicker in a fixed pattern. Left with RND-063.
 
 #### `RND-085` Stars mode 22: heading unknown, edges run across x
 
@@ -6870,6 +6943,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: edge stars not shaped to the body's facing or pose
 - Where: `crates/mao-client/src/effects.rs:2082`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Mode 22's edges run between the character's attach points in its pose; the client's stars code is given the feet only (no posed attach points), so the edges need the body's attractor/bone frames passed in (now kept for the bones, RND-139) and the spring stepped per frame. Seen only. Left.
 
 #### `RND-086` Stars mode 3 swirl gain approximated
 
@@ -6879,6 +6953,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: minor
 - Where: `crates/mao-client/src/effects.rs:385`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The swirl gains a tenth a drawn frame in the original, so its growth follows the frame rate; the closed form is that at 30 frames a second. Left (frame-rate dependent, seen only).
 
 #### `RND-087` Stars: births and spring simulated at a fixed 30 fps
 
@@ -6888,6 +6963,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: star birth rhythm differs at other frame rates
 - Where: `crates/mao-client/src/effects.rs:319`; `crates/mao-client/src/effects.rs:511`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's births and spring run once per drawn frame; the client's fixed 30 fps simulation is the same law at a set rate. Per-effect state fed the frame time would follow the original's dependence on the frame rate; seen only. Left.
 
 #### `RND-088` Statel level of detail decided every frame, radius from world box
 
@@ -6897,6 +6973,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: LOD switching distances slightly differ
 - Where: `docs/ORIGINAL_AUDIT.md:82`; `docs/CLIENT_UI.md:2261`; `crates/mao-formats/src/model.rs:209`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only (see RND-005): the original looks at 20 meshes a frame and uses the bounding volume's radius; the client decides every mesh every frame from the world box. The 20-a-frame lag is a cost-saving of the original that only delays switches by a few frames. Left.
 
 #### `RND-089` Statels in a zone without a room are skipped
 
@@ -6905,7 +6982,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a statel zone with no matching room is not drawn
 - A player notices: those props missing
 - Where: `crates/mao-client/src/main.rs:831`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original does the same: a zone's statels are made only when n3StatelController_t::EnableRoomStatels (N3.dll 0x10025ae8) is called with that zone's number, which the rooms' code does for a room that comes into view (the calls at n3.c 25846, 25958, 26022, each with a room index); a zone whose number has no room is never enabled, so its statels are never drawn. The client's skip of a zone without a room (main.rs placed_statels) matches. Nothing to change.
 
 #### `RND-090` Things with no animation message stand in their first pose
 
@@ -6915,6 +6993,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none stated
 - Where: `crates/mao-client/src/net.rs:5451`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original plays a thing's model when an AnimPlay/AnimPos is told to it; what its VisualMesh shows before any such message (its first frame, or its own animation on the clock as LODManager does for statel meshes) was not found for dynels. Needs the dynel visual's start read. Left.
 
 #### `RND-091` Toggle effect: playfield test replaced by flag 0x800
 
@@ -6934,6 +7013,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tracers look and wobble differently
 - Where: `crates/mao-client/src/effects.rs:47`; `docs/ORIGINAL_AUDIT.md:277`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): _GfxControlTracer4_t (FUN_100ffa7b) flips and jitters with the process rand() (RND-063), draws a cord ribbon (no ribbon primitive, RND-023) and rides a locator moving at 100 a second; all three need renderer or state work and are seen only. Left.
 
 #### `RND-093` Trail sampling fixed at 30 a second
 
@@ -6943,6 +7023,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: hover exhaust trail length differs with frame rate
 - Where: `crates/mao-client/src/effects.rs:1218`; `docs/ORIGINAL_AUDIT.md:300`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): A sample every drawn frame makes the original's trails as long as its frames are many; the client's 30 a second is that at 30 fps. Following the frame rate is a one-line change of TRAIL_FRAME to the real frame step but makes trail length depend on the machine, as the original's does; the ring's first copies and the locator turn are not read. Left for the user's choice.
 
 #### `RND-094` Universal effects of meshes ignore the connector's place and turn
 
@@ -6952,6 +7033,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: effects on larger meshes sit at the mesh's origin, not the connector
 - Where: `crates/mao-client/src/net.rs:9038`; `docs/CLIENT_UI.md:1223`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The universal effects of a mesh stay on their connector (its place and turn on the mesh); the client's list of these effects keeps the object's position only (net.rs), as for statels (RND-045). Carrying the connector's frame needs the mesh's connectors read for each such object and the effect placed in that frame; seen only. Left.
 
 #### `RND-095` View drawing goes through egui
 
@@ -6961,6 +7043,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible beyond small rendering differences
 - Where: `crates/mao-client/src/gui/host.rs:6`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The views are drawn through egui by design of this client (one unit one point); drawing them through the renderer as DisplaySystem sprites would replace the whole GUI drawing path. Not a rule to port. Left.
 
 #### `RND-096` VolGrid: slices are two flat-coloured quads
 
@@ -6970,6 +7053,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: volume effects flatter, coarser gradients
 - Where: `crates/mao-client/src/effects.rs:2141`; `docs/ORIGINAL_AUDIT.md:278`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): GfxVisualVolGrid (FUN_1002f86d) slices are per-vertex colour fans with the locator's rotation, alpha blend and a turned texture; the client's shells could carry vertex colours but the slice geometry, the blend and the locator are a visual port judged by eye. Left.
 
 #### `RND-097` Weather fade rolls the old state at full strength
 
@@ -6979,6 +7063,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the fade between weather states may differ in detail
 - Where: `crates/mao-formats/src/weather.rs:287`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's Environment_t keeps a current and a next 22-float table (FUN_100bd555) and lerps them by the fade (FUN_100bf96e: the first 18 floats by the weight, 0x12-0x14 by the weights' share of +0x15). Those tables are built by FUN_100bcec6 from the area's environment, a different shape from the client's 14 rolled weather values (weather.rs roll); porting the fade means porting the table building too. Over the time box. Left.
 
 ### Rendering and world: the original was not read: inferred or measured (26)
 
@@ -6990,6 +7075,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: arrow position on the Atlas map approximate or absent
 - Where: `docs/CLIENT_UI.md:3177`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only. The Atlas of Rubi-Ka is a player-made map, not part of the original client's program: there is no rule in Gamecode/GUI/DisplaySystem to port, and the Atlas' own index and coordinates file is not at hand. Measuring better coordinates needs the Atlas' source files or screenshots, nothing that can be read from the original's code.
 
 #### `RND-099` Shadowlands sky still wrong, cause not found
 
@@ -6999,6 +7085,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: unresolved Shadowlands sky issue
 - Where: `docs/LIVE_TEST_LIST.md:674`; `docs/CLIENT_UI.md:1307`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: no rule named. The cause of the Shadowlands sky difference was never found; finding it needs the original's sky and the client's side by side on the same Shadowlands playfield at the same game hour (a live comparison), which cannot be done tonight.
 
 #### `RND-100` Cargo box doors never open
 
@@ -7008,6 +7095,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: unknown
 - Where: `docs/CLIENT_UI.md:625`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: whether a cargo box's doors open is told by a stat no capture shows changing; it needs a capture of a box being opened. Left.
 
 #### `RND-101` Character textures and clothes found by byte scan
 
@@ -7017,6 +7105,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a character whose update has marker-like bytes earlier may be dressed wrongly
 - Where: `crates/mao-net/src/n3.rs:1887`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Reading the texture and cloth lists field by field means porting the rest of Gamecode's full-update reader (FUN_1007916d) for the fields before them, which the client skips by the scan; the scan finds what the captures hold. A reader port across many flag-dependent fields with no failing case known tonight. Left.
 
 #### `RND-102` Darkness dimming of sky and light is a reading
 
@@ -7026,6 +7115,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: how dark storms make the sky
 - Where: `crates/mao-client/src/environment.rs:16`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): VisualEnvFX_t +0x1134 is one of the values DisplaySystem hands to the FXS scripts (drop-in fxvisual.rs maps script variable 0x2f8 to it), so what it does is decided by the scripts that read it, not by a rule in the program; the client's reading as a dimming is what the scripts seemed to do. Needs the scripts' use traced and a comparison. Left.
 
 #### `RND-103` Deformer ripple phase constants guessed; modes 0 and 4 not done
 
@@ -7035,6 +7125,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: hit-deform ripple shaped differently
 - Where: `crates/mao-client/src/effects.rs:101`; `docs/ORIGINAL_AUDIT.md:276`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The phase constants in FUN_100d776f are not legible in the decompile (noted), and modes 0 (pulses round named bones) and 4 (a second body mesh faded) need the bones' frames in the deformer and a second mesh; seen only. Left.
 
 #### `RND-104` Effect lifetimes use the client's own default durations
 
@@ -7044,6 +7135,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: effects without a duration end or restart at the client's times
 - Where: `crates/mao-client/src/effects.rs:3231`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original runs an effect until its controls end themselves; the client's scheduler needs a period and life up front, which the stand-in figures give for kinds whose end is not computed. Replacing them means computing each kind's own end, a per-kind port. Left.
 
 #### `RND-105` Electra effect: birth point scaling a guess; modes 0 and 2 not done
 
@@ -7053,6 +7145,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: electra shape may differ
 - Where: `docs/ORIGINAL_AUDIT.md:274`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: whether the birth point is made unit before the scale cannot be read from the decompile; modes 0 and 2 are unused by the templates. Left.
 
 #### `RND-106` Face culling not checked in other playfield kinds
 
@@ -7062,6 +7155,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: possible missing faces in unchecked places
 - Where: `docs/CLIENT_UI.md:1442`; `crates/mao-render/src/lib.rs:265`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: a check of face culling in the other playfield kinds is a look in the client, not a port. Left.
 
 #### `RND-107` Fall effect and water compared with one original shot
 
@@ -7071,6 +7165,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: fall sheet looks lighter and more transparent
 - Where: `docs/CLIENT_UI.md:2233`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: one original shot at an unknown hour cannot settle the colours; needs another shot at a known hour. Left.
 
 #### `RND-108` FXS quaternion [ROT] order and sky mesh z fitted
 
@@ -7080,6 +7175,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: sky domes oriented by what looked right, not a read rule
 - Where: `crates/mao-client/src/fxs/mod.rs:2070`; `crates/mao-client/src/viewer.rs:3271`; `docs/ORIGINAL_AUDIT.md:93`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The decompile says FUN_10005600 composes [ROT] with the turn so far first (o*acc), and the mesh pool keeps meshes as stored; the client's reversed order and negated z are what lays the horizon's dish level. Following the decompile reopens the sky's look, which can only be judged against original screenshots; the switch to compare exists. Left.
 
 #### `RND-109` Haze start is a fixed fraction of the view distance
 
@@ -7089,6 +7185,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the distance haze may differ from the original's
 - Where: `crates/mao-client/src/viewer.rs:854`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The haze is the client's own (RND-185, recommended for removal); with no area fog the original has none, so there is no start distance to port. Left with RND-185.
 
 #### `RND-110` Hit and tracer effects at fixed offsets
 
@@ -7098,6 +7195,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: effects may sit off the original's height
 - Where: `crates/mao-client/src/effects.rs:2986`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The hit and tracer places come from the effects' locators in the original (a hit at the target's attach point, a tracer along its locator's path), see RND-004 and RND-139; the fixed offsets stand in for those per-kind paths. Left with RND-004.
 
 #### `RND-111` Land control bitmap texture filter unknown
 
@@ -7107,6 +7205,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: map overlay edge look
 - Where: `docs/CAPTURE_GAPS.md:218`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the original sets no filter for the land control bitmap, and Direct3D 7's default is point sampling, which the client takes. Nothing to change.
 
 #### `RND-112` Passable props chosen by mesh name
 
@@ -7116,6 +7215,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: such doors and gates never block in playfields without collision surfaces
 - Where: `crates/mao-client/src/net.rs:5724`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Only used where collision is built from visual meshes (generated dungeons, RND-037); the original's collision there comes from the rooms' own data, not read. Left with RND-037.
 
 #### `RND-113` Plants are told by whole-word endings in the mesh file name
 
@@ -7125,6 +7225,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some plants may not sway, some non-plants might
 - Where: `docs/CLIENT_UI.md:44`; `crates/mao-formats/src/model.rs:102`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The plant test feeds the client's own sway (RND-187, recommended for removal) and its cut-out (RND-002); the original has no plant flag. Left with those.
 
 #### `RND-114` Plants' thinning rule chosen from screenshots
 
@@ -7134,6 +7235,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tree and plant crowns may look thinner at distance than in the original
 - Where: `crates/mao-render/src/lib.rs:241`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The thinning rule stands in for the unknown cause in RND-002; left with it.
 
 #### `RND-115` Room cell height is 8 where the tile-map has none
 
@@ -7143,6 +7245,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a character may or may not count as inside a room where a type has no height
 - Where: `crates/mao-formats/src/rooms.rs:194`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The THSA table gives each tile type's height; a cell whose type has no entry gets the client's 8. What the original does with a missing entry (its lookup's default) was not read in the N3 room code tonight. Left.
 
 #### `RND-116` Room light map colours more numerous than vertices: coloured from the map's start
 
@@ -7152,6 +7255,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: room lighting may not match the original's if the original behaves otherwise
 - Where: `crates/mao-formats/src/rooms.rs:32`; `docs/ORIGINAL_AUDIT.md:231`; `docs/CLIENT_UI.md:2249`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The client does what the original does (colours the stream from the map's start, DepackLightmap 0x10010eb7 applied by FUN_100082a7); only the explanation is a guess. Nothing to change.
 
 #### `RND-117` Room texture layer choice is a guess
 
@@ -7161,6 +7265,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some room surfaces may be textured wrongly
 - Where: `docs/CLIENT_UI.md:1709`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: which palette channel picks the cell top's and the walls' texture layer was not read from the original; needs the N3 room drawer. Left.
 
 #### `RND-118` Room turn direction chosen by checking against booths
 
@@ -7169,7 +7274,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the sense of the turn (cell offset becomes (dy, -dx)) was chosen by checking against shop booths the server places; "likely right, not proven"
 - A player notices: things in turned rooms might be mirrored
 - Where: `crates/mao-formats/src/rooms.rs:29`; `docs/CLIENT_UI.md:1830`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Checked against the original's math: VisualRoom_t::SetPosition (drop-in displaysystem room.rs) turns the room by axis_angle((0,1,0), turn x pi/2) and randy31's quat_rotation (math.rs) makes the row-vector matrix with m[2] = -sin and m[8] = sin, so a point (x, z) goes to (x cos + z sin, -x sin + z cos): a quarter turn takes (x, z) to (z, -x). The client's cell offset (dx, dy) to (dy, -dx) is that turn. Nothing to change; the catalog's "likely right, not proven" can say proven by the matrix.
 
 #### `RND-119` Stars mode 13 ray duration uses the client's landing time
 
@@ -7179,6 +7285,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: ray timing guessed
 - Where: `crates/mao-client/src/effects.rs:2026`; `docs/ORIGINAL_AUDIT.md:266`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Every mode-13 template's duration is -1, so the hit's window (the spell's hit effect run) sets it in the original; that window is the hit timing of RND-004, not read. Left with RND-004.
 
 #### `RND-120` Stars modes 16/17/18 follow the decompile's shape, not its arithmetic
 
@@ -7188,6 +7295,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: those star patterns approximate
 - Where: `docs/ORIGINAL_AUDIT.md:266`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the run function's Ghidra text is mangled for these modes; reading the assembly (xdis) for three rarely used modes is over the time box. Left.
 
 #### `RND-121` Untextured parts drawn in material colour
 
@@ -7197,6 +7305,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: possibly odd coloured parts
 - Where: `docs/CLIENT_UI.md:3387`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: no rule against untextured parts was found, and drawing them in the material's colour is what D3D7 does with no texture stage. Nothing to change.
 
 #### `RND-122` Waterfall feet placed 1.2 under the liquid without surfaces
 
@@ -7206,6 +7315,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: fall effects may sit at a slightly wrong height
 - Where: `crates/mao-client/src/net.rs:5848`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The 1.2 under the liquid is the closest surface point's rule where the playfield has collision surfaces; without surfaces the client holds the tile-map ground there. The original always has its surfaces, so this case has no original rule. Left.
 
 #### `RND-123` Zone layout told apart by which one reads to the zone's end
 
@@ -7215,6 +7325,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a zone could be taken for the wrong layout
 - Where: `crates/mao-formats/src/statels.rs:253`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): How N3's zone reader tells the two layouts apart is in the zone worker's run (see RND-140), not read tonight. Left with RND-140.
 
 ### Rendering and world: a guard or fallback the original lacks (11)
 
@@ -7236,6 +7347,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-formats/src/catmesh.rs:354`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Safety kept: without the depth cut a bone tree with a cycle would recurse until the stack overflows and the client ends, where the original would also run away; real bodies are a few dozen bones deep, so the cut changes nothing on screen. Left.
 
 #### `RND-126` Collision volumes over 4000 triangles refused
 
@@ -7245,6 +7357,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-formats/src/surface.rs:174`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Safety kept: the volume decoder (FUN_10012af0) has no count of its own (999 is the end mark's odds, s.bit(1, 999), not a limit); on a broken stream that never reads as broken it would grow without end, where the original would hang. Real volumes stay far below 4000 triangles (none was refused in the playfields walked so far), so the cap changes nothing a player sees. Left.
 
 #### `RND-127` Frame trees deeper than 64 refused
 
@@ -7254,6 +7367,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: such a mesh does not draw
 - Where: `crates/mao-formats/src/model.rs:472`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Safety kept, as RND-125: a frame tree with a cycle would recurse until the stack overflows; real meshes are shallow. Left.
 
 #### `RND-128` Missing liquid texture leaves the pass white
 
@@ -7263,6 +7377,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: white water if a texture is missing
 - Where: `docs/CLIENT_UI.md:2183`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: a missing liquid texture does not happen with the game's files; what the original shows then (its texture stage with no texture: white by D3D7's default) is the same. Nothing to change.
 
 #### `RND-129` Name tags not drawn under 1 or over 400 screen pixels tall
 
@@ -7272,6 +7387,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tags vanish when very far or very close
 - Where: `crates/mao-client/src/nametag.rs:136`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The name plates are the client's own (RND-186); the original's tags are world sprites with no size test, which this client does not have to follow until they are ported (RND-027). The size limits belong to the client's own plates. Left with RND-186.
 
 #### `RND-130` Rock thrower capped at 10 s, own step and random
 
@@ -7281,6 +7397,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: rock throw timing and paths differ
 - Where: `crates/mao-client/src/effects.rs:1073`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original steps a rock once a drawn frame with rand(); the client's fixed step and seeded generator are the same law (RND-063, frame-rate dependence), and its 10 s stop is past the seven bounces a rock makes before it rests, so it changes nothing seen. Left.
 
 #### `RND-131` Shield2 skipped for dense meshes with flag 0x40000
 
@@ -7289,7 +7406,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: returns nothing when flag 0x40000 is set and the mesh has more than 1000 vertices
 - A player notices: no shield on dense meshes
 - Where: `crates/mao-client/src/effects.rs:868`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Not a client guard: the original has the same test. DisplaySystem's GfxVisualShield2 (drop-in gfxshield2.rs too_big, and the draw FUN_1001d3ee) leaves a mesh alone when flag 0x40000 is set and it has more than 1000 vertices. The client's shield2_shell test matches. Nothing to change.
 
 #### `RND-132` Soft dots for particles whose sprite sheet is not loaded
 
@@ -7299,6 +7417,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: soft dots instead of the effect's sprites until the sheet loads
 - Where: `crates/mao-render/src/lib.rs:2636`; `crates/mao-render/src/lib.rs:541`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Particles' sprite sheets are always in the game's files, so this stand-in never shows in practice; the original has no such case. Left.
 
 #### `RND-133` Statel moving parts animate only within 250 m
 
@@ -7308,6 +7427,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: far machines or doors (Whom-Pah glow, propellers) stand still
 - Where: `crates/mao-client/src/net.rs:5527`; `docs/CLIENT_UI.md:3256`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The 250 m range does change what is seen: past it a statel's moving part is not drawn at all (net.rs overlay_model skips it). The original draws statel meshes under the LODManager's rule (hidden past 50 radii, RND-005) and gives every 0xf6951 mesh the time each frame. Removing the range alone would put every moving part of the playfield into the overlay rebuilt each frame on the network thread; the faithful change is to cull them by the LODManager's 50-radii rule (each part's radius from its vertices), which needs a measure of the cost on a big city before it ships. Left, with that as the suggested port.
 
 #### `RND-134` Unreadable global statel ends the global data
 
@@ -7317,6 +7437,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: later global statels are missing
 - Where: `crates/mao-formats/src/statels.rs:238`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Safety kept: a global statel that cannot be read leaves the reader at an unknown place in the file; the original would read the rest as garbage statels. Stopping is the only way not to make up statels from garbage; no playfield's global data fails today. Left.
 
 ### Rendering and world: the original does it, the client does not (48)
 
@@ -7378,6 +7499,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: lights and statels of such zones are missing
 - Where: `crates/mao-formats/src/statels.rs:19`; `docs/ROADMAP.md:73`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The zone is read off the main thread in the original: n3StatelController_t::EnableRoomStatels (N3.dll 0x10025ae8) builds a zone object (FUN_1002896c) and schedules a WorkerRequest_c (FUN_100274b1) that reads the zone from the .pf file; the statel reader inside it is FUN_1002777a (read for RND-141). The reader of the zone's own header (the packed block and the 18-byte lights) is in that worker's run function, reached only through its vtable, which the scratchpad N3 decompile (n3.c) does not have in a readable form tonight. Porting it means a second zone reader in statels.rs checked against every playfield's file, and how the two layouts are told apart (RND-123); over 40 minutes with no reader to copy. Left.
 
 #### `RND-141` Statels' own matrix (second flag layout) not applied
 
@@ -7397,6 +7519,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some worn items the original hides may be drawn
 - Where: `crates/mao-net/src/n3.rs:1949`; `docs/CLIENT_UI.md:1058`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Found the rule: VisualCATMesh_t::SetShape (DisplaySystem, stores +0x74) is called by Gamecode FUN_100590b8 only with 0 or 1: 1 when the character's MonsterData (stat 359) is set (a polymorph or a craft), 0 otherwise; shape 2 is never set by Gamecode. FUN_10073517 (drop-in catrun.rs attach_attractors) then hides, in shape 1, every worn mesh except those at place 0 with flag bit 2 (the character's own head), and in shape 2 every place outside 1..4. The client draws a MonsterData body with no worn meshes at all (net.rs overlay_model, creature_parts with an empty gear list), so the faithful change is to hang the character's own bit-2 head on the creature body's head attractor while it is morphed. Whether that head then sits on (or doubles) the creature's own head on the morph and craft bodies can only be judged by eye, and the gear list the client keeps (World::equipment) has already lost the flags (shown_meshes), so it needs a second list kept from the raw one. Left for a session that can look.
 
 #### `RND-143` Animation rest pose of a frame not used
 
@@ -7406,6 +7529,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some statels and doors may stand in the saved (open) pose
 - Where: `crates/mao-formats/src/model.rs:318`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The key layout of a frame's rest pose is not settled in the client's mesh reader (model.rs local_matrix drops it), and the drop-in's frame reader (randy31 refframe.rs, `anim_matrix` and the animation holder) keeps the rest pose as the anim matrix only when the frame has no animation; tying the two needs the stored layout checked on a sliding door's mesh and seen in game. Left.
 
 #### `RND-144` Area control percentages, level range, sounds and styles dropped
 
@@ -7415,6 +7539,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: area sounds and the like are not used from here
 - Where: `crates/mao-formats/src/areas.rs:168`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The dropped fields (control percentages, level range, five sounds, two style words) have no use in the client yet: keeping them is only worth it with the land-control and area-sound features that read them. Left.
 
 #### `RND-145` Area environment lists of unknown format or version not read
 
@@ -7424,6 +7549,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: such a playfield has no area light, fog or weather blend
 - Where: `crates/mao-formats/src/areas.rs:143`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Only list formats 5 to 7 and area version 4 occur in this installation's data; the other formats GameData reads have no example to test a reader against. Left.
 
 #### `RND-146` BParticle2: spin, ground bounce, height and daylight fades, locator turn not done
 
@@ -7433,6 +7559,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: particles do not bounce on the ground or fade with daylight
 - Where: `crates/mao-client/src/effects.rs:2388`; `docs/ORIGINAL_AUDIT.md:281`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_1010b499's spin needs the renderer's particle spin (RND-032), the ground bounce and the fades need per-particle state and the daylight, the locator turn the locator passed in; a set of visual ports judged by eye. Left.
 
 #### `RND-147` BParticle: only kind 8, no turn, distance fade or ground flag
 
@@ -7442,6 +7569,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: other BParticle kinds (three programs' beams) show nothing; those shown do not turn
 - Where: `crates/mao-client/src/effects.rs:2612`; `docs/ORIGINAL_AUDIT.md:298`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The other BParticle kinds (kind 1's tall turned beams with scrolled texture), the turn, the distance fade and the ground flag are visual ports needing turned quads and texture scroll in the renderer; seen only. Left.
 
 #### `RND-148` CAT meshes' own level of detail by distance not done
 
@@ -7451,6 +7579,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible (skinning cost)
 - Where: `docs/ORIGINAL_AUDIT.md:256`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: a CAT mesh's own levels of detail at 16, 32 and 48 units choose lower-detail triangle lists that the client's mesh reader does not keep; reading them and switching is a format and renderer port. Left.
 
 #### `RND-149` Character mesh colour word not applied
 
@@ -7460,6 +7589,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a mesh's tint colour does not show
 - Where: `crates/mao-formats/src/catmesh.rs:14`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The colour word's curve is not described in what was read (catmesh.rs keeps the word); applying it needs the curve from the CAT renderer. Left.
 
 #### `RND-150` Collision surfaces of versions other than 5 not read
 
@@ -7469,6 +7599,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a zone with an older surface has no collision from it
 - Where: `crates/mao-formats/src/surface.rs:377`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Only version 5 surfaces occur in this installation's 0xf424d objects; the other versions n3SurfaceResource_t::ReadBlob (0x10016179) reads have no example to test against. Left.
 
 #### `RND-151` Corner map: patch's second texture and room floors missing
 
@@ -7478,6 +7609,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: interior maps are the walked map
 - Where: `docs/CLIENT_UI.md:593`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the patch's second texture and the rooms' floor pictures (FUN_100474b7) are drawing ports of the corner map; seen only. Left.
 
 #### `RND-152` Effect mesh: body scale at the feet (flag 0x200) not applied
 
@@ -7487,6 +7619,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: mesh wrong size on scaled bodies when held at the feet
 - Where: `crates/mao-client/src/effects.rs:1856`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Flag 0x200 grows the mesh by the frame's scale, and at the feet that is the body's scale (stat 360 / 100); the viewer's aura loop has the body's breed, sex and fatness but not its scale, which lives in the network thread's World. Small plumbing, but only seen. Left.
 
 #### `RND-153` Effect mesh: own animation and attractor effects not played
 
@@ -7496,6 +7629,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: animated effect meshes stand still, no sub-effects
 - Where: `crates/mao-client/src/effects.rs:1857`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The effect mesh's own animation (0x1000) and its attractor effects (FUN_1010ca78) need the effect meshes run through the animated-mesh path and their connectors' effects started; seen only. Left.
 
 #### `RND-154` Effect meshes unlit and without depth writes
 
@@ -7505,6 +7639,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: effect meshes look flat
 - Where: `crates/mao-client/src/effects.rs:1855`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Lighting and depth writes for the plain effect mesh need a lit, depth-writing pipeline for effect shells in the renderer (they are drawn in the blended shell pass); seen only. Left.
 
 #### `RND-155` Effect scripts: screen fills (0x3d, the fill square) and some kinds not drawn
 
@@ -7514,6 +7649,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some scripted effects (the attack's flash) show nothing
 - Where: `crates/mao-client/src/fxs/visuals.rs:26`; `docs/CLIENT_UI.md:1258`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Screen fills (0x3d, the fill square), render targets, the debug line monitor and the occluders are renderer features of their own (full-screen passes, offscreen targets); judged by eye. Left.
 
 #### `RND-156` Far ground patches not averaged to one texel
 
@@ -7523,6 +7659,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: far terrain texture differs
 - Where: `docs/ORIGINAL_AUDIT.md:185`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: averaging far ground patches to one texel is a level-of-detail of the ground's textures; mips do the same work in the client. Left.
 
 #### `RND-157` Fire effect: rand() gate (word 31) and attractor frames not played
 
@@ -7532,6 +7669,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: flame count may differ from the original
 - Where: `crates/mao-client/src/effects.rs:2500`; `docs/ORIGINAL_AUDIT.md:286`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The rand() gate (word 31) draws from the process-wide rand() (RND-063) and the attractor frames need the locator passed into the fire code (as RND-045); seen only. Left.
 
 #### `RND-158` Generic scripted visual: points not drawn
 
@@ -7541,6 +7679,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: point-based scripted visuals do not appear
 - Where: `crates/mao-client/src/fxs/visuals.rs:382`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): BlueprintRender's other visualizations (points among them) need a point primitive in the scripted visuals' draw; no script seen tonight uses them. Left.
 
 #### `RND-159` Ground grid: locator's turn and laid-once (0x800) not done; random turn is a fixed hash
 
@@ -7550,6 +7689,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: ground grid orientation/following differs, turn not random
 - Where: `crates/mao-client/src/effects.rs:1528`; `docs/ORIGINAL_AUDIT.md:284`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The locator's turn needs the locator passed in, laid-once (0x800) needs the place kept from the start (state), and the random turn draws from rand() (RND-063); seen only. Left.
 
 #### `RND-160` Hall's nano effect and figure animations do not run
 
@@ -7559,6 +7699,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the profession figures and hall stand still
 - Where: `crates/mao-client/src/hall.rs:28`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The hall's nano effect and the figures' looping animations need the hall's meshes run through the animated path and the effect started at the hall's place; seen only in the login hall. Left.
 
 #### `RND-161` Highlight effect: render priority 0x400 and hide word not done
 
@@ -7568,6 +7709,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: highlight variants missing
 - Where: `docs/ORIGINAL_AUDIT.md:287`; `crates/mao-formats/src/gfx.rs:262`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: render priority 0x400 orders the highlight among the transparent draws, and the hide word was not read; seen only. Left.
 
 #### `RND-162` House building effect not shown
 
@@ -7577,6 +7719,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no construction effect
 - Where: `crates/mao-client/src/houses.rs:11`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The building effect plays when a house is put up live (see RND-167); without the live signal handled there is nothing to start it from. Left with RND-167.
 
 #### `RND-163` Lightning: the bolt's ground-place note not made
 
@@ -7586,6 +7729,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible known
 - Where: `crates/mao-client/src/lightning.rs:23`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100b8b35's note of the bolt's ground place (radius 50) feeds whatever reads it (the note's consumers were not read); nothing visible follows from making the note alone. Left.
 
 #### `RND-164` Nano effect: rand() gate (word 24) not played
 
@@ -7595,6 +7739,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a template with the gate set would emit more sprites than the original
 - Where: `crates/mao-client/src/effects.rs:163`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The gate word is 0 in the templates examined, so the gate never closes; when it is not, it draws from rand() (RND-063). Nothing visible to port. Left.
 
 #### `RND-165` Occluder bodies give no occlusion culling
 
@@ -7604,6 +7749,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible (performance)
 - Where: `docs/CLIENT_UI.md:3361`; `docs/ORIGINAL_AUDIT.md:49`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: occlusion culling changes cost, not the picture (what it leaves out is hidden anyway). Left.
 
 #### `RND-166` Old CHGA tile-maps for rooms not ported
 
@@ -7613,6 +7759,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none now; a room playfield on an old tile-map would not draw
 - Where: `crates/mao-formats/src/rooms.rs:1364`; `docs/ORIGINAL_AUDIT.md:68`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The old CHGA tile-map branch of the room cell constructor is a format port with no reader in the drop-ins to copy; the playfields that need it are the ones the flat floor stands in for (RND-024). Over the time box. Left.
 
 #### `RND-167` Player city houses added or removed live not handled
 
@@ -7622,6 +7769,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: houses do not appear or vanish live
 - Where: `crates/mao-client/src/houses.rs:10`; `docs/CLIENT_UI.md:3754`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): AOTransportSignal 0x62741e15 codes 2 and 9 have no capture (its lead byte is a guess), so a live house change cannot be decoded with confidence; needs a capture of a house going up or down. Left.
 
 #### `RND-168` Scatter effect: original's random numbers, matrix and connector placements not done
 
@@ -7631,6 +7779,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: scatter placement differs
 - Where: `docs/ORIGINAL_AUDIT.md:304`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the scatter's random numbers are rand()'s (RND-063), its matrix and connector placements need the locator passed in; seen only. Left.
 
 #### `RND-169` Script-started effects: several visual kinds not drawn
 
@@ -7640,6 +7789,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no scripted full-screen flashes or tints, and some sky effects absent
 - Where: `crates/mao-client/src/fxs/visuals.rs:25`; `crates/mao-client/src/fxs/visuals.rs:26`; `docs/ORIGINAL_AUDIT.md:93`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): As RND-155: render targets, screen fills, the line monitor, occluders, attractors' effects and projected lights are renderer features each; judged by eye. Left.
 
 #### `RND-170` Sequencer effects: end cutting child's duration, loop 0x400, flag 0x800
 
@@ -7649,6 +7799,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some sequencer children play too long or do not loop
 - Where: `crates/mao-formats/src/gfx.rs:2449`; `docs/ORIGINAL_AUDIT.md:269`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The sequencer's end cutting a child's duration needs a new limited-duration visual handled by every visual function (particles, meshes, trails, shells, timing) in effects.rs; 0x400 looping and 0x800 (running without the dynel) need the scheduler's state. Over the time box for a low entry. Left.
 
 #### `RND-171` Shield2 effect: mech meshes, own material and depth modes not drawn
 
@@ -7658,6 +7809,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: shield variants look different or are absent
 - Where: `crates/mao-client/src/effects.rs:861`; `docs/ORIGINAL_AUDIT.md:303`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The mech meshes (word 20), the mesh's own material (0x10000) and the depth modes (0x4000/0x8000) need the shield drawn over other meshes and new depth states in the renderer; seen only. Left.
 
 #### `RND-172` Smoke effects: quads' spin, alpha blend, mode 1 wandering emitter not done
 
@@ -7667,6 +7819,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: smoke and waterfall mist look brighter and differ from the original's
 - Where: `crates/mao-client/src/effects.rs:2274`; `crates/mao-client/src/effects.rs:2191`; `docs/ORIGINAL_AUDIT.md:279`; `docs/CLIENT_UI.md:2228`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The quads' spin needs the renderer's particle spin (RND-032), mode 5's alpha blend a blended particle pass (RND-079), mode 1's wandering emitter per-effect state with rand(); seen only. Left.
 
 #### `RND-173` Spell 0xcf76 on MonsterData does not reload the mesh
 
@@ -7676,6 +7829,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a body set by that stat is not redrawn
 - Where: `crates/mao-client/src/spelllist.rs:241`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100a95c7 reloads the mesh when 0xcf76 sets MonsterData (stat 0x167) (FUN_10052686). The client already draws the body a MonsterData names from the full update (World::crafts) and from the worn craft's wear list (refresh_mods, a_worn_yalmaha_is_its_craft), and for a polymorph from the running program; making 0xcf76 itself switch the body would be a third path for the same change, and only one's own temporary sets are applied (World::temp_stat). Needs a live check of which arrives first before adding it. Left.
 
 #### `RND-174` Spiral2 effect: body's torso scale not applied
 
@@ -7685,6 +7839,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: spirals on non-standard-size bodies are the wrong size
 - Where: `crates/mao-client/src/effects.rs:1577`; `docs/ORIGINAL_AUDIT.md:289`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The body's torso scale is not passed to the effect code (as RND-078); seen only. Left.
 
 #### `RND-175` Star water drawn as plain water; its star field and mists not ported
 
@@ -7694,6 +7849,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible so far
 - Where: `crates/mao-render/src/lib.rs:2568`; `docs/ORIGINAL_AUDIT.md:65`; `docs/CLIENT_UI.md:74`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): No playfield in this installation has star water (types 0xe/0xf), so there is nothing to see or test. Left.
 
 #### `RND-176` Stars modes 12, 14, 28 show the spiral child
 
@@ -7703,6 +7859,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: those few effects look wrong
 - Where: `docs/ORIGINAL_AUDIT.md:266`; `crates/mao-client/src/effects.rs:312`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): _GfxControlStars_t modes 12, 14 and 28 (15 uses in all) have run functions not ported; each is a visual port judged by eye. Left.
 
 #### `RND-177` Statels' moving parts all play on the clock
 
@@ -7712,6 +7869,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some built-in animated props play when they should stand
 - Where: `docs/CLIENT_UI.md:626`; `crates/mao-client/src/net.rs:5498`; `crates/mao-client/src/net.rs:5451`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Partly a misreading: DisplaySystem's LODManager::Process gives every 0xf6951 statel mesh the time each frame when its animate flag is set (drop-in lodmanager.rs, global `animate` = 1), so statels' moving parts do run on the clock in the original. Whether a statel's part can also be stopped by a state (as things are by AnimPlay/AnimPos) depends on the statel's own messages, which were not seen. Left.
 
 #### `RND-178` Sun rays do not flicker
 
@@ -7721,6 +7879,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: sun rays steady
 - Where: `crates/mao-client/src/fxs/visuals.rs:459`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): VisualSunRays_t's flicker table (FUN_1005a3a9) changes only the rays' brightness frame by frame; porting the table is possible but the effect is seen only and the table's indexing by time was not read through tonight. Left.
 
 #### `RND-179` Suns effect: modes 1-3 not done
 
@@ -7730,6 +7889,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a few effects missing
 - Where: `docs/ORIGINAL_AUDIT.md:273`; `crates/mao-client/src/effects.rs:4463`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the suns' modes 1-3 are visual ports of their own; seen only. Left.
 
 #### `RND-180` TParticle2: fade by facing and texture options not done
 
@@ -7739,6 +7899,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: streak particles differ
 - Where: `docs/ORIGINAL_AUDIT.md:288`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the facing fade and texture options need the strips' facing to the camera in the renderer; seen only. Left.
 
 #### `RND-181` TParticle: frame turn and move not played; kind 3 draws nothing
 
@@ -7748,6 +7909,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: streak effect does not turn/move with its frame; some bursts missing
 - Where: `crates/mao-client/src/effects.rs:1425`; `docs/ORIGINAL_AUDIT.md:292`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The frame turn (FUN_10112ff1) and move (FUN_100d6a3d) need per-effect state, and kind 3 is a visual of its own; seen only. Left.
 
 #### `RND-182` Water refraction: byte 0x188 skip not followed
 
@@ -7757,6 +7919,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: refraction could show where the original skips it
 - Where: `docs/CLIENT_UI.md:2198`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: what sets the frame block's byte 0x188 was not found, so there is no rule to follow yet. Left.
 
 ### Rendering and world: the client has it, the original does not (12)
 
@@ -7768,6 +7931,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: smoother, differently lit picture
 - Where: `crates/mao-render/src/lib.rs:1292`; `crates/mao-render/src/lib.rs:1690`; `docs/CLIENT_UI.md:55`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: anti-aliasing, anisotropic filtering and mips are display-quality settings with no rule of the original's to break (its DirectX 7 device simply had none); the hemisphere ambient is the part that changes the look, and it only stands in where the scripts give no light (see RND-001).
 
 #### `RND-184` Coloured boxes stand in for characters with no model
 
@@ -7777,6 +7941,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: boxes appear in place of unmodelled characters
 - Where: `crates/mao-client/src/net.rs:5428`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has a model for every character (its fallback is `unfinished-breed.cir`, see RND-028), so the boxes only show where this client cannot yet load one; without them such characters would be invisible and unclickable.
 
 #### `RND-185` Distance haze when the area has no fog
 
@@ -7786,6 +7951,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: far scenery fades to the sky colour
 - Where: `crates/mao-render/src/lib.rs:2237`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original's only fog is the area's VisualFog_t; with none it draws clear to its far clip, so the haze is a look of the client's own.
 
 #### `RND-186` Name plates are the client's own
 
@@ -7795,6 +7961,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: floating names over characters
 - Where: `docs/CLIENT_UI.md:1840`; `crates/mao-client/src/main.rs:1760`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original's name tags are VisualSprite_t in the world (HandleNametags 0x100268ee); until those are ported (RND-027) the client's plates are the only way names show, and removing them would leave none.
 
 #### `RND-187` Plants sway in the wind and bend away from the player
 
@@ -7804,6 +7971,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: trees and grass move in the wind and bend when the player walks near
 - Where: `docs/CLIENT_UI.md:46`; `crates/mao-formats/src/model.rs:82`; `crates/mao-client/src/main.rs:920`; `crates/mao-render/src/lib.rs:177`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original has no plant flag and moves plants only through their meshes' own animations; the sway and the bend away from the player are the client's own and the plant test itself is a guess by file name (RND-113).
 
 #### `RND-188` Real sun shadows from the playfield's props, shadow-map options
 
@@ -7813,6 +7981,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: shadows from trees and buildings the original never drew; they update in steps
 - Where: `crates/mao-render/src/lib.rs:2367`; `crates/mao-render/src/lib.rs:455`; `crates/mao-client/src/viewer.rs:2573`; `docs/CLIENT_UI.md:2253`; `docs/CLIENT_UI.md:2754`; `docs/ORIGINAL_AUDIT.md:69` and 3 more
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: it is an option and `shadows` off gives the original's blob shadows only (GfxVisualSimpleShadow_c); suggest it default to off if the original's look is wanted out of the box.
 
 #### `RND-189` Drawing scale with FSR 1 upscaling and a mip bias
 
@@ -7822,6 +7991,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a render-scale setting; softer or sharper picture
 - Where: `crates/mao-render/src/lib.rs:1458`; `docs/CLIENT_UI.md:1452`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: a performance option for slow machines that defaults to full scale; it does not change the picture's content.
 
 #### `RND-190` Frame limiter and background frame rate
 
@@ -7831,6 +8001,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: client can be capped lower when not in front
 - Where: `crates/mao-client/src/settings.rs:589`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: frame limiting is a machine setting with no rule of the original's to break.
 
 #### `RND-191` Generic emitter: dense clouds dimmed, jitter and clamps
 
@@ -7840,6 +8011,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: dense particle clouds look dimmer and softer than the template says
 - Where: `crates/mao-client/src/effects.rs:3347`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the dimming, jitter and clamps change the generic emitter's look away from the template's own numbers; if a template makes a cloud too dense, that is how the original draws it.
 
 #### `RND-192` Hit effect fade-in and fade-out added
 
@@ -7849,6 +8021,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: hit particles ease in and out
 - Where: `crates/mao-client/src/effects.rs:2981`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original's hit effects end as their own controls fade them; an extra fade in and out changes their look.
 
 #### `RND-193` Textures block-compressed on the card, on by default
 
@@ -7858,6 +8031,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: less video memory, slightly lossy colours, possible banding or stutter
 - Where: `crates/mao-render/src/lib.rs:2908`; `crates/mao-client/src/settings.rs:585`; `crates/mao-client/src/launchwindow.rs:484`; `docs/CLIENT_UI.md:1388`; `docs/LIVE_TEST_LIST.md:678`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: compression saves video memory and is a launcher option; the original's DX7 device also took compressed (DXT) textures where the files had them.
 
 #### `RND-194` View distance and character distance settings
 
@@ -7867,6 +8041,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra settings
 - Where: `crates/mao-client/src/settings.rs:545`; `docs/CLIENT_UI.md:1880`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has a view distance setting of its own in its options; the character distance is a performance option.
 
 ## Sound and music
 
