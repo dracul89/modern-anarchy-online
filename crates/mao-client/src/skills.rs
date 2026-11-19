@@ -123,8 +123,13 @@ pub const GROUPS: &[(&str, &[(u32, &str)])] = &[
     ),
 ];
 
-/// The name of a stat for a tooltip: the skills and attributes by their window names, the common others by hand.
+/// The name of a stat for a tooltip: the game's own, text.mdb 2003 by the stat's number (as Gamecode names a stat in
+/// its lines: `ConvertCriteria` 0x1001e2cf, `N3Msg_GetSkillToUseString` 0x1001a272, `LDBface::GetText(2003, stat)`);
+/// without the game's texts the skills and attributes by their window names, the common others by hand.
 pub fn stat_name(stat: u32) -> String {
+    if let Some(name) = crate::feedback::texts().and_then(|t| t.get(2003, stat as i32)).filter(|n| !n.is_empty()) {
+        return name.to_string();
+    }
     if let Some(name) = GROUPS.iter().flat_map(|(_, g)| g.iter()).find(|(s, _)| *s == stat).map(|(_, n)| *n) {
         return name.to_string();
     }
@@ -227,6 +232,16 @@ pub fn push_raises(raises: Vec<(u32, u32)>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `MAO_GAME`: the game names the stats of the client's hand table in text.mdb 2003, by number.
+    #[test]
+    fn the_games_stat_names_cover_the_table() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let texts = mao_formats::ldb::Texts::parse(&std::fs::read(std::path::Path::new(&game).join("cd_image/text/text.mdb")).unwrap()).unwrap();
+        for stat in [54, 1, 221, 90, 91, 97, 16, 17, 18, 19, 20, 21, 152, 161] {
+            assert!(texts.get(2003, stat).is_some_and(|t| !t.is_empty()), "stat {stat}");
+        }
+    }
 
     #[test]
     fn every_trickle_skill_is_in_a_group() {

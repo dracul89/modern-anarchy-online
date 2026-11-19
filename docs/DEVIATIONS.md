@@ -5189,7 +5189,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: stat_name has a hand-written English table and "Stat N" for stats not in it.
 - A player notices: Names in some tips differ; unnamed stats show as "Stat N".
 - Where: `crates/mao-client/src/skills.rs:126`; `crates/mao-client/src/skills.rs:159`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Gamecode names stats with LDBface::GetText(2003, stat) (ConvertCriteria 0x1001e2cf for requirement lines, N3Msg_GetSkillToUseString 0x1001a272); skills::stat_name now reads text.mdb 2003 by the stat's number first, and keeps the hand table and "Stat N" only for when the game's texts are not there or a stat has no text. The category 2002 of the notes was not found in a naming path and is not used. Test: skills::tests::the_games_stat_names_cover_the_table (MAO_GAME: 2003 names the table's stats).
 
 #### `WIN-071` Tabs wider than the strip are narrowed in proportion, not by SpaceOut
 

@@ -173,6 +173,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Links in info pages, NPC dialogue and tips open as the mouse button goes down, as in the original.
 - Dark skins (AOU Translucent) draw buttons, check boxes and tabs in the skin's own Default colour, as the original does.
 - In-game web pages are told the system's language and country, as the original tells them.
+- Stat names in tooltips and item requirements are the game's own (no more "Stat 123" for stats the game names).
 
 ### Chat
 

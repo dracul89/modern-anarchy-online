@@ -7197,3 +7197,7 @@ The original raises the organization's leave box (`LeaveOrg` 0x10052c90) and pro
 ### Web pages' AcceptLanguage (WIN-062)
 
 The original hands the in-game pages `AnarchyOnline.AcceptLanguage` as the user's locale, language and country ("en-US", `BrowserModule_c::GetLocaleName` 0x1010b794). The client now gives the system's language and country too (WebView2's own on Windows, `LANG` elsewhere) instead of a fixed "en".
+
+### Stat names are the game's (WIN-070)
+
+Gamecode names a stat by text.mdb 2003 and the stat's number (`ConvertCriteria` 0x1001e2cf, `N3Msg_GetSkillToUseString` 0x1001a272). The client's tooltips and requirement lines now take the same text; its own English table remains only for when the game's texts are missing.
