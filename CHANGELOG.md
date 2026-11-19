@@ -147,6 +147,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Attack swings vary at random as in the original instead of in a fixed order.
 - The attack key refuses team and raid members, and refuses while flying, with the original's lines; a refused attack also says "Unable to attack target" as the original does.
 - The friendly targeting keys pick team and raid mates of another side and one's own pets; the hostile keys skip them.
+- A special attack at a target behind a wall or out of view says "no line of sight" at once and is not sent, as the original's client checks.
 - At one's own death the world turns wholly white at once when the death has played out, and is clear again the moment one lives, as in the original (no slow fade).
 - Damage and healing numbers no longer float over characters; the fight is told in the chat's combat lines, as in the original.
 

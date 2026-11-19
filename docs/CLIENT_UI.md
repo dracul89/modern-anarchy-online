@@ -5172,7 +5172,7 @@ Test: `an_item_between_two_templates` (`MAO_GAME`).
   sent; with bare hands nothing is asked. So Brawl and Dimach, which the server lists whatever is held, are not
   available with only pistols or rifles in the hands (a Solar-Powered Pistol's flags have neither bit, a Dull
   Katana's both). `actions::weapon_lets`, `World::special_refusal`. The special's range and the line of sight are
-  still the server's.
+  checked too since then (CMB-022, below).
 
 Noticed and not changed: the original stands a seated character up with `CharacterAction` 0x57 (ten pairs in the
 captures: sit is the movement 0x1e, stand is 0x57), where this client's X key sends the movement 0x25; the server
@@ -6698,15 +6698,26 @@ pictures `MAO_UI_PREVIEW=actions` and, with every state on, `MAO_ACTION_TOGGLES=
 - **The 1 m is read, not guessed.** It is the float at +0x30 of the object at a character's +0x1ec, which that object's
   constructor sets to 1.0 (FUN_1004496c); no store to it was found in Gamecode's code.
 
+**The line of sight, last (2026-11-19).** After the range, 0x100281fc asks FUN_10058e4f and says
+`Feedback_NoLineOfSight` when it fails, sending nothing. FUN_10058e4f takes the attacker's place and the target's, each
+raised 1.6 (the float at 0x10158454), and asks `n3Playfield_t::LineOfSight` (N3.dll 0x1000d34c): the rooms
+(`RoomCanSeeFromTo`), then the surface's `GetLineIntersection` from the one to the other and back. A target with no dynel
+fails it. Its skip, when both dynels have byte +0x21c set outside a dungeon, never happens: no code in Gamecode, N3,
+Interfaces, GUI or Vehicle sets that byte, and the only store to it clears it (0x10058969). The client asks the same test
+the camera uses (`camera::playfield_line_of_sight`, moved out of the viewer's camera surface) from the network loop,
+with the playfield it holds there: the zones' surfaces and tile-map ground, the props' meshes where there are no
+surfaces, a dungeon's rooms and the rooms shown. A target the client has no place for is refused the same way.
+
 Left:
 
-- **The line of sight** (FUN_10058e4f): the rooms and a ray both ways from 1.6 m up, but only when one of the two is not a
-  player or the place is a dungeon. That reads two flags whose meaning was not established, and the client's collision is
-  not the original's.
 - **The "queue of specials not yet swung"** the catalog named was not found. The check in that place (FUN_1002a027 on the
   weapon holder's +0x84) is of something the reload sets, and it refuses without a word.
+- **Fear and its sibling state** (0x100281fc's first test, the attacker's byte +0x21d): it is set while the character is
+  in state 1 or 5 of FUN_10045b64's state machine, which the spells 0xcf81 (fear, `Feedback_FearActivated`) and 0xcff0
+  enter through FUN_100a86b7 and FUN_100a8741. A special is then refused without a word. Not ported: states 2 to 4 come
+  from other spells and decide whether 1 and 5 may begin, and the client keeps none of them.
 
-Tests: `a_special_reaches_by_its_items_range`, `a_special_needs_a_weapon_that_lets_it`.
+Tests: `a_special_reaches_by_its_items_range`, `a_special_needs_a_weapon_that_lets_it`, `a_special_needs_a_line_of_sight`.
 
 ### One window per container (WIN-023)
 

@@ -4828,8 +4828,11 @@ impl World {
     /// Then the range (FUN_10068c44 and FUN_10067f0a): a weapon in a hand that has the bit must reach the target, else
     /// `Feedback_TargetIsOutsideSpecialAttackRange` (and with no weapon left that may, the line above as well); then the
     /// special's own item, the one the server listed it with (`special_items`: Brawl's reaches 3 m, Dimach's 10 m), must
-    /// reach it too (`special_reaches`). Not checked here, left to the server: the line of sight (FUN_10058e4f). The
-    /// "queue of specials not yet swung" the notes named was not found: the check there (FUN_1002a027 on the weapon
+    /// reach it too (`special_reaches`). Last the line of sight (FUN_10058e4f): from the attacker to the target, each
+    /// 1.6 above its place (0x10158454), `n3Playfield_t::LineOfSight` must see (`sight`), else `Feedback_NoLineOfSight`; a
+    /// target the client has no place for fails it too, as a target with no dynel does there. (Its skip, both dynels'
+    /// byte +0x21c set outside a dungeon, never happens: no code of the game's sets that byte, only clears it, 0x10058969.)
+    /// The "queue of specials not yet swung" the notes named was not found: the check there (FUN_1002a027 on the weapon
     /// holder's +0x84) is of something the reload sets, and refuses without a word.
     /// The lines a refusal says, in order: none for one that says nothing.
     /// What is left of a skill's lock, in seconds; none when it is not locked (the character's lock list, Gamecode
@@ -4891,7 +4894,7 @@ impl World {
         if player { Self::team_mate(id) } else { self.pets.values().any(|p| p.1 == id) }
     }
 
-    fn special_refusal(&self, number: u32, target: Option<u32>) -> Option<Vec<String>> {
+    fn special_refusal(&self, number: u32, target: Option<u32>, sight: &dyn Fn([f32; 3], [f32; 3]) -> bool) -> Option<Vec<String>> {
         let line = |name: &str| Some(vec![crate::feedback::plain(name)]);
         if self.specials_told.as_ref().is_some_and(|s| !s.contains(&number)) && number != crate::actions::SEARCH {
             return line("Feedback_ActionIsNotAvailable");
@@ -4946,6 +4949,12 @@ impl World {
                 && !reaches(item)
             {
                 return line("Feedback_TargetIsOutsideSpecialAttackRange");
+            }
+            // (FUN_10058e4f: the eyes, 1.6 above each place, from the attacker to the target)
+            let eyes = |p: [f32; 3]| [p[0], p[1] + 1.6, p[2]];
+            let seen = target.and_then(|t| Some((self.position_of(self.own)?, self.position_of(t)?))).is_some_and(|(a, b)| sight(eyes(a), eyes(b)));
+            if !seen {
+                return line("Feedback_NoLineOfSight");
             }
         }
         None
@@ -9594,7 +9603,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if let Some(n) = numbered {
                     // (while fighting the special goes at the one fought, not at the selection: 0x100281fc)
                     let aim = state.fighting.get(&own).copied().or(target);
-                    match state.special_refusal(n, aim) {
+                    // (the playfield as the viewer's camera asks it, `camera::playfield_line_of_sight`)
+                    let sight_terrain = terrain.clone().map(|t| (t, offset));
+                    let sight_ground = zones.clone().map(|z| crate::vehicle::Ground { zones: z, terrain: terrain.clone().map(|t| {
+                        let s = t.height_scale;
+                        (t, s)
+                    }), offset });
+                    let sight = |a: [f32; 3], b: [f32; 3]| crate::camera::playfield_line_of_sight(sight_ground.as_ref(), sight_terrain.as_ref(), Some(&*collision), interior.as_deref(), &rooms_shown, None, a, b);
+                    match state.special_refusal(n, aim, &sight) {
                         Some(lines) => {
                             for text in lines {
                                 told(text, &mut state.game_lines);
@@ -13959,6 +13975,30 @@ mod door_tests {
         assert!(w.sneaking.contains(&own));
     }
 
+    /// A line of sight that nothing blocks (the special attack tests).
+    pub(super) fn clear(_: [f32; 3], _: [f32; 3]) -> bool {
+        true
+    }
+
+    /// CMB-022: the special's last check is the line of sight (FUN_10058e4f): from the attacker's eyes to the target's,
+    /// 1.6 above their places; blocked, or with no place known for the target, `Feedback_NoLineOfSight` is the only line.
+    #[test]
+    fn a_special_needs_a_line_of_sight() {
+        let own = 0x4bc80;
+        let mut w = World { own, specials_told: Some(vec![148]), ..World::default() };
+        w.objects.insert(own, [10.0, 2.0, 20.0]);
+        let seen = std::cell::Cell::new(None);
+        let wall = |a: [f32; 3], b: [f32; 3]| {
+            seen.set(Some((a, b)));
+            false
+        };
+        assert_eq!(w.special_refusal(148, Some(9), &clear), Some(vec![crate::feedback::plain("Feedback_NoLineOfSight")]), "no place for the target");
+        w.objects.insert(9, [13.0, 1.0, 20.0]);
+        assert_eq!(w.special_refusal(148, Some(9), &clear), None);
+        assert_eq!(w.special_refusal(148, Some(9), &wall), Some(vec![crate::feedback::plain("Feedback_NoLineOfSight")]));
+        assert_eq!(seen.get(), Some(([10.0, 3.6, 20.0], [13.0, 2.6, 20.0])), "from the attacker's eyes to the target's");
+    }
+
     /// A special attack is refused as the original refuses it: one not in the list, one whose skill the server has
     /// locked (`SpecialUsed`, until `SpecialAvailable`), one at oneself or at the dead; with no target nothing is said.
     #[test]
@@ -13966,12 +14006,14 @@ mod door_tests {
         let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
         let own = 0x4bc80;
         let mut w = World { own, specials_told: Some(vec![142, 144, 148]), ..World::default() };
-        assert_eq!(w.special_refusal(148, Some(9)), None);
-        assert_eq!(w.special_refusal(148, None), Some(vec![]));
-        assert!(matches!(w.special_refusal(150, Some(9)), Some(l) if !l.is_empty()), "fling shot is not in the list");
-        assert!(matches!(w.special_refusal(148, Some(own)), Some(l) if !l.is_empty()));
+        w.objects.insert(own, [0.0; 3]);
+        w.objects.insert(9, [1.0, 0.0, 0.0]);
+        assert_eq!(w.special_refusal(148, Some(9), &clear), None);
+        assert_eq!(w.special_refusal(148, None, &clear), Some(vec![]));
+        assert!(matches!(w.special_refusal(150, Some(9), &clear), Some(l) if !l.is_empty()), "fling shot is not in the list");
+        assert!(matches!(w.special_refusal(148, Some(own), &clear), Some(l) if !l.is_empty()));
         w.dead.insert(9, (0, Instant::now()));
-        assert!(matches!(w.special_refusal(148, Some(9)), Some(l) if !l.is_empty()));
+        assert!(matches!(w.special_refusal(148, Some(9), &clear), Some(l) if !l.is_empty()));
         w.dead.clear();
         // (the user's log of 2026-11-15: `SpecialUsed`, stat 0x8c (140) for 0x3c seconds; then `SpecialAvailable`)
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000aa0000000000000000000000000000008c0000003c0000") }.frame(1));
@@ -13994,15 +14036,15 @@ mod door_tests {
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000fc00000000000000000000000000000000000000000000") }.frame(1));
         assert!(w.perk_locks.is_empty() && w.stats.get(&577) == Some(&0));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000aa000000000000000000000000000000940000001e0000") }.frame(1));
-        assert!(matches!(w.special_refusal(148, Some(9)), Some(l) if !l.is_empty()), "burst is locked");
-        assert_eq!(w.special_refusal(142, Some(9)), None);
+        assert!(matches!(w.special_refusal(148, Some(9), &clear), Some(l) if !l.is_empty()), "burst is locked");
+        assert_eq!(w.special_refusal(142, Some(9), &clear), None);
         let lines = w.game_lines.len();
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000a400000000000000000000000000000000000000940000") }.frame(1));
-        assert_eq!(w.special_refusal(148, Some(9)), None);
+        assert_eq!(w.special_refusal(148, Some(9), &clear), None);
         assert_eq!(w.game_lines.len(), lines + 1);
         // (Search: its own skill's lock, 0x88; Reload: only that it is in the list)
-        assert_eq!(w.special_refusal(crate::actions::SEARCH, None), None);
-        assert!(matches!(w.special_refusal(crate::actions::RELOAD, None), Some(l) if !l.is_empty()));
+        assert_eq!(w.special_refusal(crate::actions::SEARCH, None, &clear), None);
+        assert!(matches!(w.special_refusal(crate::actions::RELOAD, None, &clear), Some(l) if !l.is_empty()));
     }
 
     /// `SetPos` as the 16:55 capture has it for a creature (19 bytes): the place follows a lead byte; the client's own
@@ -14955,22 +14997,25 @@ mod movement_tests {
         let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
         let _ = ITEM_DB.set(db);
         let entry = |slot: u32, low_id: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id, high_id: low_id, quality: 1, extra: 0 };
+        let clear = super::door_tests::clear;
         let mut w = World { own: 7, specials_told: Some(vec![142, 144, 150]), ..World::default() };
-        assert_eq!((w.special_refusal(142, Some(9)), w.special_refusal(144, Some(9))), (None, None));
+        w.objects.insert(7, [0.0; 3]);
+        w.objects.insert(9, [1.0, 0.0, 0.0]);
+        assert_eq!((w.special_refusal(142, Some(9), &clear), w.special_refusal(144, Some(9), &clear)), (None, None));
         w.worn = vec![entry(6, 121567)];
-        assert!(matches!(w.special_refusal(142, Some(9)), Some(l) if !l.is_empty()) && matches!(w.special_refusal(144, Some(9)), Some(l) if !l.is_empty()));
-        assert_eq!(w.special_refusal(150, Some(9)), None);
+        assert!(matches!(w.special_refusal(142, Some(9), &clear), Some(l) if !l.is_empty()) && matches!(w.special_refusal(144, Some(9), &clear), Some(l) if !l.is_empty()));
+        assert_eq!(w.special_refusal(150, Some(9), &clear), None);
         w.worn.push(entry(8, 121969));
-        assert_eq!((w.special_refusal(142, Some(9)), w.special_refusal(144, Some(9))), (None, None));
+        assert_eq!((w.special_refusal(142, Some(9), &clear), w.special_refusal(144, Some(9), &clear)), (None, None));
         // (CMB-022: Brawl's own item, as the server lists it, reaches 3 m past the attacker's body: an object 6 m away
         // is out of reach, one 3.5 m away is not)
         w.worn.clear();
         w.special_items.insert(142, 0x11294);
         w.objects.insert(7, [0.0; 3]);
         w.objects.insert(9, [6.0, 0.0, 0.0]);
-        assert!(matches!(w.special_refusal(142, Some(9)), Some(l) if l.len() == 1));
+        assert!(matches!(w.special_refusal(142, Some(9), &clear), Some(l) if l.len() == 1));
         w.objects.insert(9, [3.5, 0.0, 0.0]);
-        assert_eq!(w.special_refusal(142, Some(9)), None);
+        assert_eq!(w.special_refusal(142, Some(9), &clear), None);
     }
 
     /// A door's sound is due when it opens and when it closes, at the door's place; a door without a sound of that

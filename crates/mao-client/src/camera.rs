@@ -70,6 +70,36 @@ pub trait Surface {
     fn align(&mut self, previous: [f32; 3], pos: [f32; 3]) -> [f32; 3];
 }
 
+/// `n3Playfield_t::LineOfSight` (N3.dll 0x1000d34c) over what the client knows of the playfield, for the camera and for
+/// Gamecode's FUN_10058e4f (a special attack's line of sight): `RoomCanSeeFromTo` (in a dungeon both points lie in rooms,
+/// the same one or two with an open door between; the rooms drawn are the character's and those behind its open doors),
+/// then the surface's `GetLineIntersection` from the one to the other and back. Where the playfield has no surfaces, the
+/// props' meshes and the ground sampled along the way stand in for them.
+#[allow(clippy::too_many_arguments)]
+pub fn playfield_line_of_sight(ground: Option<&crate::vehicle::Ground>, terrain: Option<&(std::sync::Arc<mao_formats::terrain::Terrain>, f32)>, collision: Option<&mao_formats::collision::Collision>, interior: Option<&crate::interior::Interior>, rooms_shown: &[bool], hint: Option<usize>, a: [f32; 3], b: [f32; 3]) -> bool {
+    if let Some(interior) = interior {
+        match (interior.room_at(a, hint), interior.room_at(b, hint)) {
+            (Some(x), Some(y)) if x == y => {}
+            (Some(x), Some(y)) if rooms_shown.get(x) == Some(&true) && rooms_shown.get(y) == Some(&true) => {}
+            _ => return false,
+        }
+    }
+    // (the surface's `GetLineIntersection` finds front faces: tried both ways)
+    if let Some(g) = ground {
+        return g.line(a, b).is_none() && g.line(b, a).is_none();
+    }
+    if collision.is_some_and(|c| c.line([a[0], a[2], a[1]], [b[0], b[2], b[1]])) {
+        return false;
+    }
+    let Some((terrain, offset)) = terrain else { return true };
+    let steps = ((a[0] - b[0]).hypot(a[2] - b[2]) / 0.5).ceil().clamp(1.0, 64.0) as usize;
+    (0..=steps).all(|i| {
+        let t = i as f32 / steps as f32;
+        let (x, y, z) = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
+        y >= terrain.height_at(x, z, terrain.height_scale) + offset + 0.3
+    })
+}
+
 /// A surface that is only a line-of-sight test (the tests): nothing to be near, nothing to be stopped by.
 pub struct Sight<F>(pub F);
 

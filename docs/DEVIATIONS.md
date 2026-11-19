@@ -42,17 +42,17 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| **high** | 54 | 47 | 7 | 0 | 0 | 0 | **0** |
+| **high** | 54 | 48 | 6 | 0 | 0 | 0 | **0** |
 | **medium** | 158 | 47 | 29 | 55 | 27 | 0 | **0** |
 | **low** | 725 | 117 | 20 | 532 | 56 | 0 | **0** |
-| **all** | 937 | 211 | 56 | 587 | 83 | 0 | **0** |
+| **all** | 937 | 212 | 55 | 587 | 83 | 0 | **0** |
 
 ### By area
 
 | Area | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Movement (`MOV`) | 33 | 10 | 1 | 18 | 4 | 0 | **0** |
-| Combat (`CMB`) | 38 | 9 | 5 | 23 | 1 | 0 | **0** |
+| Combat (`CMB`) | 38 | 10 | 4 | 23 | 1 | 0 | **0** |
 | Targeting and mouse (`TGT`) | 17 | 4 | 3 | 10 | 0 | 0 | **0** |
 | Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
 | NPCs and creatures (`NPC`) | 40 | 13 | 7 | 19 | 1 | 0 | **0** |
@@ -71,7 +71,6 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 ### High weight not finished
 
-- `CMB-022` Special attacks are not checked before sending (weapon bit, range, line of sight, queue) (MISSING) - part done
 - `NPC-006` Vehicle riders and other characters use plain/medium bodies only (SIMPLIFIED) - part done
 - `WIN-112` Several character action tiles do nothing (MISSING) - part done
 - `WIN-114` Window chrome: no "?" help button, docking, auto-fade, original titles or art (MISSING) - part done
@@ -249,7 +248,7 @@ The `high` entries that are not additions, by area. The full entries are below u
 **Combat**
 
 - [x] `CMB-015` Special-attack list built from worn weapons (GUESS) **(done)**
-- [ ] `CMB-022` Special attacks are not checked before sending (weapon bit, range, line of sight, queue) (MISSING) **(part done)**
+- [x] `CMB-022` Special attacks are not checked before sending (weapon bit, range, line of sight, queue) (MISSING) **(done)**
 
 **Targeting and mouse**
 
@@ -1076,7 +1075,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only not-in-list, skill lock, no target/self/dead/swimming are checked; the weapon bit, range, line of sight and the queue are left to the server
 - A player notices: Brawl and Dimach go out with any weapon; no client line for range, line of sight or queue
 - Where: `crates/mao-client/src/net.rs:3821`; `crates/mao-client/src/net.rs:3822`; `docs/CLIENT_UI.md:3823`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19): the line of sight is checked last, as 0x100281fc does: FUN_10058e4f from the attacker's place to the target's, each 1.6 up (0x10158454), through n3Playfield_t::LineOfSight (N3 0x1000d34c), the camera's port shared (camera::playfield_line_of_sight); blocked, or no place for the target, says Feedback_NoLineOfSight and sends nothing. Its skip (byte +0x21c on both, outdoors) never happens: no code sets that byte. With the weapon bit and range (2026-11-18) the entry's list is done; the queue was the reload's silent check. Found and left: the attacker's +0x21d (fear, spell 0xcf81, and spell 0xcff0: states 1 and 5 of FUN_10045b64) refuses silently; the state machine is not ported. Test a_special_needs_a_line_of_sight.
 - Done in part (2026-11-18): the range is checked as the original checks it: each weapon in a hand with the bit, then the special's own item as the server lists it (Brawl's 3 m, Dimach's 10 m), the reach its stat 287 with the stat 380 share, cut and at most 40, against the 3D distance less 1 m a body (`combat::special_reaches`). Left: the line of sight (two flags not established, the client's collision not the original's). The 'queue' was not found: that check (FUN_1002a027) is of something the reload sets and refuses silently.
 
 #### `CMB-023` Action tiles do not follow state; some tiles, CharacterAction 0xb2/0x14/0xfc, icon time text, special at attackable item undone

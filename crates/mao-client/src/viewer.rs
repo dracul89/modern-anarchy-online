@@ -807,29 +807,7 @@ struct CameraSurface<'a> {
 
 impl crate::camera::Surface for CameraSurface<'_> {
     fn line_of_sight(&mut self, a: [f32; 3], b: [f32; 3]) -> bool {
-        // (`RoomCanSeeFromTo`: in a dungeon both points lie in rooms, the same one or two with an open door between; the rooms
-        // drawn are the character's and those behind its open doors)
-        if let Some(interior) = &self.interior {
-            match (interior.room_at(a, self.hint), interior.room_at(b, self.hint)) {
-                (Some(x), Some(y)) if x == y => {}
-                (Some(x), Some(y)) if self.rooms_shown.get(x) == Some(&true) && self.rooms_shown.get(y) == Some(&true) => {}
-                _ => return false,
-            }
-        }
-        // (the surface's `GetLineIntersection` finds front faces: tried both ways)
-        if let Some(g) = &self.ground {
-            return g.line(a, b).is_none() && g.line(b, a).is_none();
-        }
-        if self.collision.as_ref().is_some_and(|c| c.line([a[0], a[2], a[1]], [b[0], b[2], b[1]])) {
-            return false;
-        }
-        let Some((terrain, offset)) = &self.terrain else { return true };
-        let steps = ((a[0] - b[0]).hypot(a[2] - b[2]) / 0.5).ceil().clamp(1.0, 64.0) as usize;
-        (0..=steps).all(|i| {
-            let t = i as f32 / steps as f32;
-            let (x, y, z) = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
-            y >= terrain.height_at(x, z, terrain.height_scale) + offset + 0.3
-        })
+        crate::camera::playfield_line_of_sight(self.ground.as_ref(), self.terrain.as_ref(), self.collision.as_deref(), self.interior.as_deref(), &self.rooms_shown, self.hint, a, b)
     }
 
     fn surface_distance(&mut self, p: [f32; 3]) -> Option<f32> {

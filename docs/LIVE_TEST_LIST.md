@@ -1117,3 +1117,6 @@ These were written before this list; some may have been seen working since witho
 - [ ] The launcher (2026-11-17): it opens with its picture in it, the page comes whole with no white or black
   flash, also after the settings were open over it; closing it shows no white. On the machine that reported the
   crash: what the box says, and that machine's `crash.log`.
+- [ ] A special's line of sight (CMB-022, 2026-11-19): a special attack (Brawl, Fast Attack ...) at a creature in plain
+  view goes out as before; at one standing behind a wall, a rock or round a corner of a building, the game's "no line of
+  sight" line shows and nothing is sent. Inside a dungeon, one in the next room behind a shut door is refused too.
