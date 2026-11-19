@@ -4132,7 +4132,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: before it is told, shows the highest member's level
 - A player notices: header level may differ briefly
 - Where: `crates/mao-client/src/team.rs:224`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): TeamViewModule_c::GetTeamLevel (GUI.dll 0x1007a5d3) returns its field +0xec, set by interface message 0x10; the header shows that, 0 before it is told. The client worked out the highest member's level until then; it now shows 0. Built and tested with the team tests.
 
 ### Chat and commands: a guard or fallback the original lacks (3)
 

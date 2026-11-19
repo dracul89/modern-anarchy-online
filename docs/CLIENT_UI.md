@@ -7145,3 +7145,7 @@ HandlePrivateMessage (GUI.dll 0x10087e59) shows a private message only when its 
 ### No team leader before the server names one (CHT-043)
 
 The team window colours the leader the server named (interface message 0x17, TeamViewModule_c +0xe0). The client used to colour the first member until then; now nobody is the leader before the server says who is.
+
+### Team level until the server tells it (CHT-044)
+
+The team window's header shows GetTeamLevel (GUI.dll 0x1007a5d3), the level interface message 0x10 last gave, 0 before. The client showed the highest member's level until then; it now shows 0, as the original.

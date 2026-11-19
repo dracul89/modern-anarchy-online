@@ -402,8 +402,8 @@ impl TeamWindow {
         let header = if team.members.is_empty() {
             crate::gui::xml::ldb_text("#10000:89435005")
         } else {
-            // (`GetTeamLevel`; before the server has told it, the highest member's)
-            let level = team.level.unwrap_or_else(|| team.members.iter().map(|m| m.level).max().unwrap_or(0));
+            // (`GetTeamLevel`: what interface message 0x10 last told, 0 before it)
+            let level = team.level.unwrap_or(0);
             crate::gui::xml::ldb_text("#10000:56702133").replacen("%u", &level.to_string(), 1).replacen("%s", "", 1)
         };
         set_text(tree, root, "header", &header);
@@ -506,7 +506,7 @@ mod tests {
         t.member(6);
         assert!(set_level(&mut t, 4).is_some_and(|l| l.contains('4')));
         assert_eq!(t.level, Some(4));
-        assert!(is_leader(&t, 0) && !is_leader(&t, 1));
+        assert!(!is_leader(&t, 0) && !is_leader(&t, 1));
         t.leader = Some(6);
         assert!(!is_leader(&t, 0) && is_leader(&t, 1));
     }
