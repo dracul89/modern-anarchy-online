@@ -1182,6 +1182,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Open a menu longer than the screen (a long chat channel or friends list menu at a small window size): a scroll bar shows at its right; the arrows, the track and the knob scroll it, and pressing the bar does not choose the highlighted entry.
 - [ ] Select a row in a list view (nano programs in list mode, the friends list): the row is solid light blue (0x88aadd) behind its text, as in the original.
 - [ ] Narrow a window with many tabs (chat with several tabs, a dock area with four views): short tabs keep their width, long ones shrink, and at the narrowest each tab shows at least its first letter.
+- [ ] With a pet out, press the pet window's frame icon: a menu with Show buttons, Fixed Pet Buttons and Remember Pet Names, each ticked as set; choosing one toggles it.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

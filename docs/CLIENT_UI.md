@@ -7826,3 +7826,7 @@ The original fills a selected list row with a colour-only surface of 0x88aadd (F
 ### Crowded tab strips shared out as the original (WIN-071)
 
 The original's tab strip (`TopBorderView_c`, FUN_10147438) gives each tab a least width (its label's first letter, FUN_101463a4) and its own (the whole label), and shares the strip between them with `View::SpaceOut` (0x1014a44a): each its least plus an equal share of what is over, a tab reaching its own width held there and the rest shared again, the remainder going to those still under; widths are rounded and kept between least and own. The client scaled all tabs by the same factor; it now shares the room as the original, so short labels keep their width while long ones give way, and no tab goes below one letter's width.
+
+### The pet window's options on its frame's menu (NPC-004)
+
+The original's pet window (`PetWindow_c`, FUN_1007e9d7) puts its options on the frame's icon menu, built each time it opens (FUN_1007e75e): "Show buttons", "Fixed Pet Buttons" and "Remember Pet Names", each ticked as it stands. The client had its own menu button with check boxes inside the window; the options are now on the frame's icon menu as in the original, followed by "Close Window".

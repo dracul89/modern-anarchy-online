@@ -1613,7 +1613,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a menu button with two check boxes kept in mao.ini; fixed order sorts by NPCFamily (stat 455) as a stand-in
 - A player notices: pet window menu looks different; fixed rows can differ
 - Where: `crates/mao-client/src/pets.rs:191`; `docs/GUI_DLL_PARITY.md:94`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The fixed rows by PetType were already ported (PetTypeToLocation 0x1007ed93, 2026-11-18). The menu: PetWindow_c's constructor (FUN_1007e9d7) connects FUN_1007e75e to the window's icon menu (Window::GetIconMenu), which builds it each time it opens: three boolean entries, "Show buttons" checked from the window's ShowButtons (+0x78, kept in PetWindowConfig), "Fixed Pet Buttons" from EnableFixedPetButtons and "Remember Pet Names" from AutoPetRenaming. The client's own "≡" menu button with three egui check boxes inside the window is replaced by that menu on the frame's icon (chrome::frame_menu, a popup with the three marked entries), with the frame's "Close Window" after them as on the client's other windows that have a menu of their own (inventory, wear, inspect). Not checked: whether the original's icon menu also keeps its own default entries beside these (Window::GetIconMenu's defaults were not read). No unit test (a menu); pets tests pass.
 - Looked at, left (2026-11-19, overnight): The fixed buttons' order already follows PetType (stat 512) through PetTypeToLocation (0x1007ed93) since 2026-11-18 (pets.rs place); what remains is the menu: the original's PetView_c icon menu (FUN_1007e75e, "Show buttons" and "Fixed Pet Buttons") against the client's menu button with two check boxes; that window shape was not ported tonight.
 
 ### NPCs and creatures: an approximation or a stand-in (9)

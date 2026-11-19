@@ -289,11 +289,13 @@ pub struct PetWindow {
     textures: std::collections::HashMap<u32, egui::TextureHandle>,
     /// The page of a program clicked (`itemid://`), for the info window.
     pub info_url: Option<String>,
+    /// The frame's icon menu while it is up.
+    popup: Option<crate::gui::popup::PopupMenu>,
 }
 
 impl Default for PetWindow {
     fn default() -> PetWindow {
-        PetWindow { open: false, show_buttons: true, views: None, lists: Vec::new(), textures: Default::default(), info_url: None }
+        PetWindow { open: false, show_buttons: true, views: None, lists: Vec::new(), textures: Default::default(), info_url: None, popup: None }
     }
 }
 
@@ -404,18 +406,22 @@ impl PetWindow {
         let skin = crate::skin::skin(ctx);
         let mut open = self.open;
         let title = text("PetWindow");
-        let (show_buttons, fixed_buttons, remember_names) = (&mut self.show_buttons, &mut *fixed, &mut *remember);
         crate::chrome::window(ctx, palette, "PetWindow", &title, &mut open, |w| w.default_pos(crate::layout::pos("PetWindow", ctx.content_rect().center() - egui::vec2(200.0, 100.0))).default_size(egui::vec2(400.0, 200.0)), |ui| {
-            // (the window's icon menu: its entries are the two options the original keeps as booleans)
-            ui.horizontal(|ui| {
-                ui.menu_button("\u{2261}", |ui| {
-                    ui.checkbox(show_buttons, "Show buttons");
-                    ui.checkbox(fixed_buttons, "Fixed Pet Buttons");
-                    ui.checkbox(remember_names, "Remember Pet Names");
-                });
-            });
             crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
         });
+        // (the frame's icon menu, made each time it opens (FUN_1007e9d7 hands FUN_1007e75e to `GetIconMenu`): three
+        // ticked entries for `ShowButtons`, `EnableFixedPetButtons` and `AutoPetRenaming`; the frame's "Close Window" after
+        // them as on the client's other windows with a menu of their own)
+        if let Some(at) = crate::chrome::frame_menu("PetWindow") {
+            self.popup = Some(crate::chrome::menu_marked(ctx, at, &[("Show buttons".to_string(), true, Some(self.show_buttons)), ("Fixed Pet Buttons".to_string(), true, Some(*fixed)), ("Remember Pet Names".to_string(), true, Some(*remember)), (crate::chrome::close_entry(), true, None)]));
+        }
+        match crate::chrome::menu(ctx, palette, "pet-window-menu", &mut self.popup) {
+            Some(0) => self.show_buttons = !self.show_buttons,
+            Some(1) => *fixed = !*fixed,
+            Some(2) => *remember = !*remember,
+            Some(3) => crate::chrome::close_next("PetWindow"),
+            _ => {}
+        }
         // (a program's icon clicked: its page)
         for (_, event) in crate::gui::multilist::take_events(tree) {
             if let crate::gui::multilist::ItemEvent::Clicked(id, _) = event {
