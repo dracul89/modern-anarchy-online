@@ -196,6 +196,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### Interface
 
+- The Pick-Up and Crawl action tiles work: Pick-Up asks for the selected item (or says the inventory is full), and Crawl starts and stops crawling, its tile showing the other half meanwhile.
 - Shift+Enter also opens the chat input and the numeric pad's / also starts a chat command, as in the original (new settings files; an existing mao.ini keeps its keys).
 - Bold and italic interface texts (the BOLD, HUGE, CC17 and ITALIC fonts of the skins) are drawn bold and italic, as in the original.
 - A character's info page names the profession title and the defender rank instead of showing their numbers.

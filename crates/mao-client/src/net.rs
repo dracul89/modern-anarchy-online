@@ -346,6 +346,10 @@ struct World {
     /// client's own reading where no list came, a running program or a worn item has the spell
     /// (`mao_formats::item::grants_flight`).
     own_flying: bool,
+    /// One's own character crawls: its `WaitState` (stat 430) is 0xe, which `SwitchToCrawlMode` (the movement 0x1b,
+    /// FUN_1006eb8f) sets and `LeaveCrawlMode` (0x28, FUN_1006eb2c) sets back to 0. Kept from the movements the client
+    /// sends: the Crawl tile's, and getting up (`stand_up`).
+    own_crawling: bool,
     /// The playfield does not allow flying (`playfield_forbids_flying`), which a flight item's requirements ask.
     no_flying: bool,
     /// The part of `own_flying` that comes from the running programs (the others are a worn item's and the server's
@@ -4786,6 +4790,9 @@ impl World {
         self.seated.remove(&id);
         self.resting.remove(&id);
         self.grounded.remove(&id);
+        if id == self.own {
+            self.own_crawling = false;
+        }
     }
 
     /// An item the server moved out of a container to the character with no place named (0x6f), as Gamecode's
@@ -9643,10 +9650,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // both `N3Msg_SitToggle` (X); Walk and Run the pace's switch; Suspended Animation
                 // `N3Msg_StartCamping` (`/camp`), and with a camp under way its other side, Disrupt,
                 // `N3Msg_StopCamping`: `CharacterAction` 0x79 and nothing else, the server's 0x7a ends the bar and
-                // says the line. The tiles do not yet change their picture with the state. Until 2026-11-18 Use,
-                // Walk and Suspended Animation said "not captured", Stand only stood a sleeper up and Start Combat
-                // could not stop a fight. Pick-Up (`ClientGetItem`, in no capture) and Crawl (no crawling is kept
-                // here) still say so.)
+                // says the line. Until 2026-11-18 Use, Walk and Suspended Animation said "not captured", Stand only
+                // stood a sleeper up and Start Combat could not stop a fight; Pick-Up and Crawl did until 2026-11-19.)
                 let camping = crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).is_some();
                 let keyed = !grounded_only
                     && match number {
@@ -9678,6 +9683,31 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     };
                 match name {
                     _ if numbered.is_some() || grounded_only || keyed => {}
+                    // (Pick-Up, `N3Msg_GetItem` 0x10027d76 on the selection: with no free place in the inventory from 0x40
+                    // on `Feedback_InventoryFull` and nothing sent; else `ClientGetItemIIR_t` with the selection, also an
+                    // empty one, as there. Not ported: an item's own answer first, `SimpleItem_t`'s +0xc4 (FUN_10088a73:
+                    // can't carry, unique item already had, a fixture of another's building) and its byte +0x130, and the
+                    // pick-up's animation, FUN_100823be)
+                    _ if number == Some(1) => {
+                        let room = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS).any(|s| !state.worn.iter().any(|e| e.slot == s));
+                        if room {
+                            let selection = target.map_or((0, 0), |t| (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t));
+                            let _ = connection.send(&n3::client_get_item(own, selection));
+                        } else {
+                            told(crate::feedback::plain("Feedback_InventoryFull"), &mut state.game_lines);
+                        }
+                    }
+                    // (Crawl and its pair, `N3Msg_CrawlToggle` 0x10027a45: nothing while swimming (the movement's mode 4);
+                    // crawling (`WaitState` 0xe) it leaves the crawl, the movement 0x28; a polymorphed character (stat 359,
+                    // `MonsterData`) is told `Feedback_YouCantBePolymorphed`; else it starts to crawl, 0x1b)
+                    _ if matches!(number, Some(0x14 | 0x8d)) => match crate::actions::crawl_toggle(state.swimming.contains(&own), state.own_crawling, state.stats.get(&359).copied().unwrap_or(0)) {
+                        crate::actions::Crawl::Nothing => {}
+                        crate::actions::Crawl::Polymorphed => told(crate::feedback::plain("Feedback_YouCantBePolymorphed"), &mut state.game_lines),
+                        crate::actions::Crawl::Movement(kind) => {
+                            send(&mut connection, kind, heading, position, &mut sent);
+                            state.own_crawling = kind == crate::actions::START_CRAWL;
+                        }
+                    },
                     // (either half of the pair: the tile shows Stop Sneaking while sneaking)
                     _ if matches!(number, Some(0x13 | 0x4f)) => {
                         // (`N3Msg_TryEnterSneakMode`, 0x10029581: not in a vehicle; one who sneaks already leaves it, the
@@ -10293,7 +10323,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 walking: state.own_walking,
                 sneaking: state.sneaking.contains(&own),
                 camping: crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).is_some(),
-                crawling: false,
+                crawling: state.own_crawling,
             });
             heading += keys.turn as f32 * turn_rate(&state.stats, walk != 0 || keys.strafe != 0) * dt;
             // (fighting, the character turns to its target while it stands: `Facing`; any steering counts as moving)

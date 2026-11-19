@@ -42,10 +42,10 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| **high** | 54 | 48 | 6 | 0 | 0 | 0 | **0** |
+| **high** | 54 | 49 | 5 | 0 | 0 | 0 | **0** |
 | **medium** | 158 | 47 | 29 | 55 | 27 | 0 | **0** |
 | **low** | 725 | 117 | 20 | 532 | 56 | 0 | **0** |
-| **all** | 937 | 212 | 55 | 587 | 83 | 0 | **0** |
+| **all** | 937 | 213 | 54 | 587 | 83 | 0 | **0** |
 
 ### By area
 
@@ -60,7 +60,7 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | Nano programs (`NAN`) | 60 | 8 | 3 | 46 | 3 | 0 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 5 | 0 | 19 | 4 | 0 | **0** |
 | Chat and commands (`CHT`) | 80 | 20 | 1 | 53 | 6 | 0 | **0** |
-| Windows and interface (`WIN`) | 180 | 42 | 13 | 102 | 23 | 0 | **0** |
+| Windows and interface (`WIN`) | 180 | 43 | 12 | 102 | 23 | 0 | **0** |
 | Camera (`CAM`) | 13 | 5 | 0 | 8 | 0 | 0 | **0** |
 | Rendering and world (`RND`) | 194 | 24 | 4 | 158 | 8 | 0 | **0** |
 | Sound and music (`SND`) | 17 | 3 | 0 | 14 | 0 | 0 | **0** |
@@ -72,7 +72,6 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 ### High weight not finished
 
 - `NPC-006` Vehicle riders and other characters use plain/medium bodies only (SIMPLIFIED) - part done
-- `WIN-112` Several character action tiles do nothing (MISSING) - part done
 - `WIN-114` Window chrome: no "?" help button, docking, auto-fade, original titles or art (MISSING) - part done
 - `RND-137` Statels of generated buildings and rendering effects get no effects (MISSING) - part done
 - `LCH-035` No account activation window and no limbo window (MISSING) - part done
@@ -301,7 +300,7 @@ The `high` entries that are not additions, by area. The full entries are below u
 - [x] `WIN-109` Bag, bank, inventory and wear windows have no List Mode, Auto Arrange, Labels On Top or Unlock All menus (MISSING) **(done)**
 - [x] `WIN-110` City controller window: no land-buying dialog, no item lock or pointer tip, no Escape option (MISSING) **(done)**
 - [x] `WIN-111` Popup menus lack icons, sub-menus, sliders, separators, type-to-search (MISSING) **(done)**
-- [ ] `WIN-112` Several character action tiles do nothing (MISSING) **(part done)**
+- [x] `WIN-112` Several character action tiles do nothing (MISSING) **(done)**
 - [x] `WIN-113` Toggling character actions always show the same tile (MISSING) **(done)**
 - [ ] `WIN-114` Window chrome: no "?" help button, docking, auto-fade, original titles or art (MISSING) **(part done)**
 
@@ -1087,6 +1086,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tiles do not change with state; some tiles do nothing
 - Where: `docs/CLIENT_UI.md:3823`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19): Pick-Up and Crawl act (see WIN-112). Left: the icon's time text and a special attack at an attackable item.
 - Done in part (2026-11-19, overnight): Most of this list was done before tonight (by WIN-113 and the 2026-11-18 batch): the six pair tiles show what a click does next (actions.rs shown_template, FUN_1004300e, test actions::a_pairs_tile_shows_what_a_click_does_next); Use, Walk/Run and Suspended Animation/Disrupt tiles act (net.rs action-tile match); CharacterAction 0x14 (lock lengthened), 0xb2 (no per-action flag kept, comment only) and 0xfc (all perk locks off, stat 577 to 0) are in the 0xaa family arm of net.rs. Left: Pick-Up (ClientGetItem is in no capture), Crawl (the client keeps no crawling mode), the icon's time text and a special attack at an attackable item (the message's target layout for an item is in no capture).
 
 #### `CMB-024` Action places not kept, toggles keep one name, profession action missing
@@ -5730,7 +5730,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: these tiles fall to "its network message is not captured yet"; Stand only sends STAND
 - A player notices: clicking those tiles shows a not-captured line and does nothing
 - Where: `crates/mao-client/src/net.rs:8214`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19): Pick-Up and Crawl act now. Pick-Up is N3Msg_GetItem (0x10027d76): no free inventory place from 0x40 says Feedback_InventoryFull, else ClientGetItemIIR_t (0x37136c6b; writer FUN_100152a5 puts the target identity only; in no capture, lead byte as the drop's) with the selection. Crawl is N3Msg_CrawlToggle (0x10027a45): nothing swimming, 0x28 while crawling (WaitState 0xe), Feedback_YouCantBePolymorphed with stat 359, else 0x1b; the own crawl kept from the movements sent. Not ported: the item's own refusals (SimpleItem_t +0xc4, FUN_10088a73) and the pick-up and crawl animations. Tests the_crawl_tile_toggles_the_crawl, a_pick_up_names_its_target.
 - Done in part (2026-11-18, overnight): Use, Start/End Combat, Sit/Stand, Walk/Run and Suspended Animation / Disrupt do what their keys do (the functions FUN_100427d6 calls for them); Pick-Up (ClientGetItem, in no capture) and Crawl (no crawling kept) still say they are not known.
 
 #### `WIN-113` Toggling character actions always show the same tile

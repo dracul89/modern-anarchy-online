@@ -1169,6 +1169,21 @@ pub fn drop_template(character: u32, item: (u32, u32), position: [f32; 3]) -> Fr
     Message { kind: DROP_TEMPLATE, identity: (CHARACTER, character), data }.frame(character)
 }
 
+/// `ClientGetItemIIR_t`'s number: its class name through `MapToKey`.
+pub const CLIENT_GET_ITEM: u32 = 0x37136c6b;
+
+/// `ClientGetItemIIR_t`: the Pick-Up action on the selection (`N3Msg_GetItem`, Gamecode 0x10027d76, which builds it with
+/// FUN_100152c1 and sends it to the character's observers). Its writer, FUN_100152a5 (the class's vtable +0x20), puts
+/// the target's identity and nothing else. **No capture has one**: the zero byte before it is what every other message
+/// of the kind has there, as for [`drop_template`].
+pub fn client_get_item(character: u32, target: (u32, u32)) -> Frame {
+    let mut data = vec![0u8];
+    for word in [target.0, target.1] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    Message { kind: CLIENT_GET_ITEM, identity: (CHARACTER, character), data }.frame(character)
+}
+
 /// `Mail` (`333b2867`) asking a mail terminal for the inbox: action 1 and eight zero bytes (as the
 /// original sends it, after using the terminal). The answer is a `Mail` with action 0 and a list
 /// (empty in the capture: `00 00 00 | 00 00 03 f1`).
@@ -1638,6 +1653,16 @@ mod tests {
         let m = Message::parse(&drop_template(0x4bc80, (0x68, 0x41), [1.0, 2.0, -3.5])).unwrap();
         let hex: String = m.data.iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!((m.kind, hex.as_str()), (DROP_TEMPLATE, "0000000068000000413f80000040000000c0600000"));
+    }
+
+    /// The pick-up's message by the decompile: its number is its class name's key, its one field the target.
+    #[test]
+    fn a_pick_up_names_its_target() {
+        let key = "ClientGetItemIIR_t".bytes().enumerate().fold(0u32, |key, (i, b)| key ^ ((b as i8 as i32 as u32) << (8 * (i & 3))));
+        assert_eq!(key, CLIENT_GET_ITEM);
+        let m = Message::parse(&client_get_item(0x4bc80, (0xc79c, 0x41))).unwrap();
+        let hex: String = m.data.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!((m.kind, m.identity, hex.as_str()), (CLIENT_GET_ITEM, (CHARACTER, 0x4bc80), "000000c79c00000041"));
     }
 
     #[test]

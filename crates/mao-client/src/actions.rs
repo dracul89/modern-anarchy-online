@@ -95,6 +95,34 @@ pub fn fly_refuses(number: u32) -> bool {
     matches!(number, 0x4d | 0x4c | 0x11 | 0x12 | 0x13 | 0x4f | 0x14 | 0x8d)
 }
 
+/// The movement that starts a crawl (`SwitchToCrawlMode`, FUN_1006eb8f: `WaitState` 0xe).
+pub const START_CRAWL: u8 = 0x1b;
+/// The movement that ends one (`LeaveCrawlMode`, FUN_1006eb2c: `WaitState` 0).
+pub const LEAVE_CRAWL: u8 = 0x28;
+
+/// What the Crawl tile does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Crawl {
+    Nothing,
+    Polymorphed,
+    Movement(u8),
+}
+
+/// `N3Msg_CrawlToggle` (Gamecode 0x10027a45): nothing while swimming (the movement's mode 4); crawling (`WaitState`, stat
+/// 430, is 0xe) it leaves the crawl; a polymorphed character (stat 359, `MonsterData`, not 0) is told
+/// `Feedback_YouCantBePolymorphed`; else it starts to crawl.
+pub fn crawl_toggle(swimming: bool, crawling: bool, monster_data: i64) -> Crawl {
+    if swimming {
+        Crawl::Nothing
+    } else if crawling {
+        Crawl::Movement(LEAVE_CRAWL)
+    } else if monster_data != 0 {
+        Crawl::Polymorphed
+    } else {
+        Crawl::Movement(START_CRAWL)
+    }
+}
+
 /// The action's item template for a number, and the number for a template.
 pub fn template_of(number: u32) -> Option<u32> {
     TEMPLATES.iter().find(|t| t.0 == number).map(|t| t.1)
@@ -593,6 +621,18 @@ mod tests {
         assert_eq!(fresh, [0xc1a3, 0xc1aa, 0xc1a5, 0xc1a8, 0xc1a2, 0xc1a7, 0x14124, 0x39c7d, 0x1d9d7]);
         let all = listed_templates(&[0x14125, 0x14122, 0x14123, 0x14123, 0x3bd0b], &[0x374d7], Toggles::default());
         assert_eq!(all[9..], [0x14125, 0x14122, 0x14123, 0x3bd0b, 0x374d7]);
+    }
+
+    /// WIN-112: the Crawl tile starts and leaves a crawl as `N3Msg_CrawlToggle` does, and the tile then shows the other half.
+    #[test]
+    fn the_crawl_tile_toggles_the_crawl() {
+        assert_eq!(crawl_toggle(false, false, 0), Crawl::Movement(START_CRAWL));
+        assert_eq!(crawl_toggle(false, true, 0), Crawl::Movement(LEAVE_CRAWL));
+        assert_eq!(crawl_toggle(false, false, 5), Crawl::Polymorphed);
+        assert_eq!(crawl_toggle(false, true, 5), Crawl::Movement(LEAVE_CRAWL), "a crawler leaves the crawl whatever its body");
+        assert_eq!(crawl_toggle(true, true, 0), Crawl::Nothing);
+        let t = Toggles { crawling: true, ..Toggles::default() };
+        assert_eq!((shown_number(0x14, Toggles::default()), shown_number(0x14, t)), (0x14, 0x8d));
     }
 
     /// WIN-113: a pair's tile shows what a click does next (FUN_1004300e).

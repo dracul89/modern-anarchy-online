@@ -5163,9 +5163,21 @@ Test: `an_item_between_two_templates` (`MAO_GAME`).
   and with a camp under way the Suspended Animation tile is its other side. Before, Use, Walk and Suspended
   Animation said "its network message is not captured yet", Stand only stood a sleeper up, and Start Combat could
   start a fight but not stop one.
-  Still saying so: Pick-Up (`N3Msg_GetItem` sends `ClientGetItem`, which no capture has) and Crawl (the client
-  keeps no crawling). Not done: the tiles changing their picture and name with the state (WIN-113: read in full,
-  FUN_1004300e and its callers; it touches the window, the hotbar and the HUD's update).
+  Pick-Up and Crawl followed on 2026-11-19 (below); the tiles' pictures follow the state since WIN-113.
+- **Pick-Up** (2026-11-19): `N3Msg_GetItem` (Gamecode 0x10027d76) on the selection. With no free place in the
+  inventory from 0x40 on it says `Feedback_InventoryFull` and sends nothing; else it sends `ClientGetItemIIR_t`
+  (`n3::client_get_item`, number 0x37136c6b, the class name's `MapToKey`), whose writer (FUN_100152a5, the class's
+  vtable +0x20) puts only the target's identity. The selection goes as it is, also an empty one. No capture has the
+  message: the zero byte before the identity is taken from the other messages of its kind, as for the drop. Not
+  ported: the item's own answer first (`SimpleItem_t`'s vtable +0xc4, FUN_10088a73: `Feedback_CantCarryThat`
+  when its "can" flags lack carrying, `Feedback_AlreadyGotUniqueItem`, `Feedback_CantTakeFixtureFromBuilding` in
+  another's building, and a byte at +0x130 that stops it silently), and the pick-up animation (FUN_100823be).
+- **Crawl** (2026-11-19): `N3Msg_CrawlToggle` (0x10027a45): nothing while swimming (the movement's mode 4); while
+  crawling (`WaitState`, stat 430, is 0xe) the movement 0x28, `LeaveCrawlMode`; a polymorphed character (stat 359
+  not 0) gets `Feedback_YouCantBePolymorphed`; else the movement 0x1b, `SwitchToCrawlMode` (FUN_1006eb8f sets the
+  `WaitState` 0xe, FUN_1006eb2c back to 0). The client keeps the own crawl from the movements it sends and drops it
+  when the character gets up (`World::own_crawling`); the Crawl tile shows its other half meanwhile. The crawling
+  body's animation and pace are not drawn here. Test: `the_crawl_tile_toggles_the_crawl`, `a_pick_up_names_its_target`.
 - **A special's weapon** (`N3Msg_SecondarySpecialAttack` 0x100281fc, after the lock's wait line): with a weapon in a
   hand, one of the held weapons has to have the special's bit among its "can" flags (FUN_1009aced: Brawl
   0x2000000, Dimach 0x4000000 beside the weapons' own), else `Feedback_SpecialAttackIsUnavailable` and nothing is
