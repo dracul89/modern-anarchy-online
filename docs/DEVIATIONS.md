@@ -6651,6 +6651,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tree crowns stay dense at a distance; edges may differ
 - Where: `crates/mao-render/src/lib.rs:239`; `docs/CLIENT_UI.md:686`; `docs/CLIENT_UI.md:3723`; `docs/ORIGINAL_AUDIT.md:22`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the original draws plants by their materials' states with the alpha test off (randy31 state 15 = 0) and blends; why its distant crowns do not thin was not found in the program (most likely the D3D7 driver's mip chain for alpha, outside the code). Switching the client to blending brought the veil back before; choosing needs a side-by-side look at a distant tree in both clients, which cannot be done without running them.
 - Looked at, left (2026-11-19, overnight): The original draws plants by their materials' states with no alpha test (randy31 render state 15 = 0) and blends; the reason its crowns do not thin to a veil with distance (most likely how its D3D7 mip chain treats alpha, not a rule in the program) was not found. Switching the client to blending brought the veil back before, and the cut-out at half alpha is a stand-in for an unfound cause; deciding needs a side-by-side look at a distant tree. Left.
 
 #### `RND-003` Rain, fallout and sand dust are the client's own particles
@@ -6671,6 +6672,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: spell flight and hit durations are the client's
 - Where: `crates/mao-client/src/effects.rs:2919`; `crates/mao-client/src/effects.rs:2931`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read further than the overnight reader: the original has no flight time and no landing time at all. The tracer (stat 419) is started by the casting character's animation event 0x42 during cast state 5 (FUN_100452d3 -> FUN_1004f989: NewHitLocation 0x7d1 -> 0x3ee, CreateEffect2), and flies by its own control (one per tracer kind, CreateGfxControlTracer 0x100d176c). The hit effects (stats 0x19e and 0x169 HitEffectType) are started on the target by the casting state machine FUN_1007b1e3 state 1 once the cast animation has run out (FUN_1003c6e7) and the spell succeeded (+0x28 == 1), not when the tracer arrives; each hit then lasts as its own controls say. Porting it means driving the shot from the caster's animation events and the cast state (the client's shots come from a message with no animation clock), plus each tracer control's run; that is the casting-state port, well over the time box for this entry.
 - Looked at, left (2026-11-19, overnight): The flight time is not one number in the original: _EffectHandler_t::CreateGfxControlTracer (Gamecode 0x100d176c) builds a different control for each tracer kind (0x3f5 FUN_100fe22f, 0x3fb FUN_100fec4e, 0x3fd FUN_100ff48e, 0x3fe FUN_100ff933, 0x400 FUN_10100268, 0x401 FUN_10100b0d, 0x402 FUN_101018ef, 0x403 FUN_101021eb, 0xbd2 FUN_10114e83), each with its own travel words, and the hit effect is started by the spell's own message timing; replacing the client's FLIGHT/LANDING means porting each tracer control's run and the hit's start, a set of effect ports (several catalogued on their own: RND-092, RND-110) well over the time box. Left.
 
 #### `RND-005` Statels farther than 50 radii not drawn
@@ -7155,6 +7157,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: birth rhythm differs with frame rate
 - Where: `crates/mao-client/src/effects.rs:2269`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the client's global smoke (effects.rs `global_smoke_particles`) is a pure function of the time since the effect began, like every visual in effects.rs; the original (FUN_100dfc38) births `word 30 + (rand() & word 31)` sprites into free slots once per drawn frame, so its rhythm follows the real frame times. Porting it means giving this one visual kind persistent per-effect state fed each frame's time (no visual in effects.rs has any), and the difference can only be judged by eye.
 - Looked at, left (2026-11-19, overnight): The original's global smoke births run once per drawn frame, so their rhythm follows the frame rate; reproducing it needs per-effect state fed the real frame time, and the result is only seen. Left.
 
 #### `RND-053` Helmet face takes the head's whole material
@@ -7317,6 +7320,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the old room lingers briefly
 - Where: `crates/mao-client/src/interior.rs:12`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read further in N3 (scratchpad n3.c): `n3RoomMonitor_t` is an `n3CellMonitor_t` whose neighbour level is 2 (GetNeighborLevel 0x10003245). It shows a room on `OnCellChanged` (EnableRoom 0x10013611) and `DoorOpened` (0x10013561), hides it on `OnCellLost` (DisableRoom 0x10013702 via 0x100137a5) and two seconds after `DoorClosed` (Run 0x100135ab, _DAT_1003c968). `OnCellFound` only builds the VisualRoom hidden. So a room the character left stays drawn until the door to it closes (+2 s) or the locality loses it; when cells are found and lost by the neighbour level is decided by the locality source (`LocalitySource_t`, exported by Vehicle.dll / PathFinder.dll, not decompiled here), and which room DoorClosed is handed depends on the Gamecode callers. Without that rule, dropping the client's two-second linger would make rooms blink; left.
 - Looked at, left (2026-11-19, overnight): The original hides a room when its locality monitor loses it; the monitor's rules (which rooms it keeps, from where) were not read tonight, and the client's two seconds stand in for them to hide the gap while the next room's locality comes in. Removing the linger without the monitor's rule would make rooms blink. Left.
 
 #### `RND-069` Room shell corner heights from a smoothing rule
@@ -7439,6 +7443,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: spark timing and wind drift slightly different
 - Where: `crates/mao-client/src/effects.rs:118`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: FUN_100f24c8 lets a frame make sparks only when `rand() & word 24` is 0 and adds the push of word 38 to each spark once per drawn frame (`GfxVisualSprite2Type0::ProcessSprites`), so both follow the real frame times; the client's sparks (effects.rs) are a pure function of the effect's age, as every visual there is. Following the original needs per-effect state fed each frame's time and its rand() calls, a change to how effects.rs runs, and the difference is seen only.
 - Looked at, left (2026-11-19, overnight): FUN_100f24c8's frame gate and the per-frame push both follow the drawn frames; the client models them at fixed steps. Per-effect state fed the frame time would be needed; seen only. Left.
 
 #### `RND-081` Spiral (coil) strips drawn as sprites, texture repeat and scroll not done
@@ -7469,6 +7474,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: stars follow the moving body instead of staying where born; off-body shape differs
 - Where: `crates/mao-client/src/effects.rs:278`; `crates/mao-client/src/effects.rs:1984`; `docs/ORIGINAL_AUDIT.md:266`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: FUN_100f740b's vertex callback keeps 30 skinned vertices and normals and each star keeps the place it was born at, while the client samples the body's current pose each frame. Keeping birth places means remembering each star's place across frames (or the body's pose at each birth time), which the stateless effects.rs has no room for; the off-body ring stands in where the client has no posed body. Seen only.
 - Looked at, left (2026-11-19, overnight): FUN_100f740b keeps 30 skinned vertices and normals and each star keeps its birth place; the client samples the blob caster's posed points each frame. Keeping birth places needs per-star state across frames; seen only. Left.
 
 #### `RND-084` Stars mode 2 keeps each star's colour mix instead of re-rolling every frame
@@ -7509,6 +7515,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: star birth rhythm differs at other frame rates
 - Where: `crates/mao-client/src/effects.rs:319`; `crates/mao-client/src/effects.rs:511`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the original reborns free slots of its 128 and runs each star's damped spring once per drawn frame; the client runs the same law at a fixed 30 frames a second in closed form. Matching the original's dependence on the frame rate needs per-effect state fed the real frame times (the same structural change as RND-052/080/083); seen only.
 - Looked at, left (2026-11-19, overnight): The original's births and spring run once per drawn frame; the client's fixed 30 fps simulation is the same law at a set rate. Per-effect state fed the frame time would follow the original's dependence on the frame rate; seen only. Left.
 
 #### `RND-088` Statel level of detail decided every frame, radius from world box
@@ -7538,7 +7545,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: without them a thing stands in its first pose
 - A player notices: none stated
 - Where: `crates/mao-client/src/net.rs:5451`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already as the original, by reading the dynel's visual start: a thing's `VisualMesh_t` keeps its animation time at +0x1c, zeroed by its constructor (DisplaySystem drop-in visualmesh.rs `new`), and only `SetAnimationTime` / `AddAnimationTime` move it (pushed to the frame); nothing in DisplaySystem advances it on a clock for dynels (the statels' LODManager is a separate path). Gamecode moves it only in FUN_10088970 (each frame, AnimPlay stat 501 = 2/3/4/5) and FUN_100877ec (AnimPos stat 500: 1 the start, 2 the end; called from FUN_1008563d, FUN_10085684, FUN_10085de7, FUN_100a573b). So a thing with neither stands in its first pose in the original too, which is what net.rs `prop_anim_time` returns (None) and how 2640's template fallback reads the stats. No change needed; the catalog entry can be closed. (Not this entry: with AnimPlay 2/4 the original's time runs from the thing's creation, the client's from a global clock, so the phase differs.)
 - Looked at, left (2026-11-19, overnight): The original plays a thing's model when an AnimPlay/AnimPos is told to it; what its VisualMesh shows before any such message (its first frame, or its own animation on the clock as LODManager does for statel meshes) was not found for dynels. Needs the dynel visual's start read. Left.
 
 #### `RND-091` Toggle effect: playfield test replaced by flag 0x800
@@ -8680,7 +8688,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: fixed 0xf00000 byte budget, least recently used freed
 - A player notices: samples may be re-read from disk sooner in a big session
 - Where: `crates/mao-client/src/audio.rs:321`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already as the original: SandyInterface.dll's `SandyInterface_t` constructor sets the sample budget (+0x4c) to 0xf00000 and nothing else ever writes it (the drop-in `sandyinterface/src/sandy.rs`: set only in the constructor at 0xf00000 and zeroed by the clear before it; none of the 175 exports sets it; `ForceFreeMemory` only frees down to it). The client's fixed 0xf00000 with least-recently-used freeing is that rule. No change; the catalog entry can be closed.
 - Looked at, left (2026-11-19, overnight): How the original sets its sample budget was not found ("not stated"); the drop-in's 0xf00000 is what the client uses. Left until the budget's source is read in SandyInterface.
 
 #### `SND-008` Simultaneous sound plays ordered by creation
