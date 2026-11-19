@@ -6985,3 +6985,7 @@ acceptance was not found, so the client keeps it as `eula = accepted` in `launch
 ### No guessed water sheet (RND-025)
 
 The original's water is the playfield's own water triangles and nothing else. The client used to lay a flat translucent sheet 1.5 above any ground with a big flat low floor; it now draws water only from the triangles (and from the rooms' water in interiors). Playfields that lost the sheet: Omni-1 Trade 710, Garden_of_unredeemed 4011, Pandemonium Tower Gigantomachy 4900, Uturn Canyon 6550, Uturn Forest 6551, Foundry of Nightmares 8040/8045/8046/8050. `MAO_WATER=level` still lays one for tests.
+
+### Player body table (RND-028)
+
+FUN_10057a2e picks the body and head by breed and sex: Solitus, Opifex and Nanomage male and female, Atrox neuter, each its `<breed>_<sex>.cir` body and `head_<...>01.abiff` head; breed 5 neuter the `unfinished-breed.cir` body with no head; any other pair nothing (the stats Mesh 12 and HeadMesh 64 are only set while still 0). The client follows the same table.

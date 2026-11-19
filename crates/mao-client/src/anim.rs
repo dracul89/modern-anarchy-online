@@ -58,6 +58,7 @@ pub fn player(db: Arc<ResourceDatabase>, breed: u8, sex: u8, anim: u32, image: O
     let index = mao_formats::instances::Instances::parse(&load(&db, 0xf424a, 1)?).map_err(|e| e.to_string())?;
     let (body_name, head_name) = mao_formats::appearance::player_meshes(breed, sex).ok_or("no meshes for that breed and sex")?;
     let body_id = index.find(0xf6952, body_name).ok_or_else(|| format!("{body_name} not in the index"))?;
+    let head_name = head_name.ok_or("that body has no head")?;
     let head_id = index.find(0xf6951, head_name).ok_or_else(|| format!("{head_name} not in the index"))?;
     eprintln!("body {body_name} = {body_id:#x}, head {head_name} = {head_id:#x}");
     let body: CatMesh = catmesh::parse(&load(&db, 0xf6952, body_id)?).map_err(|e| e.to_string())?;

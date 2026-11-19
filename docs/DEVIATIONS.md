@@ -6349,7 +6349,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only seven pairs listed, head number 01; an Atrox only as sex 1; any other pair has no mesh
 - A player notices: other combinations are not dressed
 - Where: `crates/mao-formats/src/appearance.rs:25`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The player-visual table (Gamecode FUN_10057a2e) was read again: the client's seven pairs are exactly the original's, plus breed 5 sex 1, which the original dresses with `unfinished-breed.cir` and head mesh 0 (no head); every other pair gets nothing (the function returns 0 and sets neither stat 12 nor 64). player_meshes now returns the head as optional and has the breed-5 pair; the body cache (net.rs ensure_body) loads a headless body for it. Test: appearance::tests::player_visual_table.
 
 #### `RND-029` Precipitation streak counts and sizes are the client's own
 

@@ -5829,7 +5829,11 @@ impl Characters {
                 _ => None,
             };
             let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: built.or_else(|| index.find(0xf6952, body_name))? }).ok()??).ok()?;
-            let head = crate::load_model_attached(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?;
+            // (breed 5's body has no head: head mesh 0, FUN_10057a2e)
+            let head = match head_name {
+                Some(head_name) => crate::load_model_attached(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?,
+                None => Model { parts: Vec::new(), instances: Vec::new(), water: None, lod_groups: Vec::new() },
+            };
             let attractor = body.attractor("head").cloned();
             Some((body, head, attractor))
         });

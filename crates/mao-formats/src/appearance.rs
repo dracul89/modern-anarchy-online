@@ -13,16 +13,20 @@ pub const MALE: u8 = 2;
 pub const FEMALE: u8 = 3;
 
 /// The body (a CAT mesh, database type 0xf6952) and head (a static mesh,
-/// 0xf6951) file names for a breed and sex, as the original picks them.
-pub fn player_meshes(breed: u8, sex: u8) -> Option<(&'static str, &'static str)> {
+/// 0xf6951) file names for a breed and sex, as the original picks them
+/// (FUN_10057a2e): the seven pairs below, and breed 5 neuter the
+/// `unfinished-breed.cir` body with no head (head mesh 0). Every other pair
+/// gets nothing (the function returns 0 and sets neither mesh stat).
+pub fn player_meshes(breed: u8, sex: u8) -> Option<(&'static str, Option<&'static str>)> {
     Some(match (breed, sex) {
-        (SOLITUS, MALE) => ("solitus_male.cir", "head_solitusmale01.abiff"),
-        (SOLITUS, FEMALE) => ("solitus_female.cir", "head_solitusfemale01.abiff"),
-        (OPIFEX, MALE) => ("opifex_male.cir", "head_opifexmale01.abiff"),
-        (OPIFEX, FEMALE) => ("opifex_female.cir", "head_opifexfemale01.abiff"),
-        (NANOMAGE, MALE) => ("nanomage_male.cir", "head_nanomale01.abiff"),
-        (NANOMAGE, FEMALE) => ("nanomage_female.cir", "head_nanofemale01.abiff"),
-        (ATROX, 1) => ("athrox_male.cir", "head_athrox01.abiff"),
+        (SOLITUS, MALE) => ("solitus_male.cir", Some("head_solitusmale01.abiff")),
+        (SOLITUS, FEMALE) => ("solitus_female.cir", Some("head_solitusfemale01.abiff")),
+        (OPIFEX, MALE) => ("opifex_male.cir", Some("head_opifexmale01.abiff")),
+        (OPIFEX, FEMALE) => ("opifex_female.cir", Some("head_opifexfemale01.abiff")),
+        (NANOMAGE, MALE) => ("nanomage_male.cir", Some("head_nanomale01.abiff")),
+        (NANOMAGE, FEMALE) => ("nanomage_female.cir", Some("head_nanofemale01.abiff")),
+        (ATROX, 1) => ("athrox_male.cir", Some("head_athrox01.abiff")),
+        (5, 1) => ("unfinished-breed.cir", None),
         _ => return None,
     })
 }
@@ -212,6 +216,17 @@ pub fn action_animation_names(breed: u8, sex: u8, action: u32) -> Option<([Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_10057a2e's table: seven pairs dressed, breed 5 neuter the unfinished body with no head, the rest nothing.
+    #[test]
+    fn player_visual_table() {
+        assert_eq!(player_meshes(SOLITUS, FEMALE), Some(("solitus_female.cir", Some("head_solitusfemale01.abiff"))));
+        assert_eq!(player_meshes(ATROX, 1), Some(("athrox_male.cir", Some("head_athrox01.abiff"))));
+        assert_eq!(player_meshes(5, 1), Some(("unfinished-breed.cir", None)));
+        assert_eq!(player_meshes(ATROX, MALE), None);
+        assert_eq!(player_meshes(5, MALE), None);
+        assert_eq!(player_meshes(SOLITUS, 1), None);
+    }
 
     #[test]
     fn the_original_action_names() {
