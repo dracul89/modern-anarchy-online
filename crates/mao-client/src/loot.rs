@@ -344,6 +344,8 @@ pub struct LootWindow {
     pub infos: Vec<String>,
     /// The place of an item let go over the world (not over a window): to be used on what is there.
     pub dropped_out: Option<u32>,
+    /// An inventory item in hand right-clicked on an item here, to be used on it: (its place, the place here).
+    pub used_on: Option<(u32, u32)>,
     /// The handle the window was last shown for: a backpack opened again comes with a new one and shows again.
     pub handle_seen: Option<u32>,
     /// A backpack's menu (`PopupMenu_c`'s look) and the name being typed in its rename box.
@@ -608,6 +610,7 @@ impl LootWindow {
         let title = if view.own { bag_name(view.identity).unwrap_or_else(|| view.title.clone()) } else { view.title.clone() };
         let at = if view.own { egui::pos2(420.0 + (view.identity.1 % 5) as f32 * 30.0, 160.0 + (view.identity.1 % 4) as f32 * 30.0) } else { egui::pos2(380.0, 140.0) };
         let mut menu_at = None;
+        let mut used_on = None;
         let tip = |item: &GearItem| {
             // (an item's tip: its name, quality and description)
             let mut tip = item.name.clone();
@@ -669,11 +672,20 @@ impl LootWindow {
                 // item in hand, whose right click is a use of it on another; and not the letting go that ends the
                 // held button's menu)
                 if let Some(slot) = hovered
-                    && crate::gear::held().is_none()
                     && !menu_up
                     && ui.input(|i| i.pointer.secondary_clicked())
                 {
-                    take = Some(Take::One { handle: view.handle, place: slot as u32 });
+                    match crate::gear::held() {
+                        None => take = Some(Take::One { handle: view.handle, place: slot as u32 }),
+                        // (the item in hand is used on the one clicked, FUN_100cc855's right button: not a split, and
+                        // not with Shift, which is the inventory's combine and ends the drag anywhere else.)
+                        Some(from) => {
+                            if crate::gear::split_count() == 0 && !ui.input(|i| i.modifiers.shift) {
+                                used_on = Some((from, slot as u32));
+                            }
+                            crate::gear::put_down();
+                        }
+                    }
                 }
                 // (the window's menu, FUN_100cbace: the right button beside the items. The original's is the frame's
                 // menu button.)
@@ -689,6 +701,9 @@ impl LootWindow {
             });
         });
         self.keeper.after(&format!("{key}Config"), tree, list, in_list);
+        if used_on.is_some() {
+            self.used_on = used_on;
+        }
         // (a click: with Shift the item's info; in one's own backpack or the bank it takes the item up; in a corpse
         // or chest it takes the item into the inventory. A press that moves is nothing.)
         let (shift, ctrl) = ctx.input(|i| (i.modifiers.shift, i.modifiers.ctrl));

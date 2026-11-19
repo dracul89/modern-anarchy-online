@@ -259,8 +259,10 @@ pub struct Requests {
     /// Items chosen to use or to destroy in the inventory window's menu (by place).
     pub item_uses: Vec<u32>,
     pub item_deletes: Vec<u32>,
-    /// Backpack items used on others (tradeskill combines): (the item, the one it went on).
+    /// Backpack items combined with others (tradeskill combines): (the item, the one it went on).
     pub item_combines: Vec<(u32, u32)>,
+    /// Own items used on others of one's own (`UseItemOnItem`): each by its identity, (the item, the one it went on).
+    pub item_use_ons: Vec<((u32, u32), (u32, u32))>,
     /// Two backpack stacks to make one: (the stack that stays, the one that goes into it).
     pub item_joins: Vec<(u32, u32)>,
     /// A backpack stack to split: (its place, how many to take off it).
@@ -1202,6 +1204,11 @@ impl Ui {
                 for link in loot_window.references.drain(..) {
                     chat_window.add_text(&link);
                 }
+                // (an inventory item in hand right-clicked on an item of the container: used on it)
+                if let Some((from, place)) = loot_window.used_on.take() {
+                    let onto = if view.identity.0 == crate::loot::BANK { (0x69, place) } else { (0x6b, view.handle << 16 | (place & 0xffff)) };
+                    requests.item_use_ons.push((mao_net::inventory::place_identity(from), onto));
+                }
                 if let (Some(place), Some(at)) = (loot_window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
                     requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
@@ -1227,6 +1234,11 @@ impl Ui {
                 requests.feedback.append(&mut window.feedback);
                 for link in window.references.drain(..) {
                     chat_window.add_text(&link);
+                }
+                // (an inventory item in hand right-clicked on an item of the container: used on it)
+                if let Some((from, place)) = window.used_on.take() {
+                    let onto = if view.identity.0 == crate::loot::BANK { (0x69, place) } else { (0x6b, view.handle << 16 | (place & 0xffff)) };
+                    requests.item_use_ons.push((mao_net::inventory::place_identity(from), onto));
                 }
                 if let (Some(place), Some(at)) = (window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
@@ -1515,6 +1527,7 @@ impl Ui {
                 }
                 requests.item_deletes.extend(events.deletes);
                 requests.item_combines.extend(events.combines);
+                requests.item_use_ons.extend(events.use_ons.iter().map(|&(from, onto)| (mao_net::inventory::place_identity(from), mao_net::inventory::place_identity(onto))));
                 for url in events.infos {
                     info_view.show_url(&url);
                 }

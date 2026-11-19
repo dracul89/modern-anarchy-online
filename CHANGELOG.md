@@ -58,6 +58,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   open; the server refuses what is tried from too far).
 - Items are picked up the original's way only: **click to take an item up, click again to put it down**.
   Pressing on an item and dragging it no longer lifts it (the original ignores that gesture).
+- With an item in hand, a right click on another item **uses** the one on the other, worn items and items in
+  bags included; **Shift + right click is the tradeskill combine** (it was the plain right click). This is the
+  original's.
 
 ### Items
 

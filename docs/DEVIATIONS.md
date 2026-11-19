@@ -1722,7 +1722,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A plain right click on a backpack item with another in hand pushes a combine; both must be backpack items; worn items are not targets.
 - A player notices: Using a held item on a worn item does not work, and a plain right click combines instead of using the item on it.
 - Where: `crates/mao-client/src/invwindows.rs:577`; `docs/CLIENT_UI.md:3639`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): with an item in hand a plain right click on another item, in the inventory, on a wear page or in a container, is `UseItemOnItem` (the use message's action 5), and Shift + right click on an inventory item is the tradeskill combine (`CharacterAction` 0x51), as FUN_100cc855 and FUN_100e220f have it (`invwindows::held_right_click`). Not ported: the same with an item out of a bag or the bank in hand. `CLIENT_UI.md` "An item in hand and the right button".
 
 #### `INV-005` Item tooltip is the client's own layout, with requirements and "When worn" list
 

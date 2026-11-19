@@ -6413,3 +6413,29 @@ all. Two clicks are two clicks: the first takes the item up (FUN_100cc6e8), the 
 cell, which cancels the drag and leaves it where it was (FUN_100cc855: the held item's identity is the cell's).
 An item is used by a right click. Nothing was changed for this entry; the Ctrl + double click the client had
 beside it went with NPC-014.
+
+### An item in hand and the right button: use it on the other, Shift combines (INV-004)
+
+GUI.dll's drop handlers (FUN_100cc855 for the inventory's, a bag's and the bank's cells, FUN_100e220f for the
+wear pages'), read again:
+
+| With an item in hand, right click on | Original | Was |
+|---|---|---|
+| another item of the inventory | `UseItemOnItem(held, clicked)`: the use message's action 5 | a tradeskill combine |
+| the same, **Shift held** | `N3Msg_TradeskillCombine`: `CharacterAction` 0x51 (both must be of the inventory) | (the same combine) |
+| a worn item | `UseItemOnItem(held, worn)`, Shift or not | nothing |
+| an item in a bag, the bank, a corpse | `UseItemOnItem`; with Shift the drag just ends | nothing |
+| the item itself | nothing is sent (Gamecode 0x1002695c, 0x10028707 test it) | nothing |
+
+`invwindows::held_right_click` is that table. **A tradeskill combine is Shift + right click now**; a plain right
+click sends the other message, which the server may or may not make a combine of. The hand is empty after
+either. An item is named in these messages by its page (`mao_net::inventory::place_identity`: weapons 0x65,
+clothes 0x66, implants 0x67, social 0x73, the backpack 0x68, the place counted through all of them, as the
+server's own messages name a worn place), a bag's item as `(0x6b, handle and place)`, the bank's as
+`(0x69, place)`.
+
+Not ported: the same right click with an item taken out of a **bag or the bank** in hand (that item rides on
+the container's window here, which looks at the left button only). On a worn target both of the original's
+handlers are connected and may each send the message (not followed to the end); one is sent here.
+
+Tests: `invwindows`' `a_right_click_with_an_item_in_hand`.

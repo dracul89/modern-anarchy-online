@@ -17,10 +17,11 @@
 //! an open bag it goes in). A press that moves takes nothing up: the list signals a click only when the button comes
 //! up on the cell it went down on (`MultiListView_c::MouseUp`, 0x10133d04). A right click uses the item (button 2 is
 //! the use signal, FUN_1004266a), a bag's use opens its window and the next closes it, worn or carried. A right click
-//! with an item in hand uses that item on the one clicked (a tradeskill combine: the one in hand is the source).
-//! Shift+click shows the item's info; Ctrl+double click puts it into an open trade (FUN_100cae1b); Shift+right click
-//! opens the client's own menu (Info, Use, Delete). There is no use by double click any more: the first click of two
-//! has the item in hand.
+//! with an item in hand uses that item on the one clicked (`UseItemOnItem`, the use message's action 5; the one in
+//! hand is the source), in the inventory and on a worn item alike; with Shift, in the inventory, it is a tradeskill
+//! combine of the two (FUN_100cc855, FUN_100e220f). Shift+click shows the item's info; Ctrl + right click puts it
+//! into an open trade (FUN_100cae1b). There is no use by double click, in the original either: the first click of
+//! two has the item in hand, and the second puts it back where it was.
 //!
 //! The backpack's items stand where they are put (`places.rs`; the original's drop handler FUN_100cc855): the item in
 //! hand let go on an empty cell of the inventory moves there, which is the client's own matter (nothing is sent: a
@@ -92,8 +93,11 @@ pub struct Events {
     pub deletes: Vec<u32>,
     pub infos: Vec<String>,
     pub trade_adds: Vec<u32>,
-    /// The backpack item in hand used on another by a right click: a tradeskill combine, `(the item, the one it went on)`.
+    /// The backpack item in hand put on another of the backpack by Shift + right click: a tradeskill combine, `(the
+    /// item, the one it went on)`.
     pub combines: Vec<(u32, u32)>,
+    /// The item in hand used on another, carried or worn, by a right click: `(the item, the one it went on)`.
+    pub use_ons: Vec<(u32, u32)>,
     /// Item links for the chat's line (the menu's "Create Reference"): the markup of each.
     pub references: Vec<String>,
     /// The stack in hand let go on another of its kind: `(the stack that stays, the one in hand)`.
@@ -153,6 +157,27 @@ pub struct ItemWindows {
 /// An item's link as the chat sends it (the menu's "Create Reference").
 pub fn reference(item: &GearItem) -> String {
     format!("<a href=\"itemref://{}/{}/{}\">{}</a>", item.item_id, item.high_id, item.quality, item.name)
+}
+
+/// What a right click on an item does with another in hand.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum HeldRightClick {
+    /// `UseItemOnItem`: the use message's action 5.
+    UseOn,
+    /// `N3Msg_TradeskillCombine`: `CharacterAction` 0x51.
+    Combine,
+    Nothing,
+}
+
+/// The right click's meaning by the place of the item in hand, the place clicked and Shift (GUI.dll FUN_100cc855 for
+/// the inventory's cells, FUN_100e220f for the wear pages'): see where it is used.
+pub fn held_right_click(from: u32, onto: u32, shift: bool) -> HeldRightClick {
+    match (from == onto, shift && onto >= BACKPACK_FIRST) {
+        (true, _) => HeldRightClick::Nothing,
+        (false, false) => HeldRightClick::UseOn,
+        (false, true) if from >= BACKPACK_FIRST => HeldRightClick::Combine,
+        (false, true) => HeldRightClick::Nothing,
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -775,7 +800,7 @@ impl ItemWindows {
                 self.right_held = None;
             }
         }
-        if let (Some((slot, _)), Some(at)) = (&hovered_item, pointer)
+        if let (Some((slot, _)), Some(_)) = (&hovered_item, pointer)
             && self.menu.is_none()
             && ctx.input(|i| i.pointer.secondary_clicked())
         {
@@ -786,8 +811,17 @@ impl ItemWindows {
                 } else if crate::gear::locked(*slot) {
                     events.feedback.push("DroppedItemWasLocked");
                     crate::gear::put_down();
-                } else if from != *slot && from >= BACKPACK_FIRST && *slot >= BACKPACK_FIRST {
-                    events.combines.push((from, *slot));
+                } else {
+                    // (FUN_100cc855's right button on a cell with an item: without Shift the item in hand is used
+                    // on it, `UseItemOnItem`; with Shift, in the inventory and both of it, the two are combined,
+                    // `N3Msg_TradeskillCombine`, and anywhere else the drag ends. A worn item is used on whatever the
+                    // keys, FUN_100e220f. Either way the hand is empty after. Neither is sent for an item on
+                    // itself: Gamecode 0x1002695c and 0x10028707 test that.)
+                    match held_right_click(from, *slot, ctx.input(|i| i.modifiers.shift)) {
+                        HeldRightClick::UseOn => events.use_ons.push((from, *slot)),
+                        HeldRightClick::Combine => events.combines.push((from, *slot)),
+                        HeldRightClick::Nothing => {}
+                    }
                     crate::gear::put_down();
                 }
             } else if !crate::gear::locked(*slot) {
@@ -924,6 +958,23 @@ impl ItemWindows {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_100cc855 and FUN_100e220f: a plain right click uses the item in hand on the other, Shift in the
+    /// inventory combines two of its items, and nothing comes of an item on itself.
+    #[test]
+    fn a_right_click_with_an_item_in_hand() {
+        let (pack, other, worn) = (BACKPACK_FIRST + 2, BACKPACK_FIRST + 9, 6);
+        assert_eq!(held_right_click(pack, other, false), HeldRightClick::UseOn);
+        assert_eq!(held_right_click(pack, worn, false), HeldRightClick::UseOn);
+        assert_eq!(held_right_click(worn, pack, false), HeldRightClick::UseOn);
+        assert_eq!(held_right_click(pack, other, true), HeldRightClick::Combine);
+        // (Shift on a wear page's cell is still the use: its own handler looks at no key)
+        assert_eq!(held_right_click(pack, worn, true), HeldRightClick::UseOn);
+        // (a worn item in hand on one of the inventory with Shift: not both of the inventory, the drag ends)
+        assert_eq!(held_right_click(worn, pack, true), HeldRightClick::Nothing);
+        assert_eq!(held_right_click(pack, pack, false), HeldRightClick::Nothing);
+        assert_eq!(held_right_click(pack, pack, true), HeldRightClick::Nothing);
+    }
 
     #[test]
     fn a_click_takes_up_shows_or_trades() {

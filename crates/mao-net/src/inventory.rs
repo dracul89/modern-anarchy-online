@@ -24,6 +24,20 @@ pub const BAG: u32 = 0xc749;
 /// Where the backpack's slots start.
 pub const BACKPACK_FIRST: u32 = 0x40;
 
+/// An own item's identity by its place: the wear pages have a type each (weapons 0x65, clothes 0x66, implants 0x67,
+/// social 0x73; Gamecode FUN_100474a9 tells a worn item by them) and the backpack 0x68, and the instance is the
+/// place as it is counted here, through all of them (the server's own messages: `(0x65, 1)`, `(0x66, 0x1b)`).
+pub fn place_identity(place: u32) -> (u32, u32) {
+    let kind = match place {
+        0..=0x0f => 0x65,
+        0x10..=0x1f => 0x66,
+        0x20..=0x2f => 0x67,
+        0x30..=0x3f => 0x73,
+        _ => 0x68,
+    };
+    (kind, place)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub slot: u32,

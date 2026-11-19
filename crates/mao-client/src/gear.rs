@@ -212,8 +212,10 @@ pub struct GearEvents {
     /// Items Ctrl+double-clicked: put into the open trade, as the original's inventory list does with a trade open
     /// (FUN_100cae1b on the list's double-click, the qualifiers' Ctrl bits 0xc: `N3Msg_TradeAddItem`).
     pub trade_adds: Vec<u32>,
-    /// The backpack item in hand used on another by a right click on it: (the item, the one it went on).
+    /// The backpack item in hand combined with another by Shift + right click on it: (the item, the one it went on).
     pub combines: Vec<(u32, u32)>,
+    /// The item in hand used on another by a right click on it: (the item, the one it went on).
+    pub use_ons: Vec<(u32, u32)>,
     /// Item links for the chat's line (the item menu's "Create Reference").
     pub references: Vec<String>,
     /// Two stacks to make one: (the stack that stays, the one in hand that goes into it).
@@ -481,7 +483,7 @@ impl GearWindow {
     /// The inventory and wear windows; what was done with the items.
     pub fn show(&mut self, ctx: &egui::Context, open: &mut bool, items: &[GearItem], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> GearEvents {
         let e = self.windows.show(ctx, open, items, stats, palette, &mut self.textures);
-        GearEvents { moves: e.moves, uses: e.uses, deletes: e.deletes, infos: e.infos, trade_adds: e.trade_adds, combines: e.combines, references: e.references, joins: e.joins, splits: e.splits, feedback: e.feedback }
+        GearEvents { moves: e.moves, uses: e.uses, deletes: e.deletes, infos: e.infos, trade_adds: e.trade_adds, combines: e.combines, use_ons: e.use_ons, references: e.references, joins: e.joins, splits: e.splits, feedback: e.feedback }
     }
 
     /// The inspect window (opened by each new inspection); the info pages asked for.

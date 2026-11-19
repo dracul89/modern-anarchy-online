@@ -971,6 +971,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] Items by clicks (2026-11-18): press on a backpack item, move to another cell, let go: nothing happens. A
   click takes it up and a second click puts it down, in the inventory, the wear window, a bag and the bank; a
   click on a corpse's item still loots it.
+- [ ] Combining by Shift (2026-11-18): take a tradeskill piece up, Shift + right click its partner: the combine
+  goes through as before. A plain right click instead: send me the log of what the server says (the use
+  message's action 5 between two backpack items was never tried here).
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

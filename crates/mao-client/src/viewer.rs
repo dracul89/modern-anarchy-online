@@ -3196,6 +3196,10 @@ impl ApplicationHandler for App {
                     for (from, onto) in requests.item_combines.drain(..) {
                         self.keys.combine = (self.keys.combine.0.wrapping_add(1), from, onto);
                     }
+                    // (an item used on another of one's own: the same message as an item used on something in the world)
+                    for (item, onto) in requests.item_use_ons.drain(..) {
+                        self.keys.use_on = (self.keys.use_on.0.wrapping_add(1), item, onto);
+                    }
                     for (onto, held) in requests.item_joins.drain(..) {
                         self.keys.join = (self.keys.join.0.wrapping_add(1), onto, held);
                     }
