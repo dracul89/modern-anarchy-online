@@ -7590,3 +7590,7 @@ GUI.dll FUN_1003482c's page also has the side's tokens for one's own character (
 ### Mission journal: active mission and Update Team Members (WIN-119)
 
 The original's journal keeps its active mission (MissionViewConfig's active_mission, GUI.dll FUN_100d3644 / FUN_100d2b0e) and, whenever its list is filled (FUN_100d347d), uploads that mission's place again if it was not since the window was made or since the mission was last missing (after a zoning). The client does the same, keeping the active mission per character. "Update Team Members" on a team mission's row sends GiveQuestToMembersIIR_t with the mission (N3Msg_UpdateNearbyTeamMembers, Gamecode 0x10017e63).
+
+### Selecting text in views that do not edit (WIN-121)
+
+The original's text views that take the mouse (TVF_ACCEPT_MOUSE_INPUT) begin a selection where the left button goes down off a link (TextRenderer_c::MouseDown 0x10163bcd: GetBufferLocation, BeginSelection) and grow it while the button is held. The client now does this in views that do not edit too, selecting the text as drawn and shading it; the right-click menu that copies it (PopulateRightClickMenu) is not there yet.

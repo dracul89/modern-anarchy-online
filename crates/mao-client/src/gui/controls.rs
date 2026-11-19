@@ -528,6 +528,21 @@ pub struct TextView {
     measure: std::cell::RefCell<Measure>,
     /// Told at each drawing whether the text is empty and without the keyboard (a field's inside label).
     pub empty_hint: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// A view that does not edit: the text as drawn (`TextRenderer_c`'s buffer: the pieces' characters, a space between
+    /// words and between the lines of a wrapped paragraph, a new line between paragraphs), where each piece of it was
+    /// drawn (relative to the view's top left), and the selection in it (anchor and cursor), which the mouse makes.
+    shown: std::cell::RefCell<String>,
+    runs: std::cell::RefCell<Vec<Run>>,
+    selection: std::cell::Cell<Option<(usize, usize)>>,
+}
+
+/// A piece of a drawn text: where it was drawn, its font, and where its characters start in the drawn text.
+#[derive(Clone, Debug)]
+struct Run {
+    rect: egui::Rect,
+    font: FontId,
+    start: usize,
+    end: usize,
 }
 
 impl TextView {
@@ -550,7 +565,42 @@ impl TextView {
             hscroll: std::cell::Cell::new(0.0),
             measure: Default::default(),
             empty_hint: None,
+            shown: Default::default(),
+            runs: Default::default(),
+            selection: std::cell::Cell::new(None),
         }
+    }
+
+    /// The place in the drawn text under a point of the view (`TextRenderer_c::GetBufferLocation`): on a piece, the
+    /// character boundary nearest the point; beside a line's pieces, its start or end; above the text its start, below
+    /// it its end.
+    fn shown_index_at(&self, at: Point) -> usize {
+        let runs = self.runs.borrow();
+        let shown = self.shown.borrow();
+        let m = self.measure.borrow();
+        let line: Vec<&Run> = runs.iter().filter(|r| at.y >= r.rect.min.y && at.y < r.rect.max.y).collect();
+        let (Some(first), Some(last)) = (line.first(), line.last()) else {
+            return if runs.first().is_some_and(|r| at.y < r.rect.min.y) { 0 } else { shown.len() };
+        };
+        if at.x < first.rect.min.x {
+            return first.start;
+        }
+        let Some(r) = line.iter().find(|r| at.x < r.rect.max.x) else { return last.end };
+        let text = &shown[r.start..r.end];
+        let mut best = (r.start, f32::MAX);
+        for (k, _) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+            let x = r.rect.min.x + m.width(r.font, &text[..k]);
+            if (x - at.x).abs() < best.1 {
+                best = (r.start + k, (x - at.x).abs());
+            }
+        }
+        best.0
+    }
+
+    /// The selection of a view that does not edit, as a range of the drawn text (none when empty).
+    fn shown_selection(&self) -> Option<(usize, usize)> {
+        let (a, b) = self.selection.get()?;
+        (a != b).then(|| (a.min(b), a.max(b)))
     }
 
     /// Whether the text is typed in (`TVF_ACCEPT_TXT_INPUT`): then it is plain characters, not markup.
@@ -730,6 +780,13 @@ impl Control for TextView {
         let sub = Paint { painter: &clip, env: p.env, rect: p.rect, hovered: p.hovered, pressed: p.pressed, enabled: p.enabled };
         let mut links = self.links.borrow_mut();
         links.clear();
+        // (a view that does not edit and takes the mouse: the drawn text and its pieces made again; a selection of
+        // another text is gone)
+        let reading = !self.editable() && self.takes_mouse();
+        let mut shown = String::new();
+        let mut runs: Vec<Run> = Vec::new();
+        let selected = if reading { self.shown_selection() } else { None };
+        let shade = egui::Color32::from_rgba_unmultiplied(0x40, 0x70, 0xc0, 0xa0);
         self.laid_width.set(width);
         *self.measure.borrow_mut() = m.clone();
         if let Some(hint) = &self.empty_hint {
@@ -769,9 +826,13 @@ impl Control for TextView {
                 clip.rect_filled(band(0.0, bx, by, bh), 0.0, shade);
             }
         }
-        for line in &lines {
+        for (n, line) in lines.iter().enumerate() {
+            if reading && n > 0 {
+                shown.push(if line.wrapped { ' ' } else { '\n' });
+            }
             let top = p.rect.top() + line.y - self.scroll;
-            if top + line.height < p.rect.top() || top > p.rect.bottom() {
+            let hidden = top + line.height < p.rect.top() || top > p.rect.bottom();
+            if hidden && !reading {
                 continue;
             }
             // (the alignment of the line's first text, `_RenderLine`)
@@ -785,7 +846,10 @@ impl Control for TextView {
             for (k, w) in words[line.first..line.end].iter().enumerate() {
                 // (a wrapped line starts at its first word's text)
                 let space = if line.wrapped && k == 0 { 0.0 } else { w.space };
-                if let Some(s) = w.space_style.as_ref().filter(|s| (s.underline || s.link_look) && space > 0.0) {
+                if reading && k > 0 && space > 0.0 {
+                    shown.push(' ');
+                }
+                if let Some(s) = w.space_style.as_ref().filter(|s| (s.underline || s.link_look) && space > 0.0 && !hidden) {
                     let colour = if s.link_look { LINK_COLOUR & 0xff_ffff } else if s.colour == DEFAULT_COLOUR { u32::from(view_colour.r()) << 16 | u32::from(view_colour.g()) << 8 | u32::from(view_colour.b()) } else { s.colour };
                     let c = egui::Color32::from_rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8);
                     let h = m.height(s.font.unwrap_or(self.font));
@@ -797,6 +861,10 @@ impl Control for TextView {
                     // (`_RenderLine`: a picture is copied whole at the pen, which is at the line's top; no colour of
                     // the text's touches it, and it has no underline)
                     if let Some(src) = &piece.image {
+                        if hidden {
+                            x += piece.width;
+                            continue;
+                        }
                         if let Some((texture, size)) = super::pictures::picture(clip.ctx(), src) {
                             let at = egui::Rect::from_min_size(egui::pos2(x.round(), top.round()), size);
                             clip.image(texture, at, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
@@ -808,6 +876,27 @@ impl Control for TextView {
                         continue;
                     }
                     let font = piece.style.font.unwrap_or(self.font);
+                    // (the drawn text's piece, and the selection's part of it behind the glyphs)
+                    if reading {
+                        let start = shown.len();
+                        shown.push_str(&piece.text);
+                        let rect = egui::Rect::from_min_size(egui::pos2(x, top), egui::vec2(piece.width, m.height(font))).translate(-p.rect.min.to_vec2());
+                        runs.push(Run { rect, font, start, end: shown.len() });
+                        if let Some((a, b)) = selected
+                            && a < shown.len()
+                            && b > start
+                            && !hidden
+                        {
+                            let (from, to) = (a.max(start) - start, b.min(shown.len()) - start);
+                            let x0 = x + m.width(font, &piece.text[..from]);
+                            let x1 = x + m.width(font, &piece.text[..to]);
+                            clip.rect_filled(egui::Rect::from_min_max(egui::pos2(x0, top), egui::pos2(x1, top + m.height(font))), 0.0, shade);
+                        }
+                    }
+                    if hidden {
+                        x += piece.width;
+                        continue;
+                    }
                     let colour = if piece.style.link_look {
                         LINK_COLOUR & 0xff_ffff
                     } else if piece.style.colour == DEFAULT_COLOUR {
@@ -844,6 +933,13 @@ impl Control for TextView {
                     x += piece.width;
                 }
             }
+        }
+        if reading {
+            if *self.shown.borrow() != shown {
+                self.selection.set(None);
+            }
+            *self.shown.borrow_mut() = shown;
+            *self.runs.borrow_mut() = runs;
         }
         // (the cursor: a line a pixel wide, as tall as the line less one, blinking every half second; `_EnableCursor`)
         if self.editable() && self.focused && (self.blink.elapsed().as_millis() / 500) % 2 == 0 {
@@ -898,7 +994,11 @@ impl Control for TextView {
         (super::edit::insert(&mut self.text, &mut self.caret, typed, self.feature) == super::edit::Edit::Changed).then_some(Signal::Edited)
     }
     fn copy(&self) -> Option<String> {
-        // (`SlotCopy`: the selection; nothing from a password)
+        // (`SlotCopy`: the selection; nothing from a password; a view that does not edit, its drawn text's)
+        if !self.editable() {
+            let (a, b) = self.shown_selection()?;
+            return self.shown.borrow().get(a..b).map(str::to_string);
+        }
         let (a, b) = self.caret.selection()?;
         (self.feature & super::text::flags::PASSWORD == 0).then(|| self.text[a..b].to_string())
     }
@@ -928,9 +1028,27 @@ impl Control for TextView {
             return None;
         }
         // (`TextRenderer_c::MouseDown` 0x10163bcd: the left button on a link's text emits the link at once, as the
-        // button goes down; elsewhere it would begin a selection, which is not done in a view that does not edit)
+        // button goes down; elsewhere it sets the cursor there and begins a selection (`SetCursorPosition`,
+        // `BeginSelection`), which the pointer grows while the button is held and which stays when it is let go)
         match m {
-            Mouse::Down => self.link_at(egui::pos2(at.x, at.y)).map(Signal::Link),
+            Mouse::Down => {
+                if let Some(link) = self.link_at(egui::pos2(at.x, at.y)) {
+                    return Some(Signal::Link(link));
+                }
+                let k = self.shown_index_at(at);
+                self.selection.set(Some((k, k)));
+                self.dragging = true;
+                None
+            }
+            Mouse::Move if self.dragging => {
+                let k = self.shown_index_at(at);
+                self.selection.set(self.selection.get().map(|(a, _)| (a, k)));
+                None
+            }
+            Mouse::Up { .. } => {
+                self.dragging = false;
+                None
+            }
             _ => None,
         }
     }
@@ -972,6 +1090,30 @@ mod slider_tests {
         assert_eq!(t.mouse(Mouse::Down, Point::new(15.0, 5.0)), Some(Signal::Link("chatcmd:///x".into())));
         assert_eq!(t.mouse(Mouse::Up { inside: true }, Point::new(15.0, 5.0)), None);
         assert_eq!(t.mouse(Mouse::Down, Point::new(5.0, 5.0)), None);
+    }
+
+    /// WIN-121: in a view that does not edit, a press off the links begins a selection of the drawn text and a drag
+    /// grows it; copied, it is the text as drawn (no markup); another text drawn ends it.
+    #[test]
+    fn a_view_that_does_not_edit_selects_by_mouse() {
+        let mut t = TextView::new("<font color=red>Hello</font> world");
+        t.feature = super::super::text::flags::ACCEPT_MOUSE_INPUT;
+        *t.shown.borrow_mut() = "Hello world".into();
+        // (two pieces of a line ten high, a fixed measure's widths: 5.5 a character at the normal font's 13 less)
+        let w = |s: &str| Measure::default().width(FontId::NORMAL, s);
+        *t.runs.borrow_mut() = vec![
+            Run { rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(w("Hello"), 10.0)), font: FontId::NORMAL, start: 0, end: 5 },
+            Run { rect: egui::Rect::from_min_size(egui::pos2(w("Hello "), 0.0), egui::vec2(w("world"), 10.0)), font: FontId::NORMAL, start: 6, end: 11 },
+        ];
+        assert_eq!(t.mouse(Mouse::Down, Point::new(w("He") + 0.5, 5.0)), None);
+        t.mouse(Mouse::Move, Point::new(w("Hello wor") + 0.5, 5.0));
+        t.mouse(Mouse::Up { inside: true }, Point::new(w("Hello wor") + 0.5, 5.0));
+        assert_eq!(t.copy().as_deref(), Some("llo wor"));
+        // (past a line's end its end; below the text the end)
+        t.mouse(Mouse::Down, Point::new(500.0, 5.0));
+        t.mouse(Mouse::Move, Point::new(0.0, 50.0));
+        assert_eq!(t.selection.get(), Some((11, 11)));
+        assert_eq!(t.copy(), None);
     }
 
     #[test]
