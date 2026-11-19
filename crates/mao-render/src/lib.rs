@@ -486,8 +486,8 @@ pub use mao_formats::model::Water;
 
 /// The daylight sky: the horizon's haze and the blue overhead.
 pub const DAY_SKY: ([f32; 3], [f32; 3]) = ([0.66, 0.74, 0.84], [0.20, 0.38, 0.72]);
-/// The dark an interior or a dungeon is seen against (the fog fades into it).
-pub const DARK_SKY: ([f32; 3], [f32; 3]) = ([0.03, 0.035, 0.05], [0.01, 0.012, 0.02]);
+/// The dark an interior or a dungeon is seen against (the fog fades into it): black, as the original clears behind them.
+pub const DARK_SKY: ([f32; 3], [f32; 3]) = ([0.0; 3], [0.0; 3]);
 
 /// A model on the GPU, with its bounds.
 pub struct Scene {

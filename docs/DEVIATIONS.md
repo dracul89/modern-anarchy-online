@@ -6173,7 +6173,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: with no ground the scene uses the dark sky and fog (mao_render::DARK_SKY, nearly black), not pure black
 - A player notices: backdrop outside rooms is a near-black colour chosen by the client
 - Where: `crates/mao-client/src/viewer.rs:2516`; `crates/mao-render/src/lib.rs:467`; `docs/CLIENT_UI.md:1925`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original draws interiors against black (the catalog's reading; DisplaySystem's device clears with colour 0, drop-in d3d.rs Clear, slot 10). mao_render::DARK_SKY, the backdrop and fog colour of a playfield with no ground, was a near-black blue of the client's own; it is now black at the horizon and the zenith, so an interior's fog fades into black. A constant; no unit test; built.
 
 #### `RND-010` Left-limb attach offsets set by hand
 

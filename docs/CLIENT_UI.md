@@ -7017,3 +7017,7 @@ The original's marker atlas (U:0x10046d0b) keeps only the top-left 4 x 4 texels 
 ### Toggle effects by playfield (RND-091)
 
 A toggle effect (kind 3036, GfxControlToggle_t, FUN_10112952) starts its child only on the right playfields (FUN_101125ed): the playfield's first flag word must meet the toggle's mask, and then the playfield must be in its list, or with flag 0x800 not in it. The client now tests the current playfield the same way; it used to pass only toggles with 0x800, as if no playfield were ever listed. The restart under 0x400 is not done.
+
+### Interiors against black (RND-009)
+
+A playfield with no ground (shops, dungeons built from rooms) is seen against black in the original, whose device clears to colour 0. The client's dark backdrop (`mao_render::DARK_SKY`), which its fog fades into, was a near-black blue; it is black now.
