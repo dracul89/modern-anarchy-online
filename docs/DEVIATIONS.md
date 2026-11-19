@@ -44,8 +44,8 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 46 | 7 | 0 | 1 | 0 | **0** |
 | **medium** | 158 | 30 | 24 | 50 | 0 | 33 | **21** |
-| **low** | 725 | 86 | 17 | 466 | 0 | 47 | **109** |
-| **all** | 937 | 162 | 48 | 516 | 1 | 80 | **130** |
+| **low** | 725 | 95 | 18 | 498 | 0 | 71 | **43** |
+| **all** | 937 | 171 | 49 | 548 | 1 | 104 | **64** |
 
 ### By area
 
@@ -59,11 +59,11 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | Inventory and items (`INV`) | 84 | 30 | 12 | 36 | 0 | 6 | **0** |
 | Nano programs (`NAN`) | 60 | 6 | 3 | 46 | 0 | 5 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 4 | 0 | 19 | 0 | 5 | **0** |
-| Chat and commands (`CHT`) | 80 | 13 | 0 | 51 | 0 | 10 | **6** |
-| Windows and interface (`WIN`) | 180 | 32 | 12 | 92 | 0 | 4 | **40** |
-| Camera (`CAM`) | 13 | 1 | 0 | 0 | 0 | 0 | **12** |
+| Chat and commands (`CHT`) | 80 | 14 | 0 | 51 | 0 | 9 | **6** |
+| Windows and interface (`WIN`) | 180 | 37 | 13 | 102 | 0 | 28 | **0** |
+| Camera (`CAM`) | 13 | 3 | 0 | 8 | 0 | 1 | **1** |
 | Rendering and world (`RND`) | 194 | 20 | 4 | 158 | 0 | 12 | **0** |
-| Sound and music (`SND`) | 17 | 1 | 0 | 0 | 0 | 0 | **16** |
+| Sound and music (`SND`) | 17 | 2 | 0 | 14 | 0 | 0 | **1** |
 | Launcher, login, character creation (`LCH`) | 51 | 17 | 4 | 23 | 0 | 7 | **0** |
 | Settings and files (`SET`) | 54 | 8 | 2 | 27 | 0 | 17 | **0** |
 | Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 0 | 2 | **0** |
@@ -261,7 +261,6 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `CHT-074` (low) Client's own chat status lines: Addition: recommend KEEP: the connection lines tell why chat stopped; the original has no such lines but also a different connection handling.
 - `CHT-075` (low) Deposit to Market adds a client line: Addition: recommend REMOVE: the original says nothing; the market window itself shows what was sent.
 - `CHT-076` (low) Inspect result also told as a chat line: Addition: recommend REMOVE: the original only opens the info page.
-- `CHT-077` (low) New mail needs a recipient and subject (client's own check): Addition: recommend REMOVE: FUN_1010733d checks only negative credits, the lengths and the money/C.O.D.; the server answers an empty recipient itself.
 - `CHT-078` (low) Own confirmation lines for several commands: Addition: recommend REMOVE: the original says nothing for these commands (e.g. /gfx); the lines are the client's own.
 - `CHT-079` (low) Scripts folder beside the client's settings is searched first: Addition: recommend KEEP: the original's folder is still searched; the client's own folder beside its settings only adds a place.
 - `CHT-080` (low) Team invitation text is the client's own: Addition: recommend KEEP until the original's invitation text is found (the box's line was not read); the box is needed to accept an invitation.
@@ -269,6 +268,31 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `WIN-154` (medium) Client's own message box for 14 seconds: Addition: recommend REMOVE: the original has no such box; its messages go to the chat window as feedback lines (and some, like the screenshot, say nothing at al
 - `WIN-155` (medium) Hotbar "is not ready: queued" message and own cooldowns: Addition: recommend KEEP: the queueing and own cooldowns belong to the client's smart hotbars, an optional bar of its own (`smart_hotbar = off` gives the origin
 - `WIN-156` (medium) Map: dots for nearby characters and the character arrow: Addition: recommend KEEP: the dots and the arrow are drawn only on the client's own round corner map and its overlay (automap.rs show, lines 848 and 880), which
+- `WIN-157` (low) A skin without its own TextColors.xml takes the game's: Addition: recommend KEEP: the original always has its Default folder's TextColors.xml beside a skin; taking it when a skin lacks one is what the original's own 
+- `WIN-158` (low) Actions tooltip has the client's own text: Addition: recommend KEEP: a tooltip on the action tiles; it adds information without changing what the tiles do.
+- `WIN-159` (low) AOU mod skins bundled and selectable: Addition: recommend KEEP: the AOU skins are optional themes; the default is the game's own skin.
+- `WIN-160` (low) Creature inspect page is the client's own headline with health: Addition: recommend KEEP until the original's creature info page is read; it is a stand-in where the original's page was not found.
+- `WIN-161` (low) Error boxes are queued, never repeated: Addition: recommend KEEP: queuing the boxes without repeats only spares a player a stack of the same refusal; each text still shows.
+- `WIN-162` (low) Escape always closes the client's own Options, Whom-Pah, Browser and Help windows: Addition: recommend KEEP: the windows concerned are the client's own (Options, Whom-Pah, Browser, Help), which the original's esc_* options do not know; the ori
+- `WIN-163` (low) Help assistant ("Ask the guides") is the client's own window: Addition: recommend KEEP: one of the client's own tools the user asked for; network use only when its sources are turned on.
+- `WIN-164` (low) Help window (Ctrl+H) with find and chat input history: Addition: recommend KEEP: the key list window and the chat history add help without taking anything of the original away.
+- `WIN-165` (low) Hover breakdown tooltips on stats and skills: Addition: recommend KEEP: an extra tooltip with the stat's parts; the original's bar tips (TooltipHealth ...) are still there.
+- `WIN-166` (low) Inbox status line and "Sending ..." text: Addition: recommend REMOVE the status line (or keep only the delete refusal): the original's mail window shows only InboxSize ("n/30", GUI.dll FUN_10109489), an
+- `WIN-167` (low) Info view file:// pages also search the game's text folder: Addition: recommend KEEP: one more folder searched for a file:// page only finds files the original would have shown as missing; nothing changes for the pages t
+- `WIN-168` (low) Inspect window: title carries the character's name, right click opens the item page: Addition: recommend REMOVE both for faithfulness: the original's Inspect window is titled Inspect and a right press opens the item menu (FUN_100e24b8); the name
+- `WIN-169` (low) Missing game texts fall back to the client's own words: Addition: recommend KEEP: the game's texts are always used when text.mdb has them; the client's words only fill in where the file lacks a text.
+- `WIN-170` (low) Performance overlay: Addition: recommend KEEP: off by default (/perf), a developer's and player's help.
+- `WIN-171` (low) Plain strip drawn when there is no skin: Addition: recommend KEEP: drawn only when no skin can be found at all, where the original could not draw its strip either.
+- `WIN-172` (low) Planet map window: map choice list inside the window: Addition: recommend KEEP: the choice is the original's own option (`PlanetMapIndexFile`; FUN_1004cb15 lists the indexes); the list in the window is a shorter wa
+- `WIN-173` (low) Shop status line "Trade complete.": Addition: recommend REMOVE: the original's trade shows no such line; the trade window closing says it was done.
+- `WIN-174` (low) Shop window title carries the shop's name: Addition: recommend KEEP: a name in the title bar the skin's view leaves out; nothing is hidden by it.
+- `WIN-175` (low) Skills window messages use the client's own words: Addition: recommend REMOVE the client's own status texts where the original says nothing, keeping text.mdb's (Skill_LackIP) where it does; "Changes sent." and "
+- `WIN-176` (low) The client can build planet maps of its own and list any map folder: Addition: recommend KEEP: the maps made here (Atlas of Rubi-Ka) are the user's own work; the game's maps are still listed and the default.
+- `WIN-177` (low) The client's own tool windows (damage meter, item finder, guide): Addition: recommend KEEP: the client's own tools the user asked for.
+- `WIN-178` (low) Web pages: loading page and 8 s / 30 s proxy time-outs: Addition: recommend KEEP: the loading line and the time-outs only show while a page is coming or a site is silent.
+- `WIN-179` (low) Window icon is the client's own emblem on a slate square: Addition: recommend KEEP: the icon is the original's own emblem picture (GFX_GUI_AO_LOGO); a program must have one.
+- `WIN-180` (low) Windows that can be docked include ones the original does not dock: Addition: recommend KEEP: docking more windows is an option a player chooses; the original's docked windows are docked by default as there.
+- `CAM-013` (low) Camera mode change prints a chat line: Addition: recommend REMOVE: the game's texts have no such line (text.mdb's camera texts are the menu's labels and tips only), so the original changes the mode s
 - `RND-183` (medium) Anti-aliasing, anisotropic filtering, mips and hemisphere light: Addition: recommend KEEP: anti-aliasing, anisotropic filtering and mips are display-quality settings with no rule of the original's to break (its DirectX 7 devi
 - `RND-184` (medium) Coloured boxes stand in for characters with no model: Addition: recommend KEEP: the original has a model for every character (its fallback is `unfinished-breed.cir`, see RND-028), so the boxes only show where this 
 - `RND-185` (medium) Distance haze when the area has no fog: Addition: recommend REMOVE: the original's only fog is the area's VisualFog_t; with none it draws clear to its far clip, so the haze is a look of the client's o
@@ -498,7 +522,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - [ ] `CHT-074` Client's own chat status lines **(your call)**
 - [ ] `CHT-075` Deposit to Market adds a client line **(your call)**
 - [ ] `CHT-076` Inspect result also told as a chat line **(your call)**
-- [ ] `CHT-077` New mail needs a recipient and subject (client's own check) **(your call)**
+- [x] `CHT-077` New mail needs a recipient and subject (client's own check) **(done)**
 - [ ] `CHT-078` Own confirmation lines for several commands **(your call)**
 - [ ] `CHT-079` Scripts folder beside the client's settings is searched first **(your call)**
 - [ ] `CHT-080` Team invitation text is the client's own **(your call)**
@@ -511,34 +535,34 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - [ ] `WIN-154` Client's own message box for 14 seconds **(your call)**
 - [ ] `WIN-155` Hotbar "is not ready: queued" message and own cooldowns **(your call)**
 - [ ] `WIN-156` Map: dots for nearby characters and the character arrow **(your call)**
-- [ ] `WIN-157` A skin without its own TextColors.xml takes the game's
-- [ ] `WIN-158` Actions tooltip has the client's own text
-- [ ] `WIN-159` AOU mod skins bundled and selectable
-- [ ] `WIN-160` Creature inspect page is the client's own headline with health
-- [ ] `WIN-161` Error boxes are queued, never repeated
-- [ ] `WIN-162` Escape always closes the client's own Options, Whom-Pah, Browser and Help windows
-- [ ] `WIN-163` Help assistant ("Ask the guides") is the client's own window
-- [ ] `WIN-164` Help window (Ctrl+H) with find and chat input history
-- [ ] `WIN-165` Hover breakdown tooltips on stats and skills
-- [ ] `WIN-166` Inbox status line and "Sending ..." text
-- [ ] `WIN-167` Info view file:// pages also search the game's text folder
-- [ ] `WIN-168` Inspect window: title carries the character's name, right click opens the item page
-- [ ] `WIN-169` Missing game texts fall back to the client's own words
-- [ ] `WIN-170` Performance overlay
-- [ ] `WIN-171` Plain strip drawn when there is no skin
-- [ ] `WIN-172` Planet map window: map choice list inside the window
-- [ ] `WIN-173` Shop status line "Trade complete."
-- [ ] `WIN-174` Shop window title carries the shop's name
-- [ ] `WIN-175` Skills window messages use the client's own words
-- [ ] `WIN-176` The client can build planet maps of its own and list any map folder
-- [ ] `WIN-177` The client's own tool windows (damage meter, item finder, guide)
-- [ ] `WIN-178` Web pages: loading page and 8 s / 30 s proxy time-outs
-- [ ] `WIN-179` Window icon is the client's own emblem on a slate square
-- [ ] `WIN-180` Windows that can be docked include ones the original does not dock
+- [ ] `WIN-157` A skin without its own TextColors.xml takes the game's **(your call)**
+- [ ] `WIN-158` Actions tooltip has the client's own text **(your call)**
+- [ ] `WIN-159` AOU mod skins bundled and selectable **(your call)**
+- [ ] `WIN-160` Creature inspect page is the client's own headline with health **(your call)**
+- [ ] `WIN-161` Error boxes are queued, never repeated **(your call)**
+- [ ] `WIN-162` Escape always closes the client's own Options, Whom-Pah, Browser and Help windows **(your call)**
+- [ ] `WIN-163` Help assistant ("Ask the guides") is the client's own window **(your call)**
+- [ ] `WIN-164` Help window (Ctrl+H) with find and chat input history **(your call)**
+- [ ] `WIN-165` Hover breakdown tooltips on stats and skills **(your call)**
+- [ ] `WIN-166` Inbox status line and "Sending ..." text **(your call)**
+- [ ] `WIN-167` Info view file:// pages also search the game's text folder **(your call)**
+- [ ] `WIN-168` Inspect window: title carries the character's name, right click opens the item page **(your call)**
+- [ ] `WIN-169` Missing game texts fall back to the client's own words **(your call)**
+- [ ] `WIN-170` Performance overlay **(your call)**
+- [ ] `WIN-171` Plain strip drawn when there is no skin **(your call)**
+- [ ] `WIN-172` Planet map window: map choice list inside the window **(your call)**
+- [ ] `WIN-173` Shop status line "Trade complete." **(your call)**
+- [ ] `WIN-174` Shop window title carries the shop's name **(your call)**
+- [ ] `WIN-175` Skills window messages use the client's own words **(your call)**
+- [ ] `WIN-176` The client can build planet maps of its own and list any map folder **(your call)**
+- [ ] `WIN-177` The client's own tool windows (damage meter, item finder, guide) **(your call)**
+- [ ] `WIN-178` Web pages: loading page and 8 s / 30 s proxy time-outs **(your call)**
+- [ ] `WIN-179` Window icon is the client's own emblem on a slate square **(your call)**
+- [ ] `WIN-180` Windows that can be docked include ones the original does not dock **(your call)**
 
 **Camera**
 
-- [ ] `CAM-013` Camera mode change prints a chat line
+- [ ] `CAM-013` Camera mode change prints a chat line **(your call)**
 
 **Rendering and world**
 
@@ -4567,7 +4591,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: refuses an empty recipient or subject with "A mail needs a recipient and a subject."
 - A player notices: a mail with no subject cannot be sent from the client
 - Where: `crates/mao-client/src/mailmessage.rs:278`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
+- Done (2026-11-19, overnight): Removed with WIN-013 tonight: the original's Send (FUN_1010733d) has no recipient or subject check, so the client's own refusal is gone.
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: FUN_1010733d checks only negative credits, the lengths and the money/C.O.D.; the server answers an empty recipient itself.
 
 #### `CHT-078` Own confirmation lines for several commands
