@@ -4783,7 +4783,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Takes the widest of the raised, pressed and hover texts so the size does not jump.
 - A player notices: Text buttons keep a fixed size as the pointer comes and goes.
 - Where: `crates/mao-client/src/gui/textbutton.rs:69`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): GUI.dll `TextButton_c::CalculatePreferredSize` 0x10004e3f returns its text view's own size, the text shown now; the client took the widest of the three texts. `gui/textbutton.rs` now remembers whether it was highlighted when last drawn and returns the size of the text shown then. The `gui::textbutton` tests pass.
 
 #### `WIN-020` Tip patterns: `*x` matched as "ends with x" instead of a prefix match
 

@@ -7317,3 +7317,7 @@ The original's Send (GUI.dll FUN_1010733d) checks only the lengths and the money
 ### The shortcut bars start where the original had them (WIN-017)
 
 The original keeps each shortcut bar's frame in the character's `Containers/ShortcutBar_<n>.xml`. When the original's bars are on (`smart_hotbar = off`) and a bar has no place of its own here yet, it now starts where that file puts it, scaled to this window; otherwise the bars stack up from the bottom left as before.
+
+### A text button is as big as its text (WIN-019)
+
+The original's text buttons (`TextButton_c::CalculatePreferredSize` 0x10004e3f) are as big as the text they show now: raised, pressed or under the pointer. The client used the widest of the three; it now uses the shown one.

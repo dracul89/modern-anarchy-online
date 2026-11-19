@@ -23,6 +23,8 @@ pub struct TextButton {
     pub toggle: bool,
     pub on: bool,
     view: std::cell::RefCell<TextView>,
+    /// Whether the button was highlighted when last drawn: the text shown, whose size is the button's.
+    highlighted: std::cell::Cell<bool>,
 }
 
 const RAISED: usize = 0;
@@ -66,15 +68,12 @@ impl Control for TextButton {
         "TextButton"
     }
     fn preferred(&self, m: &Measure, max: bool) -> Option<Point> {
-        // (the widest of the three: the button's size does not jump as the pointer comes and goes)
-        let mut p = Point::new(-1.0, -1.0);
-        for state in [RAISED, PRESSED, HOVER] {
-            let q = self.view_for(state, true).preferred(m, max).unwrap_or_default();
-            p = Point::new(p.x.max(q.x), p.y.max(q.y));
-        }
-        Some(p)
+        // (`CalculatePreferredSize` 0x10004e3f: the text view's own, so the size of the text shown now)
+        let v = self.view_for(self.state(self.highlighted.get()), true);
+        v.preferred(m, max)
     }
     fn paint(&self, p: &Paint) {
+        self.highlighted.set(p.hovered || p.pressed);
         let v = self.view_for(self.state(p.hovered || p.pressed), p.enabled);
         let size = v.preferred(p.env.measure, false).unwrap_or_default();
         let rect = egui::Rect::from_min_size(p.rect.min, egui::vec2(size.x + 1.0, size.y + 1.0));
@@ -114,7 +113,7 @@ pub fn create(tree: &mut Tree, e: &Element) -> Id {
     let raised = e.text("raised_text", &text);
     let colour = e.int("color", -1);
     let colours = [e.int("raised_color", colour) as u32, e.int("pressed_color", colour) as u32, e.int("hover_color", colour) as u32];
-    let b = TextButton { texts: [raised, pressed, hover], colours, toggle: false, on: false, view: std::cell::RefCell::new(view) };
+    let b = TextButton { texts: [raised, pressed, hover], colours, toggle: false, on: false, view: std::cell::RefCell::new(view), highlighted: std::cell::Cell::new(false) };
     tree.add(Node::from_element(e, 4, Box::new(b)))
 }
 
