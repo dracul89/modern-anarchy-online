@@ -221,6 +221,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Sound
 
 - The music's random choices are no longer the same every time the game starts.
+- Indoors, the district music follows the room you are in.
 
 ## 0.1.6 (2026-11-18)
 

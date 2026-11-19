@@ -7365,3 +7365,7 @@ The original queues a fight line of one's own pet as its own kind: a hit between
 ### Camera keys follow the turn and zoom settings (CAM-006)
 
 N3.dll's camera turns by the rotate keys' 0.02 rad a frame times `MouseTurnSensitivity` (FUN_10022345 → FUN_1002118c) and moves along the view by the zoom keys' time times `ZoomSpeed`; the defaults (LoginPrefs.xml) are 10 and 20. The client now reads both settings for the keys, as it already did for the mouse and the wheel.
+
+### District music indoors (SND-002)
+
+The original finds the district of the character's zone (`PlayfieldDistrictInfo_t::GetDistrictData(GetZoneInstanceID())`), and in an interior the zones are its rooms. The client now does the same with the room the character stands in, so an interior whose rooms belong to different districts plays each district's music and shows its land control info; before, every interior took its first zone's.

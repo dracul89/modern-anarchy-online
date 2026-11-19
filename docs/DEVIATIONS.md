@@ -8571,7 +8571,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: indoors the zone is 0, no rooms' zones kept; indoor music does not follow rooms
 - A player notices: district music and land control info indoors always come from the first zone
 - Where: `crates/mao-client/src/sounds.rs:204`; `docs/CLIENT_UI.md:2468`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Indoors the district (music, land control info) is now looked up by the room the character is in: GetZoneInstanceID (N3.dll 0x100042f2) asks the vehicle's cell for its zone, and in an interior the zones are the rooms (a room's doorways name the room they open into by that number, n3Room_t +0x7c, which the client already uses as the room's index in its door code). DistrictMap::district_at / music / land_control_info take the room (RoomState::current), zone 0 only while the character is in no room yet; outdoors the zone grid as before. One inference: that the zone number is the room's place in the playfield's room list, which is how the doorways' numbers already work in the client. Test sounds::tests::indoors_the_zone_is_the_room.
 
 #### `SND-003` Large variant index plays nothing
 

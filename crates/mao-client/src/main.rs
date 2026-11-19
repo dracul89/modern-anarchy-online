@@ -2065,7 +2065,7 @@ fn run(args: &[String]) -> Result<(), String> {
                         // (the playfield's land-control map and the district at the character, as the network thread finds them)
                         let object = db.get(mao_formats::resource::Id { kind: mao_formats::landcontrolmap::KIND, instance: number }).ok().flatten();
                         hud.land_map = object.and_then(|o| mao_formats::landcontrolmap::parse(&o)).map(std::sync::Arc::new);
-                        hud.lc_district = sounds::DistrictMap::load(&db, number).and_then(|d| d.land_control_info(hud.position.unwrap_or_default()));
+                        hud.lc_district = sounds::DistrictMap::load(&db, number).and_then(|d| d.land_control_info(hud.position.unwrap_or_default(), None));
                         let area = net::load_area(game, &db, number)?;
                         let (cx, cz) = (hud.position.map_or(449.0, |p| p[0]), hud.position.map_or(313.0, |p| p[2]));
                         let mut builder = automap::MapBuilder::new(area.terrain.as_deref(), [cx, 8.0, cz], number);

@@ -10847,7 +10847,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.land_map_changed = true;
                 }
                 // (the district info under the map's land-control view, which GUI.dll's FUN_100eb04b asks for twice a second)
-                let info = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.land_control_info(position));
+                let info = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.land_control_info(position, room_state.current));
                 if info != state.lc_district {
                     state.lc_district = info;
                     state.lc_district_changed = true;
@@ -10862,7 +10862,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let o = overrides.get(name, now).filter(|o| !o.is_empty())?;
                     crate::audio::with(|m| m.find_layer(&o))
                 };
-                let music = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, state.game_clock.time().0, &ambient_weather, expansion, over));
+                let music = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.music(position, room_state.current, state.game_clock.time().0, &ambient_weather, expansion, over));
                 if let Some((district, layer)) = music {
                     crate::audio::with(|m| m.activate_env_zone(district, layer));
                 }
