@@ -1381,6 +1381,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: moving the mouse straight up or down does not start a right turn
 - Where: `crates/mao-client/src/net.rs:4276`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Same as MOV-024: counting a straight up or down movement as one to the right (N3Msg_MouseMovement 0x100196b3) changes which turn messages are sent, and no capture holds such a mouse movement; by tonight's rule it needs the original's bytes.
 
 ### Targeting and mouse: an approximation or a stand-in (8)
 
@@ -1432,6 +1433,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a long weapon may lift a player's tag and target indicator
 - Where: `crates/mao-client/src/blobshadow.rs:52`; `docs/CLIENT_UI.md:1187`; `crates/mao-client/src/nametag.rs:87`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The client's sizes come from the posed, skinned parts (blobshadow::Caster::new, Size::of); the rest-pose meshes the original measures (VisualMesh_t::GetMeshHeight: the bounding sphere of the largest of the body's meshes at rest) are not kept past the character builder. Porting means carrying each body mesh's rest sphere from the mesh loader to the tag; a renderer change, visible mainly on seated or lying bodies, checkable by pictures.
 
 #### `TGT-008` Objects are targeted only on the client
 
@@ -1441,6 +1443,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/net.rs:7834`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Telling the server about an object target adds messages (select, set-target, info request) the client does not send now; whether the original sends them for objects was not read and no capture shows an object selected, so by tonight's rule it needs the original's bytes.
 
 #### `TGT-009` Tab picks guards and guides
 
@@ -1449,7 +1452,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Tab picks guards and guides; Q while "fighting" one stops instead of attacking next
 - A player notices: Tab may select unattackable guards
 - Where: `docs/CLIENT_UI.md:2771`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The notes say the client matches the original here: N3Msg_GetCloseTarget counts sides as the client does (combat::close_target, guards and guides included), and the attack key stopping a fight rather than attacking the next is N3Msg_DefaultAttack's own order (it stops first and, not switching, ends there; ported tonight in CMB-003). Nothing to change.
 
 #### `TGT-010` Target frame and targeting window are partial
 
@@ -1459,6 +1463,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: target display differs
 - Where: `crates/mao-client/src/ui.rs:2273`; `docs/GUI_DLL_PARITY.md:74`; `docs/CLIENT_UI.md:2042`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): TargetingModule_t's TargetView and the friendly/hostile health bars are GUI.dll view work not read tonight; the frame drawn is the original's skin picture, the rest is a larger GUI port.
 
 ### Targeting and mouse: the original was not read: inferred or measured (2)
 
@@ -1470,6 +1475,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: target buttons may not do what the original's do
 - Where: `docs/ORIGINAL_UI_PLAN.md:217`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The control center's two target buttons are defined in GUI.dll's control-center building code, not traced tonight; the guess (self, next hostile) stays.
 
 #### `TGT-012` Mouse pointer hot spots and egui-driven choice
 
@@ -1479,6 +1485,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: pointer shape/hot spot may be off
 - Where: `docs/CLIENT_UI.md:2064`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's pointer pictures and hot spots come from its own cursor resources and the input mode chosen by GUI.dll; neither was read tonight, and the result can only be checked live.
 
 ### Targeting and mouse: a guard or fallback the original lacks (1)
 
@@ -1490,6 +1497,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no stale target after a session takeover
 - Where: `crates/mao-client/src/net.rs:8639`; `docs/CLIENT_UI.md:551`; `docs/LIVE_TEST_LIST.md:103`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: removing the LookAt "none" on entering would change what is sent, and the original's behaviour on entering was not read; the client sends it because a character taken over (a quick relog) keeps its server-side target, which then catches targetless casts.
 
 ### Targeting and mouse: the original does it, the client does not (3)
 
@@ -1501,6 +1509,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no level on monster target frame
 - Where: `docs/CLIENT_UI.md:1892`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The monster info message's layout is not decoded far enough to find a name or level in it; needs the original's reader for that message.
 
 #### `TGT-015` Name tags lack title, names, marks, colour table, ignored icon, side colours
 
@@ -1510,6 +1519,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: name tags lack these marks
 - Where: `docs/ORIGINAL_AUDIT.md:87`; `crates/mao-client/src/nametag.rs:1`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Indicator_t's title, names, marks, colour table, ignored icon and battle-station colours read stats of other characters that the client does not receive; without those stats there is nothing to draw them from.
 
 #### `TGT-016` Unnamed usable objects shown as "Object xxxx"
 
@@ -1519,6 +1529,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: unnamed targets
 - Where: `crates/mao-client/src/net.rs:3389`; `docs/CLIENT_UI.md:99`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original shows the object's name from its template; for these objects the client has not decoded where the name lies, so it shows the id. Needs the template's name field found for those object kinds.
 
 ### Targeting and mouse: the client has it, the original does not (1)
 
@@ -1544,6 +1555,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no actions while dead
 - Where: `docs/CLIENT_UI.md:731`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original tells the interface of the death through DeadMessage; which commands that state turns off (attack, use, follow) was not read. The client's blocking keeps a dead character from sending attacks the server would refuse; left until DeadMessage's users are read.
 
 #### `DTH-002` Corpse falls back to the nearest dead body within 4 m
 
@@ -1553,6 +1565,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a nameless corpse may be attached to the wrong body or none
 - Where: `crates/mao-client/src/net.rs:3362`; `docs/CLIENT_UI.md:4751`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The fallback only acts when a corpse's announcement names nobody (stats 415/416 not found, DTH-009); with the names read at their place it would go. Until then dropping it leaves those dead bodies lying beside their corpse.
 
 #### `DTH-003` Own character never a corpse's body; own corpse is an object of its own
 
@@ -1562,6 +1575,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: own corpse treated differently from creature corpses
 - Where: `docs/CLIENT_UI.md:4826`; `crates/mao-client/src/net.rs:12629`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Same root as DTH-008: in the original every corpse is its own dynel, so the client's own-corpse object is the original's shape already; the rule that the own character is never a corpse's body is the client's way of not reusing bodies for its own character. Left with DTH-008.
 
 #### `DTH-004` Own death line told once in five seconds
 
@@ -1581,6 +1595,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: how the screen returns after revival
 - Where: `crates/mao-client/src/whiteout.rs:9`; `crates/mao-client/src/whiteout.rs:16`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The whiteout itself is a guess (effect 3000 on the own character, memory notes); how the original's effect 3000 clears and what it covers was not read (a DisplaySystem effect), so the 1.5 s and the world-only white stay.
 
 ### Death and revival: an approximation or a stand-in (1)
 
@@ -1592,6 +1607,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: death pose hold implemented differently
 - Where: `docs/CLIENT_UI.md:2401`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The death animation's priority and loop arguments (+0x18 of the controller's call, not decoded) belong to the animation controller, which the client does not model; holding the pose stands in.
 
 ### Death and revival: the original was not read: inferred or measured (4)
 
@@ -1613,6 +1629,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: bodies jump to where the corpse appears
 - Where: `crates/mao-client/src/net.rs:12116`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): In the original the corpse is a dynel of its own (0xc76a) drawn at its own place with the dead one's look, and the dying creature's dynel goes with its despawn; the client reuses the creature's body for the corpse. Separating them needs the corpse drawn from its own announcement (mesh and look of the one it names), a larger change to the death path; left.
 
 #### `DTH-009` Corpse's owner found by scanning for stat keys
 
@@ -1622,6 +1639,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a corpse may not link to its owner for an unusual message
 - Where: `crates/mao-net/src/n3.rs:1692`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The corpse announcement's stats 415/416 are found by their keys because the full update's field order before them is not decoded (the same gap as NAN-030); reading them at their place needs FUN_1007916d's order.
 
 #### `DTH-010` Invented names for corpses
 
@@ -1631,6 +1649,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some corpses show a made-up name
 - Where: `crates/mao-client/src/net.rs:3383`; `crates/mao-client/src/net.rs:3389`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): A corpse's name in the original is its own announced name; the client invents one only when its announcement's name is empty or not decoded. Where the original's comes from for those was not found; left.
 
 ### Death and revival: a guard or fallback the original lacks (2)
 
@@ -1642,6 +1661,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: bodies vanish from the client's bookkeeping after two minutes
 - Where: `crates/mao-client/src/net.rs:1933`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original keeps a dead body until the server despawns it (or its corpse comes); the 120 s bound only frees memory for bodies whose despawn never came, which the original would keep as long. It changes nothing visible in the normal case; kept as a memory bound.
 
 #### `DTH-012` Unseen death counts as played out after 6 seconds
 
@@ -1651,6 +1671,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: death screen and revival call come on a fixed timer in that case
 - Where: `crates/mao-client/src/net.rs:12551`; `crates/mao-client/src/net.rs:4327`; `docs/CLIENT_UI.md:4121`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: CharDie_t (FUN_1007bad5, FUN_1003c6e7) waits for the death animation to end, which in the original always plays on the own character; where the client has no death animation or does not draw the character, the wait would never end and the server would never be told (CharacterAction 0x98), leaving the player dead for the server's 60 s.
 
 ### Death and revival: the original does it, the client does not (2)
 
