@@ -3756,6 +3756,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no bug report goes to the makers
 - Where: `crates/mao-client/src/chat_commands.rs:144`; `crates/mao-client/src/chat_commands.rs:578`; `docs/CLIENT_UI.md:4270`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The user chose to leave /bug out (BugReport_t::SendUserMadeBugReport reports to the makers' bug database, which must not be sent to). Left.
 
 #### `CHT-004` /cc without a word prints the client's usage line
 
@@ -3785,6 +3786,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: /items delete does nothing
 - Where: `crates/mao-client/src/chat_commands.rs:467`; `crates/mao-client/src/chat_commands.rs:699`; `docs/GUI_DLL_PARITY.md:202`; `docs/SLASH_COMMANDS_STATUS.md:16`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): /items delete has the server delete one of the account's items: left out on purpose by the user (destructive, not to be sent from a test). Left.
 
 #### `CHT-007` /tell alone opens a window for the target
 
@@ -3804,6 +3806,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a rule added after a deletion works, where the original's is dead
 - Where: `crates/mao-client/src/chatfilter.rs:16`; `crates/mao-client/src/chatfilter.rs:211`; `docs/ORIGINAL_CODE_QUESTIONS.md:153`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's rule (FUN_100b933d files a new rule under the count of rules) can reuse a name in use and the rule is then never shown or tried: a fault of the original, listed for the user in ORIGINAL_CODE_QUESTIONS. Copying it would lose filter rules; the user's decision. Left.
 
 #### `CHT-009` Chat window tab config source differs
 
@@ -3813,6 +3816,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tabs may come from another character's files
 - Where: `crates/mao-client/src/chatgroups.rs:20`; `crates/mao-client/src/chatgroups.rs:512`; `docs/CLIENT_UI.md:297`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Where the tab configuration is read from is the client's settings arrangement (the original's character folder is read first when present); not a rule to port. Left.
 
 #### `CHT-010` Friend online/offline lines are the client's own notice
 
@@ -3822,6 +3826,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra chat lines, in the client's wording
 - Where: `crates/mao-client/src/net.rs:6228`; `docs/CLIENT_UI.md:1730`; `docs/CLIENT_UI.md:1963`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): What the original shows when a friend comes or goes (its buddy handler's lines) was not read tonight. Left.
 
 #### `CHT-011` Lines typed while the chat was down are dropped on reconnect
 
@@ -3831,6 +3836,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a line typed during an outage is lost
 - Where: `crates/mao-client/src/net.rs:6031`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Original not stated: what the original does with lines typed while the chat is down depends on its reconnect (CHT-022), not read. Left.
 
 #### `CHT-012` Macro text cut to 99 bytes, not 100
 
@@ -3840,6 +3846,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a 100-byte macro is kept here; the original would lose it and later ones
 - Where: `crates/mao-client/src/macros.rs:16`; `crates/mao-client/src/macros.rs:26`; `docs/ORIGINAL_CODE_QUESTIONS.md:144`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's rule (CreateMacro 0x1002338f cuts to 100 bytes, Load 0x1002350b gives up at the first over 99 and drops it and every macro after it) loses the macros on the next load; a fault of the original listed for the user in ORIGINAL_CODE_QUESTIONS. The user's decision. Left.
 
 #### `CHT-013` Macros: own file, carried on the pointer; no macro from a chatcmd link
 
@@ -3849,6 +3856,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: macros dragged differently; cannot make one from a link
 - Where: `docs/GUI_DLL_PARITY.md:144`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the macro file and the drag are the client's own arrangement; the right click on a chatcmd:// link (FUN_10065798) is a GUI feature not done tonight. Left.
 
 #### `CHT-014` Mail terminal looked up within 25 units
 
@@ -3858,6 +3866,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: mail range is the client's
 - Where: `crates/mao-client/src/mailbox.rs:20`; `crates/mao-client/src/mailbox.rs:41`; `docs/CLIENT_UI.md:1872`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Original not stated: how the original finds the mail terminal the character uses was not read. Left.
 
 #### `CHT-015` Texts fall back to the client's own words
 
@@ -3867,6 +3876,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: wording may differ without the game files or where an entry is absent
 - Where: `crates/mao-client/src/chatwindow.rs:403`; `crates/mao-client/src/chatwindow.rs:419`; `crates/mao-client/src/chatconfig.rs:33`; `crates/mao-client/src/afk.rs:28`; `crates/mao-client/src/orgcommands.rs:40`; `crates/mao-client/src/feedback.rs:130` and 3 more
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The fallbacks are only used where the install's text.mdb lacks an entry, so they do not show with a full install. One correction for the catalog: "Error: Chat group %s is currently not available." is the original's own literal (GUI.dll FUN_10085a42), not the client's wording. Left.
 
 ### Chat and commands: an approximation or a stand-in (13)
 
@@ -3887,6 +3897,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: simpler info for objects than the original's
 - Where: `crates/mao-client/src/net.rs:7468`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): A built-in terminal's description as an itemid:// link needs the terminal's item behind the object (which template describes it) found for each kind of object the client shows; the "nothing targeted" line belongs to the client's own /inspect-the-target path, which CHT-005 now leaves unreachable from the chat line (/inspect alone does nothing, as the original). Left.
 
 #### `CHT-018` /voice speaks only in the vicinity
 
@@ -3896,6 +3907,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: /voice cannot go to the team, guild or another channel
 - Where: `crates/mao-client/src/net.rs:6418`; `crates/mao-client/src/voices.rs:22`; `docs/CLIENT_UI.md:2545`; `docs/ORIGINAL_AUDIT.md:98`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100b88b1 says the voice line in the chat window's selected group; the client's chat windows have an output group per window (`/ch`), but the voice path (voices.rs) is fed only the vicinity, and sending a voice line into a channel must not be tried without a live check (nothing may be sent to channels tonight). Left.
 
 #### `CHT-019` Always behind / always on top stored with the window
 
@@ -3905,6 +3917,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/chatwindow.rs:559`; `crates/mao-client/src/chatwindow.rs:622`; `docs/CLIENT_UI.md:394`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The window flags 0x200/0x100 are honoured by egui layers, which is the same effect in this client's own window system; there is no further rule to port. Left.
 
 #### `CHT-020` Borderless chat window rule simplified
 
@@ -3914,6 +3927,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: borderless allowed in slightly different cases
 - Where: `crates/mao-client/src/chatwindow.rs:550`; `crates/mao-client/src/chatwindow.rs:1607`; `docs/CLIENT_UI.md:380`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_10099a56's second name is not identified in the reading; without it there is nothing to compare against. Left.
 
 #### `CHT-021` Chat line plain-text conversion is a simplified markup reader
 
@@ -3923,6 +3937,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: other entities and formatting of a line are lost where plain text is used
 - Where: `crates/mao-net/src/chat.rs:392`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The game's HTMLParser_c is a full markup renderer; chat::plain is only the plain-text copy, while the chat lines keep their markup for the client's own renderer. Porting HTMLParser_c is far over the time box. Left.
 
 #### `CHT-022` Chat server reconnect timing and give-up
 
@@ -3932,6 +3947,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: after five failures the chat stays dead until the client is restarted (a line says so)
 - Where: `crates/mao-client/src/net.rs:6018`; `docs/CLIENT_UI.md:1165`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_1008a2c1's attempt counting and delays are not stated in what was read, and testing a reconnect needs the chat server. Left.
 
 #### `CHT-023` Chat transparency, fading and mode are simplified
 
@@ -3941,6 +3957,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: coarser control of window transparency
 - Where: `crates/mao-client/src/chatwindow.rs:198`; `docs/CLIENT_UI.md:383`; `docs/GUI_DLL_PARITY.md:75`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The Visual menu's two sliders and the fading/mode rules are GUI behaviour checked by eye; the fade itself is CHT-034's open reading. Left.
 
 #### `CHT-024` Emotes: lounge/sleep need the camp's sitting; swimming and vehicle checks absent
 
@@ -3950,6 +3967,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: emotes allowed where the original refuses
 - Where: `docs/ORIGINAL_AUDIT.md:112`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the swimming and vehicle checks of the emotes need the client to know swimming and vehicles at the place the emote is tested; the sitting is the camp's. Left.
 
 #### `CHT-025` Tells of other kinds shown as tells
 
@@ -3969,6 +3987,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: non-ASCII letters in game texts may show wrong
 - Where: `crates/mao-formats/src/ldb.rs:40`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Original not stated: text.mdb's texts are single-byte (the game's code page); a byte-to-character mapping is the same as the original's for the texts that exist (ASCII). Only a non-ASCII text would differ, and none was found to compare. Left.
 
 #### `CHT-027` Text formatting fills arguments by a simplified rule
 
@@ -3978,6 +3997,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: texts with widths, %x, times or floats print plainly or wrongly
 - Where: `crates/mao-formats/src/ldb.rs:219`; `crates/mao-formats/src/ldb.rs:74`; `docs/ORIGINAL_AUDIT.md:20`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): LDBformat::Feed's full printf conversions, time and float feeds are a port of the formatter for argument kinds no caller in the client passes yet; over the time box. Left.
 
 #### `CHT-028` Unknown sender shown by hex id
 
@@ -3987,6 +4007,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some chat lines show a number instead of a name
 - Where: `crates/mao-client/src/net.rs:6182`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Original not stated: what HandleVicinity/Group/PrivateMessage show for a sender whose name is not known yet was not read (FUN_10086075's lookup); the hex id stands in. Left.
 
 ### Chat and commands: the original was not read: inferred or measured (16)
 
@@ -3998,6 +4019,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: /cc info may show nothing
 - Where: `crates/mao-net/src/chat.rs:290`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Built from the disassembly already; what the server answers to /cc info was never seen (see CHT-054), and nothing may be sent to the chat server tonight. Left.
 
 #### `CHT-030` /group and /ch say "There is no chat group named" in the client's words
 
@@ -4006,7 +4028,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a fixed English line for an unknown group name
 - A player notices: possibly different wording from the original
 - Where: `crates/mao-client/src/chatwindow.rs:1003`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original has the same line: /ch's handler (GUI.dll FUN_1009c5b8, the no-match branch) builds it from fixed strings of the program, "No chat-group named '" + the name + "'." (calls at 0x1009c70e and 0x1009c725), with the name's quotes stripped first as the client does; it is not a text of the game's. The client says it in its own words, as the user's rule asks for the program's literal strings. Nothing to change.
 
 #### `CHT-031` /viewdist, /chardist and /char&viewdist limits and wording
 
@@ -4016,6 +4039,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: values over the limits are cut
 - Where: `crates/mao-client/src/chatwindow.rs:1265`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): GUI.dll FUN_100b6a54's limits and lines were not read through tonight, and the distances map onto the client's own view-distance settings (RND-194). Left.
 
 #### `CHT-032` AFK box answers use fixed English lines
 
@@ -4024,7 +4048,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: "AFK off.", "Using default AFK message." and the emote "is back" are fixed strings
 - A player notices: wording may differ from the original
 - Where: `crates/mao-client/src/afk.rs:162`; `crates/mao-client/src/afk.rs:166`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original uses the same fixed lines: the AFK box's answer (GUI.dll FUN_100b6b65) assigns the program's own strings "Using default AFK message.", "AFK off." and the emote "is back", not texts of the game's (only the message-changed line comes from text.mdb, ChatCmdFeedback_ChangedAFKMessageTo, which the client reads). The client's lines match them; whether to reword them is the user's rule on the program's literals. Nothing to change.
 
 #### `CHT-033` Channel message sent with a one-space blob
 
@@ -4034,6 +4059,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-net/src/chat.rs:360`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The voice record FUN_1008a2c1 puts in a group message's blob is only present for a voice line; what the original sends for a plain channel line was not proven against a capture of the chat connection, and nothing may be sent to channels tonight to test it. Left.
 
 #### `CHT-034` Chat message fading is the client's reading
 
@@ -4043,6 +4069,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: fade may differ
 - Where: `crates/mao-client/src/chatwindow.rs:1516`; `crates/mao-client/src/ui.rs:1122`; `docs/CLIENT_UI.md:391`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): How FadingTextView_c uses ChatTextFadeDelay/Time was not read; needs the view's code. Left.
 
 #### `CHT-035` Command list is drawn and completed in the client's own way
 
@@ -4052,6 +4079,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: look and keys of the command list may differ
 - Where: `crates/mao-client/src/chatwindow.rs:1442`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100a44e8's command list is a GUI view whose look is judged by eye; the client's list is its own window. Left.
 
 #### `CHT-036` Declined mail gets the client's own explanation
 
@@ -4061,6 +4089,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the player sees the client's guess at why the mail failed, not the original's text
 - Where: `crates/mao-client/src/net.rs:6797`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The meaning of the server's notice after a send and of action 0xba's code is not known without a capture of a refused mail. Left.
 
 #### `CHT-037` Leave-organization box line is the client's own words
 
@@ -4070,6 +4099,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: wording may differ
 - Where: `crates/mao-client/src/orgboxes.rs:22`; `docs/CLIENT_UI.md:4228`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The leave-organization box's line is a literal of the program (not a game text), which by the user's rule is written in the client's own words; finding its exact sense needs the box's function read, which was not done tonight. Left.
 
 #### `CHT-038` Mail return-to-sender built from the code only
 
@@ -4079,6 +4109,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: return may not work
 - Where: `crates/mao-net/src/mail.rs:10`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): No capture of a returned mail exists; the two unread words of an opened mail need one. Left.
 
 #### `CHT-039` Name link qualifier keys are a guess
 
@@ -4088,6 +4119,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: modifier clicks on names may do different things
 - Where: `crates/mao-client/src/chatwindow.rs:11`; `docs/CLIENT_UI.md:1158`; `docs/ORIGINAL_AUDIT.md:32`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): FUN_100ac4c4's qualifier bits come from GUI.dll's input layer; which key sets which bit was not traced. Left.
 
 #### `CHT-040` Private group line sent with a zero-byte blob
 
@@ -4097,6 +4129,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-net/src/chat.rs:347`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): What the original puts in a private group line's blob needs a capture of the chat connection; nothing may be sent tonight to test. Left.
 
 #### `CHT-041` Script words are split at blanks only
 
@@ -4106,6 +4139,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: quoted words in a script call may split differently
 - Where: `crates/mao-client/src/scripts.rs:19`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): String::Tokenize's treatment of quotes in the script path was not read. Left.
 
 #### `CHT-042` Sent-line history of 100 lines and chat buffer of 600 lines
 
@@ -4115,6 +4149,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: older lines are lost
 - Where: `crates/mao-client/src/chatwindow.rs:313`; `crates/mao-client/src/chatwindow.rs:952`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's history and buffer sizes were not found in what was read (HandlePrivateMessage trims a list at 50 entries, FUN_10093727, but that is the recent-tells list, not the chat buffer). Left.
 
 #### `CHT-043` Team leader guessed as the first member when none is named
 
@@ -4146,6 +4181,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: such a server line never shows
 - Where: `crates/mao-client/src/net.rs:6301`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Safety kept: a line with control characters only comes from a packet of another layout read wrongly by this client's own parser (the original's parser reads every packet, CHT-066); dropping it stops garbage from showing, and it changes nothing for a packet the client reads rightly. Left.
 
 #### `CHT-046` Mail inbox list capped at 64 entries
 
@@ -4165,6 +4201,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible normally
 - Where: `crates/mao-client/src/scripts.rs:127`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Safety kept for another reason than a panic: script names can come from chatcmd:// links in lines other players send, so a name with a path in it would read any file of the user's machine as commands. Left as a security guard.
 
 ### Chat and commands: the original does it, the client does not (21)
 
@@ -4214,6 +4251,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no output for those commands
 - Where: `crates/mao-client/src/chatwindow.rs:1243`; `crates/mao-client/src/chat_commands.rs:468`; `docs/LIVE_TEST_LIST.md:496`; `docs/LIVE_TEST_LIST.md:517`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): What the server answers to /bank info and /items needs a capture; nothing may be sent tonight. Left.
 
 #### `CHT-053` /bank open does nothing
 
@@ -4223,6 +4261,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible for a normal player
 - Where: `crates/mao-client/src/chatwindow.rs:1239`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): /bank open is a game master's command (Gamecode FUN_1003fe10); nothing for a player to see. Left.
 
 #### `CHT-054` /cc info <name> gets no answer
 
@@ -4232,6 +4271,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: /cc info prints nothing useful
 - Where: `crates/mao-client/src/chatwindow.rs:1283`; `crates/mao-client/src/net.rs:6369`; `docs/CLIENT_UI.md:4254`; `docs/CLIENT_UI.md:4455`; `docs/LIVE_TEST_LIST.md:289`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The server's answer to /cc info was never seen (a live test got none); needs a capture. Left.
 
 #### `CHT-055` /reclaim is not carried out
 
@@ -4241,6 +4281,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: /reclaim does nothing
 - Where: `crates/mao-client/src/chat_commands.rs:621`; `docs/LIVE_TEST_LIST.md:527`; `docs/SLASH_COMMANDS_STATUS.md:14`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The client has no reclaim window; /reclaim (N3Msg_ToggleReclaim) needs that window ported first. Left.
 
 #### `CHT-056` /start does not ask first when full screen
 
@@ -4260,6 +4301,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: typing /tower or /terminate does nothing useful
 - Where: `crates/mao-client/src/chat_commands.rs:416`; `crates/mao-client/src/chat_commands.rs:759`; `docs/GUI_DLL_PARITY.md:170`; `docs/LIVE_TEST_LIST.md:498`; `docs/SLASH_COMMANDS_STATUS.md:13`; `crates/mao-client/src/chat_commands.rs:621` and 2 more
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): /tower runs a script at a service tower and /terminate asks in a box first (FUN_100b375a, FUN_100b3a69); both need the Notum Wars towers, not testable without the live game. Left.
 
 #### `CHT-058` Away does not leave a battle station queue; AFK box title is the client's
 
@@ -4269,6 +4311,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/afk.rs:6`; `docs/GUI_DLL_PARITY.md:283`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The client has no battle station queue to leave; the AFK window's flags were not followed. Left.
 
 #### `CHT-059` Chat configuration: click-through, deactivate on send, default-window options, menu separators
 
@@ -4278,6 +4321,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: missing options
 - Where: `docs/CLIENT_UI.md:397`; `crates/mao-client/src/friends.rs:20`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the configuration options are GUI features judged by use. Left.
 
 #### `CHT-060` Chat configuration: no window-row menu, no disbanding one's own private group
 
@@ -4287,6 +4331,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: missing options in the configuration window
 - Where: `crates/mao-client/src/chatconfig.rs:17`; `docs/CLIENT_UI.md:340`; `crates/mao-client/src/chatconfig.rs:19`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): A window row's menu and disbanding one's own private group are GUI features; disbanding would send to the chat server, not to be tried tonight. Left.
 
 #### `CHT-061` Chat indicator's head flash not done
 
@@ -4296,6 +4341,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no head flash
 - Where: `docs/ORIGINAL_AUDIT.md:99`; `crates/mao-client/src/chat_commands.rs:272`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the head flash is a visual of the chat indicator. Left.
 
 #### `CHT-062` chatgroup:// links not made
 
@@ -4305,6 +4351,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: group names in chat are not clickable
 - Where: `docs/ORIGINAL_AUDIT.md:32`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: chatgroup:// links need their click handler and the markup that makes them; not read. Left.
 
 #### `CHT-063` One combined chat log, no message-log window
 
@@ -4314,6 +4361,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no per-window logs and no in-game log viewer
 - Where: `crates/mao-client/src/chatconfig.rs:18`; `crates/mao-client/src/chatlog.rs:1`; `docs/CLIENT_UI.md:334`; `docs/CLIENT_UI.md:1816`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Per-window logs and the message-log window are a feature port of the chat windows; over the time box. Left.
 
 #### `CHT-064` Other chat frames' places not taken from the original's files
 
@@ -4323,6 +4371,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: frame placement differs
 - Where: `docs/CLIENT_UI.md:368`; `crates/mao-client/src/chatgroups.rs:453`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the frames' places could not be confirmed from the original's files. Left.
 
 #### `CHT-065` Server lines for a named window go to the system lines
 
@@ -4332,6 +4381,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a server line meant for a given window shows in the system lines instead
 - Where: `crates/mao-client/src/net.rs:6277`; `docs/CLIENT_UI.md:4468`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): HandleSystemMessage (0x1008633c) sends a line to the window it names; following it needs the window names of the server's system lines matched to the client's windows, and a capture of such a line. Left.
 
 #### `CHT-066` Unknown chat server packets are ignored
 
@@ -4341,6 +4391,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: chat server events with no decoder show nothing
 - Where: `crates/mao-client/src/net.rs:6295`; `crates/mao-net/src/chat.rs:16`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Decoding the remaining packet forms (40/41 variants, 61, the membership flag) needs captures of the chat connection to test against. Left.
 
 #### `CHT-067` Voice lines ignore the ignore list and the tags' doings
 
@@ -4350,6 +4401,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: voice lines of ignored players may still play; no name flash in the team window
 - Where: `crates/mao-client/src/voices.rs:25`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The ignore test on voice lines (record 2's flag bit 0) and the tags' doings (T flashes the name in the team window, M signals GlobalSignals_c +0x150) need the voice record's flags and the team window's flash; not done tonight. Left.
 
 #### `CHT-068` Words-per-command table only covers the commands that were read
 
@@ -4359,6 +4411,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: /org and /team lines may be cut differently from the original's
 - Where: `crates/mao-client/src/chat_commands.rs:317`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The organization's and the team's commands' piece counts need their registrations read in GUI.dll; over the time box. Left.
 
 ### Chat and commands: the client has it, the original does not (12)
 
@@ -4388,6 +4441,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra message
 - Where: `crates/mao-client/src/net.rs:1047`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has its own not-connected line for /cc ("Error: Not connected to chat-server.", a literal of FUN_100ba6f4); a player needs to know why a line went nowhere.
 
 #### `CHT-072` /fxscript with only a name gets a parameter mark added
 
@@ -4397,6 +4451,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: /fxscript <name> runs the script where the original would not; extra feedback lines
 - Where: `crates/mao-client/src/chat_commands.rs:434`; `docs/CLIENT_UI.md:1253`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original runs a script only when a parameters part follows the name; adding the mark runs scripts the original would not.
 
 #### `CHT-073` /setoption names the client's own settings
 
@@ -4406,6 +4461,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: display options and AutoAFK changeable from chat
 - Where: `crates/mao-client/src/settings.rs:668`; `crates/mao-client/src/afk.rs:29`; `docs/CLIENT_UI.md:3554`; `docs/GUI_DLL_PARITY.md:306`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: /setoption is the only way to set the client's own options from the chat line, and the original's distributed values are still set as they are.
 
 #### `CHT-074` Client's own chat status lines
 
@@ -4415,6 +4471,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra system lines in chat
 - Where: `crates/mao-client/src/net.rs:6033`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the connection lines tell why chat stopped; the original has no such lines but also a different connection handling.
 
 #### `CHT-075` Deposit to Market adds a client line
 
@@ -4424,6 +4481,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: an extra chat line
 - Where: `crates/mao-client/src/net.rs:8247`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original says nothing; the market window itself shows what was sent.
 
 #### `CHT-076` Inspect result also told as a chat line
 
@@ -4433,6 +4491,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra line in chat after inspecting
 - Where: `crates/mao-client/src/net.rs:2669`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original only opens the info page.
 
 #### `CHT-077` New mail needs a recipient and subject (client's own check)
 
@@ -4442,6 +4501,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a mail with no subject cannot be sent from the client
 - Where: `crates/mao-client/src/mailmessage.rs:278`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: FUN_1010733d checks only negative credits, the lengths and the money/C.O.D.; the server answers an empty recipient itself.
 
 #### `CHT-078` Own confirmation lines for several commands
 
@@ -4451,6 +4511,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra feedback lines in chat
 - Where: `crates/mao-client/src/chatwindow.rs:1170`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original says nothing for these commands (e.g. /gfx); the lines are the client's own.
 
 #### `CHT-079` Scripts folder beside the client's settings is searched first
 
@@ -4460,6 +4521,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: scripts can come from a different folder
 - Where: `crates/mao-client/src/scripts.rs:17`; `crates/mao-client/src/scripts.rs:53`; `docs/GUI_DLL_PARITY.md:152`; `docs/CLIENT_UI.md:854`; `docs/LIVE_TEST_LIST.md:474`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original's folder is still searched; the client's own folder beside its settings only adds a place.
 
 #### `CHT-080` Team invitation text is the client's own
 
@@ -4469,6 +4531,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: invitation line may differ from the original
 - Where: `crates/mao-client/src/net.rs:2853`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP until the original's invitation text is found (the box's line was not read); the box is needed to accept an invitation.
 
 ## Windows and interface
 
