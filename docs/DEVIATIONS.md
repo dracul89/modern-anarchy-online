@@ -6379,7 +6379,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: takes the first whose lower-case name contains the given text
 - A player notices: wrong attachment point possible when two names share a text
 - Where: `crates/mao-formats/src/catmesh.rs:444`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): RCATMesh_t::GetAttractor compares the whole name (FUN_10054df1, drop-in catrender.rs attractor_matrix), the head is asked for as `Attractor01_head`, and a worn mesh's place names its attractor from AttractorMesh::GetName's table (DisplaySystem 0x100af7f0, drop-in attractor.rs NAMES: Attractor01_head, 02_righthand, 03_lefthand, 04_rightshoulder, 05_leftshoulder, 06_back, 07_hip, 08_rightthigh, 09_leftthigh, 10_rightcrus, 11_leftcrus, 12_rightarm, 13_leftarm, 14_rightforearm, 15_leftforearm). The client took the first attractor whose lower-case name contained "head" or "AttractorNN"; net.rs (PLACE_ATTRACTORS, attractor_name, the three head lookups) and anim.rs now use the whole names through CatMesh::attractor_named, and the substring CatMesh::attractor is removed. A place past the table finds nothing (the original indexes it unchecked). Test: net::door_tests::worn_places_name_whole_attractors.
 
 #### `RND-032` Billboard particles never spin (suns, smoke)
 

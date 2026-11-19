@@ -456,13 +456,6 @@ impl CatMesh {
 }
 
 impl CatMesh {
-    /// The attractor (attachment point) with this name prefix, such as
-    /// `Attractor01_head`.
-    pub fn attractor(&self, name_part: &str) -> Option<&Attractor> {
-        let wanted = name_part.to_lowercase();
-        self.groups.iter().flat_map(|g| &g.attractors).find(|a| a.name.to_lowercase().contains(&wanted))
-    }
-
     /// The attractor named exactly `name` (`RCATMesh_t::GetAttractor` compares the whole name, FUN_10054df1), such as
     /// `Attractor07_special`.
     pub fn attractor_named(&self, name: &str) -> Option<&Attractor> {

@@ -65,7 +65,7 @@ pub fn player(db: Arc<ResourceDatabase>, breed: u8, sex: u8, anim: u32, image: O
     let head = crate::load_model_attached(&db, Id { kind: 0xf6951, instance: head_id })?;
     let animation: CatAnim = catanim::parse(&load(&db, 0xf6953, anim)?).map_err(|e| e.to_string())?;
     let length = length(&animation);
-    let attractor = body.attractor("head").cloned();
+    let attractor = body.attractor_named("Attractor01_head").cloned();
     // MAO_WEAR=position:mesh:texture,... (hex instances; texture 0 for the mesh's own): meshes held at the body's attachment points.
     let gear: Vec<(u8, u32, u32)> = std::env::var("MAO_WEAR")
         .unwrap_or_default()

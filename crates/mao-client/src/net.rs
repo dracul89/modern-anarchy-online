@@ -5146,11 +5146,31 @@ const MORPH_ANIM_RATE: f32 = 1.0;
 /// The body parts a texture place of an `AppearanceUpdate` names (the cloth list's order).
 const CLOTH_PARTS: [&str; 6] = ["hands", "body", "feet", "arms", "legs", "head"];
 
-/// The attachment point of a worn mesh: its position counts from the body's `Attractor01_head`
-/// (head, right hand, left hand, right shoulder, left shoulder, back).
-fn attractor_name(position: u8) -> String {
+/// The attractors a worn mesh's place names, in order (`AttractorMesh::GetName`, DisplaySystem's table at 0x100af7f0),
+/// found on the body by the whole name (`RCATMesh_t::GetAttractor`, FUN_10054df1).
+const PLACE_ATTRACTORS: [&str; 15] = [
+    "Attractor01_head",
+    "Attractor02_righthand",
+    "Attractor03_lefthand",
+    "Attractor04_rightshoulder",
+    "Attractor05_leftshoulder",
+    "Attractor06_back",
+    "Attractor07_hip",
+    "Attractor08_rightthigh",
+    "Attractor09_leftthigh",
+    "Attractor10_rightcrus",
+    "Attractor11_leftcrus",
+    "Attractor12_rightarm",
+    "Attractor13_leftarm",
+    "Attractor14_rightforearm",
+    "Attractor15_leftforearm",
+];
+
+/// The attachment point of a worn mesh: the attractor its place names (`PLACE_ATTRACTORS`); none past the table (the
+/// original indexes it unchecked).
+fn attractor_name(position: u8) -> Option<&'static str> {
     // (a mesh in the head's place is held where the head is: `n3::HEAD_REPLACED`)
-    format!("Attractor{:02}", (position & !mao_net::n3::HEAD_REPLACED) as u32 + 1)
+    PLACE_ATTRACTORS.get((position & !mao_net::n3::HEAD_REPLACED) as usize).copied()
 }
 
 /// The worn static meshes of a character held at their attachment points of the posed body.
@@ -5169,7 +5189,7 @@ pub(crate) fn wear(db: &ResourceDatabase, cache: &mut std::collections::HashMap<
         if position == mao_net::n3::FACE_DONOR {
             continue;
         }
-        let Some(point) = body.attractor(&attractor_name(position)) else { continue };
+        let Some(point) = attractor_name(position).and_then(|name| body.attractor_named(name)) else { continue };
         let piece = cache.entry(mesh).or_insert_with(|| crate::load_model_attached(db, Id { kind: 0xf6951, instance: mesh }).ok());
         if let Some(piece) = piece {
             let mut worn = body.attach(bones, point, piece);
@@ -5704,7 +5724,7 @@ impl Characters {
         // which the template's own head is not drawn, what is in the hands, on the shoulders and the back. The Male
         // Watchers of Old Athen stood bare-headed: their update names `opifex_male_helmet_techarmour` for the head.)
         let custom_head = gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED);
-        if let (Some(head), Some(attractor), false) = (head, mesh.attractor("head"), custom_head) {
+        if let (Some(head), Some(attractor), false) = (head, mesh.attractor_named("Attractor01_head"), custom_head) {
             parts.extend(mesh.attach(&bones, attractor, head));
         }
         parts.extend(wear(&db, &mut self.statics, mesh, &bones, gear));
@@ -5801,7 +5821,7 @@ impl Characters {
         }
         over_the_skin(&mut self.ids, &self.index, &mut parts, breed, sex, race_by_head(&self.head_races, gear).unwrap_or(1));
         let custom_head = gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED || (g.0 == 0 && self.head_meshes.contains(&g.1)));
-        if let (Some(Some((_, head, _))), Some(attractor), false) = (self.bodies.get(&(breed, sex)), mesh.attractor("head"), custom_head) {
+        if let (Some(Some((_, head, _))), Some(attractor), false) = (self.bodies.get(&(breed, sex)), mesh.attractor_named("Attractor01_head"), custom_head) {
             parts.extend(mesh.attach(&bones, attractor, head));
         }
         parts.extend(wear(&db, &mut self.statics, mesh, &bones, gear));
@@ -5835,7 +5855,7 @@ impl Characters {
                 Some(head_name) => crate::load_model_attached(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?,
                 None => Model { parts: Vec::new(), instances: Vec::new(), water: None, lod_groups: Vec::new() },
             };
-            let attractor = body.attractor("head").cloned();
+            let attractor = body.attractor_named("Attractor01_head").cloned();
             Some((body, head, attractor))
         });
     }
@@ -12811,6 +12831,17 @@ fn parse_capture_world(log: &str) -> Result<World, String> {
 #[cfg(test)]
 mod door_tests {
     use super::*;
+
+    /// A worn mesh's place names its attractor by the whole name (AttractorMesh::GetName's table): the head's place
+    /// (and a mesh standing in for the head) the head, 5 the back, 14 the left forearm; nothing past the table.
+    #[test]
+    fn worn_places_name_whole_attractors() {
+        assert_eq!(attractor_name(0), Some("Attractor01_head"));
+        assert_eq!(attractor_name(mao_net::n3::HEAD_REPLACED), Some("Attractor01_head"));
+        assert_eq!(attractor_name(5), Some("Attractor06_back"));
+        assert_eq!(attractor_name(14), Some("Attractor15_leftforearm"));
+        assert_eq!(attractor_name(15), None);
+    }
 
     #[test]
     fn nanos_join_and_leave_the_running_list() {

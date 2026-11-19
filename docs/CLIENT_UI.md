@@ -7005,3 +7005,7 @@ A statel whose flags have bit 0 is turned about Y, stretched along X and sheared
 ### Animation cross-fades slerp (RND-030)
 
 When one animation fades into another, the original's CATAnimBlend_t (FUN_10050586) turns each bone by a slerp of the two rotations at the blend's weight (FUN_10053d0b) and moves it by a straight mix of the two positions (FUN_1005063c). The client now does the same in its animation stack and in pose_blend; it used a renormalised weighted sum, which turned a little slower mid-fade.
+
+### Attractors by whole name (RND-031)
+
+The original finds a body's attachment points by their whole names (RCATMesh_t::GetAttractor, FUN_10054df1): the head at `Attractor01_head`, and a worn mesh at the name its place gives in AttractorMesh::GetName's table (0x100af7f0: head, right hand, left hand, right shoulder, left shoulder, back, hip, thighs, crus, arms, forearms, fifteen in all). The client now does the same; it used to take the first attractor whose name merely contained the text.
