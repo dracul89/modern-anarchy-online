@@ -7089,3 +7089,7 @@ The original keeps the breed, profession, head, height, build and name chosen in
 ### /ignore as the original's (SET-028)
 
 The original's `/ignore` (GUI.dll FUN_100bafeb) takes one name, `list`, or nothing for the selected target; more words are refused, the player's own character cannot be ignored, and the toggle is said with the game's own texts ("Ignoring character ..." / "Unignoring character ...", text.mdb 10001). The client now follows those rules and texts; `/ignore` alone ignores the target instead of printing the list, which `/ignore list` shows. The list is still kept by name in the client's ignore.ini.
+
+### Back to the character list after a camp (LCH-045)
+
+The original's `LoginModule_c::SlotInitialize` 0x100123ee, called on the way back from the game, logs in again at once with the account and password it kept (`SlotLoginAccount`) instead of showing the login form; the client's launcher restart with `MAO_RELOGIN` does the same, so this is the original's behaviour, not an addition.

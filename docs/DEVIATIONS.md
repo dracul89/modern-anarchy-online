@@ -8219,6 +8219,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a second window and a few seconds' hand-over
 - Where: `crates/mao-client/src/launcher.rs:300`; `docs/CLIENT_UI.md:1828`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original runs the login, the character list and the game in one process and one window (GUI.dll `LoginModule_c`, `ServerLogin3DModule_t`); the client's launcher is a separate program because the game's window, event loop and renderer are set up for one playfield per process (winit allows one event loop per process: launcher.rs "an event loop cannot be made twice in one"). Putting the login into the game's window would rebuild the launcher and the game's start; far beyond a night's entry. What can be matched inside the split is matched (LCH-009, LCH-038, LCH-045).
 
 #### `LCH-002` Launcher settings pages keep their names but have this client's own contents
 
@@ -8228,6 +8229,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: settings offered differ from the original's
 - Where: `crates/mao-client/src/launchwindow.rs:21`; `docs/CLIENT_UI.md:789`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's three pages (dialog templates 153, 161, 107 in Anarchy.exe) choose a Direct3D 7 device, colour depths and texture formats that wgpu has no counterpart for (see SET-037, SET-042); keeping the page names with the client's own rows is the nearest the client can be. Nothing to port without those choices meaning something.
 
 #### `LCH-003` Loading screen picture is tinted blue; zoning also shows it
 
@@ -8247,6 +8249,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: wide windows show whole smaller figures and space outside the hall
 - Where: `crates/mao-render/src/lib.rs:841`; `docs/ORIGINAL_AUDIT.md:26`; `docs/CLIENT_UI.md:809`; `docs/CLIENT_UI.md:1490`; `docs/CLIENT_UI.md:4524`; `crates/mao-client/src/hall.rs:20` and 1 more
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The 4:3 view height on wide windows is the user's own choice (full width over black bars, docs/ORIGINAL_AUDIT.md and CLIENT_UI.md), and `MAO_HALL_ORIGINAL=1` already shows the original's rule (90 degrees across the window, `VisualCamera_t::SetViewPlaneWindow`) for comparison. Not changed against the user's decision.
 
 #### `LCH-005` A successful login puts away the error page
 
@@ -8266,6 +8269,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: different title text
 - Where: `crates/mao-client/src/launchwindow.rs:253`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The title keeps the original's shape (name and the local and remote versions); only the name is the client's, which is what the program is. Writing "Anarchy Online" there would present the client as Funcom's own launcher.
 
 #### `LCH-007` Login dialog keeps a list of used accounts with Remove
 
@@ -8274,7 +8278,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: list of previously used accounts with a Remove button kept in account.ini; default theme "original"
 - A player notices: stored accounts list
 - Where: `docs/CLIENT_UI.md:2070`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Notes only, and the original has it: GUI.dll `LoginWindow_c` has the username list with `remove_btn`, kept as `LauncherConfig`'s `NumAccounts`, `Account%d` and `SelectedAccount` (`SaveAccounts`); the client's list with Remove is that, kept in account.ini (never a password). Nothing changed.
 
 #### `LCH-008` Progress bar time-out comes from the launcher's Connection page
 
@@ -8284,6 +8289,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: bar length may differ
 - Where: `crates/mao-client/src/launcher.rs:248`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Whether the original launcher's Connection page writes the game's `GeneralNetworkTimeout` (which the login's progress window reads) was not read in Anarchy.exe; if it does, the client's "the launcher's value when saved, else the game's" is the original's. Left until Anarchy.exe's page handler is read.
 
 ### Launcher, login, character creation: an approximation or a stand-in (13)
 
@@ -8315,6 +8321,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a plain turntable instead of the hall
 - Where: `crates/mao-client/src/launcher.rs:788`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The turntable is only the fallback for when the hall's meshes are not found in the game's files (or a picture is taken without the creation scene); with a complete game the character stands in the hall as the original's (`hall::stand`). The original has no such case to port.
 
 #### `LCH-012` Character screen and login dialog draw their own lists
 
@@ -8324,6 +8331,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: launcher built from the client's own widgets
 - Where: `docs/CLIENT_UI.md:3023`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the character screen and login dialog are drawn on the skin's own views (`loginviews.rs`: `LoginWindow.xml`, `CharacterSelectionWindow.xml`); only the two lists inside them are egui widgets because the client's XML views have no `TextButton` list / `ComboBox` yet. A port is the GUI.dll list widgets, a GUI_DLL_PARITY item larger than this entry.
 
 #### `LCH-013` Creation choices are kept only while the launcher runs
 
@@ -8343,6 +8351,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: slightly different pick area and face close-up
 - Where: `crates/mao-client/src/launcher.rs:587`; `docs/CLIENT_UI.md:4538`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Picking by the figure's mesh and the head's place from its attractor need the creation figures' meshes ray-tested and their attractors read through the CCCharacter_t path (`CCCharacter_t::MoveToConnector`, the head attractor); the boxes are within a few pixels for the seven breed figures. Too much for its worth tonight.
 
 #### `LCH-015` Delete confirmation compares names case-insensitively
 
@@ -8362,6 +8371,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/hall.rs:7`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original loads the hall's five meshes four times, a stage two units above the last, and shows one stage; the client's single copy draws the same picture (only one stage is ever shown). Nothing a player can see.
 
 #### `LCH-017` Meta-Physicist description tags taken out
 
@@ -8371,6 +8381,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: plain text description
 - Where: `docs/CLIENT_UI.md:2821`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the Meta-Physicist's description is GUI.dll's `DescriptionMetaPhysicists` with `<font>` tags and entities, which the creation's text area (drawn by the client's own painter) shows as plain text; drawing the tags' colours needs the creation's text areas moved onto the GUI text view (`gui/text.rs`), which the creation scenes do not use yet.
 
 #### `LCH-018` Name case is set by the client
 
@@ -8390,6 +8401,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: page behaves as in a normal browser; optional
 - Where: `crates/mao-client/src/launchwindow.rs:568`; `docs/CLIENT_UI.md:776`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The page shows by default (`page = true`), as the original's always-shown browser control; the switch and sending new-window links to the system browser are what a WebView2 child needs (it has no window of its own to open them in). Nothing of the original's left to port.
 
 #### `LCH-020` No colour depth; exclusive full screen when neither box is ticked
 
@@ -8399,6 +8411,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no colour-depth choice
 - Where: `crates/mao-client/src/launchwindow.rs:27`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The boxes and their meaning are the original's (neither ticked is full screen); only the colour depth is missing, which wgpu cannot choose (the swap chain's format is the display's; see SET-037).
 
 #### `LCH-021` Unknown refusal codes show "ServerProblem"
 
@@ -8420,6 +8433,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a label could be wrong for some professions
 - Where: `docs/CLIENT_UI.md:1836`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only. The original's character row names breed, sex and profession through Gamecode's name tables (`CharSelectItem_c::SetupView` 0x1000e48e calls `N3InterfaceModule_t::GetBreedStr` / `GetSexStr`, Gamecode `n3EngineClientAnarchy_t::GetBreedStr` 0x10016168 → FUN_10036b15, "Missing breed: %d"), which FUN_100368d0 fills from the game's data at run time rather than from a table in the program; reading that loader and its data file was more than this entry's worth tonight. The client's numbers are the Profession stat's values every capture agrees with.
 
 #### `LCH-023` Character deletion messages named from AOSharp and a capture
 
@@ -8439,6 +8453,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: small timing differences in creation
 - Where: `crates/mao-client/src/ccscene.rs:494`; `crates/mao-client/src/ccscene.rs:528`; `crates/mao-client/src/ccscene.rs:283`; `docs/CLIENT_UI.md:4539`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The durations are built by the original's transition code (CharCreateModule_t's camera keys, `FUN_10115210`, `PlainSpriteFade_t` with `_DAT_101b0848`, `TextWindowFade_t` with `_DAT_101a8ba0` / `_DAT_101a9fa4` / `_DAT_101b20b0` / `_DAT_101c41e8`, all in `CharCreateModule_t::FrameProcess` 0x1011c355) from several constants and the camera file; each of the six items is its own reading of a 17 kB function. Too many parts for one entry tonight; the constants named here are the place to start.
 
 #### `LCH-025` Launcher background picture is picked by the clock
 
@@ -8448,6 +8463,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: background may differ from the original's choice
 - Where: `crates/mao-client/src/launchwindow.rs:137`; `docs/CLIENT_UI.md:761`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read in Anarchy.exe: the launcher lists the files of `\backgrounds\` (0x41525b on, `\backgrounds\01.bmp` the one named when there is none, 0x415196), then seeds a Mersenne twister (mt19937: 624 words, 0x6c078965 at 0x415498) with `_time64(NULL)` (0x41546a) and draws one index between 0 and count-1 (0x4154b4..0x415503, the distribution at 0x415ec1). So the original's choice is a random picture per start, seeded by the clock; the client's "seconds modulo count" is the same in effect (another picture each start, chosen by the clock). Matching the very picture for a given second would need MSVC 2010's `uniform_int` draw reproduced bit for bit, which no player could tell apart; left.
 
 #### `LCH-026` Launcher control rectangles measured, list drawn as a plain white box
 
@@ -8457,6 +8473,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: layout may be a pixel off
 - Where: `crates/mao-client/src/launchwindow.rs:82`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The launcher's controls are in Anarchy.exe's dialog templates (resources 153, 161, 107 and the main dialog); reading their exact rectangles needs a dialog-template reader over the program's resources, and the measured rectangles are within a pixel. The list's white box is how the original's plain Win32 list box looks with the default colours. Left.
 
 #### `LCH-027` Profession scene text area height is a guess
 
@@ -8478,6 +8495,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: launcher works offline
 - Where: `crates/mao-client/src/launchwindow.rs:1206`; `crates/mao-client/src/dimensions.rs:98`; `crates/mao-client/src/dimensions.rs:45`; `docs/CLIENT_UI.md:781`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The cache is the original's own: the original launcher keeps the last list in dimensions.txt and says it is using the cached data when the server does not answer (its message, SET-013), as the client does. What is the client's alone is the built-in Rubi-Ka entry when there is no list at all, and the refusal of an answer that lists no dimension; without them a first start with the dimension server down would leave no dimension to log in to. Kept for the user to decide (removing them could make the morning's tests look like a broken launcher). Whether the original uses more than a dimension's first port was not read.
 
 #### `LCH-029` Hand-over gives up after 180 seconds
 
@@ -8487,6 +8505,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none unless the game hangs
 - Where: `crates/mao-client/src/launcher.rs:126`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: the 180 s limit only ends the launcher's own wait for the game's window when the game hangs before having one; the original has no second process to wait for. Nothing a player can do or see changes.
 
 #### `LCH-030` Launcher guards, lenient graphics choice, error box and crash log
 
@@ -8496,6 +8515,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: launcher survives odd graphics setups and says why it failed
 - Where: `crates/mao-client/src/launchwindow.rs:49`; `docs/CLIENT_UI.md:4709`; `CHANGELOG.md:31`; `CHANGELOG.md:33`; `crates/mao-render/src/lib.rs:89`; `crates/mao-client/src/crash.rs:50`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: the software-device fallback, the guarded pictures and the error box keep the launcher from ending (a Rust panic) where a graphics device or a picture fails; the original's equivalents are Windows' own (Direct3D falls back, a missing bitmap draws nothing). The crash log is SET-048.
 
 #### `LCH-031` Login error browser shrinks on low screens
 
@@ -8505,6 +8525,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: smaller error page on small screens
 - Where: `crates/mao-client/src/loginviews.rs:203`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: the launcher's window is 1000 by 640, lower than the original's game window the login ran in; the original's 780x410 page plus the login window and their gaps need about 700 lines, so without the shrink the page would run off the window's bottom. The page keeps the original's size wherever it fits.
 
 #### `LCH-032` Login error shown as words when no page can be opened
 
@@ -8514,6 +8535,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: players without WebView2 see words, not the site's page
 - Where: `crates/mao-client/src/launcher.rs:623`; `crates/mao-client/src/loginviews.rs:182`; `crates/mao-client/src/loginviews.rs:134`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: the words are only shown where no WebView2 (or another system's web view) can be made, where the original's page could not be shown at all; with WebView2 the page is the original's.
 
 #### `LCH-033` Plain orange buttons when the game has no Anarchy.exe
 
@@ -8523,6 +8545,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible with the game installed
 - Where: `crates/mao-client/src/launchwindow.rs:826`; `docs/CLIENT_UI.md:786`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: plain buttons are only drawn when the game folder has no Anarchy.exe to take the original's bitmaps from (a Linux/Mac install or a stripped folder); with the game installed the buttons are the original's.
 
 ### Launcher, login, character creation: the original does it, the client does not (9)
 
@@ -8583,7 +8606,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: uses the counts without the expansion flag only
 - A player notices: fewer heads offered to expansion accounts
 - Where: `crates/mao-client/src/charcreate.rs:60`; `CHANGELOG.md:47`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already ported: `charcreate::head_sets` (GUI.dll FUN_1011d692) raises the eight counts when the account's `ExpansionFlags & 2` is set, and `heads_of` passes the login's flags (`set_expansions`, from the list's trailer). The entry's Where line is out of date. Nothing changed.
 
 #### `LCH-040` Keeper/Shade gate ignores nSLProfsEnabled
 
@@ -8613,6 +8637,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Linux/Mac launch script needs the folder
 - Where: `docs/PLATFORMS.md:63`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only, and nothing of the original's: play.sh is the client's own Linux/Mac starter; reading Steam's libraryfolders.vdf is a feature of the script, not a departure from the original game. Left for a platform pass.
 
 ### Launcher, login, character creation: the client has it, the original does not (9)
 
@@ -8624,6 +8649,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a player with an empty account cannot reach character creation from the list
 - Where: `crates/mao-client/src/launcher.rs:351`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original goes to the character screen for every character list (GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179: reply 0xe -> `Show(3)`, no count checked), so an empty account reaches New Character there; the client's "This account has no characters." on the form blocks creation for a new account.
 
 #### `LCH-044` Character screen figure is dressed from a remembered look (looks.ini)
 
@@ -8633,6 +8659,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: list screen shows the last outfit; a first-time character shows the default body
 - Where: `crates/mao-client/src/look.rs:2`; `crates/mao-client/src/launcher.rs:222`; `crates/mao-client/src/net.rs:9503`; `docs/CLIENT_UI.md:1977`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: no store of looks was found in the original (GUI.dll's login strings name only the creation meshes for `LoginWorld_c`; the list's `CharacterData_t` carries breed, sex, head and size), so the original's figure wears the list's look; the client's looks.ini only dresses the same figure in the last-seen outfit and is harmless, but it is not the original's. REMOVE if the screen must match the original exactly.
 
 #### `LCH-045` Logging out (/camp) restarts the launcher and logs in again
 
@@ -8641,7 +8668,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the game ends with exit code 42 and the launcher restarts with MAO_RELOGIN, logs in at once with the account and password from its environment and shows the character list
 - A player notices: back at the character list without typing the password
 - Where: `crates/mao-client/src/launcher.rs:936`; `crates/mao-client/src/launcher.rs:1038`; `docs/CLIENT_UI.md:2018`; `docs/ORIGINAL_UI_PLAN.md:35`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
+- Done (2026-11-19, overnight): The original has it: GUI.dll `LoginModule_c::SlotInitialize(bool)` 0x100123ee keeps the account and password (+0x40, +0x5c) and, when called for a return from the game (its bool), calls `SlotLoginAccount` with them instead of `Show(0)`, so a camp lands on the character list without typing the password, as the client's restart with MAO_RELOGIN does. Nothing changed.
 
 #### `LCH-046` "No heads found" message in creation
 
@@ -8651,6 +8679,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: only if game files lack heads
 - Where: `crates/mao-client/src/charcreate.rs:864`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: it shows only when the game's files have none of the breed's head meshes, where the original would have offered no head and sent a creation with a head that does not exist; with a complete game it never appears.
 
 #### `LCH-047` Character list shows free slots and offers New Character only while one is free
 
@@ -8659,7 +8688,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: shows free slots, New Character only while one is left; where the account's slots are not known it writes "N characters" instead
 - A player notices: a slot-count line on the list
 - Where: `crates/mao-client/src/loginviews.rs:405`; `crates/mao-client/src/loginviews.rs:49`; `CHANGELOG.md:45`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
+- Done (2026-11-19, overnight): The original has it: GUI.dll `CharSelectWindow_c::SlotCharListReceived` 0x1000ebd5 enables the view at +0xbc only while the count at +0xd8 is below the slots at +0xd4, and the constructor 0x1000efb1 shows +0xbc is `create_btn` (0x1000f28d, `SlotCreatePressed`); the slot line is its `AvailableCharSlots` text. Only the "N characters" line where the slots are not known is the client's own (the original always has the trailer). Nothing changed.
 
 #### `LCH-048` Game folder is looked for in usual install places
 
@@ -8669,6 +8699,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: first start finds the game on its own
 - Where: `crates/mao-client/src/launchwindow.rs:222`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original runs from inside its own folder and never needs to find it; the client is installed apart from the game, so looking in the usual install places is what makes its first start work.
 
 #### `LCH-049` Launcher has its own backgrounds (night sky, own picture) and a news-page switch
 
@@ -8678,6 +8709,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: optional different launcher look
 - Where: `crates/mao-client/src/launchwindow.rs:6`; `crates/mao-client/src/launchskin.rs:1`; `docs/CLIENT_UI.md:762`; `docs/LIVE_TEST_LIST.md:395`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the default (`background = game`) is the original's own pictures; the night sky and an own picture only show when chosen. The news-page switch only leaves the page out.
 
 #### `LCH-050` Launcher Visual page adds frame limit, shadows, monitor, presets
 
@@ -8687,6 +8719,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra options
 - Where: `docs/CLIENT_UI.md:1462`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the Visual page's added rows are the wgpu counterparts of the original's Direct3D choices (see SET-042), which have no meaning here.
 
 #### `LCH-051` Launcher window hidden at start, web view moved in after load
 
@@ -8696,6 +8729,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no white flash
 - Where: `crates/mao-client/src/launchwindow.rs:75`; `docs/CLIENT_UI.md:4698`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: nothing a player sees differs from the original but the missing white flash of an empty web view; it is how a WebView2 child is shown without one.
 
 ## Settings and files
 
@@ -8709,6 +8743,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: chat layout is separate from the original client's
 - Where: `crates/mao-client/src/chatgroups.rs:19`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original keeps each chat window in the character's `Chat/Windows/Window<n>/Config.xml` under the original client's Prefs folder; the client reads those files as its start (chatgroups.rs) but never writes into the original's folder (writing would change the installed original client's own layout, and under %APPDATA% the client's writes are not even the user's files). Writing the same XML into the client's own folder instead of chatwindows.ini would change only the file's format, for no player-visible gain; left.
 
 #### `SET-002` Hotbars saved in hotbar.ini
 
@@ -8718,6 +8753,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Hotbar layout is not shared with the original client.
 - Where: `crates/mao-client/src/hotbar.rs:273`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): As SET-001: the original's shortcut bars live in its own per-character config files, which the client does not write; hotbar.ini is the client's copy. Writing the original's archive format into the client's folder would change only the format; left.
 
 #### `SET-003` New windows start at the original client's frame, scaled; another character's layout used
 
@@ -8736,7 +8772,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a setting (original_font) switches between the bitmap font and the toolkit's font, since 9 px glyphs are small on today's screens
 - A player notices: text may be drawn in another font unless the option is on
 - Where: `crates/mao-client/src/ui.rs:2477`; `crates/mao-client/src/settings.rs:565`; `docs/ORIGINAL_UI_PLAN.md:99`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The rule a player meets is the original's: `original_font` is on by default (settings.rs `Settings::default`, `original_font: true`), so chat is drawn in the original's own bitmap font unless the player turns it off; the switch is the only addition (recommend keeping it for high-resolution screens). Nothing changed.
 
 #### `SET-005` Window places, sizes and open windows kept in the client's own ini files
 
@@ -8746,6 +8783,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: window places, sizes and open windows come back at start, but do not round-trip with the original client
 - Where: `crates/mao-client/src/layout.rs:353`; `crates/mao-client/src/layout.rs:5`; `docs/CLIENT_UI.md:1824`; `docs/CLIENT_UI.md:1949`; `docs/GUI_DLL_PARITY.md:59`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): As SET-001: the original keeps window places in its `*Config` values inside the character's own Prefs files, which the client reads as starting places (SET-003, `aoprefs.rs`) but does not write; its own ini files hold what it changes. Round-tripping with the original would mean writing into the installed original client's folder; left.
 
 #### `SET-006` Backpack names kept in backpacks.ini; rename by right click on empty space
 
@@ -8755,6 +8793,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Bag names live in a different file and are renamed from a different gesture.
 - Where: `crates/mao-client/src/loot.rs:14`; `docs/CLIENT_UI.md:1793`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original renames from its backpack window's own menu (FUN_100cbace's Rename, dialog FUN_100cb852) and keeps the name in the bag's `Containers/Container_%ux%u.xml`; the client's backpack windows have no window-menu button yet, so the right click stands in, and the original's files are not written (SET-001). Porting needs the window menu of the container windows.
 
 #### `SET-007` Default key map replaced; key table version resets custom keys
 
@@ -8764,6 +8803,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: custom old bindings lost once when the table version changes
 - Where: `docs/CLIENT_UI.md:2013`; `crates/mao-client/src/settings.rs:286`; `crates/mao-client/src/settings.rs:288`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The key-table version is how the client brings its own mao.ini up to date; the original's keys come from its Prefs.xml archive, which the client reads (`keybindings.rs`) but does not write. A player's own changes made in the original are still taken over each session. Nothing to port.
 
 #### `SET-008` Folders page shows this client's folders
 
@@ -8773,6 +8813,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: different folder list
 - Where: `crates/mao-client/src/launchwindow.rs:31`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's Folders page lists its skins, scripts and screenshots folders, which are inside the original's install; the client's own files live elsewhere, so its page lists those. The scripts folder of the original is still read (scripts.rs).
 
 #### `SET-009` Friends window open folders kept in tabs.ini
 
@@ -8782,6 +8823,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: friends folder state is not shared with the original
 - Where: `crates/mao-client/src/friends.rs:4`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): As SET-001: the state is the original's `FriendsWindowConfig` values, kept in the client's own file because the original's Prefs files are not written by this client.
 
 #### `SET-010` Hidden nano programs kept in hiddennanos.ini
 
@@ -8791,6 +8833,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Hidden programs are kept per client install, not in the original's files.
 - Where: `crates/mao-client/src/nanoprograms.rs:166`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): As SET-001: `HideNano`'s list 6 is the original's rule; only where the hidden set is kept differs.
 
 #### `SET-011` Knowledge window board kept in knowledge.ini
 
@@ -8800,6 +8843,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Boards read back from the file may show names instead of pictures at first.
 - Where: `crates/mao-client/src/knowledge.rs:12`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): As SET-001 for the file; the original reads the board back as it opens with each item's id and place (FUN_100cf66a, FUN_100cf779), and the client keeps the same fields. The names-before-pictures moment is the client's picture loading, not a rule.
 
 #### `SET-012` Land-control button state in automap.ini
 
@@ -8809,6 +8853,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: stored elsewhere than original
 - Where: `crates/mao-client/src/automap.rs:232`; `docs/CAPTURE_GAPS.md:217`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): As SET-001: `RenderLandControlData` is the original's state, kept in the client's own file.
 
 #### `SET-013` Launcher dimension list copy in the client's folder, own wording
 
@@ -8818,6 +8863,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: different wording and file place
 - Where: `crates/mao-client/src/launchwindow.rs:769`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The cache is the original's (dimensions.txt); the wording must be the client's own by the user's rule (no literal strings from the original's program), and the file is beside the client's settings because the game folder is not written.
 
 #### `SET-014` Launcher keeps its own launcher.ini with clamped time-outs
 
@@ -8827,6 +8873,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra file beside the settings
 - Where: `crates/mao-client/src/launchwindow.rs:381`; `crates/mao-client/src/dimensions.rs:104`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The time-outs are the original launcher's Connection page values; whether its spin boxes clamp at 5-600 and 2-300 was not read in Anarchy.exe's dialog template (resource 161). Left until the template is read.
 
 #### `SET-015` Macros saved beside the client's settings, one for all characters
 
@@ -8836,6 +8883,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: macros are not shared with the original client or per character
 - Where: `crates/mao-client/src/macros.rs:8`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original keeps TextMacro.bin per character in its preferences folder (`Init` 0x100236ec); making the client's macros per character means keying macros.rs's file by the character id at load and save, a storage change of SET-001's kind that also loses players' current macros unless migrated. Left for a storage pass.
 
 #### `SET-016` Option panel "Fixed keys" shows the client's own keys
 
@@ -8844,7 +8892,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the key is this client's own for the same command; a command it has no key for shows none.
 - A player notices: fixed-key list shows the client's bindings.
 - Where: `crates/mao-client/src/gui/options.rs:18`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The rule is the original's: each fixed key is shown with the key the command is on now (`InputConfig_t::GetHotkey`), which here is the client's binding for the same command; and since SET-026 the client's default fixed keys are GUI.dll's own key table, so an unchanged client shows the original's keys. Nothing changed.
 
 #### `SET-017` Option panel changes saved to prefs.xml; archives not kept
 
@@ -8854,6 +8903,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: preferences and window archives are not shared with the original
 - Where: `docs/CLIENT_UI.md:2650`; `crates/mao-client/src/gui/dvalue.rs:7`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): As SET-001: the option panel's values go to the client's own prefs.xml because the original's Prefs folders are not written; the `<Archive>` entries are the windows' configs, kept in the client's own ini files (SET-005).
 
 #### `SET-018` Remembered looks cache in looks.ini
 
@@ -8863,6 +8913,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: stored looks may not appear
 - Where: `crates/mao-client/src/look.rs:2`; `docs/CLIENT_UI.md:1979`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The looks cache is LCH-044's matter (an addition, recommendation there).
 
 #### `SET-019` Screenshot capture off Windows renders the scene offscreen
 
@@ -8872,6 +8923,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: screenshots on those systems lack the web page
 - Where: `crates/mao-client/src/screenshot.rs:12`; `docs/PLATFORMS.md:16`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Platform matter: on Windows the picture is the window as shown, as the original's; elsewhere there is no window capture to take, so the scene is drawn offscreen.
 
 #### `SET-020` Settings kept under the client's own folder in mao.ini
 
@@ -8881,6 +8933,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: settings are not in the original's preference folders
 - Where: `crates/mao-client/src/settings.rs:790`; `crates/mao-client/src/settings.rs:726`; `docs/PLATFORMS.md:19`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The client's settings cannot live in the original's Prefs folders without writing into the installed original client's files; the clamps keep a hand-edited file from making the window unusable.
 
 #### `SET-021` Tip settings in one tips.ini for all characters
 
@@ -8890,6 +8943,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: disabled tips are shared by all characters and not shared with the original
 - Where: `crates/mao-client/src/tips.rs:19`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original keeps switched-off tips per character (DisabledTipsMap.xml); making tips.ini per character means keying it by the character id at load and save (tips.rs) and migrating today's file; a storage change of SET-015's kind, left for that pass.
 
 #### `SET-022` Tradeskill window key Shift+T is the user's word
 
@@ -8898,7 +8952,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the key is the user's word for the original's (2026-11-12); the action's name is the client's.
 - A player notices: Shift+T opens the tradeskill window.
 - Where: `crates/mao-client/src/settings.rs:230`; `docs/CLIENT_UI.md:3341`; `crates/mao-client/src/settings.rs:231`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The key is the original's own default: the game's shipped `cd_image/gui/Default/CharPrefs.xml` binds provider 2073189714 (`WINDOW_TS`, `keybindings::provider`) to input 131173, which is Shift (0x20000) + key 101, T (`keybindings::binding`). Nothing changed; the user's word was right.
 
 ### Settings and files: an approximation or a stand-in (3)
 
@@ -8910,6 +8965,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: windows not in the list start elsewhere.
 - Where: `crates/mao-client/src/aoprefs.rs:28`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The 20 names are the windows the client has a counterpart for and that the original's Prefs files were seen to hold (`aoprefs::NAMES`); the original's other `*Config` archives belong to windows the client draws differently (rollups, docked bars) or not at all. Mapping more needs each window's original name checked against a real Prefs file; left.
 
 #### `SET-024` Screenshot file names fall back to UTC off Windows
 
@@ -8919,6 +8975,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: screenshot names in UTC on those systems
 - Where: `crates/mao-client/src/screenshot.rs:5`; `docs/PLATFORMS.md:20`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original is a Windows client whose names use the local time; on Windows the client does the same. Off Windows the `time` crate refuses to read the local offset in a program with threads (a soundness rule of the crate), so the UTC stamp is the fallback; a port would need another way to read the zone (libc `localtime_r`), a platform matter outside the original.
 
 #### `SET-025` Stats window bars kept in tabs.ini
 
@@ -8928,6 +8985,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The choice is stored in the client's own file.
 - Where: `crates/mao-client/src/stats.rs:10`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The bars and their menu are the original's (FUN_1007fe87, `StatViewConfig`'s AIXPBar, XPBar, DuelScoreBar, TeamScoreBar, SoloScoreBar); only where the ticks are kept differs, as for SET-001: the original's config files are its own client's and are not written by this one.
 
 ### Settings and files: the original was not read: inferred or measured (3)
 
@@ -8949,6 +9007,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: rules are not shared with the original client
 - Where: `crates/mao-client/src/chatfilter.rs:15`; `docs/GUI_DLL_PARITY.md:157`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The rules are the original's `ChatFilterRules` texts; how the original treats a pattern that does not compile was not found (its filter's matcher is not read), and keeping them in chatfilter.ini instead of the original's prefs is SET-001's matter. Left until the matcher is read.
 
 #### `SET-028` Ignore list kept in the client's own ignore.ini
 
@@ -8970,6 +9029,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/layout.rs:287`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: writing places at most every two seconds only spaces the client's own file writes (the original writes once on close); what a player sees and gets back is the same. The 40-8000 check only keeps a broken file from making a window unusable.
 
 ### Settings and files: the original does it, the client does not (8)
 
@@ -9002,6 +9062,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: keys cannot be rebound in the original's editor.
 - Where: `crates/mao-client/src/gui/options.rs:442`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's key editor is `BindView_c` (GUI.dll FUN_100bcfb3, 15 kB of decompile): a `MultiListView_c` with Category / Function / key columns, bind and clear buttons (FUN_100bd8ff, FUN_100bd94e, FUN_100bc713) and key capture, writing the per-character `KeyBindings` archive. Porting it needs the multi-column list widget, the key capture and writing the original's `Prefs.xml` archive (the client never writes the original's folder: `keybindings.rs`), well past the 40 minutes; the client's own key list in its settings window rebinds every key meanwhile.
 
 #### `SET-033` "Automatically report disconnects to Funcom" setting gone
 
@@ -9011,6 +9072,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no such option
 - Where: `crates/mao-client/src/launchwindow.rs:33`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The setting only switched the original's reports of disconnects to Funcom's own servers; the client sends nothing to Funcom (the user's rule: no Funcom services but the game's), so there is nothing for the box to switch.
 
 #### `SET-034` Criteria context `id:` not ported
 
@@ -9019,7 +9081,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: `module:` now handled as a distributed value; no `id:` context in the list; user's Prefs.xml is the client's own prefs.xml
 - A player notices: some XML criteria with `id:` evaluate differently.
 - Where: `crates/mao-client/src/gui/dvalue.rs:8`; `crates/mao-client/src/gui/dvalue.rs:220`; `docs/GUI_DLL_PARITY.md:73`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Nothing a player can meet is missing: the context's `id:<name>` (anarchyonline.exe FUN_00408268: `DynamicID_t::GetID(name, true)` as an Int32) is used in the game's GUI files only by the action menus' `bgicon="id:GFX_..."` pictures (LeftMenu.xml and RightMenu.xml, 6 each; no `criteria` or `activate_criteria` anywhere has `id:`), and those pictures are already read by name in `gui/menu.rs`. A criteria with `id:` would need DynamicID's numbering, which only matters when compared with another such number; none exists. Nothing changed.
 
 #### `SET-035` Equipment lock: only by /setoption, single-tab locks not done
 
@@ -9029,6 +9092,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: lock only by command; no per-tab locks
 - Where: `crates/mao-client/src/net.rs:1007`; `crates/mao-client/src/net.rs:1014`; `crates/mao-client/src/ui.rs:1232`; `docs/CLIENT_UI.md:4311`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read: the locks are per worn slot, not per tab. Gamecode FUN_100266c9 (asked by `N3Msg_IsItemPossibleToWear` / `ToUnWear`, `Feedback_EquipmentLocked`) says locked when `LockEquipment` is true, else when the slot's identity is among the `Locks` identities of the message value `EquipmentLocks`; GUI.dll FUN_100ca3ae toggles one slot's identity in that list (from a view's identity at +0x130; it is an action of the item context menu built by FUN_100caf07), and FUN_100e1f9b unlocks every slot of the four wear pages (types 0x65, 0x66, 0x67, 0x73, 16 slots each) and empties the list. Porting needs the item menu's lock entry (its label and which views offer it were not read), keeping `EquipmentLocks` per character, and the check in the wear moves: more than this night's 40 minutes, and the menu entry's text and conditions are still unread.
 
 #### `SET-036` List view column widths and sort not kept
 
@@ -9048,6 +9112,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no texture quality choice
 - Where: `crates/mao-client/src/launchwindow.rs:28`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's Texture Quality, Compressed Textures and Texture Color Depth chose Direct3D 7 texture formats and mip levels on the card; wgpu has no 16-bit texture formats to choose and the client draws every texture whole (its own "Compressed textures" box keeps them BC-compressed on the card). A port would be a texture-downscaling option of the client's own, not the original's rule.
 
 ### Settings and files: the client has it, the original does not (17)
 
@@ -9059,6 +9124,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: far characters can be hidden; fewer clicks at corpses
 - Where: `crates/mao-client/src/net.rs:9277`; `crates/mao-client/src/viewer.rs:102`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the character draw distance is the original's own (`/chardist`, registered by GUI.dll FUN_100bb3e0), only reached here also from a setting; auto-loot is not in the original (no such string in GUI.dll or Gamecode.dll) but is off by default (`auto_loot: false`), so a player who does not turn it on sees the original's corpse window.
 
 #### `SET-039` Frame limit, background limit and vsync choice
 
@@ -9068,6 +9134,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the player can cap or uncap the frame rate and save power in the background; the limiter uses some CPU
 - Where: `crates/mao-client/src/viewer.rs:1133`; `crates/mao-client/src/settings.rs:590`; `docs/LIVE_TEST_LIST.md:442`; `docs/CLIENT_UI.md:1228`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original's only frame control is its fixed cap and the `/framerate` counter (`FramerateView_t`); a limit, a background limit and the vsync choice are what a wgpu client on today's monitors needs (unlimited by default, as the old cap has no meaning at 144 Hz).
 
 #### `SET-040` Interface size setting
 
@@ -9077,6 +9144,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the whole interface can be made larger or smaller
 - Where: `crates/mao-client/src/ui.rs:1045`; `crates/mao-client/src/ui.rs:549`; `docs/CLIENT_UI.md:1961`; `docs/CLIENT_UI.md:1866`; `docs/CLIENT_UI.md:1498`; `crates/mao-client/src/settings.rs:127`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has no interface scale (no scale string in GUI.dll), and at today's resolutions its 1024x768-sized windows are unreadably small without it; at 1.0 (the default) nothing differs from the original.
 
 #### `SET-041` Item finder files of what was seen
 
@@ -9086,6 +9154,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Search results can be out of date, and cannot see bags never opened, a bag inside the bank, or a character never played with this client.
 - Where: `crates/mao-client/src/itemindex.rs:5`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the item finder is one of the client's own tools the user asked for (memory "MAO own tools"); its files are only written beside the client's settings and change nothing the original does.
 
 #### `SET-042` Own graphics and display options (presets, scale, FSR, shadows, monitor, distances)
 
@@ -9095,6 +9164,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: many settings (and a rebindable key list) with no counterpart in the original
 - Where: `crates/mao-client/src/ui.rs:2362`; `crates/mao-client/src/launchwindow.rs:269`; `crates/mao-client/src/settings.rs:515`; `docs/CLIENT_UI.md:1359`; `docs/CLIENT_UI.md:78`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original's graphics settings are Direct3D 7 device, colour depth and texture choices that have no meaning for wgpu (LCH-002); the client's options are the counterparts a modern renderer needs, and the skin's option panel is still there.
 
 #### `SET-043` Themes, skin folders and the built-in palette
 
@@ -9104,6 +9174,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the interface can be themed from a setting.
 - Where: `crates/mao-client/src/theme.rs:78`; `crates/mao-client/src/viewer.rs:3063`; `docs/CLIENT_UI.md:2024`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the default theme is `original` (the game's own skin and GUIColors.xml); the AOU themes and other folders only apply when chosen.
 
 #### `SET-044` Window modes with F11 / Alt+Enter and a chosen monitor
 
@@ -9113,6 +9184,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: own window-mode controls
 - Where: `crates/mao-client/src/viewer.rs:2`; `docs/CLIENT_UI.md:13`; `crates/mao-client/src/settings.rs:280`; `README.md:48`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP, but note: Alt+Enter is one of the original's three chat keys (GUI.dll's key table at 0x101aab28: `COMMAND_TEXT_INPUT_START_TEXT_INPUT` on Enter, Shift+Enter, Alt+Enter), so the window-mode switch takes a key from the original; F11 and the options are free. Moving the switch to F11 alone would give Alt+Enter back to the chat.
 
 #### `SET-045` Account file with last-played character first
 
@@ -9122,6 +9194,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the character list starts with the last-played character selected
 - Where: `crates/mao-client/src/launcher.rs:103`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP the pre-selection, which is the original's own (`CharSelectWindow_c::SlotCharListReceived` 0x1000ebd5 selects the row of the value `SelectedCharacter`, and the account list is `LauncherConfig`'s `Account%d` / `SelectedAccount`); REMOVE only the moving of that character to the top of the list, which the original does not do (it keeps the server's order).
 
 #### `SET-046` AutoAFK controlled by /setoption
 
@@ -9131,6 +9204,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: you can turn going away by itself on or off in game
 - Where: `crates/mao-client/src/afk.rs:29`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: `/setoption` is the original's own command for setting any distributed value, and `AutoAFK` is one (LoginPrefs.xml), so the original's `/setoption AutoAFK false` does the same.
 
 #### `SET-047` Client brings its own PlanetMap folder
 
@@ -9140,6 +9214,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Extra planet maps can be supplied without touching the game folder.
 - Where: `crates/mao-client/src/planetmaps.rs:3`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the game's own PlanetMap folder is still read; the client's folder only adds maps (memory: they reached the real folder 2026-11-15) without writing into the game's folder.
 
 #### `SET-048` Crash log, run markers and error box
 
@@ -9149,6 +9224,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: an error box when the launcher or login fails
 - Where: `crates/mao-client/src/crash.rs:1`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the crash log, run markers and error box only show where the client fails, which is where the original would have shown its own crash dialog (BugReport_t); they change nothing in a run that works.
 
 #### `SET-049` Extra key actions of the client
 
@@ -9158,6 +9234,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra key commands exist.
 - Where: `crates/mao-client/src/settings.rs:278`; `docs/CLIENT_UI.md:25`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP, with one note: Alt+Enter (CycleWindowMode) is one of the original's chat-input keys in GUI.dll's key table (see SET-044); the other extra actions use keys the original leaves free or have no key.
 
 #### `SET-050` Game folder is a setting with Browse picker and auto-detection
 
@@ -9167,6 +9244,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra setup flow
 - Where: `crates/mao-client/src/launchwindow.rs:587`; `docs/CLIENT_UI.md:1505`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the client lives apart from the game's folder (LCH-048), so it needs to be told or to find where the game is.
 
 #### `SET-051` Game log written to game-log.txt
 
@@ -9176,6 +9254,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra log files appear beside the settings
 - Where: `crates/mao-client/src/launcher.rs:318`; `docs/CLIENT_UI.md:3501`; `docs/LIVE_TEST_LIST.md:372`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: a log file beside the settings that a player never has to look at; it carries nothing of the account.
 
 #### `SET-052` Option panel folder list uses egui widgets with a "Client settings" link
 
@@ -9185,6 +9264,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the panel has an extra link to the client's own settings.
 - Where: `crates/mao-client/src/gui/options.rs:482`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the folder list is the original's (its folders and pages from the option panel files); the "Client settings" link is the only way from the original's panel to the client's own window, keys and theme.
 
 #### `SET-053` Pet window, planet map and camera settings in mao.ini
 
@@ -9194,6 +9274,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: those settings are in the client's file.
 - Where: `crates/mao-client/src/settings.rs:568`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the settings themselves are the original's (`PetWindowConfig`, `PlanetMapIndexFile`, `PreferredCameraMode`); only where they are kept differs, as for every other value the client keeps (the original's Prefs files are not written by this client).
 
 #### `SET-054` Tradeskill guide keeps a record of what the window said
 
@@ -9203,6 +9284,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A player-made recipe table grows with use and is kept between sessions.
 - Where: `crates/mao-client/src/craftguide.rs:14`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the tradeskill guide is one of the client's own tools; the window itself still shows each answer as the original does.
 
 ## Network and protocol
 
@@ -9216,6 +9298,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a short wait per request
 - Where: `crates/mao-client/src/charcreate.rs:182`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's creation runs on the login connection it already has (the character list's), but the client's launcher closes that connection as soon as the list is read, because the game runs in a process of its own that must make its own login (LCH-001; "the login connection must be gone before the game's own login", launcher.rs `log_in`). Keeping one connection open through the creation means holding it across the launcher's stages and closing it before Play: a restructuring of the launcher's threads for a wait of under a second per request; left.
 
 #### `NET-002` Ping reply uses one clock value for receive and transmit
 
@@ -9224,7 +9307,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the receive and transmit stamps of the ping reply are the same millisecond clock value
 - A player notices: none visible
 - Where: `crates/mao-net/src/frame.rs:209`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original does the same: the capture of the original's own reply (the test `frame::ping_tests::ping_reply_matches_the_capture`) has the receive and transmit stamps equal (0x044fdd67 twice), so one clock value for both is what the original sent. Nothing changed.
 
 ### Network and protocol: the original was not read: inferred or measured (5)
 
@@ -9236,6 +9320,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: any could be refused or mean something else on the real server
 - Where: `crates/mao-net/src/n3.rs:274`; `crates/mao-client/src/orgboxes.rs:23`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The messages are already written from the original's own builders (Gamecode `N3Msg_*` and the organisation boxes' senders); what is not known is only whether the live server accepts them, and no capture of the original holds any of them (docs/CAPTURE_GAPS.md). Nothing more can be read from the decompile; it needs a capture or a live try of each.
 
 #### `NET-004` Entity message position and rotation read where captures put them
 
@@ -9245,6 +9330,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: an unseen layout could misplace a character
 - Where: `crates/mao-net/src/n3.rs:168`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The entity message's layout before the place is the original's `SimpleCharFullUpdate` reader in Gamecode (NET-005), not read field by field yet; the place and rotation offsets agree with every capture. Porting the reader is NET-005's work (well over 40 minutes); left.
 
 #### `NET-005` Entity message's unknown number guessed as health; stats and rest not decoded
 
@@ -9254,6 +9340,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: stats carried in the update are ignored
 - Where: `crates/mao-net/src/n3.rs:1651`; `crates/mao-net/src/n3.rs:1632`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's `SimpleCharFullUpdateIIR_t` reader reads stats, textures, clothing and more in a long chain of optional blocks; porting it field by field (and checking it against the captures) is far past 40 minutes, and the client's partial decode serves what it draws. Left.
 
 #### `NET-006` Organisation member's info packet layout never seen; tower list skipped
 
@@ -9263,6 +9350,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: info page of an organisation member may be wrong or lack the kill and duel records
 - Where: `crates/mao-net/src/n3.rs:556`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The member info packets 67 and 71 (tower list first) appear in no capture of the original, so the tower list's layout can only be guessed from the schema; reading the original's handler would still leave it untested. Needs a capture.
 
 #### `NET-007` Research goal choice kept by the window until the stat changes
 
@@ -9272,6 +9360,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: shown goal may differ from the server's if a SetStat is ignored
 - Where: `crates/mao-client/src/research.rs:54`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Whether the server answers SetStat 265/266 with the stat cannot be read from the client's code (it is the server's behaviour); no capture of a research goal change exists. Needs a capture.
 
 ### Network and protocol: a guard or fallback the original lacks (3)
 
@@ -9283,6 +9372,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a slow server is given up on after 20 s
 - Where: `crates/mao-net/src/socket.rs:37`; `crates/mao-net/src/chat.rs:480`; `docs/CLIENT_UI.md:2693`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: the non-blocking world socket is there because blocking reads with time-outs left the socket undefined on Windows (the client would stop reading the world), and the 20 s waits stop the login from hanging the launcher forever where the original shows its progress window's own time-out (which the launcher now also shows, LCH-038). Removing them would make the client hang where the original gives up.
 
 #### `NET-009` Places that look like garbage are dropped
 
@@ -9292,6 +9382,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a creature stays where it was instead of the world's corner
 - Where: `crates/mao-client/src/net.rs:3672`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: the garbage places come from the client's own guessed offsets in the entity message (NET-004/005), not from the server; the original reads the real layout and never meets them. Without the guard such a misread draws a creature at a corner of the world or puts NaN into the renderer's matrices. It goes once the reader is the original's.
 
 #### `NET-010` Waits at most 3 seconds for the own place at entry
 
@@ -9301,6 +9392,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/net.rs:5984`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept: the wait only bounds how long the game's process reads before opening its window when the server is slow to send the own character; nothing a player can see or do differs (the original waits for the same message before its world shows, the client's loading screen covers both).
 
 ### Network and protocol: the original does it, the client does not (1)
 
@@ -9324,6 +9416,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: data leaves the machine or web requests are made only if the player sets it up
 - Where: `docs/HELP_ASSISTANT.md:162`; `docs/HELP_ASSISTANT.md:35`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: off by default, and the hosted model and the guide crawler only run when the player sets them up; the original game never contacts them.
 
 #### `NET-013` Protocol read by a schema generated from SmokeLounge/AOSharp definitions
 
@@ -9333,6 +9426,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-net/src/schema.rs:1`; `docs/CLIENT_UI.md:3111`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the schema is how the client reads and writes messages, not something a player sees; where the original's own readers have been read they win (the hand-set names, the captured size).
 
 ## Other
 
@@ -9356,6 +9450,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: objects the original cannot load are readable
 - Where: `docs/ROADMAP.md:17`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: reading past 4 GiB only lets the client load what the original could not; it changes nothing the original can show.
 
 ### Other: an approximation or a stand-in (3)
 
@@ -9366,7 +9461,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the logout message is given a fixed 30 seconds
 - A player notices: a camp message always says 30 seconds
 - Where: `crates/mao-client/src/net.rs:7723`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original does the same: GUI.dll `FlowControlModule_t::CampStartedMessage` 0x1002a86c gets the category-200 text and feeds it the constant 0x1e (30) (`LDBformat::Feed(..., 0x1e)`) whatever the bar's length, which is `CreateTimer(40000, ..., "Logout", 0xffffff)`; the client says `LogoutStartedXseconds` with 30 and runs its bar for `ui::CAMP_MS` = 40000 ms, the same two numbers. Nothing changed (the Where line points at an old place; the code is net.rs's `/camp` handling and ui.rs `CAMP_MS`).
 
 #### `OTH-004` Server time from the real clock
 
@@ -9376,6 +9472,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/gametime.rs:85`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original counts its game time on from the server's Update by the frames' times (`GameTime_t` +0xc0/+0xc4); the client's real clock plus the server's offset gives the same time while frames are steady. Porting means carrying the frames' own times through the game time, with no difference a player could see.
 
 #### `OTH-005` Spell runner clock is a client stopwatch
 
@@ -9385,6 +9482,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: spell timing approximate
 - Where: `crates/mao-client/src/net.rs:411`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The spell runner's clock (`GameTime_t` +0x28) and the client's stopwatch both count seconds from a start; the runner only uses differences between them, so the timings are the same. Left.
 
 ### Other: the original was not read: inferred or measured (4)
 
@@ -9396,6 +9494,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: links and steps in the guide can be incomplete or wrong
 - Where: `docs/TRADESKILL_GUIDE.md:48`; `docs/TRADESKILL_GUIDE.md:103`; `docs/TRADESKILL_GUIDE.md:104`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original has no recipe table to port: its tradeskill window learns a result only from the server's answer when two items are put in (the process table is the server's). The guide is the client's own tool built from item texts; making it exact needs data the original never had.
 
 #### `OTH-007` Features stat assumed present when missing
 
@@ -9405,6 +9504,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: timers may run for characters that lack the stat
 - Where: `crates/mao-client/src/net.rs:1352`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): What the original does for a character without stat 224 is in its stat defaults, which no capture shows for a character lacking it (every captured player has it). Needs a capture of such a character.
 
 #### `OTH-008` Kept temporary stats and login-kept craft assumed
 
@@ -9414,6 +9514,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: odd Yalmaha scale after login
 - Where: `crates/mao-client/src/net.rs:1453`; `docs/ORIGINAL_AUDIT.md:78`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): What the original keeps for a character that logs in on its craft is not known (memory "MAO flight capture"); FUN_100a95c7's spell 0xcf76 criteria and making the MonsterData mesh anew need a capture of a login on a Yalmaha to be checked. Left.
 
 #### `OTH-009` New-level message only partly decoded
 
@@ -9423,6 +9524,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: experience bar span may be wrong if the layout guess is off
 - Where: `crates/mao-client/src/net.rs:12839`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The new-level message's layout beyond the first 28 bytes is laid out as the original's capture has it; the reader in Gamecode was not found under a name. Left for a capture of a second level-up.
 
 ### Other: the original does it, the client does not (8)
 
@@ -9444,6 +9546,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: answers only from the game's help, crafting texts and AO-Universe
 - Where: `docs/HELP_ASSISTANT.md:284`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: other sources for the client's own help assistant; nothing of the original's.
 
 #### `OTH-012` Level-up: reset-points line and hints not ported
 
@@ -9463,6 +9566,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: LFT window does nothing
 - Where: `crates/mao-client/src/lft.rs:5`; `docs/GUI_DLL_PARITY.md:93`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The Looking For Team search is a chat-server exchange whose messages appear in no capture of the original and are not in the client's chat protocol; porting it needs that capture.
 
 #### `OTH-014` Mine/hazard signal after the bleep not sent
 
@@ -9472,6 +9576,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible known
 - Where: `crates/mao-client/src/hazards.rs:21`; `docs/ORIGINAL_AUDIT.md:97`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The signal after the bleep (FUN_10085faa: `GlobalSignals_c` +0x14c with 3.0, FUN_10011a4b) has no traced receiver: which window or effect listens on +0x14c is unknown, so there is nothing to wire it to. Left until the receiver is found.
 
 #### `OTH-015` Organization: no module views; contract window read-only
 
@@ -9481,6 +9586,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: organization UI is chat-driven; contract window is read-only
 - Where: `docs/GUI_DLL_PARITY.md:95`; `docs/GUI_DLL_PARITY.md:239`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the organization module's views and the contract window's clicks are a large GUI.dll part (`OrganizationGUIModule_c`, its ItemContainerView_c); out of reach tonight.
 
 #### `OTH-016` Server CharacterAction cases with unknown meaning not handled
 
@@ -9490,6 +9596,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: those server actions have no effect (e.g. 0xd0 a perk's effect)
 - Where: `docs/CAPTURE_GAPS.md:316`; `crates/mao-client/src/net.rs:2544`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: the CharacterAction cases' meanings are unknown; without a capture of each nothing faithful can be written.
 
 #### `OTH-017` Tradeskill guide: no outside recipe table
 
@@ -9499,6 +9606,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no recipes beyond the game's texts and what the player tried
 - Where: `docs/TRADESKILL_GUIDE.md:106`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes only: an outside recipe table is not the original's (the original has none; OTH-006).
 
 ### Other: the client has it, the original does not (4)
 
@@ -9510,6 +9618,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: answers appear in the window and can be off; frame rate dips
 - Where: `docs/HELP_ASSISTANT.md:221`; `docs/HELP_ASSISTANT.md:259`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the help assistant is one of the client's own tools the user asked for; the model is fetched only on request and runs only while the window is asked something, so a player who never opens it sees nothing of it.
 
 #### `OTH-019` Help assistant: crafting texts as a source
 
@@ -9519,6 +9628,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: "How do I make a nano crystal" is answered from the game's own book; one question joined two texts wrongly
 - Where: `docs/TRADESKILL_GUIDE.md:91`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: part of the client's own help assistant; the texts are the game's own books and descriptions.
 
 #### `OTH-020` Linux and macOS builds exist
 
@@ -9528,6 +9638,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: new platforms, untested
 - Where: `docs/PLATFORMS.md:3`; `docs/PLATFORMS.md:104`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: other platforms change nothing for the Windows client.
 
 #### `OTH-021` Screenshot key saves a PNG with a notes file
 
@@ -9537,4 +9648,5 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra feature and .txt file beside screenshots
 - Where: `crates/mao-client/src/screenshot.rs:1`; `crates/mao-client/src/shotnotes.rs:1`; `crates/mao-client/src/viewer.rs:2645`; `docs/CLIENT_UI.md:1820`; `crates/mao-client/src/viewer.rs:2654`; `docs/CLIENT_UI.md:3472` and 1 more
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP the notes file (the user's tool for finding places and meshes); the original's screenshot key saves a picture too, so only the .txt beside it is extra.
 
