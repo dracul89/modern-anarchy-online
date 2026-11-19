@@ -7718,3 +7718,7 @@ N3's game camera (`n3EngineClient_t::CreateCamera`, 0x10007842) has a 90° view,
 ### Room heights from the tile-map (RND-115)
 
 Whether a point is inside a room (n3Room_t::IsPosInside, N3 0x10011664) goes up to the cell type's height from the tile-map's HSTA table (RDBTilemap_t +0x8244, read by DisplaySystem FUN_10078391 as one short in tenths per tile type after the chunk's head; the files' size word counts only the shorts), scaled by 1 + 0.25 × the cell's code. The client read the chunk under the wrong name and dropped it when its size word was below 12, so every room counted as 8 high; it now reads it as the original does (heights from 2.8 to 100).
+
+### Scripted dot stars (RND-158)
+
+FXS's BlueprintRender draws a script's generated mesh as a point list (Visualization 0, e_Render_Dots) or a triangle strip (1). The client drew only the strip; it now draws the points too, one pixel each, as a sky backdrop: the Rubi-Ka outdoor sky's dot stars (Tweak_Rubi-Ka_DotStars.txt, 500 dots added over the sky, with the first expansion).

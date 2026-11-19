@@ -3476,8 +3476,10 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
         let m = visuals::place(d, eye, forward, distance);
         let mut parts: Vec<(u16, Vec<mao_render::ShellVertex>)> = Vec::new();
         let scaled = |c: [f32; 4]| [c[0] * d.factor[0], c[1] * d.factor[1], c[2] * d.factor[2], c[3] * d.factor[3]];
+        // (a point list stays one: `BlueprintRender`'s dots)
+        let points = matches!(d.shape, Shape::Points(_));
         match &d.shape {
-            Shape::Triangles(t) => {
+            Shape::Triangles(t) | Shape::Points(t) => {
                 let sprite = d.texture.as_deref().map_or(mao_render::NO_SPRITE, |n| named_sheet(c.named, renderer, n));
                 parts.push((sprite, t.iter().map(|v| mao_render::ShellVertex { position: world(visuals::transform(&m, v.pos)), uv: visuals::texture_uv(d, v.uv), colour: scaled(v.colour) }).collect()));
             }
@@ -3537,7 +3539,7 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
             let far = parts.iter().flat_map(|(_, v)| v.iter()).map(|v| ((v.position[0] - eye[0]).powi(2) + (v.position[1] - eye[2]).powi(2) + (v.position[2] - eye[1]).powi(2)).sqrt()).fold((f32::MAX, 0.0f32), |(a, b), x| (a.min(x), b.max(x)));
             eprintln!("sky draw {} sorting {}: elevations {lo:.1}..{hi:.1} distances {:.0}..{:.0} fogged {} {:?}", d.kind, d.sorting, far.0, far.1, d.fogged, d.fog_colour);
             let colours: Vec<[f32; 4]> = parts.iter().filter_map(|(_, v)| v.first().map(|v| v.colour)).collect();
-            eprintln!("  shape {:?} blend {:?} backdrop {} factor {:?} texture {:?} light {} material {} parts {:?} first colours {:.2?}", match &d.shape { Shape::Mesh(n) => n.clone(), Shape::Triangles(t) => format!("{} triangles", t.len() / 3) }, d.blend, d.backdrop, d.factor, d.texture, d.light.is_some(), d.material.is_some(), parts.iter().map(|(s, v)| (*s, v.len())).collect::<Vec<_>>(), colours);
+            eprintln!("  shape {:?} blend {:?} backdrop {} factor {:?} texture {:?} light {} material {} parts {:?} first colours {:.2?}", match &d.shape { Shape::Mesh(n) => n.clone(), Shape::Triangles(t) => format!("{} triangles", t.len() / 3), Shape::Points(t) => format!("{} points", t.len()) }, d.blend, d.backdrop, d.factor, d.texture, d.light.is_some(), d.material.is_some(), parts.iter().map(|(s, v)| (*s, v.len())).collect::<Vec<_>>(), colours);
         }
         for (sprite, mut vertices) in parts {
             if d.backdrop {
@@ -3576,13 +3578,15 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
                                 sprite: mao_render::NO_SPRITE,
                                 blend: mao_render::BackdropBlend::Add,
                                 vertices: vertices.iter().zip(&amounts).map(|(v, f)| mao_render::ShellVertex { position: v.position, uv: [0.5, 0.5], colour: [colour[0], colour[1], colour[2], *f] }).collect(),
+                                points,
                             });
                         }
                     }
                 }
-                backdrops.push(mao_render::Backdrop { sprite, blend, vertices });
+                backdrops.push(mao_render::Backdrop { sprite, blend, vertices, points });
                 backdrops.extend(haze);
-            } else {
+            } else if !points {
+                // (the shells are triangle lists: a point list drawn with the depth test has none to go to; no script has one)
                 shells.push(mao_render::Shell { sprite, additive: d.blend == Blend::Add, vertices });
             }
         }

@@ -604,6 +604,9 @@ pub struct Backdrop {
     pub sprite: u16,
     pub blend: BackdropBlend,
     pub vertices: Vec<ShellVertex>,
+    /// The vertices are a point list (one pixel each, as D3D draws `D3DPT_POINTLIST`: FXS's `BlueprintRender` dots), not
+    /// a triangle list.
+    pub points: bool,
 }
 
 /// A liquid surface's vertex on the card: its place and normal (world, Z up) and its type's colour.
@@ -1097,6 +1100,8 @@ struct ScenePipelines {
     shell_add: wgpu::RenderPipeline,
     shell_blend: wgpu::RenderPipeline,
     backdrops: [wgpu::RenderPipeline; 3],
+    /// The same for point lists.
+    backdrop_points: [wgpu::RenderPipeline; 3],
 }
 
 impl ScenePipelines {
@@ -1300,7 +1305,7 @@ impl ScenePipelines {
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x2, offset: 12, shader_location: 1 },
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 20, shader_location: 2 },
         ];
-        let shell_like = |vertex: &str, entry: &str, blend: Option<wgpu::BlendState>, compare: wgpu::CompareFunction| {
+        let shell_like_drawn = |vertex: &str, entry: &str, blend: Option<wgpu::BlendState>, compare: wgpu::CompareFunction, topology: wgpu::PrimitiveTopology| {
             let t = targets(blend, false);
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("shell"),
@@ -1311,7 +1316,7 @@ impl ScenePipelines {
                     compilation_options: Default::default(),
                     buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 36, step_mode: wgpu::VertexStepMode::Vertex, attributes: &shell_attributes })],
                 },
-                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                primitive: wgpu::PrimitiveState { topology, cull_mode: None, ..Default::default() },
                 depth_stencil: depth(false, compare, Default::default()),
                 multisample,
                 fragment: Some(wgpu::FragmentState { module: particle_shader, entry_point: Some(entry), compilation_options: Default::default(), targets: &t }),
@@ -1319,6 +1324,7 @@ impl ScenePipelines {
                 cache: None,
             })
         };
+        let shell_like = |vertex: &str, entry: &str, blend: Option<wgpu::BlendState>, compare: wgpu::CompareFunction| shell_like_drawn(vertex, entry, blend, compare, wgpu::PrimitiveTopology::TriangleList);
         let shell_add = shell_like("vs_shell", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Less);
         let shell_blend = shell_like("vs_shell", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Less);
         let backdrops = [
@@ -1326,7 +1332,13 @@ impl ScenePipelines {
             shell_like("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always),
             shell_like("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
         ];
-        ScenePipelines { mesh, mesh_blend, mesh_blend_no_z, mesh_add, mesh_add_no_z, sky, blit, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops }
+        let point = wgpu::PrimitiveTopology::PointList;
+        let backdrop_points = [
+            shell_like_drawn("vs_backdrop", "fs_backdrop_opaque", None, wgpu::CompareFunction::Always, point),
+            shell_like_drawn("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always, point),
+            shell_like_drawn("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always, point),
+        ];
+        ScenePipelines { mesh, mesh_blend, mesh_blend_no_z, mesh_add, mesh_add_no_z, sky, blit, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops, backdrop_points }
     }
 }
 
@@ -2588,7 +2600,7 @@ impl Renderer {
                     BackdropBlend::Alpha => 1,
                     BackdropBlend::Add => 2,
                 };
-                pass.set_pipeline(&pipes.backdrops[k]);
+                pass.set_pipeline(if b.points { &pipes.backdrop_points[k] } else { &pipes.backdrops[k] });
                 pass.set_bind_group(0, &globals_bind, &[]);
                 pass.set_bind_group(1, self.sprites.get(&b.sprite).unwrap_or(&self.white_sprite), &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));

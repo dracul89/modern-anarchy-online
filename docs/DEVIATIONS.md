@@ -8239,7 +8239,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only Visualization 1 (a strip) is drawn
 - A player notices: point-based scripted visuals do not appear
 - Where: `crates/mao-client/src/fxs/visuals.rs:382`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): FXS BlueprintRender (drop-in fxs/src/render.rs blueprint_render) draws a generated mesh as a point list for Visualization 0 (e_Render_Dots: render_point_list) and a triangle strip for 1; another value prints "Unsupported visualization mode". A script does use points: Tweak_Rubi-Ka_DotStars.txt (500 dots at random on its blueprint's triangles, Size 990, additive, under expansion BP01), included by the outdoor playfields (Tweak_Playfield_OutdoorDefault.txt and others). The client's fxs/visuals.rs blueprint now returns Shape::Points for 0, viewer.rs sky_draws passes them on as a backdrop marked points, and mao-render draws such a backdrop with new PointList pipelines (one pixel a point, as D3D draws D3DPT_POINTLIST at its default size). Test: fxs::visuals::tests::the_dot_stars_are_points (MAO_GAME).
 - Looked at, left (2026-11-19, overnight): BlueprintRender's other visualizations (points among them) need a point primitive in the scripted visuals' draw; no script seen tonight uses them. Left.
 
 #### `RND-159` Ground grid: locator's turn and laid-once (0x800) not done; random turn is a fixed hash

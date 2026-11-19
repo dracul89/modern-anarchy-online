@@ -71,6 +71,8 @@ pub enum Shape {
     Mesh(String),
     /// A triangle list.
     Triangles(Vec<Vert>),
+    /// A point list (`BlueprintRender`'s visualization 0, `e_Render_Dots`: one pixel a point).
+    Points(Vec<Vert>),
 }
 
 /// One visual to draw this frame: its shape and placing (the server's frame, Y up), its state blob's look, and its
@@ -311,7 +313,7 @@ impl Visuals {
         });
         let shape = match kind {
             4 => Shape::Mesh(o.variable_named("Mesh").and_then(|v| super::string_of(&v))?),
-            5 => Shape::Triangles(self.blueprint(&blob)?),
+            5 => self.blueprint(&blob)?,
             _ => Shape::Triangles(sun_rays(o)),
         };
         Some(Draw {
@@ -385,8 +387,9 @@ impl Visuals {
 
     /// `BlueprintGenerateMesh` then `BlueprintRender`: the blob's blueprint object's points (made once: strict, the
     /// points times the size; or at random on its indexed triangles), its colours each frame (the table's, alpha first,
-    /// for a colour manipulation), random texture coordinates; a strip made triangles (points are not drawn).
-    fn blueprint(&mut self, blob: &StateBlob) -> Option<Vec<Vert>> {
+    /// for a colour manipulation), random texture coordinates; drawn as points (visualization 0, the dot stars) or a strip
+    /// made triangles (1), as FXS's `BlueprintRender` draws its point list or triangle strip; another is not drawn.
+    fn blueprint(&mut self, blob: &StateBlob) -> Option<Shape> {
         let (_, id) = *blob.meshes.last()?;
         let o = super::with(|e| e.named.get(&id).cloned())?;
         let var = |n: &str| o.variable_named(n);
@@ -440,7 +443,8 @@ impl Visuals {
             }
         }
         match var("Visualization").map(|v| super::word(&v)) {
-            Some(1) => Some(strip(&verts)),
+            Some(0) => Some(Shape::Points(verts)),
+            Some(1) => Some(Shape::Triangles(strip(&verts))),
             _ => None,
         }
     }
@@ -625,6 +629,7 @@ mod tests {
             let shape = match &d.shape {
                 Shape::Mesh(m) => m.clone(),
                 Shape::Triangles(t) => format!("{} triangles", t.len() / 3),
+                Shape::Points(t) => format!("{} points", t.len()),
             };
             eprintln!("kind {} priority {} sorting {} {shape} backdrop {} {:?} lit {:?} factor {:?} texture {:?}", d.kind, d.priority, d.sorting, d.backdrop, d.blend, d.light.map(|l| l.colour), d.factor, d.texture);
         }
@@ -632,6 +637,27 @@ mod tests {
         assert!(f.draws.iter().any(|d| d.shape == Shape::Mesh("star_dome.abiff".into()) || d.shape == Shape::Mesh("nebulas_sphere.abiff".into())));
         assert!(f.draws.iter().any(|d| d.kind == 5 && matches!(&d.shape, Shape::Triangles(t) if t.len() == 12)));
         assert!(f.lights.ground.is_some());
+    }
+
+    /// With the first expansion the outdoor sky's dot stars (`Tweak_Rubi-Ka_DotStars.txt`, `Visualization: e_Render_Dots`)
+    /// are a point list of the blueprint's 500 vertices, as `BlueprintRender` draws them.
+    #[test]
+    fn the_dot_stars_are_points() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        super::super::reset();
+        super::super::set_data_path(&std::path::Path::new(&game).join("cd_image"));
+        super::super::load_playfield(999_999, 0);
+        super::super::set_expansion(1);
+        super::super::start_automatic();
+        let (sun1, sun2) = super::super::sun::rotations(0.0);
+        super::super::set_game(&super::super::Game { delta_time: 0.05, sun1, sun2, ..Default::default() });
+        let mut v = Visuals::default();
+        v.start(super::super::take_started());
+        super::super::frame_process();
+        let f = v.frame(&super::super::clouds::Sky::default());
+        let dots = f.draws.iter().find(|d| matches!(&d.shape, Shape::Points(_))).expect("the dot stars");
+        assert!(matches!(&dots.shape, Shape::Points(p) if p.len() == 500));
+        assert!(dots.backdrop && dots.blend == Blend::Add, "{:?} {:?}", dots.backdrop, dots.blend);
     }
 }
 
