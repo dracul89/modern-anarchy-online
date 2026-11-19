@@ -477,6 +477,12 @@ struct World {
     /// How many times each container was opened: a window shut comes up again when its container is opened anew.
     loot_opened: BTreeMap<(u32, u32), u32>,
     loot_changed: bool,
+    /// Where the character stood when the bank came (Gamecode FUN_1007254b keeps it at the container list's +0x90), while
+    /// the bank is open: walking more than 5 m away from it closes the bank (FUN_1003f8fc).
+    bank_anchor: Option<[f32; 3]>,
+    /// Characters of the team (or, in a raid, the raid) whose full update came: the game loop names each to the server
+    /// (`CharacterAction` 0x80, Gamecode FUN_1006610b from the full update's apply FUN_1007835c).
+    team_seen: Vec<u32>,
     /// One's own backpacks that are open (a bag of the inventory the character used), by the bag's identity, and
     /// whether any changed.
     bags: BTreeMap<(u32, u32), Loot>,
@@ -913,6 +919,20 @@ fn delete_refusal(place: u32, full_bag: bool) -> Option<&'static str> {
 fn trade_in_reach(own: [f32; 3], own_sphere: (f32, f32), at: [f32; 3], sphere: (f32, f32)) -> bool {
     let (dx, dy, dz) = (at[0] - own[0], (at[1] + sphere.0) - (own[1] + own_sphere.0), at[2] - own[2]);
     (dx * dx + dy * dy + dz * dz).sqrt() - own_sphere.1 - sphere.1 <= 5.0
+}
+
+/// Whether a character's full update is told to the server (Gamecode FUN_1006610b): the character is in the own team,
+/// or, in a raid, in one of the raid's teams (FUN_10065d65, FUN_10065dab); none without a team.
+fn team_mate(team: &crate::team::Team, id: u32) -> bool {
+    !team.members.is_empty() && (team.members.iter().any(|m| m.id == id) || (team.raid.is_some() && team.others.iter().any(|l| l.iter().any(|m| m.id == id))))
+}
+
+/// Whether the bank stays open (Gamecode FUN_1005a367, asked by FUN_1003f8fc): the distance from the character's body
+/// sphere's centre to where it stood when the bank came, less the sphere's radius, no more than 5 m (DAT_101584fc).
+/// The sphere is (height of the centre above the feet, radius).
+fn bank_in_reach(own: [f32; 3], own_sphere: (f32, f32), anchor: [f32; 3]) -> bool {
+    let (dx, dy, dz) = (anchor[0] - own[0], anchor[1] - (own[1] + own_sphere.0), anchor[2] - own[2]);
+    (dx * dx + dy * dy + dz * dz).sqrt() - own_sphere.1 <= 5.0
 }
 
 /// A door's body sphere from its mesh (`hazards::body_sphere`, the mesh's packed word): height of the centre, radius.
@@ -3814,6 +3834,7 @@ impl World {
                     eprintln!("bank: {} items ({} bytes) {:?}", entries.len(), m.data.len(), entries.iter().take(4).map(|e| (e.slot, e.container, e.low_id)).collect::<Vec<_>>());
                 }
                 self.open_loot(Loot { identity: (crate::loot::BANK, 0), handle: 0, entries });
+                self.bank_anchor = self.position_of(self.own);
             }
         }
         // Items that come to the inventory: `AddTemplate` (`052e2f0c`: bought in a shop, a reward) at once, and a
@@ -4798,6 +4819,9 @@ impl World {
             // (stat 194 is set only as the dynel is made: a full update again for one already here leaves it)
             self.in_play.entry(m.identity.1).or_insert(info.flags & 2 != 0);
             self.infos.insert(m.identity.1, info);
+            if m.identity.1 != self.own && crate::team::with(|t| team_mate(t, m.identity.1)) {
+                self.team_seen.push(m.identity.1);
+            }
         }
         if let Some((kind, q, _)) = m.movement() {
             self.rotations.insert(m.identity.1, q);
@@ -9170,9 +9194,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                 }
             }
+            for id in std::mem::take(&mut state.team_seen) {
+                let _ = connection.send(&n3::character_action(own, 0x80, (n3::CHARACTER, id), (0, 0)));
+            }
             for _ in 0..BANK_CLOSES.swap(0, std::sync::atomic::Ordering::Relaxed) {
                 eprintln!("[{:6.1}] the bank's window shut: told the server (action 0x6a)", clock.elapsed().as_secs_f32());
                 let _ = connection.send(&n3::character_action(own, 0x6a, (0, 0), (0, 0)));
+                state.bank_anchor = None;
             }
             for check in std::mem::take(&mut *CLAIM_REQUESTS.lock().unwrap_or_else(|e| e.into_inner())) {
                 if let Some(text) = state.claims_refusal() {
@@ -11280,6 +11308,33 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     Some(crate::hazards::body_sphere(packed, state.stats.get(&360).map_or(1.0, |&s| s as f32 / 100.0)))
                 });
                 state.tick_doors(position, own_sphere.unwrap_or(NO_MESH_SPHERE));
+                // (the bank, open, from where the character stood when it came: more than 5 m away and it is closed and
+                // the server told, `CharacterAction` 0x6a with nothing named (FUN_1003f8fc's bank branch))
+                if let Some(anchor) = state.bank_anchor
+                    && !bank_in_reach(position, own_sphere.unwrap_or(NO_MESH_SPHERE), anchor)
+                {
+                    eprintln!("[{:6.1}] walked away from the bank: closed, told the server (action 0x6a)", clock.elapsed().as_secs_f32());
+                    let _ = connection.send(&n3::character_action(own, 0x6a, (0, 0), (0, 0)));
+                    state.bank_anchor = None;
+                    state.loots.retain(|l| l.identity.0 != crate::loot::BANK);
+                    state.loot_changed = true;
+                }
+                // (a corpse or chest open, not one's own, more than 5 m away (FUN_1005a1e7): closed and the server told,
+                // `CharacterAction` 0x8e naming it (FUN_1003f8fc's first branch))
+                let own_corpse = state.corpses.get(&own).copied();
+                let away: Vec<(u32, u32)> = state
+                    .loots
+                    .iter()
+                    .filter(|l| matches!(l.identity.0, 0xc76a | 0xc749) && Some(l.identity.1) != own_corpse)
+                    .filter(|l| state.objects.get(&l.identity.1).is_some_and(|&at| !trade_in_reach(position, own_sphere.unwrap_or(NO_MESH_SPHERE), at, NO_MESH_SPHERE)))
+                    .map(|l| l.identity)
+                    .collect();
+                for identity in away {
+                    eprintln!("[{:6.1}] walked away from the container {:#x}:{:#x}: closed, told the server (action 0x8e)", clock.elapsed().as_secs_f32(), identity.0, identity.1);
+                    let _ = connection.send(&n3::character_action(own, 0x8e, (0, 0), identity));
+                    state.loots.retain(|l| l.identity != identity);
+                    state.loot_changed = true;
+                }
                 state.tick_shock(Instant::now());
                 // (characters farther than the setting are not drawn; 0 draws all)
                 let reach = keys.char_distance;
@@ -15016,6 +15071,18 @@ mod door_tests {
     fn a_trade_is_in_reach_within_five_metres() {
         let body = (1.0, 0.5);
         assert!(trade_in_reach([0.0; 3], body, [6.0, 0.0, 0.0], body));
+        // (the bank: from the sphere's centre to where the character stood, less one radius)
+        assert!(bank_in_reach([0.0; 3], body, [0.0; 3]));
+        assert!(bank_in_reach([0.0; 3], (0.0, 1.0), [6.0, 0.0, 0.0]));
+        assert!(!bank_in_reach([0.0; 3], (0.0, 1.0), [6.1, 0.0, 0.0]));
+        // (team mates: the own team's, and in a raid the other teams')
+        let mate = |id| crate::team::Mate { id, ..Default::default() };
+        let mut team = crate::team::Team { members: vec![mate(1), mate(2)], ..Default::default() };
+        team.others[3] = vec![mate(9)];
+        assert!(team_mate(&team, 2) && !team_mate(&team, 9));
+        team.raid = Some(0);
+        assert!(team_mate(&team, 9) && !team_mate(&team, 5));
+        assert!(!team_mate(&crate::team::Team::default(), 1));
         assert!(!trade_in_reach([0.0; 3], body, [6.1, 0.0, 0.0], body));
         assert!(trade_in_reach([0.0; 3], body, [0.0; 3], body));
         assert!(!trade_in_reach([0.0; 3], body, [0.0, 7.0, 0.0], body));

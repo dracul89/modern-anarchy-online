@@ -7626,3 +7626,7 @@ The original's wear pages ask `N3Msg_IsItemPossibleToWear` as an item in hand mo
 ### Spell lines of every kind on the item pages (INV-023)
 
 Gamecode `N3Msg_ConvertSpellList` (0x100213ec) writes a line for each spell it knows; the client now writes the casts with a link to the nano's page (single, team and area casts), nano resists, an item's special ability, perk locks (perk name and rank), faction sets and changes, health and nano hits, anchors, offensive and defensive procs, quest and mail actions, cleared locks, organization cash, the end of a fight and sneaking, and Root and Taunt read the values the original reads. A nano program's damage and heal lines add the reader's own figure in brackets when its healing or damage percentage is not 100, as the original does for nano spells. Not written: a hit on a map (the map names are a table in the original program).
+
+### Walking away from the bank or a corpse (INV-051)
+
+The original closes an open bank when the character has walked more than 5 m from where it stood when the bank opened, and tells the server (Gamecode FUN_1003f8fc, FUN_1005a367: `CharacterAction` 0x6a); an open corpse or chest that is not one's own closes when it is out of the 5 m reach (FUN_1005a1e7), told with `CharacterAction` 0x8e naming it. A team (or raid) mate's full update is named to the server with `CharacterAction` 0x80 (FUN_1006610b). The client now does all three; the corpse's own size is the client's default body sphere (a guess), and the reclaim terminal's case is not done.

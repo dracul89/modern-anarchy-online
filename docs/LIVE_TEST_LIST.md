@@ -1124,6 +1124,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] Take up an item you cannot wear (requirements too high) and move it over its wear place: the "can't drop" pointer shows; let it go there: the refusal is told and the item is still in hand.
 - [ ] Take up a weapon you can wield: the plain pointer over a hand cell, the "can't drop" one over the belt's and beside the cells; letting it go in the hand wears it.
 - [ ] Open the info of a nano or item with a proc or a cast (a weapon with a proc, a stim): the line shows "Offensive proc (x%): <nano>" or "Cast <nano>", and clicking the nano's name opens its page.
+- [ ] Open the bank and walk away: about 5 m from where you stood the bank window closes (log: "walked away from the bank").
+- [ ] Open a corpse and walk away: its window closes about 5 m out (log: "walked away from the container"), and the server answers without complaint.
+- [ ] In a team, have a mate come into view: the log/trace shows a CharacterAction 0x80 naming them, and nothing odd follows.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
