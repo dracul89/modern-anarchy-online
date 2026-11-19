@@ -5335,7 +5335,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the fill is blended at 0.45 opacity
 - A player notices: selected rows are paler
 - Where: `crates/mao-client/src/gui/multilist.rs:402`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The alpha was read: FUN_100f1f68 gives the selected row a colour-only ViewSurface_c (flags 0xf, no texture) with SetColor(0x88aadd); ViewSurface_c::_Render (0x10152beb) hands each of its ViewArea_c the surface colour times the view's colour (per channel, /0xff) and the view's alpha (param_5), and a ViewArea_c's own alpha (+0x78) starts at 1.0 in both constructors (0x10151d76, 0x101519b7; only ViewSurface_c::SetAlpha 0x10151983 changes it, not called here). So the row is solid 0x88aadd (in a view of white colour, faded only with its window). The client's 0.45 blend in gui/multilist.rs is removed. No unit test (a drawing colour).
 - Looked at, left (2026-11-19, overnight): FUN_100f1f68 gives the selected row a ViewSurface_c (flags 0xf) with SetColor(0x88aadd); ViewSurface_c::SetColor (0x10151940) keeps only the colour's low 24 bits, so the row's opacity comes from the surface's own alpha / the view's alpha in its render (ViewSurface_c::_Initialize and ViewArea_c's drawing), which was not read. Without that, replacing the client's 0.45 with "opaque" would be another guess. Next step: ViewSurface_c::_Initialize's alpha for a colour-only surface.
 
 #### `WIN-070` Stat names in tips use the client's own English table

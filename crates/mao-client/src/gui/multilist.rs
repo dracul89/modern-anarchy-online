@@ -443,8 +443,10 @@ impl Control for Rows {
                 continue;
             }
             if self.selected == Some(item.id) {
+                // (a surface of the colour alone, solid: `ViewSurface_c::_Render` 0x10152beb draws its areas at the view's
+                // alpha, and a `ViewArea_c`'s own starts at 1.0, 0x10151d76)
                 let fill = egui::Color32::from_rgb((SELECTED >> 16) as u8, (SELECTED >> 8) as u8, SELECTED as u8);
-                p.painter.rect_filled(egui::Rect::from_min_size(egui::pos2(p.rect.min.x, top), egui::vec2(width.max(p.rect.width()), ROW_HEIGHT)), 0.0, fill.gamma_multiply(0.45));
+                p.painter.rect_filled(egui::Rect::from_min_size(egui::pos2(p.rect.min.x, top), egui::vec2(width.max(p.rect.width()), ROW_HEIGHT)), 0.0, fill);
             }
             for &(column, x, w) in &places {
                 let cell = egui::Rect::from_min_size(egui::pos2(p.rect.min.x + x, top), egui::vec2(w, ROW_HEIGHT));

@@ -267,6 +267,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Scroll bars in the game's own views (info, inventory lists, chat and the like) show the skin's pictures in their own colours, no longer tinted with the theme's colour.
 - The logout bar and the attack/nano/item timer bars use the skin's timer bar pictures, with their label on the bar, as in the original.
 - Popup menus too long for the screen show a scroll bar, as in the original.
+- A selected row in the game's lists (friends, mission, list-mode programs and the like) is filled with the original's solid light blue, no longer a pale tint.
 
 ### Chat
 

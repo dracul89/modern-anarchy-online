@@ -7818,3 +7818,7 @@ The original's `TimerBar_c` (FUN_100519d6, the logout bar and the game's attack,
 ### A long popup menu has its scroll bar (WIN-064)
 
 The original holds a popup menu in a scroll view with the vertical bar on auto (`PopupMenu_c::Go` 0x1013c13a, `ScrollView_c::_UpdateScrollBars` 0x10142b68): a menu taller than the screen less 100 shows the `GFX_GUI_SIMPLE_SB` bar at its right and is that much wider (`CalculatePreferredSize` 0x10142a4b). The client's popup scrolled only by the wheel; it now has the bar: arrows step 5 and repeat when held, a press beside the knob steps 20, the knob drags, and pressing the bar chooses no entry.
+
+### Selected list rows in the original's solid colour (WIN-069)
+
+The original fills a selected list row with a colour-only surface of 0x88aadd (FUN_100f1f68), drawn solid: `ViewSurface_c::_Render` (0x10152beb) uses the view's alpha and a `ViewArea_c`'s own alpha starts at 1.0 (0x10151d76). The client blended the colour at 0.45; it now fills the row solid.

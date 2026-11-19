@@ -1180,6 +1180,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] With "The original's chat font" on: chat lines sit 9 pixels apart without overlapping; a line with accented letters (é, ü, ø) is spaced evenly; the logout timer's "Logout" and the loading text still sit right.
 - [ ] Start /logout and use an attack or nano: the bars are the skin's 113x10 timer pictures in white (logout) or the kind's colour, emptying from the right, the label in black on the bar.
 - [ ] Open a menu longer than the screen (a long chat channel or friends list menu at a small window size): a scroll bar shows at its right; the arrows, the track and the knob scroll it, and pressing the bar does not choose the highlighted entry.
+- [ ] Select a row in a list view (nano programs in list mode, the friends list): the row is solid light blue (0x88aadd) behind its text, as in the original.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
