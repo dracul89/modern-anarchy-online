@@ -119,6 +119,94 @@ fn line_shows(line: &Line, pane: Option<&Pane>, only: Option<&str>) -> bool {
     }
 }
 
+/// An invitation to a private chat group that waits for the player's answer: the inviter (the group goes by the
+/// inviter's name), whether it marks the inviter's row in the friends list (`FriendListNode_c` +0x39), and the
+/// question when it is up, with the chat windows chosen in its list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Invite {
+    owner: u32,
+    name: String,
+    marked: bool,
+    asked: Option<std::collections::BTreeSet<usize>>,
+}
+
+/// The chat windows the question's list starts with chosen (FUN_100aef3a): those that show the group, when it is there.
+fn shown_in(panes: &[Pane], group: &str) -> std::collections::BTreeSet<usize> {
+    if !chatgroups::available(group) {
+        return Default::default();
+    }
+    (0..panes.len()).filter(|k| panes[*k].selected.contains(group)).collect()
+}
+
+/// The order of the chat windows in the question's list: by name, no regard to case (FUN_100aef3a; the original puts
+/// its default window first, which this client has not).
+fn invitation_order(panes: &[Pane]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..panes.len()).collect();
+    order.sort_by_key(|k| panes[*k].name.to_lowercase());
+    order
+}
+
+/// The answer yes (FUN_100a74cb): every chat window chosen shows the group (FUN_1009d5cc), every other does not
+/// (FUN_1009d87a), one that takes new groups by itself too.
+fn put_group(panes: &mut [Pane], group: &str, chosen: &std::collections::BTreeSet<usize>) {
+    for (k, pane) in panes.iter_mut().enumerate() {
+        pane.known.insert(group.to_string());
+        if chosen.contains(&k) {
+            pane.selected.insert(group.to_string());
+        } else {
+            pane.selected.remove(group);
+        }
+    }
+}
+
+/// The invitation's question (`InviteDialog_c`, FUN_100ae840 from FUN_100a76c9): "PrivateGroupInvitation" over the text
+/// with the inviter's name, a list of the chat windows (FUN_100af0ed: several can be chosen, a press turns one on or
+/// off) and Yes and No. Some(true) for yes; Some(false) for no or the window closed.
+fn invitation_box(ctx: &egui::Context, palette: &Palette, name: &str, panes: &[Pane], chosen: &mut std::collections::BTreeSet<usize>) -> Option<bool> {
+    let title = crate::gui::xml::ldb_named(10001, "PrivateGroupInvitation", "Private chat group");
+    let text = crate::gui::xml::ldb_named(10001, "ChatFriendList_InvitedToPrivateGroupDialogText", "%s invites you to a private chat group. Show it in the chat windows chosen below?").replace("%s", &format!("<font color=yellow>{name}</font>"));
+    let [yes, no] = crate::chrome::yes_no();
+    let font = crate::gui::font::FontId::NORMAL;
+    let mut open = true;
+    let mut answer = None;
+    crate::chrome::window(ctx, palette, "private-invite", &title, &mut open, |w| w.resizable(false).pivot(egui::Align2::CENTER_CENTER).default_pos(ctx.content_rect().center()), |ui| {
+        ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+        ui.set_width(260.0);
+        ui.add_space(5.0);
+        crate::gui::controls::markup(ui, palette, &text, font, crate::chrome::rgb(palette.text));
+        ui.add_space(8.0);
+        // (the list of the chat windows: a chosen one white on the selection's colour, another grey, the list view's
+        // label colours)
+        egui::Frame::new().stroke(egui::Stroke::new(1.0, crate::chrome::rgb(palette.text).gamma_multiply(0.4))).inner_margin(2.0).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            for k in invitation_order(panes) {
+                let on = chosen.contains(&k);
+                let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 16.0), egui::Sense::click());
+                if on {
+                    ui.painter().rect_filled(rect, 0.0, crate::chrome::rgb(palette.text).gamma_multiply(0.25));
+                }
+                let colour = if on { egui::Color32::from_rgb(0xff, 0xff, 0xff) } else { egui::Color32::from_rgb(0xc0, 0xc0, 0xc0) };
+                ui.painter().text(rect.left_center() + egui::vec2(4.0, 0.0), egui::Align2::LEFT_CENTER, &panes[k].name, egui::FontId::proportional(12.0), colour);
+                if response.clicked() && !chosen.remove(&k) {
+                    chosen.insert(k);
+                }
+            }
+        });
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            if crate::chrome::button(ui, palette, &yes, true).clicked() {
+                answer = Some(true);
+            }
+            ui.add_space(8.0);
+            if crate::chrome::button(ui, palette, &no, true).clicked() {
+                answer = Some(false);
+            }
+        });
+        ui.add_space(5.0);
+    });
+    if !open { Some(false) } else { answer }
+}
+
 /// Whether a tell from or to a character counts as one not read (FUN_100a7394): not when the character's tell window
 /// is open (it is written there), nor when a chat window that is up has shown it (the `param_2` FUN_100a681d and
 /// FUN_100a5f39 pass).
@@ -318,7 +406,7 @@ pub struct ChatWindow {
     pub invite_action: i32,
     /// `ChatWarnWhenSpeakingToUnsubGroups`: a line sent to a group the window does not show is warned of.
     pub warn_unshown: bool,
-    invites: Vec<(u32, String)>,
+    invites: Vec<Invite>,
     /// A `/start` address that waits for the answer to "leave the full screen?" ([`EXCLUSIVE`]).
     start_pending: Option<String>,
     pub outs: Vec<Out>,
@@ -601,8 +689,24 @@ impl ChatWindow {
         }
     }
 
+    /// Whether a character's invitation to a private chat group marks their row in the friends list (+0x39).
+    pub fn invited(&self, name: &str) -> bool {
+        self.invites.iter().any(|i| i.marked && i.name.eq_ignore_ascii_case(name))
+    }
+
+    /// The friends list's press on the row of a character whose invitation is marked (FUN_100a7ca7 → FUN_100a76c9): the
+    /// mark goes and the question comes.
+    pub fn ask_invitation(&mut self, name: &str) {
+        let panes = &self.panes;
+        if let Some(invite) = self.invites.iter_mut().find(|i| i.marked && i.name.eq_ignore_ascii_case(name)) {
+            invite.marked = false;
+            invite.asked.get_or_insert_with(|| shown_in(panes, &invite.name));
+        }
+    }
+
     /// The invitations that came (FUN_100a7986): one from an ignored character is declined without a word; with the
-    /// option at 0 it is declined and said so; else it is told of and waits for the player's answer.
+    /// option at 0 it is declined and said so; else it is told of and waits for the player's answer, marked in the
+    /// friends list (+0x39), with the question up at once at 1 (FUN_100a76c9) and at a press on the row at 2.
     fn take_invitations(&mut self) {
         for (owner, name) in chatgroups::take_invites() {
             let said = |key: &str, own: &str| crate::gui::xml::ldb_named(10001, key, own).replace("%s", &name);
@@ -612,8 +716,9 @@ impl ChatWindow {
                 self.push(Line::new(Kind::System, said("ChatInviteAutoDeclined", "The invitation to %s's private chat group was declined.")));
                 self.outs.push(Out::PrivateDecline { owner });
             } else {
+                let asked = (self.invite_action == 1).then(|| shown_in(&self.panes, &name));
                 self.push(Line::new(Kind::System, said("ChatInvitePending", "%s invites you to a private chat group.")));
-                self.invites.push((owner, name));
+                self.invites.push(Invite { owner, name, marked: true, asked });
             }
         }
     }
@@ -1905,7 +2010,9 @@ impl ChatWindow {
         }
         // (the tell windows are windows of their own: they stay when the chat window is closed; so does a chat window's
         // menu the friends list opened)
-        if !self.open && self.tells.is_empty() && self.popup.is_none() {
+        // (the invitations come whether or not the chat window is up: their marks are the friends list's)
+        self.take_invitations();
+        if !self.open && self.tells.is_empty() && self.popup.is_none() && !self.invites.iter().any(|i| i.asked.is_some()) {
             return None;
         }
         let mut out = None;
@@ -2091,8 +2198,8 @@ impl ChatWindow {
         for name in self.config.leaves.drain(..) {
             self.outs.push(Out::PrivateLeave { name });
         }
-        // an invitation to a private chat group: the original's question (FUN_100a76c9, without its list of chat
-        // windows to put the group in: the windows that take new channels by themselves show it)
+        // an invitation to a private chat group: the original's question (FUN_100a76c9) with its list of the chat windows
+        // to put the group in
         if let Some(address) = self.start_pending.clone() {
             let question = crate::gui::xml::ldb_named(10000, "ReallyMinimizeGame", "Opening this leaves the game's full screen. Go on?");
             if let Some(yes) = crate::chrome::question(ctx, palette, "start-minimize", "Warning:", &question) {
@@ -2102,13 +2209,20 @@ impl ChatWindow {
                 self.start_pending = None;
             }
         }
-        self.take_invitations();
-        if let Some((owner, name)) = self.invites.first().cloned() {
-            let title = crate::gui::xml::ldb_named(10001, "PrivateGroupInvitation", "Private chat group");
-            let question = crate::gui::xml::ldb_named(10001, "ChatInvitePending", "%s invites you to a private chat group.").replace("%s", &format!("<font color=yellow>{name}</font>"));
-            if let Some(yes) = crate::chrome::question(ctx, palette, "private-invite", &title, &question) {
+        if let Some(k) = self.invites.iter().position(|i| i.asked.is_some()) {
+            let name = self.invites[k].name.clone();
+            let mut chosen = self.invites[k].asked.take().unwrap_or_default();
+            let answer = invitation_box(ctx, palette, &name, &self.panes, &mut chosen);
+            self.invites[k].asked = Some(chosen);
+            if let Some(yes) = answer {
+                let invite = self.invites.remove(k);
+                let owner = invite.owner;
+                // (FUN_100a74cb: yes puts the group into the windows chosen and out of the others, then joins)
+                if yes {
+                    put_group(&mut self.panes, &invite.name, &invite.asked.unwrap_or_default());
+                    chatgroups::save(&self.panes);
+                }
                 self.outs.push(if yes { Out::PrivateJoin { owner } } else { Out::PrivateDecline { owner } });
-                self.invites.remove(0);
             }
         }
         self.open = open;
@@ -2477,7 +2591,8 @@ mod tests {
         let mut w = ChatWindow::default();
         chatgroups::invite(71, "Inviterone");
         w.take_invitations();
-        assert_eq!((w.invites.clone(), w.outs.clone()), (vec![(71, "Inviterone".to_string())], vec![]));
+        assert_eq!(w.invites.iter().map(|i| (i.owner, i.name.as_str(), i.marked, i.asked.is_some())).collect::<Vec<_>>(), [(71, "Inviterone", true, true)]);
+        assert!(w.outs.is_empty() && w.invited("inviterone"));
         assert!(w.lines.last().unwrap().text.contains("Inviterone"));
         w.invite_action = 0;
         chatgroups::invite(72, "Invitertwo");
@@ -2489,6 +2604,31 @@ mod tests {
         chatgroups::invite(73, "Inviterthree");
         w.take_invitations();
         assert_eq!((w.outs.last(), w.lines.len()), (Some(&Out::PrivateDecline { owner: 73 }), said));
+    }
+
+    /// `ChatPGInviteAction` 2 only marks the inviter's row (FUN_100a7986); the press on it brings the question
+    /// (FUN_100a76c9), whose yes puts the group into the chat windows chosen and out of the others (FUN_100a74cb).
+    #[test]
+    fn an_invitation_is_marked_then_asked_with_its_chat_windows() {
+        let mut w = ChatWindow::default();
+        w.invite_action = 2;
+        w.invites.push(Invite { owner: 74, name: "Inviterfour".into(), marked: true, asked: None });
+        assert!(w.invited("INVITERFOUR") && !w.invited("Zed"));
+        w.ask_invitation("inviterfour");
+        assert!(!w.invited("Inviterfour"));
+        // (the group not there yet: no window starts chosen)
+        assert_eq!(w.invites[0].asked, Some(Default::default()));
+        // (the list by name, no regard to case)
+        w.panes[1].name = "alpha".into();
+        assert_eq!(invitation_order(&w.panes), [1, 0]);
+        // (yes with the second window chosen: it shows the group, the first, which takes new groups by itself, not)
+        put_group(&mut w.panes, "Inviterfour", &[1].into_iter().collect());
+        assert!(w.panes[1].selected.contains("Inviterfour") && !w.panes[0].selected.contains("Inviterfour"));
+        assert!(!w.panes[0].shows("Inviterfour"));
+        // (a group there already: the windows that show it start chosen)
+        chatgroups::note("Yy Invitergroup", 0x0e);
+        w.panes[0].selected.insert("Yy Invitergroup".into());
+        assert_eq!(shown_in(&w.panes, "Yy Invitergroup"), [0].into_iter().collect());
     }
 
     /// The window's menu holds its sub-menus as the original's does: "Visual" (with the mode and, for a borderless

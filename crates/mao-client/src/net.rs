@@ -8020,6 +8020,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             // Private chat groups (GUI.dll's chat library, FUN_1016d6f4): a group goes by its owner's name.
                             Some(Packet::PrivateInvite { owner }) => {
+                                // (the inviter becomes one of the recent messages, whose row the invitation marks:
+                                // FUN_100a6b54 → FUN_100a6487)
+                                if let Some(name) = names.get(&owner).cloned() {
+                                    recent_message(&mut chat, owner, &name)?;
+                                }
                                 crate::chatgroups::invite(owner, &names.get(&owner).cloned().unwrap_or_else(|| format!("#{owner}")));
                                 None
                             }

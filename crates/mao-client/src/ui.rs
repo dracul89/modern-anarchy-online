@@ -1283,7 +1283,7 @@ impl Ui {
                         chat_open: chat_window.open,
                         unread: &|name| chat_window.unread(name),
                         tell_open: &|name| chat_window.tell_open(name),
-                        invited: &|_| false,
+                        invited: &|name| chat_window.invited(name),
                         windows: chat_window.window_names(),
                     };
                     friends_window.show(&ctx, &hud.friends, &around, palette)
@@ -1294,7 +1294,7 @@ impl Ui {
                         // (FUN_100a7ca7: the character's tell window)
                         crate::friends::Act::Tell(name) => chat_window.ask_tell(&name),
                         crate::friends::Act::CloseTell(name) => chat_window.close_tell(&name),
-                        crate::friends::Act::Invitation(_) => {}
+                        crate::friends::Act::Invitation(name) => chat_window.ask_invitation(&name),
                         crate::friends::Act::WindowMenu(pane, at) => chat_window.window_menu(&ctx, pane, at),
                         crate::friends::Act::Ignore(name) => chat_window.toggle_ignore(&name),
                         crate::friends::Act::Mail(name) => mail.message.compose(&name, ""),
