@@ -44,8 +44,8 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 46 | 7 | 0 | 1 | 0 | **0** |
 | **medium** | 158 | 20 | 11 | 31 | 0 | 25 | **71** |
-| **low** | 725 | 53 | 14 | 311 | 0 | 35 | **312** |
-| **all** | 937 | 119 | 32 | 342 | 1 | 60 | **383** |
+| **low** | 725 | 62 | 14 | 362 | 0 | 45 | **242** |
+| **all** | 937 | 128 | 32 | 393 | 1 | 70 | **313** |
 
 ### By area
 
@@ -59,7 +59,7 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | Inventory and items (`INV`) | 84 | 12 | 3 | 4 | 0 | 0 | **65** |
 | Nano programs (`NAN`) | 60 | 6 | 3 | 46 | 0 | 5 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 4 | 0 | 19 | 0 | 5 | **0** |
-| Chat and commands (`CHT`) | 80 | 4 | 0 | 0 | 0 | 0 | **76** |
+| Chat and commands (`CHT`) | 80 | 13 | 0 | 51 | 0 | 10 | **6** |
 | Windows and interface (`WIN`) | 180 | 16 | 5 | 1 | 0 | 0 | **158** |
 | Camera (`CAM`) | 13 | 1 | 0 | 0 | 0 | 0 | **12** |
 | Rendering and world (`RND`) | 194 | 20 | 4 | 158 | 0 | 12 | **0** |
@@ -267,6 +267,16 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `ZON-026` (medium) Whom-Pah window with a Go button that walks to the booth: Addition: recommend KEEP: the original has no such window (GUI_DLL_PARITY.md: "Whom-pah ... ours"); it only walks with ordinary movement messages and stops on a
 - `ZON-027` (low) Interior exit offered like a Whom-Pah booth: Addition: recommend KEEP with the Whom-Pah window (ZON-026): the original offers no such list; the exit entry only walks there with ordinary movement.
 - `ZON-028` (low) Whom-Pah booths labelled by their sign texture: Addition: recommend KEEP with the Whom-Pah window: the original never reads the sign statel as a destination; the label is the client's own help and sends nothi
+- `CHT-071` (low) "Chat server is not connected" line: Addition: recommend KEEP: the original has its own not-connected line for /cc ("Error: Not connected to chat-server.", a literal of FUN_100ba6f4); a player need
+- `CHT-072` (low) /fxscript with only a name gets a parameter mark added: Addition: recommend REMOVE: the original runs a script only when a parameters part follows the name; adding the mark runs scripts the original would not.
+- `CHT-073` (low) /setoption names the client's own settings: Addition: recommend KEEP: /setoption is the only way to set the client's own options from the chat line, and the original's distributed values are still set as 
+- `CHT-074` (low) Client's own chat status lines: Addition: recommend KEEP: the connection lines tell why chat stopped; the original has no such lines but also a different connection handling.
+- `CHT-075` (low) Deposit to Market adds a client line: Addition: recommend REMOVE: the original says nothing; the market window itself shows what was sent.
+- `CHT-076` (low) Inspect result also told as a chat line: Addition: recommend REMOVE: the original only opens the info page.
+- `CHT-077` (low) New mail needs a recipient and subject (client's own check): Addition: recommend REMOVE: FUN_1010733d checks only negative credits, the lengths and the money/C.O.D.; the server answers an empty recipient itself.
+- `CHT-078` (low) Own confirmation lines for several commands: Addition: recommend REMOVE: the original says nothing for these commands (e.g. /gfx); the lines are the client's own.
+- `CHT-079` (low) Scripts folder beside the client's settings is searched first: Addition: recommend KEEP: the original's folder is still searched; the client's own folder beside its settings only adds a place.
+- `CHT-080` (low) Team invitation text is the client's own: Addition: recommend KEEP until the original's invitation text is found (the box's line was not read); the box is needed to accept an invitation.
 - `RND-183` (medium) Anti-aliasing, anisotropic filtering, mips and hemisphere light: Addition: recommend KEEP: anti-aliasing, anisotropic filtering and mips are display-quality settings with no rule of the original's to break (its DirectX 7 devi
 - `RND-184` (medium) Coloured boxes stand in for characters with no model: Addition: recommend KEEP: the original has a model for every character (its fallback is `unfinished-breed.cir`, see RND-028), so the boxes only show where this 
 - `RND-185` (medium) Distance haze when the area has no fog: Addition: recommend REMOVE: the original's only fog is the area's VisualFog_t; with none it draws clear to its far clip, so the haze is a look of the client's o
@@ -490,16 +500,16 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 - [ ] `CHT-069` Chat commands of the client's own
 - [ ] `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice
-- [ ] `CHT-071` "Chat server is not connected" line
-- [ ] `CHT-072` /fxscript with only a name gets a parameter mark added
-- [ ] `CHT-073` /setoption names the client's own settings
-- [ ] `CHT-074` Client's own chat status lines
-- [ ] `CHT-075` Deposit to Market adds a client line
-- [ ] `CHT-076` Inspect result also told as a chat line
-- [ ] `CHT-077` New mail needs a recipient and subject (client's own check)
-- [ ] `CHT-078` Own confirmation lines for several commands
-- [ ] `CHT-079` Scripts folder beside the client's settings is searched first
-- [ ] `CHT-080` Team invitation text is the client's own
+- [ ] `CHT-071` "Chat server is not connected" line **(your call)**
+- [ ] `CHT-072` /fxscript with only a name gets a parameter mark added **(your call)**
+- [ ] `CHT-073` /setoption names the client's own settings **(your call)**
+- [ ] `CHT-074` Client's own chat status lines **(your call)**
+- [ ] `CHT-075` Deposit to Market adds a client line **(your call)**
+- [ ] `CHT-076` Inspect result also told as a chat line **(your call)**
+- [ ] `CHT-077` New mail needs a recipient and subject (client's own check) **(your call)**
+- [ ] `CHT-078` Own confirmation lines for several commands **(your call)**
+- [ ] `CHT-079` Scripts folder beside the client's settings is searched first **(your call)**
+- [ ] `CHT-080` Team invitation text is the client's own **(your call)**
 
 **Windows and interface**
 
