@@ -7630,3 +7630,7 @@ Gamecode `N3Msg_ConvertSpellList` (0x100213ec) writes a line for each spell it k
 ### Walking away from the bank or a corpse (INV-051)
 
 The original closes an open bank when the character has walked more than 5 m from where it stood when the bank opened, and tells the server (Gamecode FUN_1003f8fc, FUN_1005a367: `CharacterAction` 0x6a); an open corpse or chest that is not one's own closes when it is out of the 5 m reach (FUN_1005a1e7), told with `CharacterAction` 0x8e naming it. A team (or raid) mate's full update is named to the server with `CharacterAction` 0x80 (FUN_1006610b). The client now does all three; the corpse's own size is the client's default body sphere (a guess), and the reclaim terminal's case is not done.
+
+### More sections on item pages (INV-054)
+
+The original's item pages (GUI.dll FUN_1003882b and the other builders) also show the shop's price on a page opened from a shop's stock (FUN_10031fda), a fixture's note (`IsFixture`, FUN_10032092), the insurance cost (item stats 362 and 61 with the reader's level), a building's upkeep and size from its house template (FUN_10032d30), a tower's or controller's type in Roman numerals (FUN_1003210c, FUN_10031ae0), and an NF crystal's formula with the nano's page. The client's pages now have all of these; a shop's stock item opens the client's own `shopitemid://low/high/ql/price` page. Not shown: a nano's radius (its source in the original was not found).

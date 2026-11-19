@@ -1127,6 +1127,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] Open the bank and walk away: about 5 m from where you stood the bank window closes (log: "walked away from the bank").
 - [ ] Open a corpse and walk away: its window closes about 5 m out (log: "walked away from the container"), and the server answers without complaint.
 - [ ] In a team, have a mate come into view: the log/trace shows a CharacterAction 0x80 naming them, and nothing odd follows.
+- [ ] Shift+click a stock item in a shop: its page shows "Price" with the price the shop window shows.
+- [ ] Open the page of a city building item or a tower and of an NF crystal: upkeep/size, tower type (Roman numerals), and the formula's nano page appear.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

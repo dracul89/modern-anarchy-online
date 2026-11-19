@@ -530,7 +530,8 @@ impl ShopWindow {
             }
             // (a stock item clicked goes in, one of it a click; one in either list clicked comes out; with Shift the click
             // shows the item's page. The original's pages are `shopitemid://type/instance` for a stock row, which adds
-            // the shop's price, and `itemid://type/instance` for the others: here the item's own page for all three.)
+            // the shop's price (FUN_10031fda), and `itemid://type/instance` for the others: here the client's own
+            // `shopitemid://low/high/quality/price` for a stock row and the item's own page for the other two.)
             let page_of = |item: [u32; 4]| match item[2] {
                 0x6f => stock.get(item[3] as usize).map(|s| format!("itemref://{}/{}/{}", s.low, s.high, s.quality)),
                 _ => items.iter().find(|g| g.slot == item[3]).map(|g| format!("itemref://{}/{}/{}", g.item_id, g.high_id, g.quality)),
@@ -540,7 +541,7 @@ impl ShopWindow {
                 command = Some(ShopCommand::Buy(i));
             }
             if let Some(s) = page.and_then(|i| stock.get(i)) {
-                *info_url = Some(format!("itemref://{}/{}/{}", s.low, s.high, s.quality));
+                *info_url = Some(format!("shopitemid://{}/{}/{}/{}", s.low, s.high, s.quality, s.price));
             }
             let (acted, page, bought_area) = list(ui, "PartnerInventoryDock", rows(bought));
             if let Some(i) = acted {

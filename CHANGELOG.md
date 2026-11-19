@@ -135,6 +135,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The wear window shows the "can't drop" pointer over places an item in hand cannot go, and a refused item stays in hand instead of going back to the inventory.
 - Item and nano pages list more of their effects: casts (with a link to the nano), procs, damage and healing, nano drain, faction changes, perk locks, anchors and more.
 - Walking away from the bank or from a corpse you are looting now closes its window, as in the original.
+- Item pages show the shop's price (from a shop), insurance cost, a building's upkeep and size, a tower's type, fixtures, and an NF crystal's formula.
 
 ### The launcher
 

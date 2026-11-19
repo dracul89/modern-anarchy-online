@@ -48,6 +48,8 @@ pub struct Template {
     pub kind: i32,
     /// `GetInsideTemplateInstance` (a guess: the interior's playfield).
     pub inside: u32,
+    /// The upkeep (`CityHouseTemplate_c::GetUpkeep`, the record's word after the stealth factor).
+    pub upkeep: i32,
     pub tiles_x: i32,
     pub tiles_z: i32,
     /// The tiles of the footprint's rectangle the house covers (`HouseLayout_c`'s bits, city.dll 0x10013f65): tile
@@ -156,7 +158,8 @@ impl Template {
         let inside = r.u32()?;
         r.u32()?;
         r.text()?;
-        r.take(12)?;
+        r.take(8)?;
+        let upkeep = r.i32()?;
         let kind = r.i32()?;
         let (bits, tiles_x, tiles_z) = (r.i32()?, r.i32()?, r.i32()?);
         if bits < 0 || tiles_x <= 0 || tiles_z <= 0 {
@@ -178,7 +181,7 @@ impl Template {
             r.text()?;
             r.u32()?;
         }
-        Some(Template { kind, inside, tiles_x, tiles_z, mask, visuals, doors, guards, surface: record[r.at..].to_vec() })
+        Some(Template { kind, inside, upkeep, tiles_x, tiles_z, mask, visuals, doors, guards, surface: record[r.at..].to_vec() })
     }
 
     /// A place inside the template for a house turned by `degrees` (`CityHouseTemplate_c::RotateLocalPos`,

@@ -54,6 +54,9 @@ use std::collections::BTreeMap;
 /// The identity type of a nano program, as `itemid://` names it.
 pub const NANO_IDENTITY: u32 = 0xcf1b;
 
+/// The value the original's stat lookups give for a stat that is not there.
+const NONE: i64 = 1234567890;
+
 pub(crate) fn text(name: &str) -> String {
     crate::feedback::texts().and_then(|t| t.named(506, name)).map(str::to_string).unwrap_or_default()
 }
@@ -90,6 +93,8 @@ struct Ctx<'a> {
     level: u32,
     nano: bool,
     player: &'a BTreeMap<u32, i64>,
+    /// The shop's price for the reader, on a page opened from a shop's stock (`N3Msg_GetShopItemStat(item, 74)`).
+    shop_price: Option<i64>,
 }
 
 /// The stats a NanoItem_t starts with before its record is read (Gamecode FUN_10086142); stat 75, its nanoline, is its own
@@ -240,7 +245,7 @@ impl Ctx<'_> {
         let mut m = String::new();
         for list in [14, 0] {
             for (_, spells) in lists.iter().filter(|(l, _)| *l == list) {
-                m += &super::spells::convert(spells, self.level, self.player(382) as i32, &nano_name);
+                m += &self.convert(spells, &nano_name);
             }
         }
         if m.is_empty() { m } else { section(&text("Modifier"), &m, 0) }
@@ -258,6 +263,66 @@ impl Ctx<'_> {
             v += &text("Splitable");
         }
         section(&text("Charges"), &v, 0)
+    }
+
+    /// A spell list as `N3Msg_ConvertSpellList` writes it for this reader: a nano program's spells with the reader's own
+    /// figures (its stats 535 and 536; 100, no change, when they were never told).
+    fn convert(&self, spells: &[mao_formats::spell::Spell], nano_name: &dyn Fn(u32) -> Option<String>) -> String {
+        let skill_lock = self.player(382) as i32;
+        if self.nano {
+            let own = |k: u32| self.player.get(&k).copied().unwrap_or(100) as i32;
+            super::spells::convert_nano(spells, self.level, skill_lock, nano_name, (own(535), own(536)))
+        } else {
+            super::spells::convert(spells, self.level, skill_lock, nano_name)
+        }
+    }
+
+    /// FUN_10031fda: on a page opened from a shop's stock, the shop's price (none when it is 0 or not there).
+    fn price(&self) -> String {
+        self.shop_price.filter(|&p| p != 0 && p != NONE).map(|p| section(&text("Price"), &crate::vitals::grouped(p), 0)).unwrap_or_default()
+    }
+
+    /// `IsFixture` then FUN_10032092: a fixture (its `Can`, stat 30, has bit 0 and its flags, stat 0, 0x1000,
+    /// FUN_10080ad7) says so.
+    fn fixture(&self) -> String {
+        if self.stat(30).unwrap_or(0) & 1 != 0 && self.stat(0).unwrap_or(0) as u32 & 0x1000 != 0 { section(&text("FixtureHeader"), &text("FixtureInfo"), 0) } else { String::new() }
+    }
+
+    /// FUN_1003882b's insurance cost: with the item's stats 362 and 61 both there, "NumCredits" of the reader's level
+    /// (stat 54) times stat 61.
+    fn insurance(&self) -> String {
+        let (Some(_), Some(cost)) = (self.stat(362), self.stat(61)) else { return String::new() };
+        let level = self.player(54) as i32;
+        section(&text("InsuranceCost"), &super::spells::printf_ints(&text("NumCredits"), &[level.wrapping_mul(cost)]), 0)
+    }
+
+    /// FUN_10032d30: a building (the item's stat 620 names its house template, 0xf4268): its upkeep and its size in
+    /// tiles along x and z.
+    fn building(&self) -> String {
+        let Some(house) = self.stat(620).filter(|&h| h != 0) else { return String::new() };
+        let Some(t) = self.db.get(Id { kind: mao_formats::house::KIND, instance: house as u32 }).ok().flatten().and_then(|r| mao_formats::house::Template::parse(&r)) else { return String::new() };
+        section(&text("BuildingUpkeep"), &crate::vitals::grouped(t.upkeep as i64), 0) + &section(&text("BuildingSize"), &format!("{}x{}", t.tiles_x, t.tiles_z), 0)
+    }
+
+    /// FUN_1003210c: a tower (the item's stat 388 not 0; 1 a controller): its type, stat 75 in Roman numerals
+    /// (FUN_10031ae0), or "NotSet".
+    fn tower(&self) -> String {
+        let Some(kind) = self.stat(388).filter(|&k| k != 0) else { return String::new() };
+        let value = self.stat(75).map_or_else(|| text("NotSet"), roman);
+        section(&text(if kind == 1 { "ControllerType" } else { "TowerType" }), &value, 0)
+    }
+
+    /// `N3Msg_IsItemNFCrystal` (Gamecode 0x1001a1c7): the nano program an item's use list (0) uploads (its first
+    /// spell 0xcf1b's stat 39).
+    fn crystal_nano(&self) -> Option<u32> {
+        let lists = mao_formats::spell::lists(&self.data);
+        lists.iter().filter(|(l, _)| *l == 0).flat_map(|(_, spells)| spells).find(|s| s.kind == 0xcf1b).map(|s| s.stat(39) as u32)
+    }
+
+    /// FUN_1003882b's end for a crystal: "ItemHasFormula", then the nano program's own page (FUN_1003683d).
+    fn formula(&self, nano: Option<u32>) -> String {
+        let Some(nano) = nano else { return String::new() };
+        text("ItemHasFormula") + &nano_page(self.db, nano, self.player).unwrap_or_default()
     }
 
     /// FUN_100332ff: the description.
@@ -438,7 +503,7 @@ impl Ctx<'_> {
         let lists = mao_formats::spell::lists(&self.data);
         let db = self.db;
         let nano_name = |id: u32| nano_name(db, id);
-        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| super::spells::convert(spells, self.level, self.player(382) as i32, &nano_name)).collect();
+        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| self.convert(spells, &nano_name)).collect();
         if m.is_empty() { m } else { section(&text(label), &m, 0) }
     }
 
@@ -447,7 +512,7 @@ impl Ctx<'_> {
         let lists = mao_formats::spell::lists(&self.data);
         let db = self.db;
         let nano_name = |id: u32| nano_name(db, id);
-        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| super::spells::convert(spells, self.level, self.player(382) as i32, &nano_name)).collect();
+        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| self.convert(spells, &nano_name)).collect();
         if m.is_empty() { m } else { section(&text(label), &format!("\n{m}"), 0) }
     }
 
@@ -561,7 +626,7 @@ pub fn nano_page(db: &ResourceDatabase, id: u32, player: &BTreeMap<u32, i64>) ->
     let it = Item::parse(&data)?;
     let actions = item::actions(&data);
     let level = player.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1).max(1) as u32;
-    let c = Ctx { db, it, data, actions, low: id, ql: 0, level, nano: true, player };
+    let c = Ctx { db, it, data, actions, low: id, ql: 0, level, nano: true, player, shop_price: None };
     let mut parts = vec![c.header(), c.nano_cost(player), c.ncu(), c.school(), c.stacking_order()];
     parts.extend([75, 546, 547, 548, 549, 550].map(|s| c.nanoline(s)));
     parts.extend([
@@ -597,7 +662,7 @@ fn item_ctx<'a>(db: &'a ResourceDatabase, low: u32, high: u32, ql: u32, player: 
     let (data, it) = crate::derived::item_at(db, low, high, ql)?;
     let entry = mao_net::inventory::Entry { slot: 0, flags: 0, count: 1, container: (0, 0), low_id: low, high_id: high, quality: ql, extra: 0 };
     let actions = crate::derived::actions(db, &entry);
-    Some(Ctx { db, it, data, actions, low, ql, level, nano: false, player })
+    Some(Ctx { db, it, data, actions, low, ql, level, nano: false, player, shop_price: None })
 }
 
 impl Ctx<'_> {
@@ -609,26 +674,31 @@ impl Ctx<'_> {
         let parts: Vec<String> = if c.stat(76) == Some(1) {
             // (FUN_1003732c: the header and the description not in a tip)
             vec![
-                unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.ammo(), c.rarity(), c.requirements(), c.ammo_type(), c.damage(), c.dps(), c.speed(),
+                unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.ammo(), c.rarity(), c.price(), c.requirements(), c.ammo_type(), c.damage(), c.dps(), c.speed(),
                 c.equip_delay(), c.initiative(), c.location(), c.range(), c.dual_wield(), c.specials(), c.max_beneficial(),
                 c.skills(12, "AtkSkills"), c.skills(13, "DefSkills"), c.modifiers(), c.skill_to_use(), c.damage_type(), unless_tip(c.description()),
             ]
         } else if c.stat(76) == Some(2) {
             // (armour FUN_1003826b: no charges, the skills it is used with after the modifiers; "Fabric" only in a
             // debug input mode; the header and the description not in a tip)
-            vec![unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.requirements(), c.location(), c.modifiers(), c.skill_to_use(), unless_tip(c.description())]
+            vec![unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.price(), c.fixture(), c.requirements(), c.location(), c.modifiers(), c.skill_to_use(), unless_tip(c.description())]
         } else if matches!(c.stat(76), Some(3) | Some(5)) {
             // (implants FUN_10038586: as armour's, but in a tip without the header, the requirements and the skills to
             // use; the description is there)
-            vec![unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), unless_tip(c.requirements()), c.location(), c.modifiers(), unless_tip(c.skill_to_use()), c.description()]
+            vec![unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.price(), unless_tip(c.requirements()), c.location(), c.modifiers(), unless_tip(c.skill_to_use()), c.description()]
         } else {
-            // (FUN_1003882b: after the modifiers the vicinity and personal modifier lists (24, 25, 26: FUN_10032f25,
-            // FUN_10032fc1, FUN_1003305d), the skills it is used with (FUN_100330f9), then the charges; in a tip
-            // without the header, the requirements, the skills to use and the description, which an NF crystal keeps)
+            // (FUN_1003882b: the shop's price and the fixture after the rarity, the insurance cost before the modifiers;
+            // after them a building's upkeep and size, the vicinity and personal modifier lists (24, 25, 26: FUN_10032f25,
+            // FUN_10032fc1, FUN_1003305d), a tower's type, the skills it is used with (FUN_100330f9), then the charges;
+            // in a tip without the header, the requirements, the skills to use and the description, which an NF crystal
+            // keeps; a crystal ends with its formula's nano page)
+            let crystal = c.crystal_nano();
             vec![
-                unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), unless_tip(c.requirements()), c.location(), c.modifiers(),
-                c.modifier_list(24, "VicinityFriendModifier"), c.modifier_list(25, "VicinityHostileModifier"), c.modifier_list(26, "PersonalModifier"),
-                unless_tip(c.skill_to_use()), c.charges(), unless_tip(c.description()),
+                unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.price(), c.fixture(), unless_tip(c.requirements()), c.location(),
+                c.insurance(), c.modifiers(), c.building(), c.modifier_list(24, "VicinityFriendModifier"), c.modifier_list(25, "VicinityHostileModifier"),
+                c.modifier_list(26, "PersonalModifier"), c.tower(), unless_tip(c.skill_to_use()), c.charges(),
+                if tip && crystal.is_none() { String::new() } else { c.description() },
+                c.formula(crystal),
             ]
         };
         parts.concat()
@@ -642,11 +712,47 @@ pub fn parse_itemid(url: &str) -> Option<(u32, u32)> {
     (parts.len() == 2).then(|| (parts[0], parts[1]))
 }
 
-/// The page for one of the URLs the game builds (`itemref://`, a nano program's `itemid://`), for a reader with these
-/// stats; `None` when it is not one of those.
+/// A shop stock item's page (the original's `shopitemid://type/instance`, the shop's own item; here the client's own
+/// `shopitemid://<low>/<high>/<quality>/<price>`): the item and the shop's price.
+pub fn parse_shopitemid(url: &str) -> Option<(u32, u32, u32, i64)> {
+    let rest = url.get(13..).filter(|_| url[..13].eq_ignore_ascii_case("shopitemid://"))?;
+    let parts: Vec<i64> = rest.split('/').map(|p| p.trim().parse::<i64>().ok()).collect::<Option<_>>()?;
+    (parts.len() == 4).then(|| (parts[0] as u32, parts[1] as u32, parts[2] as u32, parts[3]))
+}
+
+/// A number in Roman numerals (GUI.dll FUN_10031ae0, its table at 0x102643f8); nothing from 4000 up or below 1.
+pub fn roman(v: i32) -> String {
+    let mut out = String::new();
+    if v >= 4000 {
+        return out;
+    }
+    let mut v = v;
+    for (a, sa, b, sb) in [(1000, "M", 900, "CM"), (500, "D", 400, "CD"), (100, "C", 90, "XC"), (50, "L", 40, "XL"), (10, "X", 9, "IX"), (5, "V", 4, "IV"), (1, "I", 1, "I")] {
+        while v >= a {
+            out += sa;
+            v -= a;
+        }
+        if v >= b {
+            out += sb;
+            v -= b;
+        }
+        if v <= 0 {
+            break;
+        }
+    }
+    out
+}
+
+/// The page for one of the URLs the game builds (`itemref://`, a nano program's `itemid://`, a shop's stock item), for a
+/// reader with these stats; `None` when it is not one of those.
 pub fn page(db: &ResourceDatabase, url: &str, player: &BTreeMap<u32, i64>) -> Option<String> {
     if let Some((kind, id)) = parse_itemid(url) {
         return if kind == NANO_IDENTITY { nano_page(db, id, player) } else { None };
+    }
+    if let Some((low, high, ql, price)) = parse_shopitemid(url) {
+        let mut c = item_ctx(db, low, high, ql, player)?;
+        c.shop_price = Some(price);
+        return Some(c.page(false));
     }
     let (low, high, ql) = parse_itemref(url)?;
     item_page(db, low, high, ql, player)
@@ -723,5 +829,11 @@ mod tests {
         assert_eq!(parse_itemref("text://x"), None);
         assert_eq!(parse_itemid("itemid://53019/95000"), Some((NANO_IDENTITY, 95000)));
         assert_eq!(parse_itemid("itemid://1/2/3/4"), None);
+        // (the client's own page of a shop's stock item: the item and the shop's price)
+        assert_eq!(parse_shopitemid("shopitemid://100/101/50/12345"), Some((100, 101, 50, 12345)));
+        assert_eq!((parse_shopitemid("shopitemid://100/101/50"), parse_shopitemid("itemref://1/2/3/4")), (None, None));
+        // (FUN_10031ae0's Roman numerals: nothing from 4000 up or below 1)
+        assert_eq!([1, 4, 9, 14, 40, 90, 400, 1994, 3999].map(roman), ["I", "IV", "IX", "XIV", "XL", "XC", "CD", "MCMXCIV", "MMMCMXCIX"]);
+        assert_eq!((roman(0), roman(-3), roman(4000)), (String::new(), String::new(), String::new()));
     }
 }
