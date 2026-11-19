@@ -1295,6 +1295,10 @@ impl crate::requirements::Context for World {
         // one's own character's)
         Some(self.is_own(character) && self.perk_locks.contains_key(&lock))
     }
+    fn free_places(&self, character: crate::requirements::Holder) -> Option<i64> {
+        // (another character's inventory is not kept)
+        self.is_own(character).then(|| crate::gear::PACK_SLOTS as i64 - self.worn.iter().filter(|e| e.slot >= inventory::BACKPACK_FIRST).count() as i64)
+    }
 }
 
 impl World {
@@ -1403,6 +1407,9 @@ impl crate::requirements::Context for Stripped<'_> {
     }
     fn perk_locked(&self, character: crate::requirements::Holder, lock: u32) -> Option<bool> {
         self.world.perk_locked(character, lock)
+    }
+    fn free_places(&self, character: crate::requirements::Holder) -> Option<i64> {
+        self.world.free_places(character)
     }
 }
 
@@ -14947,6 +14954,9 @@ mod door_tests {
         assert_eq!((w.runs_nano(own, 211367), w.runs_nano(own, 300), w.runs_nano(other, 300), w.runs_nano(other, 211367)), (Some(true), Some(false), Some(true), Some(false)));
         w.perk_locks.insert(113, (Instant::now(), 10.0));
         assert_eq!((w.perk_locked(own, 113), w.perk_locked(own, 114), w.perk_locked(other, 113)), (Some(true), Some(false), Some(false)));
+        // (30 backpack places; the two worn items above take none)
+        w.worn.push(inventory::Entry { slot: inventory::BACKPACK_FIRST + 2, flags: 0, count: 1, container: (0x68, 7), low_id: 500, high_id: 501, quality: 1, extra: 0 });
+        assert_eq!((w.free_places(own), w.free_places(other)), (Some(29), None));
     }
 
     /// FUN_100498ed / FUN_10080659: the page takes its class (implants also spirits, social also weapons and clothes),

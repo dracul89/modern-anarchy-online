@@ -117,6 +117,12 @@ pub trait Context {
         let _ = (character, lock);
         None
     }
+    /// FUN_10047720 on the character's inventory: its free backpack places, 30 less the places from 0x40 on that hold
+    /// something (FUN_1002a398: operator 0x6a).
+    fn free_places(&self, character: Holder) -> Option<i64> {
+        let _ = character;
+        None
+    }
 }
 
 /// What a failed comparison says when the evaluator is asked to tell (its feedback flag), each a text of the feedback
@@ -301,11 +307,40 @@ fn judge(criteria: &[Criterion], holder: Holder, ctx: &dyn Context, told: &mut V
                 Some(c) => ctx.runs_strain(c, value as u32).ok_or(unknown)? == (op == 0x5c),
                 None => false,
             },
-            // (0x10008830) the perk lock the value names is not running; no character, no
-            0x61 => match character {
-                Some(c) => !ctx.perk_locked(c, value as u32).ok_or(unknown)?,
+            // (0x10008830) the perk lock the value names is not running; (0x100087e6) it is; no character, no. (Either
+            // way, when the lock runs, the original then says how long it has left, FUN_10052f2e → FUN_10064847, even
+            // without the feedback flag: not told here.)
+            0x61 | 0x5e => match character {
+                Some(c) => ctx.perk_locked(c, value as u32).ok_or(unknown)? == (op == 0x5e),
                 None => false,
             },
+            // (0x10008104) at least the value's free backpack places (a value of 1 or less: any); no character, no
+            0x6a => match character {
+                Some(c) => {
+                    let free = ctx.free_places(c).ok_or(unknown)?;
+                    if v > 1 { free >= v } else { free != 0 }
+                }
+                None => false,
+            },
+            // (0x10008ae6) the pickers the stat and the value name find the same dynel ("the target is oneself",
+            // 1 and 3); passes when either is one FUN_1000523b says the holder cannot answer for (a character: 1, 2, and 3
+            // only the client's own; an item: 1, 2)
+            0x32 => {
+                let answers = |w: u32| match w {
+                    1 | 2 => true,
+                    3 => holder.0 == CHARACTER && ctx.is_own(holder),
+                    _ => false,
+                };
+                if !answers(stat) || !answers(value as u32) {
+                    true
+                } else {
+                    let a = ctx.pick(holder, stat as i32).ok_or(unknown)?;
+                    a.is_some() && a == ctx.pick(holder, value).ok_or(unknown)?
+                }
+            }
+            // (0x10007c73) the picked character's +0x21c byte is up: never on the client (Gamecode only clears it,
+            // 0x10058969), so the criterion fails whatever is picked
+            0x2c => false,
             // (0x10007ca7) stat 251's nibble (|value| / 1000 & 7) below |value| % 1000, or (a negative value) not below it
             0x42 => {
                 let a = v.abs();
@@ -561,6 +596,15 @@ mod tests {
             fn perk_locked(&self, _: Holder, lock: u32) -> Option<bool> {
                 Some(lock == 113)
             }
+            fn free_places(&self, _: Holder) -> Option<i64> {
+                Some(3)
+            }
+            fn pick(&self, holder: Holder, which: i32) -> Option<Option<Holder>> {
+                Some(match which {
+                    1 | 3 => Some(holder),
+                    _ => None,
+                })
+            }
         }
         let item = (0xc73d, 5);
         let one = |c: Criterion| evaluate(&[c], ME, &W);
@@ -578,7 +622,14 @@ mod tests {
         assert_eq!([one((0, 596, 0x5c)), one((0, 596, 0x66)), one((0, 595, 0x66))], [Ok(true), Ok(false), Ok(true)]);
         assert_eq!(evaluate(&[(0, 596, 0x66)], item, &W), Ok(false));
         // (Dance of Fools: has the perk and its lock is not running)
-        assert_eq!([one((0, 113, 0x61)), one((0, 114, 0x61))], [Ok(false), Ok(true)]);
+        assert_eq!([one((0, 113, 0x61)), one((0, 114, 0x61)), one((0, 113, 0x5e)), one((0, 114, 0x5e))], [Ok(false), Ok(true), Ok(true), Ok(false)]);
+        // (free places: 3 here)
+        assert_eq!([one((0, 1, 0x6a)), one((0, 0, 0x6a)), one((0, 3, 0x6a)), one((0, 4, 0x6a))], [Ok(true), Ok(true), Ok(true), Ok(false)]);
+        assert_eq!(evaluate(&[(0, 1, 0x6a)], item, &W), Ok(false));
+        // (one's own target is oneself: the pickers 1 and 3 find the same; picker 3 of someone else cannot answer: passes)
+        assert_eq!([one((1, 3, 0x32)), one((1, 1, 0x32)), one((1, 4, 0x32)), one((1, 2, 0x32))], [Ok(true), Ok(true), Ok(true), Ok(false)]);
+        assert_eq!(evaluate(&[(1, 3, 0x32)], (CHARACTER, 9), &W), Ok(true));
+        assert_eq!(one((0, 2, 0x2c)), Ok(false));
         // (a context that knows none of it leaves them unjudged)
         let (stats, perks) = (BTreeMap::new(), HashSet::new());
         assert_eq!(evaluate(&[(0, 211367, 0x5b)], ME, &own(&stats, &perks)), Err(Unknown { operator: 0x5b }));
