@@ -82,6 +82,41 @@ pub trait Context {
         let _ = (character, perk);
         None
     }
+    /// The server's time (`GameTime_t` +0xb4: operators 5 and 6).
+    fn server_time(&self) -> Option<u32> {
+        None
+    }
+    /// FUN_10047390 on the character's inventory (+0x1b8): one of its wear places 0 to 63 on the page `page` (FUN_10046fb7:
+    /// 7 the weapons' places 0-15, 3 the clothes' 16-31, 8 the implants' 32-47, 14 the social 48-63) holds an item of the
+    /// template `template` (the first word of the place's item key, +0xc: operators 0x1f to 0x22).
+    fn wears(&self, character: Holder, template: u32, page: u32) -> Option<bool> {
+        let _ = (character, template, page);
+        None
+    }
+    /// FUN_1004f045 on the character's nano object (+0x1c0, its list at +0x14): the character has the nano program
+    /// (operators 0x23 and 0x24).
+    fn knows_nano(&self, character: Holder, nano: u32) -> Option<bool> {
+        let _ = (character, nano);
+        None
+    }
+    /// FUN_1004f0d7 on the character's nano object (its list at +0x20): the nano program runs on the character
+    /// (operators 0x5b and 0x65).
+    fn runs_nano(&self, character: Holder, nano: u32) -> Option<bool> {
+        let _ = (character, nano);
+        None
+    }
+    /// FUN_1004f7ed: a nano program running on the character is of the strain (its stat 75 or one of 546 to 550,
+    /// FUN_10051e9e: operators 0x5c and 0x66).
+    fn runs_strain(&self, character: Holder, strain: u32) -> Option<bool> {
+        let _ = (character, strain);
+        None
+    }
+    /// FUN_10052eb2 on the character's perk object (+0x1f4, FUN_10058ff8; its list at +8, which `PerkUnavailable` fills,
+    /// FUN_10053b5d): the perk lock runs (operator 0x61).
+    fn perk_locked(&self, character: Holder, lock: u32) -> Option<bool> {
+        let _ = (character, lock);
+        None
+    }
 }
 
 /// What a failed comparison says when the evaluator is asked to tell (its feedback flag), each a text of the feedback
@@ -232,6 +267,45 @@ fn judge(criteria: &[Criterion], holder: Holder, ctx: &dyn Context, told: &mut V
                 kind = 0x64;
                 continue;
             }
+            // (0x1000738b, 0x100073a7) the server's time below the value, above it (unsigned compares)
+            5 => ctx.server_time().ok_or(unknown)? < value as u32,
+            6 => ctx.server_time().ok_or(unknown)? > value as u32,
+            // (0x100075a2) the character is the one the stat (its type) and the value (its instance) name
+            9 => character == Some((stat, value as u32)),
+            // (0x10007400, 0x1000741c) an item of the template the value names is worn on the clothes' page (3) or wielded
+            // (the weapons', 7): no character, no; (0x10007466, 0x10007482) is not: no character, yes
+            0x1f | 0x21 => match character {
+                Some(c) => ctx.wears(c, value as u32, if op == 0x1f { 3 } else { 7 }).ok_or(unknown)?,
+                None => false,
+            },
+            0x20 | 0x22 => match character {
+                Some(c) => !ctx.wears(c, value as u32, if op == 0x20 { 3 } else { 7 }).ok_or(unknown)?,
+                None => true,
+            },
+            // (0x10007eb6, 0x10007f85) has the nano program, has it not; a value of 0 passes either; no character, no.
+            // (With the feedback flag a failure says `MustHaveFormula` / `MustNotHaveFormula` with the nano's name:
+            // not told here.)
+            0x23 | 0x24 => match character {
+                None => false,
+                Some(_) if value == 0 => true,
+                Some(c) => ctx.knows_nano(c, value as u32).ok_or(unknown)? == (op == 0x23),
+            },
+            // (0x10008496, 0x10008571) the nano program runs on the character, does not; (0x10008605, 0x100086b2) one of
+            // the strain runs, none does; no character, no. (Their lines, `Feedback_MustHaveRunning` and the rest, are not
+            // told here.)
+            0x5b | 0x65 => match character {
+                Some(c) => ctx.runs_nano(c, value as u32).ok_or(unknown)? == (op == 0x5b),
+                None => false,
+            },
+            0x5c | 0x66 => match character {
+                Some(c) => ctx.runs_strain(c, value as u32).ok_or(unknown)? == (op == 0x5c),
+                None => false,
+            },
+            // (0x10008830) the perk lock the value names is not running; no character, no
+            0x61 => match character {
+                Some(c) => !ctx.perk_locked(c, value as u32).ok_or(unknown)?,
+                None => false,
+            },
             // (0x10007ca7) stat 251's nibble (|value| / 1000 & 7) below |value| % 1000, or (a negative value) not below it
             0x42 => {
                 let a = v.abs();
@@ -454,6 +528,60 @@ mod tests {
             }
         }
         assert_eq!(evaluate(&[(0, 0, 100), (410, 0, 2)], (CHARACTER, 9), &NoCaster), Ok(false));
+    }
+
+    /// The operators that read the world through the context: the server's time (5, 6), who the character is (9), worn
+    /// and wielded items (0x1f-0x22), known nanos (0x23, 0x24), running nanos and strains (0x5b, 0x65, 0x5c, 0x66) and
+    /// perk locks (0x61); each without a character fails but for the "not worn" pair, which passes.
+    #[test]
+    fn world_operators() {
+        struct W;
+        impl Context for W {
+            fn stat(&self, _: Holder, _: u32) -> Option<i64> {
+                Some(0)
+            }
+            fn is_own(&self, holder: Holder) -> bool {
+                holder == ME
+            }
+            fn server_time(&self) -> Option<u32> {
+                Some(1000)
+            }
+            fn wears(&self, _: Holder, template: u32, page: u32) -> Option<bool> {
+                Some((template, page) == (70254, 7) || (template, page) == (267907, 3))
+            }
+            fn knows_nano(&self, _: Holder, nano: u32) -> Option<bool> {
+                Some(nano == 25994)
+            }
+            fn runs_nano(&self, _: Holder, nano: u32) -> Option<bool> {
+                Some(nano == 211367)
+            }
+            fn runs_strain(&self, _: Holder, strain: u32) -> Option<bool> {
+                Some(strain == 596)
+            }
+            fn perk_locked(&self, _: Holder, lock: u32) -> Option<bool> {
+                Some(lock == 113)
+            }
+        }
+        let item = (0xc73d, 5);
+        let one = |c: Criterion| evaluate(&[c], ME, &W);
+        assert_eq!([one((0, 1001, 5)), one((0, 1000, 5)), one((0, 999, 6)), one((0, 1000, 6))], [Ok(true), Ok(false), Ok(true), Ok(false)]);
+        assert_eq!([one((CHARACTER, 7, 9)), one((CHARACTER, 8, 9))], [Ok(true), Ok(false)]);
+        assert_eq!(evaluate(&[(CHARACTER, 5, 9)], (CHARACTER, 5), &W), Ok(true));
+        // (the Damage Shield Projector's use: wielding either of its two templates)
+        assert_eq!(one((0, 70254, 0x21)), Ok(true));
+        assert_eq!(evaluate(&[(0, 70251, 33), (0, 70254, 33), (0, 0, 3)], ME, &W), Ok(true));
+        assert_eq!([one((0, 70254, 0x1f)), one((0, 267907, 0x1f)), one((0, 267907, 0x20)), one((0, 70254, 0x22))], [Ok(false), Ok(true), Ok(false), Ok(false)]);
+        assert_eq!([evaluate(&[(0, 1, 0x1f)], item, &W), evaluate(&[(0, 1, 0x20)], item, &W)], [Ok(false), Ok(true)]);
+        assert_eq!([one((0, 25994, 0x23)), one((0, 25994, 0x24)), one((0, 1, 0x23)), one((0, 1, 0x24)), one((0, 0, 0x23))], [Ok(true), Ok(false), Ok(false), Ok(true), Ok(true)]);
+        assert_eq!(evaluate(&[(0, 0, 0x24)], item, &W), Ok(false));
+        assert_eq!([one((0, 211367, 0x5b)), one((0, 211367, 0x65)), one((0, 1, 0x5b)), one((0, 1, 0x65))], [Ok(true), Ok(false), Ok(false), Ok(true)]);
+        assert_eq!([one((0, 596, 0x5c)), one((0, 596, 0x66)), one((0, 595, 0x66))], [Ok(true), Ok(false), Ok(true)]);
+        assert_eq!(evaluate(&[(0, 596, 0x66)], item, &W), Ok(false));
+        // (Dance of Fools: has the perk and its lock is not running)
+        assert_eq!([one((0, 113, 0x61)), one((0, 114, 0x61))], [Ok(false), Ok(true)]);
+        // (a context that knows none of it leaves them unjudged)
+        let (stats, perks) = (BTreeMap::new(), HashSet::new());
+        assert_eq!(evaluate(&[(0, 211367, 0x5b)], ME, &own(&stats, &perks)), Err(Unknown { operator: 0x5b }));
     }
 
     #[test]

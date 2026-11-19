@@ -7598,3 +7598,7 @@ The original's text views that take the mouse (TVF_ACCEPT_MOUSE_INPUT) begin a s
 ### Requirements "On Target" read the selection (INV-056)
 
 The requirement evaluator's "On Target" (operator 18) moves to whom the holder targets: Gamecode FUN_10001fba case 3 reads the character's +0x1d0 object's +0x5c identity, set only by N3Msg_SelectedTarget (0x10017790) for the client's own character. The client's wear, wield, use and special-attack checks now take the selected target there (its below/above criteria pass, as for anyone not the own character; nothing selected fails the list); another character's target is nobody. "On User" and "On Secondary Item" are still unknown.
+
+### Requirements read worn items, nanos, perk locks and free places (INV-057)
+
+Gamecode's criteria evaluator FUN_100065d8 answers many operators from the world. The client now answers those the game's items and nanos use and it can know: the server's time (5, 6), the character's identity (9), an item of a template worn or wielded and its "not" (0x1f-0x22), a nano program known or not (0x23, 0x24), a nano or a strain running or not (0x5b, 0x65, 0x5c, 0x66), a perk lock running or not (0x5e, 0x61), free backpack places (0x6a), two pickers finding the same dynel (0x32), and 0x2c, which always fails on the client. One's own worn list, programs, running nanos, perk locks and backpack are read; others' running nanos as heard of. The lines the original says for these failures are not told.

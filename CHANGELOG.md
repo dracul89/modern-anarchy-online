@@ -128,6 +128,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Right-click wearing an item always uses its own place, swapping out what is there, as in the original.
 - Corpse, chest and overflow windows no longer have a "Take all" button, as in the original; take items by clicking them (or turn on the auto-loot option for corpses).
 - Item requirements "on target" are judged against the selected target: with nothing selected such an item is refused, as in the original.
+- More item and nano requirements are judged by the client: wielding a given item, having or running a nano, a perk lock, free backpack space.
 
 ### The launcher
 

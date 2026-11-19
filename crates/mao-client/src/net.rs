@@ -1265,6 +1265,48 @@ impl crate::requirements::Context for World {
     fn flying_forbidden(&self, _: crate::requirements::Holder) -> Option<bool> {
         Some(self.no_flying)
     }
+    fn server_time(&self) -> Option<u32> {
+        Some(self.game_clock.server_time() as u32)
+    }
+    fn wears(&self, character: crate::requirements::Holder, template: u32, page: u32) -> Option<bool> {
+        // (FUN_10046fb7: a wear place's page; the place's item key begins with its low template. Another character's
+        // worn items are not kept.)
+        let page_of = |slot: u32| match slot {
+            0..=15 => 7,
+            16..=31 => 3,
+            32..=47 => 8,
+            _ => 14,
+        };
+        self.is_own(character).then(|| self.worn.iter().any(|e| e.slot < inventory::BACKPACK_FIRST && page_of(e.slot) == page && e.low_id == template))
+    }
+    fn knows_nano(&self, character: crate::requirements::Holder, nano: u32) -> Option<bool> {
+        // (the server lists only one's own character's programs: anyone else's list is empty, as in the original)
+        Some(self.is_own(character) && self.program_ids.contains(&nano))
+    }
+    fn runs_nano(&self, character: crate::requirements::Holder, nano: u32) -> Option<bool> {
+        Some(self.running_nanos(character.1).any(|n| n == nano))
+    }
+    fn runs_strain(&self, character: crate::requirements::Holder, strain: u32) -> Option<bool> {
+        let strain = strain as i64;
+        Some(self.running_nanos(character.1).any(|n| [75, 546, 547, 548, 549, 550].iter().any(|&k| nano_stat(n, k) == Some(strain))))
+    }
+    fn perk_locked(&self, character: crate::requirements::Holder, lock: u32) -> Option<bool> {
+        // (the locks `PerkUnavailable` starts until `PerkAvailable` ends them, by the lock's number; the server tells only
+        // one's own character's)
+        Some(self.is_own(character) && self.perk_locks.contains_key(&lock))
+    }
+}
+
+impl World {
+    /// The nano programs running on a character: one's own (`nanos`) or another's as the client has heard of them
+    /// (`others_nanos`).
+    fn running_nanos(&self, character: u32) -> Box<dyn Iterator<Item = u32> + '_> {
+        if character == self.own {
+            Box::new(self.nanos.iter().copied())
+        } else {
+            Box::new(self.others_nanos.get(&character).into_iter().flat_map(|m| m.keys().copied()))
+        }
+    }
 }
 
 /// A door's sounds, opening and closing, from its template's sound set (the item's +0x88 map, chunk 0x14): Gamecode
@@ -1343,6 +1385,24 @@ impl crate::requirements::Context for Stripped<'_> {
     }
     fn flying_forbidden(&self, character: crate::requirements::Holder) -> Option<bool> {
         self.world.flying_forbidden(character)
+    }
+    fn server_time(&self) -> Option<u32> {
+        self.world.server_time()
+    }
+    fn wears(&self, character: crate::requirements::Holder, template: u32, page: u32) -> Option<bool> {
+        self.world.wears(character, template, page)
+    }
+    fn knows_nano(&self, character: crate::requirements::Holder, nano: u32) -> Option<bool> {
+        self.world.knows_nano(character, nano)
+    }
+    fn runs_nano(&self, character: crate::requirements::Holder, nano: u32) -> Option<bool> {
+        self.world.runs_nano(character, nano)
+    }
+    fn runs_strain(&self, character: crate::requirements::Holder, strain: u32) -> Option<bool> {
+        self.world.runs_strain(character, strain)
+    }
+    fn perk_locked(&self, character: crate::requirements::Holder, lock: u32) -> Option<bool> {
+        self.world.perk_locked(character, lock)
     }
 }
 
@@ -14866,6 +14926,27 @@ mod door_tests {
         assert_eq!(world_pick(7, Some(own), (0xc73d, 8), 3), Some(None));
         assert_eq!((world_pick(7, None, own, 2), world_pick(7, None, own, 4)), (None, None));
         assert_eq!(world_pick(7, None, own, 23), Some(None));
+    }
+
+    /// The world's answers to the evaluator's world operators: worn items by page, known and running nanos (one's own;
+    /// another's running ones as heard of), perk locks (one's own only).
+    #[test]
+    fn the_world_answers_worn_nanos_and_locks() {
+        use crate::requirements::Context;
+        let mut w = World { own: 7, ..World::default() };
+        let own = (crate::requirements::CHARACTER, 7);
+        let other = (crate::requirements::CHARACTER, 8);
+        w.worn.push(inventory::Entry { slot: 6, flags: 0, count: 1, container: (0x65, 7), low_id: 70254, high_id: 70251, quality: 20, extra: 0 });
+        w.worn.push(inventory::Entry { slot: 16 + 3, flags: 0, count: 1, container: (0x65, 7), low_id: 500, high_id: 501, quality: 1, extra: 0 });
+        assert_eq!((w.wears(own, 70254, 7), w.wears(own, 70254, 3), w.wears(own, 70251, 7), w.wears(own, 500, 3)), (Some(true), Some(false), Some(false), Some(true)));
+        assert_eq!(w.wears(other, 70254, 7), None);
+        w.program_ids.push(25994);
+        assert_eq!((w.knows_nano(own, 25994), w.knows_nano(own, 1), w.knows_nano(other, 25994)), (Some(true), Some(false), Some(false)));
+        w.nanos.push(211367);
+        w.others_nanos.entry(8).or_default().insert(300, (1000, Instant::now()));
+        assert_eq!((w.runs_nano(own, 211367), w.runs_nano(own, 300), w.runs_nano(other, 300), w.runs_nano(other, 211367)), (Some(true), Some(false), Some(true), Some(false)));
+        w.perk_locks.insert(113, (Instant::now(), 10.0));
+        assert_eq!((w.perk_locked(own, 113), w.perk_locked(own, 114), w.perk_locked(other, 113)), (Some(true), Some(false), Some(false)));
     }
 
     /// FUN_100498ed / FUN_10080659: the page takes its class (implants also spirits, social also weapons and clothes),
