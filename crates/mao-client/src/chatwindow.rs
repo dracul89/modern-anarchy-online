@@ -2165,9 +2165,9 @@ mod tests {
     fn local_commands_only_add_lines() {
         let mut w = ChatWindow::default();
         assert_eq!(w.run("/help"), None);
-        assert!(w.lines.len() >= 6);
+        assert_eq!(w.links.last().map(String::as_str), Some("file://helpcommands.html"));
         assert_eq!(w.run("/gfx 1 on"), None);
-        assert!(w.lines.last().unwrap().text.contains("not carried out"));
+        assert!(w.lines.is_empty());
         assert_eq!(w.run("/me waves"), Some(Out::Vicinity { kind: 3, text: "waves".into() }));
         assert_eq!(w.run("/wave"), Some(Out::Social { id: 62 }));
         assert_eq!(w.run("/emote BOW"), Some(Out::Social { id: 9 }));

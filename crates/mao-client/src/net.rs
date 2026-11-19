@@ -15294,9 +15294,9 @@ mod prop_anim_tests {
         assert_eq!(w.stats.get(&27), Some(&0));
         let told = w.game_lines.len();
         assert!(told >= 1);
-        // (the same reason again within the death: no second line)
+        // (the same reason again: a second line, as FUN_1005b3d8 tells each message's reason, DTH-004)
         w.add(&super::Message { kind: 0x46002f16, identity: (0xc350, robot), data: hex(&hit) }.frame(own));
-        assert_eq!(w.game_lines.iter().filter(|l| l.text == crate::feedback::death(4).unwrap()).count(), 1);
+        assert_eq!(w.game_lines.iter().filter(|l| l.text == crate::feedback::death(4).unwrap()).count(), 2);
         // (the death: `CharacterAction` 99 from the own character with its animation)
         w.entities.insert(own, ([3493.4, 5.1, 878.6], 0));
         w.add(&super::Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000006300000000000000000000000000000000000001f40000") }.frame(own));
