@@ -4565,7 +4565,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: also adds a system chat line with name, level and health
 - A player notices: extra line in chat after inspecting
 - Where: `crates/mao-client/src/net.rs:2669`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The system chat line the client added when an inspected character's info packet came ("<name>: level N <profession>, health x of y." or "<name>: health x of y.") is removed (net.rs); the info view on the character still opens (the original's charid:// page, FUN_1003482c), which is all the original does. The /help description of /inspect now says it shows the target's info page. No new warnings (69).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original only opens the info page.
 
 #### `CHT-077` New mail needs a recipient and subject (client's own check)

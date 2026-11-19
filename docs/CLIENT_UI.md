@@ -7460,3 +7460,7 @@ The client's own help for `/fxscript` was removed: a bare script name is no long
 ### Deposit to Market says nothing (CHT-075)
 
 The client's own "Sent N items and X credits to the market." line was removed. As in the original (GUI.dll FUN_10009c40, N3Msg_SendMarketItem), Send only sends the items and credits; the market window shows what was sent.
+
+### Inspecting opens the info page only (CHT-076)
+
+The client's own chat line with the inspected character's name, level, profession and health was removed. As in the original, /inspect, the target-info key and Shift+click open the character's info page (FUN_1003482c) and say nothing in chat.

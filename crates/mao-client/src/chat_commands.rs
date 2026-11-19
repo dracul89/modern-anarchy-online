@@ -60,7 +60,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("camp", "sit down to log out (stand up or move to cancel)"),
     ("sit", "sit down, or stand up (the X key)"),
     ("follow", "walk after the target (again, or any movement key: stop)"),
-    ("inspect", "level, profession and health of the target"),
+    ("inspect", "the target's info page"),
     ("open <window>", "show a window (inventory, stats, skills, ncu, friends, programs, perks, help, map, ...)"),
     ("close [window]", "hide a window, or all of them"),
     ("waypoint <x> <z>", "walk to a place (any movement key stops)"),

@@ -219,6 +219,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Using a target or a perk no longer adds a "Using ..." line, and the use key with nothing targeted no longer says so (the original says nothing).
 - /fxscript with only a script's name no longer runs it (type `/fxscript <name> #`, as in the original), and no longer reports in chat what the script did.
 - Sending items or credits to the market no longer adds a "Sent ... to the market." line.
+- Inspecting a character no longer adds a level and health line to chat; the info page opens as before.
 
 ### Movement
 

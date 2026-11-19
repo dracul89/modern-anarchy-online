@@ -230,7 +230,7 @@ struct World {
     perk_locks: BTreeMap<u32, (Instant, f32)>,
     perk_actions_changed: bool,
     perks_changed: bool,
-    /// The character an `/inspect` waits on: its info packet is told in the chat window when it comes.
+    /// The character an `/inspect` waits on: its info packet opens the info view on it when it comes.
     inspecting: Option<u32>,
     /// The worn items an `Inspect` answer brought, to be named and told.
     inspected: Option<(u32, Vec<mao_net::n3::Inspected>)>,
@@ -3434,13 +3434,7 @@ impl World {
                 if self.inspecting == Some(m.identity.1) {
                     self.inspecting = None;
                     let name = self.names.get(&m.identity.1).map_or_else(|| "The target".to_string(), |n| n.0.clone());
-                    let text = if info.monster {
-                        format!("{name}: health {} of {}.", info.health, info.max_health)
-                    } else {
-                        format!("{name}: level {} {}, health {} of {}.", info.level, crate::launcher::profession(info.profession as i32), info.health, info.max_health)
-                    };
-                    self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text.clone()));
-                    // (and the info view on it, as the original's `charid://50000/<id>` page)
+                    // (the info view on it, as the original's `charid://50000/<id>` page; nothing is said in chat)
                     let page = match mao_net::n3::character_info(&m.data) {
                         // (a character: the original's page, FUN_1003482c)
                         Some(detail) => {
@@ -8920,7 +8914,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let _ = connection.send(&n3::select_target(own, own));
                 let _ = connection.send(&n3::set_target(own, own));
             }
-            // `/inspect`: ask for the target's info packet and tell what comes.
+            // `/inspect`: ask for the target's info packet, whose page the info view shows when it comes.
             if raw.inspect != inspect_seen {
                 inspect_seen = raw.inspect;
                 let kind = target.and_then(|t| state.types.get(&t).copied());
