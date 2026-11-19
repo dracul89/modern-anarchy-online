@@ -473,6 +473,11 @@ const RIGHT: i8 = 7;
 const TOP: i8 = 24;
 const BOTTOM: i8 = 10;
 
+/// What the frame of a window drawn with the skin adds round its content, across and down.
+pub fn frame_room() -> egui::Vec2 {
+    egui::vec2((LEFT + RIGHT) as f32, (TOP + BOTTOM) as f32)
+}
+
 /// A window named `name` (its egui id and its `layout.ini` entry) titled `title`, shown while `*open`; `build` sets the egui window's
 /// size and place (`|w| w.resizable(false).default_pos(..)`), `add` fills it. Returns what `egui::Window::show` returns.
 pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str, open: &mut bool, build: impl FnOnce(egui::Window<'static>) -> egui::Window<'static>, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<egui::InnerResponse<Option<R>>> {

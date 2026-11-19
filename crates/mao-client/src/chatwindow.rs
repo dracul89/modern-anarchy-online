@@ -207,6 +207,35 @@ fn invitation_box(ctx: &egui::Context, palette: &Palette, name: &str, panes: &[P
     if !open { Some(false) } else { answer }
 }
 
+/// Which of the original's first places a chat window takes (`first_place`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum FirstPlace {
+    /// The default window, which FUN_100950df makes with its flag set ("Default Window").
+    Default,
+    /// Any other chat window (the "Combat" one, a new or cloned window, a torn-off tab).
+    Other,
+    /// The tell window (`TellWindow_c`, FUN_100b243e).
+    Tell,
+}
+
+/// Where the original first puts a chat window on a `screen`, before its saved place (`Window::LoadWndConfig`) replaces
+/// it: the window's top left and its client's size. The default window spans the foot of the screen, 224 in from each
+/// side, from 200 above the bottom to 3 above it (FUN_100971a3, which FUN_1009829a gives a window made with the flag:
+/// the window's outer rectangle, so its client is that less the `frame` round it); another is made with a 400 by 200
+/// client (FUN_1009829a) and a tell window with a 389 by 219 one (FUN_100b243e), each put in the middle of the screen
+/// (`Window::MoveToCenter`).
+fn first_place(kind: FirstPlace, screen: egui::Rect, frame: egui::Vec2) -> (egui::Pos2, egui::Vec2) {
+    let client = match kind {
+        FirstPlace::Default => {
+            let outer = egui::Rect::from_min_max(egui::pos2(screen.left() + 224.0, screen.bottom() - 200.0), egui::pos2(screen.right() - 224.0, screen.bottom() - 3.0));
+            return (outer.min, (outer.size() - frame).max(egui::Vec2::ZERO));
+        }
+        FirstPlace::Other => egui::vec2(400.0, 200.0),
+        FirstPlace::Tell => egui::vec2(389.0, 219.0),
+    };
+    (screen.center() - (client + frame) * 0.5, client)
+}
+
 /// Whether a tell from or to a character counts as one not read (FUN_100a7394): not when the character's tell window
 /// is open (it is written there), nor when a chat window that is up has shown it (the `param_2` FUN_100a681d and
 /// FUN_100a5f39 pass).
@@ -2048,7 +2077,8 @@ impl ChatWindow {
             // (`visual_mode` 2: a window alone in its frame has no frame or title, and fades as a whole to its setting
             // for a window typed in or for one that is not, FUN_100972da; a framed one fades as every window does)
             let bare = look.borderless && members.len() == 1;
-            let (at, size) = if n == 0 { (egui::pos2(8.0, (screen.height() - 270.0).max(40.0)), [560.0, 230.0]) } else { (egui::pos2(60.0, 160.0), [420.0, 170.0]) };
+            // (the original's first places, `first_place`; a borderless window's frame is the bare window's margins)
+            let (at, size) = first_place(if n == 0 { FirstPlace::Default } else { FirstPlace::Other }, screen, if bare { egui::vec2(8.0, 8.0) } else { crate::chrome::frame_room() });
             let order = match look.layer {
                 1 => egui::Order::Foreground,
                 -1 => egui::Order::Background,
@@ -2075,15 +2105,14 @@ impl ChatWindow {
         }
         // the tell windows, each titled with its character
         let mut closed = Vec::new();
-        for (k, (slot, name)) in self.tells.clone().into_iter().enumerate() {
+        for (slot, name) in self.tells.clone() {
             let frame = Self::tell_frame(slot);
             let id = format!("Chat:{frame}");
-            // (over the chat window, each a step from the one before, until the player puts it somewhere)
-            let step = 26.0 * k as f32;
-            let over = ctx.memory(|m| m.area_rect(egui::Id::unique("Chat"))).map_or(egui::pos2(90.0 + step, 110.0 + step), |r| egui::pos2(r.left() + step, (r.top() - 196.0 - step).max(30.0)));
-            let place = crate::layout::pos(&id, over);
+            // (in the middle of the screen until the player puts it somewhere, `first_place`)
+            let (middle, size) = first_place(FirstPlace::Tell, screen, crate::chrome::frame_room());
+            let place = crate::layout::pos(&id, middle);
             let (mut stays, mut sent) = (true, None);
-            crate::chrome::window(ctx, palette, &id, &name, &mut stays, move |w| w.default_pos(place).default_size([380.0, 190.0]), |ui| sent = self.tell_body(ui, ctx, palette, &name, &frame, &mut clicks));
+            crate::chrome::window(ctx, palette, &id, &name, &mut stays, move |w| w.default_pos(place).default_size(size), |ui| sent = self.tell_body(ui, ctx, palette, &name, &frame, &mut clicks));
             if self.raise == Some(slot) {
                 ctx.move_to_top(egui::LayerId::new(egui::Order::Middle, egui::Id::unique(&id)));
             }
@@ -2234,6 +2263,17 @@ impl ChatWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_100971a3 / FUN_1009829a / FUN_100b243e: the default chat window across the screen's foot 224 in from each side
+    /// and 3 above the bottom; another chat window a 400 by 200 client, a tell window a 389 by 219 one, in the middle.
+    #[test]
+    fn chat_windows_first_go_where_the_originals_do() {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0));
+        let frame = egui::vec2(14.0, 34.0);
+        assert_eq!(first_place(FirstPlace::Default, screen, frame), (egui::pos2(224.0, 520.0), egui::vec2(818.0, 163.0)));
+        assert_eq!(first_place(FirstPlace::Other, screen, frame), (egui::pos2(433.0, 243.0), egui::vec2(400.0, 200.0)));
+        assert_eq!(first_place(FirstPlace::Tell, screen, frame), (egui::pos2(438.5, 233.5), egui::vec2(389.0, 219.0)));
+    }
 
     #[test]
     fn the_group_commands_find_their_groups() {
