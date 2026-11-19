@@ -2163,7 +2163,6 @@ fn run(args: &[String]) -> Result<(), String> {
                                     for r in bought {
                                         window.apply(shop::Change::Bought(r));
                                     }
-                                    window.selected = Some(0);
                                 }
                                 *hud.shop_preview.lock().unwrap() = Some(window);
                                 // (MAO_SHOP_GEAR=1: the capture's inventory open beside it, to drag from)

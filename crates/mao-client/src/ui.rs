@@ -1388,6 +1388,7 @@ impl Ui {
                 }
                 None => {}
             }
+            crate::shop::set_trading(shop.open);
             if shop.open {
                 if let Some(command) = shop.show(&ctx, gear, &hud.gear, palette) {
                     requests.shop = Some(command);

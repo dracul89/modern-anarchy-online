@@ -650,7 +650,7 @@ message's runs: a kind, the first record's place in the table, how many, the fir
 id as the first plus the number in its table id (`0xc0NNpppp`). It is the first plus the record's place among its
 kind in the table: Arete Landing's machines are numbered 0 to 4 and 6 to 8, so machine 6 is the sixth record, and the
 use went to the seventh, 90 m off. The original's capture has the machines announced with their places, which shows
-the order. Seen live: the shop's window opens with its list and prices, and a double click on a row and Accept buys
+the order. Seen live: the shop's window opens with its list and prices, and a double click (one click since 2026-11-18) on a row and Accept buys
 it (100 arrows for 105 credits, in the inventory). Left: the on-screen line names the machine by the id used
 ("Booth d831") and not by its name.
 
@@ -3326,7 +3326,8 @@ and macOS.**
   raise the pick-up signal as the left button goes down with neither Shift nor Ctrl held (GUI.dll FUN_10041aa4 ->
   FUN_1004258f), which the inventory answers with `View::BeginDrag` (FUN_100cc6e8). Here the item is taken up as
   the button comes back up, not as it goes down. **There is no use by double click any more** (the first click of
-  two has the item in hand); Ctrl+double click still puts an item into an open trade.
+  two has the item in hand); Ctrl+double click still puts an item into an open trade. (Since 2026-11-18 it is
+  Ctrl + right click, the original's: "A shop's rows act at one click".)
 - **A right click uses an item** (as before: button 2 is the list's use signal, FUN_1004266a). **A bag's use opens
   its window, and the next closes it**, worn or carried: the client closes and shows the window itself and sends
   the server nothing for the second and third use, since it knows what is in a bag it has opened. Where the original
@@ -6335,3 +6336,31 @@ The catalog's entry said more than the original does. Read to the end (GUI.dll `
 
 Tests: `hall`'s `the_creation_figure_is_sized_and_set_down_by_its_choices`, `charcreate`'s head counts in its
 name test. Seen: the demo creation in a test window (`MAO_LAUNCHER_DEMO=1 MAO_LAUNCHER_CREATE=...`).
+
+### A shop's rows act at one click (NPC-014)
+
+The trade window's three lists are plain item lists that `TradeView_c` wires itself (GUI.dll FUN_100e07b9 the
+stock, FUN_100e0942 the bought items, FUN_100e0b00 the sold ones), with the list flag that turns a click into a
+signal instead of a pick-up (FUN_1004141b, checked in its assembly):
+
+| Gesture on a row | Original | Was |
+|---|---|---|
+| left click | the row's action: a stock item goes in (one of it, `N3Msg_TradeAddItem`), a bought or sold one comes out (`N3Msg_TradeRemoveItem`) | marked the row |
+| right click | the same | a stock item's page |
+| Shift + left click | the item's page | nothing |
+| two clicks | two actions (there is no double click) | the action, once |
+| right button held 0.3 s | nothing, and nothing as it is let go | (a right click) |
+
+`shop::row_click` is that table; the window has no marked row any more. The page of a stock row is the
+original's `shopitemid://` page less the shop's price (the client's page has none), a bought row's is its stock
+item's, a sold row's the inventory item's.
+
+**An inventory item goes into the trade by Ctrl + right click** (FUN_100cae1b: the inventory's use handler adds
+the item to the trade instead when a trade's window is up and Ctrl is held), not by Ctrl + double click as the
+client had guessed; Ctrl + double click does nothing now. Dropping an item on a list is unchanged.
+
+Not ported: the original's checks before an add that say why not without asking the server (no room in the
+trade, cannot afford it: `CannotAffordThisItem` with the shortfall), and its refusal to take a sold item back
+with a full inventory. The server answers those here.
+
+Tests: `shop`'s `one_click_on_a_row_acts`, `invwindows`' click table.

@@ -158,7 +158,6 @@ pub fn reference(item: &GearItem) -> String {
 pub enum Click {
     TakeUp,
     Info,
-    Trade,
     /// A split of the stack is asked for.
     Split,
     Nothing,
@@ -202,7 +201,6 @@ pub fn split_dialog(ctx: &egui::Context, palette: &Palette, name: &'static str, 
 pub fn click(clicks: u32, shift: bool, ctrl: bool, holding: bool, stack: bool) -> Click {
     match (shift, ctrl) {
         (true, _) if clicks > 0 => Click::Info,
-        (false, true) if clicks > 1 => Click::Trade,
         (false, true) if clicks == 1 && stack && !holding => Click::Split,
         (false, false) if !holding => Click::TakeUp,
         _ => Click::Nothing,
@@ -794,7 +792,13 @@ impl ItemWindows {
             } else if !crate::gear::locked(*slot) {
                 // (with Shift too: the original's menu comes by the held button only. A locked item, one that waits
                 // on the city's map or a worn one locked by its menu, is not used: FUN_100cae1b.)
-                events.uses.push(*slot);
+                // (with Ctrl while a trade's window is up the item goes into the trade instead: the same function's
+                // `N3Msg_TradeAddItem` for the qualifiers 0xc)
+                if crate::shop::trading() && ctx.input(|i| i.modifiers.ctrl) {
+                    events.trade_adds.push(*slot);
+                } else {
+                    events.uses.push(*slot);
+                }
             }
         }
         // (the item under the pointer: its tip)
@@ -897,13 +901,8 @@ impl ItemWindows {
             match click(clicks, shift, ctrl, held.is_some(), item.slot >= BACKPACK_FIRST && item.count > 1) {
                 // (an item that waits on the city controller's map is locked: not taken up, split or traded,
                 // FUN_100cc6e8 and FUN_100cae1b)
-                Click::Trade | Click::Split | Click::TakeUp if crate::gear::locked(item.slot) => {}
+                Click::Split | Click::TakeUp if crate::gear::locked(item.slot) => {}
                 Click::Info => events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
-                // (the second click of two: the first one's split box goes)
-                Click::Trade => {
-                    *split_box = None;
-                    events.trade_adds.push(item.slot);
-                }
                 Click::Split => {
                     if crate::gear::traced() {
                         eprintln!("items: a split of place {} asked for", item.slot);
@@ -941,13 +940,14 @@ mod tests {
         assert_eq!(click(1, true, false, true, false), Click::Info);
         assert_eq!(click(1, true, true, false, true), Click::Info);
         assert_eq!(click(0, true, false, false, false), Click::Nothing);
-        // (Ctrl: the second click of two puts it into the trade; nothing is taken up with Ctrl held)
+        // (Ctrl: nothing is taken up with it held, and a second click does no more: the trade takes an item by
+        // Ctrl + right click, FUN_100cae1b)
         assert_eq!(click(1, false, true, false, false), Click::Nothing);
-        assert_eq!(click(2, false, true, false, false), Click::Trade);
-        // (Ctrl+click on a stack asks for a split; not with something in hand, not by a drag; the second click trades)
+        assert_eq!(click(2, false, true, false, false), Click::Nothing);
+        // (Ctrl+click on a stack asks for a split; not with something in hand, not by a drag)
         assert_eq!(click(1, false, true, false, true), Click::Split);
         assert_eq!(click(1, false, true, true, true), Click::Nothing);
         assert_eq!(click(0, false, true, false, true), Click::Nothing);
-        assert_eq!(click(2, false, true, false, true), Click::Trade);
+        assert_eq!(click(2, false, true, false, true), Click::Nothing);
     }
 }

@@ -1434,7 +1434,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: double click on a stock row puts it in, double click on a bought/sold row takes it out, right click on stock shows its page
 - A player notices: buying works by double click, which the original's list does not do
 - Where: `crates/mao-client/src/shop.rs:494`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the entry's "Original" line was incomplete: the trade's lists have their own click handlers. One left or right click on a stock row buys one (`N3Msg_TradeAddItem`, GUI.dll FUN_100dffe8), one on a bought or sold row takes it out, Shift + left click shows the page, there is no double click; an inventory item goes in by Ctrl + right click (FUN_100cae1b) or a drop. All ported (`shop::row_click`); the client's Ctrl + double click is gone. Not ported: the original's own refusals before an add (cannot afford, trade full). `CLIENT_UI.md` "A shop's rows act at one click".
 
 #### `NPC-015` Built-in machines, doors and mail terminals found by inferred rules
 

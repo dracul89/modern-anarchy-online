@@ -51,6 +51,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   the build menu with its checklist instead of doing nothing. The battlestation has its small map with the points
   and scores, the invitation to a battle and the end's message. The laser target and airstrike window is there
   too. (All built from the original's code alone: none of it has met a server yet.)
+- Shops work by the original's clicks: **one** click (left or right) on a stock item puts it into the purchase
+  and one click on a bought or sold item takes it out; Shift + click shows the item. Two clicks buy two. An
+  inventory item is offered for sale by Ctrl + right click (or by dropping it on the window, as before).
 
 ### Items
 

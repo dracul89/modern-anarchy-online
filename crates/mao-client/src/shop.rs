@@ -85,6 +85,47 @@ pub enum Change {
     Left,
 }
 
+/// What a click on a row of one of the trade's three lists does.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum RowClick {
+    /// The row's own action: a stock item is put in (one of it), a bought or sold one is taken out.
+    Act,
+    /// The item's page.
+    Page,
+    Nothing,
+}
+
+/// The right button held this long on a row is no click (the lists' `MouseButtonHoldDelay`: the list raises its
+/// menu signal then, which a trade's lists give nobody, and the release after it does nothing).
+pub const HOLD: f32 = 0.3;
+
+/// A click on a row by its button, Shift, and how long the button was down. The trade's lists are plain
+/// `ItemContainerView_c`s whose flags have bit 2 (GUI.dll FUN_100e07b9, FUN_100e0942, FUN_100e0b00: 6, 6 and 0xe),
+/// so their mouse-up (FUN_1004141b) raises the click signal for a left click without Shift and for any right
+/// click, and the Shift-click signal for a left click with it. `TradeView_c` hangs the row's action on the first
+/// (FUN_100dffe8 `N3Msg_TradeAddItem`, FUN_100dffa3 and FUN_100dff6d `N3Msg_TradeRemoveItem`) and the item's page on
+/// the second (FUN_100e0096, FUN_100e002d). There is no double click: two clicks are two actions.
+pub fn row_click(right: bool, shift: bool, held: f32) -> RowClick {
+    match (right, shift) {
+        (true, _) if held >= HOLD => RowClick::Nothing,
+        (false, true) => RowClick::Page,
+        _ => RowClick::Act,
+    }
+}
+
+/// Whether a trade's window is up, for the inventory's Ctrl + right click (GUI.dll's FUN_100cae1b asks the
+/// inventory module for its trade view, FUN_1002fcb7).
+static TRADING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn trading() -> bool {
+    TRADING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Told each frame by the window's owner.
+pub fn set_trading(open: bool) {
+    TRADING.store(open, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// What the window asks the network thread to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShopCommand {
@@ -248,10 +289,11 @@ pub struct ShopWindow {
     pub stock: Vec<Slot>,
     pub bought: Vec<Row>,
     pub sold: Vec<Row>,
-    pub selected: Option<usize>,
     pub status: String,
-    /// A stock item's page for the Info window (right-clicked: `itemref://low/high/ql`), until taken.
+    /// An item's page for the Info window (a row clicked with Shift: `itemref://low/high/ql`), until taken.
     pub info_url: Option<String>,
+    /// When the right button went down.
+    right_since: Option<std::time::Instant>,
     window: Option<crate::gui::window::XmlWindow>,
     /// A trade with another player (`TradeView_c`'s mode 0, the skin's `PlayerTrade` view): the partner, the credits they put
     /// in, whether each side has confirmed, and whether "Are you sure you want to complete this trade?" is up.
@@ -283,7 +325,6 @@ impl ShopWindow {
         self.bought.clear();
         self.sold.clear();
         self.open = true;
-        self.selected = None;
         self.status.clear();
     }
 
@@ -371,7 +412,11 @@ impl ShopWindow {
     }
 
     /// Draws the window; returns what to send, if anything.
-    pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, _items: &[GearItem], palette: &Palette) -> Option<ShopCommand> {
+    pub fn show(&mut self, ctx: &egui::Context, gear: &mut GearWindow, items: &[GearItem], palette: &Palette) -> Option<ShopCommand> {
+        if ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+            self.right_since = Some(std::time::Instant::now());
+        }
+        let right_held = self.right_since.map_or(0.0, |t| t.elapsed().as_secs_f32());
         let wanted = self.wanted_view();
         if self.window.is_none() || self.view != wanted {
             self.load(ctx);
@@ -396,7 +441,6 @@ impl ShopWindow {
             return Some(if yes { ShopCommand::Accept } else { ShopCommand::Close });
         }
         let mut command = None;
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let text = egui::Color32::from_rgb(palette.text[0], palette.text[1], palette.text[2]);
         let green = egui::Color32::from_rgb(0x44, 0xdd, 0x44);
         let w = self.window.as_mut()?;
@@ -404,7 +448,7 @@ impl ShopWindow {
         let min = crate::gui::host::preferred_pixels(&w.tree, w.root, false);
         let root = w.root;
         let tree = &mut w.tree;
-        let (stock, bought, sold, selected, info_url) = (&self.stock, &self.bought, &self.sold, &mut self.selected, &mut self.info_url);
+        let (stock, bought, sold, info_url) = (&self.stock, &self.bought, &self.sold, &mut self.info_url);
         let buy_only = self.buy_only && self.partner.is_none();
         let name = if self.name.is_empty() { format!("Booth {:x}", self.shop.1 & 0xffff) } else { self.name.clone() };
         let (partner_credits, confirmed) = (self.partner_credits, self.confirmed);
@@ -448,18 +492,17 @@ impl ShopWindow {
                     ui.painter().text(r.right_center() - egui::vec2(4.0, 0.0), egui::Align2::RIGHT_CENTER, rows.iter().map(|r| r.price).sum::<i64>().to_string(), font.clone(), green);
                 }
             }
-            // the three lists: Icon, Name, Count, Price, Quality (a row's description as its tooltip); returns the rows clicked,
-            // double-clicked and right-clicked
-            let mut list = |ui: &mut egui::Ui, dock: &str, rows: Vec<(Option<&Arc<Icon>>, &str, u32, i64, u32, &str)>, chosen: Option<usize>| -> (Option<usize>, Option<usize>, Option<usize>, Option<egui::Rect>) {
-                let Some(area) = rect_of(dock) else { return (None, None, None, None) };
-                let (mut clicked, mut double, mut info) = (None, None, None);
+            // the three lists: Icon, Name, Count, Price, Quality (a row's description as its tooltip); returns the row whose
+            // action a click asked for and the row whose page one did (`row_click`)
+            let shift = ui.input(|i| i.modifiers.shift);
+            let mut list = |ui: &mut egui::Ui, dock: &str, rows: Vec<(Option<&Arc<Icon>>, &str, u32, i64, u32, &str)>| -> (Option<usize>, Option<usize>, Option<egui::Rect>) {
+                let Some(area) = rect_of(dock) else { return (None, None, None) };
+                let (mut acted, mut page) = (None, None);
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area.shrink(2.0)).id_salt(dock));
                 crate::chrome::scroll(&mut child, palette, egui::ScrollArea::vertical().max_height(area.height() - 4.0).auto_shrink([false, false]), |ui| {
                     for (i, (icon, name, count, price, quality, tip)) in rows.into_iter().enumerate() {
                         let (r, resp) = ui.allocate_exact_size(egui::vec2(area.width() - 16.0, ROW), egui::Sense::click());
-                        if chosen == Some(i) {
-                            ui.painter().rect_filled(r, 0.0, accent.gamma_multiply(0.25));
-                        } else if resp.hovered() {
+                        if resp.hovered() {
                             ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(12));
                         }
                         let icon_rect = egui::Rect::from_min_size(r.min + egui::vec2(1.0, 1.0), egui::vec2(ROW - 2.0, ROW - 2.0));
@@ -472,43 +515,55 @@ impl ShopWindow {
                         ui.painter().text(egui::pos2(x(0.68), y), egui::Align2::RIGHT_CENTER, count.to_string(), font.clone(), text);
                         ui.painter().text(egui::pos2(x(0.87), y), egui::Align2::RIGHT_CENTER, price.to_string(), font.clone(), green);
                         ui.painter().text(egui::pos2(x(0.99), y), egui::Align2::RIGHT_CENTER, quality.to_string(), font.clone(), text);
-                        if resp.clicked() {
-                            clicked = Some(i);
-                        }
-                        if resp.double_clicked() {
-                            double = Some(i);
-                        }
-                        if resp.secondary_clicked() {
-                            info = Some(i);
+                        let click = if resp.clicked() {
+                            row_click(false, shift, 0.0)
+                        } else if resp.secondary_clicked() {
+                            row_click(true, shift, right_held)
+                        } else {
+                            RowClick::Nothing
+                        };
+                        match click {
+                            RowClick::Act => acted = Some(i),
+                            RowClick::Page => page = Some(i),
+                            RowClick::Nothing => {}
                         }
                         if !tip.is_empty() {
                             resp.on_hover_text(tip.replace("\r\n", "\n"));
                         }
                     }
                 });
-                (clicked, double, info, Some(area))
+                (acted, page, Some(area))
             };
             fn rows(rs: &[Row]) -> Vec<(Option<&Arc<Icon>>, &str, u32, i64, u32, &str)> {
                 rs.iter().map(|r| (r.icon.as_ref(), r.name.as_str(), r.count, r.price, r.quality, "")).collect()
             }
-            // (a stock item double-clicked goes in, right-clicked shows its page; one in either list double-clicked comes out)
-            let (c, d, i, stock_area) = list(ui, "ShopInventoryDock", stock.iter().map(|s| (s.icon.as_ref(), s.name.as_str(), 1, s.price, s.quality, s.description.as_str())).collect(), *selected);
-            if c.is_some() {
-                *selected = c;
-            }
-            if let Some(i) = d {
+            // (a stock item clicked goes in, one of it a click; one in either list clicked comes out; with Shift the click
+            // shows the item's page. The original's pages are `shopitemid://type/instance` for a stock row, which adds
+            // the shop's price, and `itemid://type/instance` for the others: here the item's own page for all three.)
+            let page_of = |item: [u32; 4]| match item[2] {
+                0x6f => stock.get(item[3] as usize).map(|s| format!("itemref://{}/{}/{}", s.low, s.high, s.quality)),
+                _ => items.iter().find(|g| g.slot == item[3]).map(|g| format!("itemref://{}/{}/{}", g.item_id, g.high_id, g.quality)),
+            };
+            let (acted, page, stock_area) = list(ui, "ShopInventoryDock", stock.iter().map(|s| (s.icon.as_ref(), s.name.as_str(), 1, s.price, s.quality, s.description.as_str())).collect());
+            if let Some(i) = acted {
                 command = Some(ShopCommand::Buy(i));
             }
-            if let Some(s) = i.and_then(|i| stock.get(i)) {
+            if let Some(s) = page.and_then(|i| stock.get(i)) {
                 *info_url = Some(format!("itemref://{}/{}/{}", s.low, s.high, s.quality));
             }
-            let (_, d, _, bought_area) = list(ui, "PartnerInventoryDock", rows(bought), None);
-            if let Some(i) = d {
+            let (acted, page, bought_area) = list(ui, "PartnerInventoryDock", rows(bought));
+            if let Some(i) = acted {
                 command = Some(ShopCommand::Remove(bought[i].item));
             }
-            let (_, d, _, sold_area) = list(ui, "OurInventoryDock", rows(sold), None);
-            if let Some(i) = d {
+            if let Some(url) = page.and_then(|i| page_of(bought[i].item)) {
+                *info_url = Some(url);
+            }
+            let (acted, page, sold_area) = list(ui, "OurInventoryDock", rows(sold));
+            if let Some(i) = acted {
                 command = Some(ShopCommand::Remove(sold[i].item));
+            }
+            if let Some(url) = page.and_then(|i| page_of(sold[i].item)) {
+                *info_url = Some(url);
             }
             // (an inventory item dropped on any of the three lists goes in: in shop mode FUN_100e121e gives each list's
             // drop signal, +0x2dc, FUN_100e015f, which adds an "inventory/item" drag to the trade)
@@ -574,6 +629,18 @@ mod tests {
         assert!(w.asking && w.partner_credits == 500);
         w.apply(Change::Complete);
         assert!(!w.open && w.partner.is_none() && !w.asking);
+    }
+
+    /// FUN_1004141b for a list whose flags have bit 2: a left click and a right click raise the click signal, a
+    /// left click with Shift the other one, and a right button held for the hold delay raises neither.
+    #[test]
+    fn one_click_on_a_row_acts() {
+        assert_eq!(row_click(false, false, 0.0), RowClick::Act);
+        assert_eq!(row_click(true, false, 0.1), RowClick::Act);
+        assert_eq!(row_click(false, true, 0.0), RowClick::Page);
+        // (the right button's release tests no key)
+        assert_eq!(row_click(true, true, 0.1), RowClick::Act);
+        assert_eq!(row_click(true, false, HOLD), RowClick::Nothing);
     }
 
     #[test]
