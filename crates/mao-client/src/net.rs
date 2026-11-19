@@ -10224,7 +10224,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         };
                         let own_sphere = sphere_of(own, state.stats.get(&360).map_or(1.0, |&s| s as f32 / 100.0)).unwrap_or(NO_MESH_SPHERE);
                         let their_sphere = sphere_of(id, 1.0).unwrap_or(NO_MESH_SPHERE);
-                        if state.position_of(id).is_some_and(|at| !trade_in_reach(position, own_sphere, at, their_sphere)) {
+                        // (in a dungeon, two rooms apart, through an open door only: FUN_1005a1e7's `PosToRoom`,
+                        // `FindDoorIDFromRoomLink` and `IsDoorOpenBetweenRooms`)
+                        let now = Instant::now();
+                        let open = |n: u8| state.doors_open.get(&n).is_some_and(|until| *until > now);
+                        let rooms_join = |at: [f32; 3]| {
+                            interior.as_ref().is_none_or(|i| {
+                                let own_room = i.room_at(position, room_state.current);
+                                match (own_room, own_room.and_then(|r| i.room_at(at, Some(r)))) {
+                                    (Some(a), Some(b)) => room_state.reach_through(a, b, &open),
+                                    _ => true,
+                                }
+                            })
+                        };
+                        if state.position_of(id).is_some_and(|at| !trade_in_reach(position, own_sphere, at, their_sphere) || !rooms_join(at)) {
                             state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_TargetOutsideRangeForTrade")));
                         } else {
                             let _ = connection.send(&n3::trade(own, 0, [n3::CHARACTER, id, 0, 0]));

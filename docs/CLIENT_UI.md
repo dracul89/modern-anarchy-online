@@ -7634,3 +7634,7 @@ The original closes an open bank when the character has walked more than 5 m fro
 ### More sections on item pages (INV-054)
 
 The original's item pages (GUI.dll FUN_1003882b and the other builders) also show the shop's price on a page opened from a shop's stock (FUN_10031fda), a fixture's note (`IsFixture`, FUN_10032092), the insurance cost (item stats 362 and 61 with the reader's level), a building's upkeep and size from its house template (FUN_10032d30), a tower's or controller's type in Roman numerals (FUN_1003210c, FUN_10031ae0), and an NF crystal's formula with the nano's page. The client's pages now have all of these; a shop's stock item opens the client's own `shopitemid://low/high/ql/price` page. Not shown: a nano's radius (its source in the original was not found).
+
+### A trade across dungeon rooms (INV-055)
+
+The original allows a trade only within 5 m between the two bodies, and in a dungeon, with the two in different rooms, only through an open door between those rooms (Gamecode FUN_1005a1e7, N3's `FindDoorIDFromRoomLink` / `IsDoorOpenBetweenRooms`); else it says the target is out of range for a trade. The client now checks the rooms too.

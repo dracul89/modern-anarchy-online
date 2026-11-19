@@ -136,6 +136,13 @@ impl RoomState {
         })
     }
 
+    /// Whether something in room `b` is in reach of a body in room `a` as far as the rooms go (Gamecode FUN_1005a1e7's
+    /// dungeon part): the same room, or a door registered for the doorway between them (`FindDoorIDFromRoomLink`, one door
+    /// a link: the first here) that is open (`IsDoorOpenBetweenRooms`).
+    pub fn reach_through(&self, a: usize, b: usize, open: &dyn Fn(u8) -> bool) -> bool {
+        a == b || self.doors(a, b).first().is_some_and(|&n| open(n))
+    }
+
     /// The rooms to draw now: the character's own, the rooms behind its open doors, and for two seconds the rooms that were
     /// shown. One flag per room; empty when the character is in no room yet.
     pub fn shown(&mut self, interior: &Interior, now: Instant, open: &dyn Fn(u8) -> bool) -> Vec<bool> {
@@ -194,6 +201,20 @@ mod tests {
     /// `MAO_GAME`: the org headquarters (playfield 4349). Its elevators are no doorways: the server moves the character
     /// from the hall (room 1) to the tactical room (room 5), which no door joins. A step there is undone; a place the
     /// server gave is kept (the places are the user's log's, 2026-11-15).
+    /// FUN_1005a1e7: two rooms apart, a trade or a use reaches through the doorway's door only when it is open; a doorway
+    /// with no door registered, or rooms no doorway joins, do not.
+    #[test]
+    fn reach_goes_through_an_open_door_only() {
+        let i = interior();
+        let mut state = RoomState::default();
+        let slots: BTreeMap<u8, (u32, [f32; 3])> = [(7u8, (1, [4.0, 0.0, 1.0]))].into_iter().collect();
+        state.register(&i, &slots);
+        assert!(state.reach_through(1, 1, &|_| false));
+        assert!(state.reach_through(0, 1, &|n| n == 7) && state.reach_through(1, 0, &|n| n == 7));
+        assert!(!state.reach_through(0, 1, &|_| false));
+        assert!(!state.reach_through(1, 2, &|_| true) && !state.reach_through(0, 2, &|_| true));
+    }
+
     #[test]
     fn a_teleport_between_rooms_without_a_doorway_is_kept() {
         let Some(game) = std::env::var_os("MAO_GAME") else { return };
