@@ -4815,6 +4815,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The window looks and reads differently from the original's.
 - Where: `crates/mao-client/src/mission.rs:409`; `crates/mao-client/src/mission.rs:458`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The words are ported: GUI.dll FUN_100d10fc reads each slider's two ends with LDBface::GetText(10000, "QuestSel_Easy"/"QuestSel_Hard", "QuestSel_Good"/"QuestSel_Bad", "QuestSel_Order"/"QuestSel_Chaos", "QuestSel_Open"/"QuestSel_Hidden", "QuestSel_Phys"/"QuestSel_Myst", "QuestSel_HeadOn"/"QuestSel_Stealth", "QuestSel_Credits"/"QuestSel_XP") and its buttons with "RequestMissions" (0x100d17df), "AcceptMission" (0x100d19ee) and "MsgBox_Cancel" (0x100d1b09); mission.rs now reads those names (new SLIDER_TEXTS) through ldb_named, its own words only as a fallback. Left: the view itself (MultiListView_c 3 by 2 offer cells, the advanced-options toggle button gfx 0x47/0x46 hiding sliders 1..6, Slider views, HLayoutNode rows) is still egui's drawing; rebuilding it from the original's views is the larger job of WIN-135 and the GUI.dll port. The status lines and "Stop asking" belong to the client's own mission helper (an addition). Test: mission::helper_tests::the_windows_texts_are_the_games (MAO_GAME).
 
 #### `WIN-030` NPC give-trade bar drawn by hand with its own texts
 

@@ -57,6 +57,10 @@ pub fn request_refused(level: i64, credits: i64) -> Option<String> {
 /// (GUI.dll FUN_100d10fc): the difficulty from 0 to 100, the six others from -100 to 100.
 pub const SLIDERS: [(&str, &str, i32, i32); 7] = [("Easy", "Hard", 0, 100), ("Good", "Bad", -100, 100), ("Order", "Chaos", -100, 100), ("Open", "Hidden", -100, 100), ("Physical", "Mystical", -100, 100), ("Head on", "Stealth", -100, 100), ("Credits", "XP", -100, 100)];
 
+/// The sliders' end labels as the original reads them: text.mdb category 10000 by these names (GUI.dll FUN_100d10fc,
+/// one `LDBface::GetText(10000, name)` for each end); [`SLIDERS`]' words when the game has no text.
+pub const SLIDER_TEXTS: [(&str, &str); 7] = [("QuestSel_Easy", "QuestSel_Hard"), ("QuestSel_Good", "QuestSel_Bad"), ("QuestSel_Order", "QuestSel_Chaos"), ("QuestSel_Open", "QuestSel_Hidden"), ("QuestSel_Phys", "QuestSel_Myst"), ("QuestSel_HeadOn", "QuestSel_Stealth"), ("QuestSel_Credits", "QuestSel_XP")];
+
 /// Where the original's window has its sliders when nothing is kept for them (GUI.dll FUN_100d10fc): the difficulty in
 /// the middle, the six others at 0.
 pub const SLIDERS_AT_FIRST: [i32; 7] = [50, 0, 0, 0, 0, 0, 0];
@@ -477,11 +481,12 @@ impl MissionWindow {
             });
             ui.add_space(4.0);
             for (i, (left, right, min, max)) in SLIDERS.iter().enumerate() {
+                let (left, right) = (crate::gui::xml::ldb_named(10000, SLIDER_TEXTS[i].0, left), crate::gui::xml::ldb_named(10000, SLIDER_TEXTS[i].1, right));
                 ui.horizontal(|ui| {
-                    ui.add_sized([60.0, 16.0], egui::Label::new(*left));
+                    ui.add_sized([60.0, 16.0], egui::Label::new(&left));
                     ui.spacing_mut().slider_width = 150.0;
                     ui.add(egui::Slider::new(&mut self.sliders[i], *min..=*max).show_value(false));
-                    ui.label(*right);
+                    ui.label(&right);
                 });
             }
             ui.horizontal(|ui| {
@@ -490,7 +495,7 @@ impl MissionWindow {
                         self.roll = None;
                         self.status = "Stopped.".into();
                     }
-                } else if crate::chrome::button(ui, palette, "Request Missions", true).clicked() {
+                } else if crate::chrome::button(ui, palette, &crate::gui::xml::ldb_named(10000, "RequestMissions", "Request Missions"), true).clicked() {
                     command = Command { what: 1, sliders: request_bytes(self.sliders), mission: (0, 0) };
                     self.status = "Asking the booth ...".into();
                     // (with the helper told to keep asking, and something to look for)
@@ -561,13 +566,13 @@ impl MissionWindow {
             }
             ui.horizontal(|ui| {
                 let can = self.selected.is_some_and(|s| s < self.offers.len());
-                if crate::chrome::button(ui, palette, "Accept Mission", can).clicked() {
+                if crate::chrome::button(ui, palette, &crate::gui::xml::ldb_named(10000, "AcceptMission", "Accept Mission"), can).clicked() {
                     if let Some(offer) = self.selected.and_then(|s| self.offers.get(s)) {
                         command = Command { what: 2, sliders: request_bytes(self.sliders), mission: offer.id };
                         self.status = format!("Accepting {} ...", offer.title);
                     }
                 }
-                if crate::chrome::button(ui, palette, "Cancel", true).clicked() {
+                if crate::chrome::button(ui, palette, &crate::gui::xml::ldb_named(10000, "MsgBox_Cancel", "Cancel"), true).clicked() {
                     close = true;
                 }
             });
@@ -635,6 +640,17 @@ mod helper_tests {
         // (opened again at a terminal: nothing of the old offers)
         w.open = true;
         assert_eq!(w.mark(), None);
+    }
+
+    /// `MAO_GAME`: every text the original's window reads (FUN_100d10fc: the sliders' ends, RequestMissions,
+    /// AcceptMission, MsgBox_Cancel, all of category 10000) is in the game's text.mdb.
+    #[test]
+    fn the_windows_texts_are_the_games() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let texts = mao_formats::ldb::Texts::parse(&std::fs::read(std::path::Path::new(&game).join("cd_image/text/text.mdb")).unwrap()).unwrap();
+        for name in SLIDER_TEXTS.iter().flat_map(|t| [t.0, t.1]).chain(["RequestMissions", "AcceptMission", "MsgBox_Cancel"]) {
+            assert!(texts.named(10000, name).is_some_and(|t| !t.is_empty()), "{name}");
+        }
     }
 
     /// The request's bytes are the original's: its window's first values give the request of the capture of 2026-11-08

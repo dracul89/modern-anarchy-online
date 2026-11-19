@@ -7165,3 +7165,7 @@ The original's font table (GUI.dll 0x10272df0) marks entries 4 (CC17, Verdana 20
 ### Inventory and wear are two windows (WIN-028)
 
 The original makes the inventory (`SlotInventoryActivated` 0x100c766b) and the wear window (`SlotWearViewActivated` 0x100c76f1) on two separate distributed values, `inventory_window` and `wear_window`. The client now does the same: I toggles the inventory, Ctrl+1 (the original's WINDOW_WEAR) and the control center's Wear entry toggle the wear window, and either can be open without the other.
+
+### Mission selection window texts (WIN-029)
+
+The original's mission window (GUI.dll FUN_100d10fc) labels its seven sliders' ends with text.mdb 10000's QuestSel_* texts and its buttons with RequestMissions, AcceptMission and MsgBox_Cancel. The client reads the same texts; the window's layout is still the client's own.
