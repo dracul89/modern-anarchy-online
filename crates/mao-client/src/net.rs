@@ -8548,12 +8548,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 DeathStep::Nothing => {}
             }
-            // (the playfield stopped for a zoning: the character stands still until the playfield message; after 30 s, the
-            // `TeleportTrier_t`'s time, it is let go, a safety of this client's: the original stays stopped)
-            if state.playfield_stopped.is_some_and(|t| t.elapsed() > Duration::from_secs(30)) {
-                eprintln!("no playfield message 30 s after the server's teleport: moving again");
-                state.playfield_stopped = None;
-            }
+            // (the playfield stopped for a zoning: the character stands still until the playfield message, as the original
+            // stays stopped (StopPlayfield, no timer); until 2026-11-19 the client let it go after 30 s)
             // (stunned by a spell list: no movement action is started and the mouse does not turn the character while neither
             // state flag 2 nor 4 is set, FUN_1006bd94 and `N3Msg_MouseMovement`)
             state.tick_spells();

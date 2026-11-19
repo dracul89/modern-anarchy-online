@@ -3470,7 +3470,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: after 30 s without a playfield message the character moves again
 - A player notices: no permanent freeze if the message never comes
 - Where: `crates/mao-client/src/net.rs:7258`; `docs/CAPTURE_GAPS.md:116`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The 30-second release is gone: a playfield stopped for a zoning (StopPlayfield after the server's teleport) stays stopped until the playfield message, as the original does (no timer). (The TeleportTrier_t's 30 s is the door try's give-up, ZON-003, and is separate.) No unit test (game-loop code); built.
 
 ### Zoning and playfields: the original does it, the client does not (7)
 

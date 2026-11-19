@@ -7121,3 +7121,7 @@ Of a weapon's attack actions the original picks one by rand() at each swing (FUN
 ### Self-only nanos in the NCU list (NAN-045)
 
 The NCU window's type column follows FUN_1003f4cf: hostile 2, team 4, self only 3, else friendly 1. A nano is self-only as FUN_100a49b1 decides it: all its spells aim at target 1 or 2, or its stat 30 has 0x800000 (`ncu::self_only`).
+
+### Waiting for the new playfield (ZON-016)
+
+After the server's teleport the playfield is stopped (StopPlayfield) and the character stands still until the playfield message comes, with no timer, as in the original. The client used to let it move again after 30 s.
