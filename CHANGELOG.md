@@ -120,6 +120,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A special attack out of reach says so at once instead of going to the server: Brawl reaches about 5 m and Dimach about 12 m
   between the two characters, as the original's client checks.
 - The attack key refuses while swimming or flying with the original's lines, and a refusal is followed by "Unable to attack target" as in the original.
+- A hit followed late by the target's health no longer shows a second "unknown damage" line for the same damage.
 
 ### Launcher
 

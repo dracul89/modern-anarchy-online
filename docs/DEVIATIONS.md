@@ -952,7 +952,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a drop in another's health stat with no matching hit is told as "was attacked with nanobots for N points of unknown damage"; a hit just told suppresses the duplicate
 - A player notices: extra chat lines with generic wording
 - Where: `crates/mao-client/src/net.rs:12191`; `crates/mao-client/src/net.rs:3514`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The "unknown damage" line itself is the original's: FUN_100a2006 (the Stat handler) tells a drop of another's health (stat 0x1b) as combat event 0x1b (0x1c when the victim is an NPC with flag 0x8000000 that FUN_10052907 matches; the same text, another chat channel 0x42000004) and FUN_10012c3e's case 0x1b/0x1c writes it; a rise is told only for one's own character (0x22). What was the client's own is how it kept the hit just told from being told again: a 2-second window of recent hits by victim (World::recent_hits, untold_loss). The original instead lowers the victim's held health by the damage when it tells the hit (FUN_1009b6b7: FUN_1006288f(0x1b, health - damage); FUN_1006af0e for specials: stat 27 set to health - damage), so the Stat after it finds no change. Ported that (World::hit_taken, also for one's own stat 27) and removed the window. Left: the 0x1c channel for those NPCs (the client keeps no such flag). Test: net::door_tests::fight_lines_follow_the_originals_feedback (unchanged expectations, now without clearing the window).
 
 #### `CMB-005` Start Combat action attacks the target directly
 

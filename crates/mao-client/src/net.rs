@@ -205,9 +205,6 @@ struct World {
     perk_actions: Vec<(u32, u32, [u8; 4])>,
     /// The duel messages the server sent the character, not yet shown: what, the flag, the other character.
     duel_events: Vec<(u32, u32, u32)>,
-    /// The weapon hits just told (`AttackInfo`) by victim: the damage and when, so that the health's own message does
-    /// not tell them again.
-    recent_hits: BTreeMap<u32, (i64, Instant)>,
     /// The stats of the special attacks the server listed for the character (`SpecialAttackWeapon`), once it has, and
     /// whether the list changed.
     specials: Option<Vec<u32>>,
@@ -1432,15 +1429,21 @@ impl World {
         Some(list)
     }
 
-    /// A loss of health (negative) less what the weapon hits just told of that character already account for: what
-    /// is left to tell as its own line (0: nothing). A hit cut short (a duel's last one leaves 1 health) covers the
-    /// whole loss.
-    fn untold_loss(&mut self, id: u32, change: i64) -> i64 {
-        if change >= 0 {
-            return change;
+    /// A weapon's or special attack's hit told: the victim's health held goes down by the damage, as the original's hit
+    /// handlers set its stat 27 (FUN_1009b6b7's FUN_1006288f, FUN_1006af0e), so that the `Stat` the server sends after
+    /// it with the new health finds no change to tell a second time.
+    fn hit_taken(&mut self, victim: u32, amount: i64) {
+        if let Some(hp) = self.last_hp.get_mut(&victim) {
+            *hp -= amount;
+            if let Some(entry) = self.health.get_mut(&victim) {
+                entry.0 = *hp;
+            }
         }
-        let told = self.recent_hits.remove(&id).filter(|h| h.1.elapsed() < Duration::from_secs(2)).map_or(0, |h| h.0);
-        (change + told).min(0)
+        if victim == self.own {
+            if let Some(hp) = self.stats.get_mut(&27) {
+                *hp -= amount;
+            }
+        }
     }
 
     /// The nanos known to run on a character, for its NCU window: the nano, the time it had left (milliseconds) when
@@ -2754,12 +2757,9 @@ impl World {
                 if let Some(e) = self.weapon_energy.get_mut(&(m.identity.1, slot as u8)) {
                     *e = rounds_after(*e, int("AmmoCount"));
                 }
-                // (the hit is remembered for its victim: the `Stat` that follows with the new health would else tell the
-                // same loss a second time, as nanobots of unknown damage; seen live in a duel between two players)
-                if int("Amount") > 0 {
-                    let hit = self.recent_hits.entry(target).or_insert((0, Instant::now()));
-                    *hit = (if hit.1.elapsed() < Duration::from_secs(2) { hit.0 } else { 0 } + int("Amount"), Instant::now());
-                }
+                // (the victim's health held goes down by the hit, as the original's FUN_1009b6b7 sets it: the `Stat` that
+                // follows with the new health then tells nothing more; the server sends both, seen live in a duel)
+                self.hit_taken(target, int("Amount"));
                 let kind = crate::feedback::weapon_damage_type(self.weapons.get(&(m.identity.1, slot as u8)).and_then(|&t| template_stat(t, 436)));
                 if int("Amount") != 0 {
                     self.metered(m.identity.1, target, int("Amount"), false, crate::damage::Hit::of_type(int("HitType")), "Weapon");
@@ -2798,10 +2798,7 @@ impl World {
                 if let (Some(e), Some(left)) = (self.weapon_energy.get_mut(&(m.identity.1, slot as u8)), p.value.get("AmmoCount").and_then(mao_net::schema::Value::as_int)) {
                     *e = rounds_after(*e, left);
                 }
-                if amount > 0 {
-                    let hit = self.recent_hits.entry(target).or_insert((0, Instant::now()));
-                    *hit = (if hit.1.elapsed() < Duration::from_secs(2) { hit.0 } else { 0 } + amount, Instant::now());
-                }
+                self.hit_taken(target, amount);
                 if amount != 0 {
                     self.metered(m.identity.1, target, amount, false, crate::damage::Hit::Normal, &crate::gui::criteria::stat_name(stat));
                 }
@@ -4428,7 +4425,7 @@ impl World {
                     if let Some(hp) = health {
                         let id = m.identity.1;
                         if let Some(old) = self.last_hp.insert(id, hp) {
-                            let change = self.untold_loss(id, (hp - old).min(0));
+                            let change = (hp - old).min(0);
                             if let Some(line) = crate::feedback::health(self.who(id), crate::feedback::Who::Unknown, change, 0, None) {
                                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                             }
@@ -4457,7 +4454,7 @@ impl World {
                 self.read_stats(p.value.get("Stats"));
                 for (stat, old) in before {
                     let (Some(old), Some(&new)) = (old, self.stats.get(&stat)) else { continue };
-                    let change = if stat == 27 && new < old { self.untold_loss(self.own, new - old) } else { new - old };
+                    let change = new - old;
                     if let Some(line) = crate::feedback::own_stat(stat, change) {
                         self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                     }
@@ -14290,7 +14287,6 @@ mod door_tests {
         assert_eq!(lines(&mut w), ["You were healed for 116 points."]);
         assert_eq!(w.stats.get(&27), Some(&52839));
         // (another's health dropping in a Stat: 0x7aedad06 renamed to the rat, 2381 then 2300; the hit above was long ago)
-        w.recent_hits.clear();
         w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b0000094d") }.frame(1));
         w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 0x7b017c26), data: hex("00000000010000001b000008fc") }.frame(1));
         assert_eq!(lines(&mut w), ["Rollerrat was attacked with nanobots for 81 points of unknown damage."]);

@@ -7105,3 +7105,7 @@ The server sends back each movement message of one's own character. The original
 ### The attack key's refusals (CMB-003)
 
 The attack key and Ctrl+click follow N3Msg_DefaultAttack (Gamecode 0x10028147): a fight is stopped first; swimming then says "can't attack in this state"; otherwise the selection is checked as FUN_10069a9f does and a refusal says its own line followed by "unable to attack target". Of FUN_10069a9f's checks the client follows: oneself, the dead, own state flag 0x400 or flying ("you're unable to attack"), and own flag 0x80000000 with stat 215, which allows any character. Not yet followed: the target's own state flags, surrender, suppression districts, the side and team checks and attackable items.
+
+### A hit and the health message after it (CMB-004)
+
+The server sends a weapon or special hit and then the victim's new health. The original lowers the victim's health by the hit when it tells it (FUN_1009b6b7, FUN_1006af0e), so the health message finds nothing more to tell; a drop beyond the hits is told as "attacked with nanobots for N points of unknown damage" (FUN_100a2006, event 0x1b). The client does the same now; it used to forget hits after 2 seconds instead.
