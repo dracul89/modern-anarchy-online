@@ -513,8 +513,6 @@ pub struct TextView {
     /// How far the text is scrolled up, and how tall it was when last drawn.
     pub scroll: f32,
     content: std::cell::Cell<f32>,
-    /// The link under the pointer when the button went down.
-    pressed_link: Option<String>,
     /// Where each drawn link is (relative to the view's top left), for the mouse.
     links: std::cell::RefCell<Vec<(egui::Rect, String)>>,
     /// Editing (`TVF_ACCEPT_TXT_INPUT`): the cursor and selection, whether the view has the keyboard, when the cursor's
@@ -543,7 +541,6 @@ impl TextView {
             max: Point::new(-1.0, -1.0),
             scroll: 0.0,
             content: std::cell::Cell::new(0.0),
-            pressed_link: None,
             links: Default::default(),
             caret: Default::default(),
             focused: false,
@@ -930,18 +927,11 @@ impl Control for TextView {
             }
             return None;
         }
-        let link_at = |links: &Vec<(egui::Rect, String)>| links.iter().find(|(r, _)| r.contains(egui::pos2(at.x, at.y))).map(|(_, l)| l.clone());
+        // (`TextRenderer_c::MouseDown` 0x10163bcd: the left button on a link's text emits the link at once, as the
+        // button goes down; elsewhere it would begin a selection, which is not done in a view that does not edit)
         match m {
-            Mouse::Down => {
-                self.pressed_link = link_at(&self.links.borrow());
-                None
-            }
-            Mouse::Up { .. } => {
-                let up = link_at(&self.links.borrow());
-                let pressed = self.pressed_link.take();
-                if up.is_some() && up == pressed { up.map(Signal::Link) } else { None }
-            }
-            Mouse::Move => None,
+            Mouse::Down => self.link_at(egui::pos2(at.x, at.y)).map(Signal::Link),
+            _ => None,
         }
     }
     fn wheel(&mut self, dy: f32, height: f32) -> bool {
@@ -958,6 +948,17 @@ impl Control for TextView {
 #[cfg(test)]
 mod slider_tests {
     use super::*;
+
+    /// `TextRenderer_c::MouseDown` (0x10163bcd): a link fires as the button goes down on it; letting go does nothing.
+    #[test]
+    fn a_link_fires_on_the_press() {
+        let mut t = TextView::new("x");
+        t.feature = super::super::text::flags::ACCEPT_MOUSE_INPUT;
+        t.links.borrow_mut().push((egui::Rect::from_min_size(egui::pos2(10.0, 0.0), egui::vec2(20.0, 10.0)), "chatcmd:///x".into()));
+        assert_eq!(t.mouse(Mouse::Down, Point::new(15.0, 5.0)), Some(Signal::Link("chatcmd:///x".into())));
+        assert_eq!(t.mouse(Mouse::Up { inside: true }, Point::new(15.0, 5.0)), None);
+        assert_eq!(t.mouse(Mouse::Down, Point::new(5.0, 5.0)), None);
+    }
 
     #[test]
     fn only_the_knob_is_dragged() {

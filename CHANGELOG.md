@@ -169,6 +169,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Shift+Enter also opens the chat input and the numeric pad's / also starts a chat command, as in the original (new settings files; an existing mao.ini keeps its keys).
 - Bold and italic interface texts (the BOLD, HUGE, CC17 and ITALIC fonts of the skins) are drawn bold and italic, as in the original.
 - A character's info page names the profession title and the defender rank instead of showing their numbers.
+- Links in info pages, NPC dialogue and tips open as the mouse button goes down, as in the original.
 
 ### Chat
 

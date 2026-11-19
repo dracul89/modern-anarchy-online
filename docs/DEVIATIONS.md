@@ -5662,6 +5662,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: info and chat text in XML views cannot be selected by drag
 - Where: `crates/mao-client/src/gui/controls.rs:916`; `docs/GUI_DLL_PARITY.md:45`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): TextView_c has no mouse handler of its own (its vtable's MouseDown slot +0x3c is View::MouseDown 0x1014ca5d); the work is TextRenderer_c::MouseDown (0x10163bcd): the left button, only with TVF_ACCEPT_MOUSE_INPUT (+0x194 bit 4), finds the text attribute under the press (GetBufferLocation, FindTextAttrib) and when it is a link emits the link signal at once (on the press); otherwise it sets the cursor there and begins a selection (BeginSelection), taking the keyboard when the view accepts typing; the right button opens PopulateRightClickMenu's menu unless TVF_DISABLE_RC_MENU. Ported: links fire on the press (gui/controls.rs TextView::mouse; the client waited for the release over the same link). The client already gives the mouse only to views with TVF_ACCEPT_MOUSE_INPUT (takes_mouse). Left: the selection in views that do not edit (the client keeps markup source, so a selection needs the rendered-text-to-buffer mapping of TextRenderer_c's buffer), the right-click menu (WIN-147), bold/italic faces inside markup and shadows. Test: gui::controls::slider_tests::a_link_fires_on_the_press.
 
 #### `WIN-122` Buttons lack icons, drag and auto-repeat
 

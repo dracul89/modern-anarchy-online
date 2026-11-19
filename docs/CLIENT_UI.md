@@ -7177,3 +7177,7 @@ The game's control-center menu scripts (ActionMenu/*.xml, ControlMenu_c FUN_1007
 ### Character page: title and defender rank names (WIN-116)
 
 The original's character info page (GUI.dll FUN_1003482c) writes the profession title as its name from text.mdb 1060 (profession * 100 + title level, Gamecode `GetTitleStr` 0x10016185) followed by "(TitleLevel n)", always, and the defender rank as its name from text.mdb 1169 (alien level * 100, `N3Msg_GetAlienLevelString` 0x10016d9b). The client's page now does the same instead of showing bare numbers.
+
+### Links in text views fire on the press (WIN-121)
+
+The original's text renderer (`TextRenderer_c::MouseDown` 0x10163bcd) acts on a link as soon as the left button goes down on it, in a view that takes the mouse (TVF_ACCEPT_MOUSE_INPUT); elsewhere in the text the press begins a selection. The client now opens links on the press too; selecting text in views that do not edit is not done yet.

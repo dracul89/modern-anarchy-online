@@ -1032,6 +1032,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Open a mission booth's window: the slider ends and the Request / Accept / Cancel buttons read as in the original.
 - [ ] In the control center open Team > Team (team window), the Vehicle icon (with the expansion), and Command > Help > Chat Config: each opens its window and shows pressed while open.
 - [ ] Right-click a player > Info: the Title line reads e.g. "<title name> (TitleLevel 3)", the Defender rank line a rank name.
+- [ ] Click a link in an item info page and an NPC dialogue answer: it acts on the press, once.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
