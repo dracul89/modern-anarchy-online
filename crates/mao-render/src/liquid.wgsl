@@ -98,12 +98,12 @@ fn glint(world: vec3<f32>, normal: vec3<f32>, strength: f32, shininess: f32) -> 
     return liquid.specular.rgb * strength * pow(max(dot(n, h), 0.0), shininess);
 }
 
-// The distance fog, as the meshes have it.
+// The area's fog, as the meshes have it.
 fn fogged(colour: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
     let far = globals.horizon.w;
     let near = globals.eye.w;
     let fog = clamp((distance(world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
-    let amount = mix(fog * fog * (3.0 - 2.0 * fog), fog, globals.fog.w);
+    let amount = fog * globals.fog.w;
     return mix(colour, fog_colour(), amount);
 }
 

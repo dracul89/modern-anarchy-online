@@ -176,9 +176,9 @@ struct Globals {
     light: [f32; 4],
     /// The player (world, Z up) and the time in seconds (plants bend away from it).
     player: [f32; 4],
-    /// The eye and where the fog starts.
+    /// The eye and where the area's fog starts.
     eye: [f32; 4],
-    /// The horizon's colour (the fog's) and where the fog ends.
+    /// The horizon's colour and where the area's fog ends.
     horizon: [f32; 4],
     zenith: [f32; 4],
     /// x: 1 when shadows are drawn; y: a shadow-map texel in world units;
@@ -192,7 +192,7 @@ struct Globals {
     /// rgb: the area's ambient light (the original's `AddAmbientLight`, kept per channel at its maximum against the
     /// sky's); w: the day's intensity, 0 at night to 1 by day.
     ambient: [f32; 4],
-    /// rgb: the fog's colour; w: 1 when the fog is an area's (from the camera out), 0 for the distance haze.
+    /// rgb: the fog's colour; w: 1 when the area has a fog (from the camera out), 0 for none.
     fog: [f32; 4],
     /// The effect scripts' ground light colour (w: 1 when given) and ambient colour.
     script_sun: [f32; 4],
@@ -503,9 +503,10 @@ pub struct Scene {
     pub radius: f32,
     /// Where the player stands (world, Z up): plants near it bend away.
     pub player: Option<Vec3>,
-    /// Where the fog starts and ends (a view that wants none keeps the default).
+    /// The view distance: the far plane an area's fog is drawn in from (`.1`); the effect scripts' fogged sky draws fade
+    /// over the two (a view that wants none keeps the default).
     pub fog: (f32, f32),
-    /// The sky's colours: at the horizon (the fog's colour too) and overhead.
+    /// The sky's colours: at the horizon and overhead.
     pub sky: ([f32; 3], [f32; 3]),
     pub water: Option<Water>,
     /// The liquid surfaces on the card, by layer (see [`LiquidMesh`]), when the playfield has them.
@@ -2263,8 +2264,6 @@ impl Renderer {
         let water = scene.water.as_ref().filter(|w| w.surfaces.is_empty());
         let planes = frustum(&camera.view_proj(aspect, scene.radius));
         let (mut parts, mut drawn, mut shadow_drawn) = (0usize, 0usize, 0usize);
-        // An area's fog replaces the distance haze: from the near plane (0.2, `VisualFog_t`'s default clip plane) to the far
-        // plane brought in by the density (`process`: `far -= (far - near - 5) × density`), in the area's colour.
         // The LOD manager's decision for every watched mesh this frame (see `Lod`): which of the playfield's parts draw.
         let mut lod_draw: Vec<bool> = scene.parts.iter().map(|p| !p.low_only).collect();
         // (MAO_NO_LOD=1 draws every full mesh whatever its distance, to compare)
@@ -2302,13 +2301,16 @@ impl Renderer {
                 }
             }
         }
+        // The only fog is an area's: from the near plane (0.2, `VisualFog_t`'s default clip plane) to the far plane brought
+        // in by the density (`process`: `far -= (far - near - 5) × density`), in the area's colour. Without one the original
+        // draws clear to its far clip (until 2026-11-19 the client hazed the distance into the sky's horizon colour).
         let (fog_start, fog_end, fog_colour, area) = match scene.area_fog {
             Some((colour, density)) if density > 0.0 => {
                 let (near, far) = (0.2f32, scene.fog.1);
                 let end = if far - near > 5.0 { far - (far - near - 5.0) * density.min(1.0) } else { far };
                 (near, end, colour, 1.0)
             }
-            _ => (scene.fog.0, scene.fog.1, scene.sky.0, 0.0),
+            _ => (0.0, 1.0, [0.0; 3], 0.0),
         };
         let player_now = [player.x, player.y, player.z, self.started.elapsed().as_secs_f32()];
         let (previous_vp, previous_player) = self.previous.unwrap_or((unjittered, player_now));

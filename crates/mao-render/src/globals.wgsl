@@ -6,9 +6,9 @@ struct Globals {
     light: vec4<f32>,
     // xyz: the player (world, Z up); w: seconds since the renderer started.
     player: vec4<f32>,
-    // xyz: the eye; w: where the fog starts.
+    // xyz: the eye; w: where the area's fog starts.
     eye: vec4<f32>,
-    // rgb: the sky at the horizon, which is also the fog colour; w: where the fog ends.
+    // rgb: the sky at the horizon; w: where the area's fog ends.
     horizon: vec4<f32>,
     // rgb: the sky overhead.
     zenith: vec4<f32>,
@@ -22,7 +22,8 @@ struct Globals {
     up: vec4<f32>,
     // rgb: the area's ambient light (kept per channel at its maximum against the sky light); w: the day's intensity.
     ambient: vec4<f32>,
-    // rgb: the fog's colour; w: 1 when it is an area's fog (not scaled by the day: it was scaled by the fog light already).
+    // rgb: the fog's colour; w: 1 when the area has a fog (not scaled by the day: it was scaled by the fog light already), 0
+    // for none.
     fog: vec4<f32>,
     // The effect scripts' lighting (the environment light's): rgb the ground light's colour, w 1 when it is given; and the
     // ambient light's colour.
@@ -48,13 +49,10 @@ fn day() -> f32 {
     return mix(0.2, 1.0, globals.ambient.w);
 }
 
-// The fog's colour at the horizon: the sky's by day, an area's as it is.
+// The fog's colour: an area's (`VisualFog_t`, the only fog the original draws; with none its world is clear to the far
+// plane, and `fog.w` is 0).
 fn fog_colour() -> vec3<f32> {
-    var haze = globals.horizon.rgb * day();
-    if scripted() {
-        haze = globals.horizon.rgb;
-    }
-    return mix(haze, globals.fog.rgb, globals.fog.w);
+    return globals.fog.rgb;
 }
 
 @group(0) @binding(0) var<uniform> globals: Globals;

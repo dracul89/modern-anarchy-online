@@ -7428,3 +7428,7 @@ The "Backpack 12/30" count described earlier is not in the client: the inventory
 ### Nano landing glow removed (NAN-056)
 
 The client's own landing glow (three coloured rings widening round the target's chest for about a second, coloured by the program's effect colour stats or, without them, one of six colours by school) is gone. As in the original, a landing nano shows only its own effect from gfxtweak.bin (the program's HitEffectType, drawn with the cast). Area nanos (`AreaFormula`) draw nothing of their own yet: the original runs the nano's landing on each listed character (Gamecode FUN_1007212d -> FUN_1005141d), not ported.
+
+### No distance haze without an area fog (RND-185)
+
+The original's only fog is the area's (`VisualFog_t`: linear from the near plane to the far plane drawn in by the density, in the area's colour). The client used to fade far scenery into the sky's horizon colour wherever no area fog applied; that haze is gone, and such areas are drawn clear to the view distance, as the original draws them. Areas with a fog are unchanged. The effect scripts' own fogged sky draws (a blob that turns fog on) still fade over the view distance.

@@ -1209,7 +1209,7 @@ impl ApplicationHandler for App {
         liquid_textures(&mut renderer, &gpu, &self.textures);
         let mut scene = renderer.upload(&gpu, &self.model, &mut |k, i| self.textures.get_for_upload(k, i));
         if self.live.is_some() {
-            // Close-up view: distance fades into the sky.
+            // Close-up view: the view distance (an area's fog's far plane).
             scene.fog = fog_for(self.settings.view_distance);
         }
         let mut camera = Camera::fit(&scene);

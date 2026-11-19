@@ -228,11 +228,12 @@ fn shade(in: VertexOut) -> vec4<f32> {
     // (a highlight effect's emissive colour is added the same way: the original sets the frame's emissive material colour)
     let emissive = in.colour.rgb * in.colour.a + tint.rgb;
     var colour = base.rgb * min(ambient + sun_colour * diffuse + vec3<f32>(baked) + emissive, vec3<f32>(1.0));
-    // Distance fades into the fog's colour (linear when the fog is an area's, as Direct3D's was).
+    // An area's fog fades the distance into its colour, linearly as Direct3D's did; with none the world is drawn clear to
+    // the far plane, as the original's (its only fog is the area's `VisualFog_t`).
     let far = globals.horizon.w;
     let near = globals.eye.w;
     let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
-    let amount = mix(fog * fog * (3.0 - 2.0 * fog), fog, globals.fog.w);
+    let amount = fog * globals.fog.w;
     colour = mix(colour, fog_colour(), amount);
     return vec4<f32>(colour, alpha);
 }
@@ -357,7 +358,7 @@ fn fs_water(in: WaterOut) -> @location(0) vec4<f32> {
     let far = globals.horizon.w;
     let near = globals.eye.w;
     let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
-    let amount = mix(fog * fog * (3.0 - 2.0 * fog), fog, globals.fog.w);
+    let amount = fog * globals.fog.w;
     colour = mix(colour, fog_colour(), amount);
     return vec4<f32>(colour, mix(0.62, 0.94, fresnel));
 }

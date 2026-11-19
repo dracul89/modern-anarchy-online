@@ -8457,7 +8457,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a haze toward the sky's horizon colour from a start to an end distance when no area fog applies
 - A player notices: far scenery fades to the sky colour
 - Where: `crates/mao-render/src/lib.rs:2237`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The haze toward the sky's horizon colour (eased, from a seventh of the view distance to the view distance) that the renderer drew when no area fog applied is removed: `mao_render`'s frame globals now carry no fog without an area's (`fog.w` 0), `fog_colour()` in globals.wgsl is the area fog's colour alone, and the meshes (mesh.wgsl), the guessed water sheet and the liquids (liquid.wgsl) fade only under an area's fog, linearly as `VisualFog_t::process` sets it (near plane 0.2, far drawn in by the density). With none the world is drawn clear to the far plane, as the original. Left as it was: the effect scripts' fogged sky draws (`viewer::sky_fog`, a blob that turns D3D fog on fades over the view distance in the script's atmosphere colour; the Shadowlands' vortex dome needs it) since that is the scripts' own render state, not the world's haze. Tests: `cargo test -p mao-render` (13 pass, the GPU tests compile the changed shaders), `mao-client ... fog` (3 pass).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original's only fog is the area's VisualFog_t; with none it draws clear to its far clip, so the haze is a look of the client's own.
 
 #### `RND-186` Name plates are the client's own
