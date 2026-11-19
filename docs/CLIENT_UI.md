@@ -7037,3 +7037,7 @@ The original logs a character in as soon as the server says it was made (Interfa
 ### The fixed keys' defaults are the original's table (SET-026)
 
 The original's fixed keys come from a key table built into GUI.dll (the text at 0x101aab28, read by `ParseFile` 0x1001b058): the camera on the numeric pad, Tab and its modifiers for targets, Enter / Slash / Shift+R / PgUp / PgDn for the chat, F9 for the coordinates, Shift+P and Shift+V for the perk and vehicle windows. The client's defaults are that table's; the chat input also starts on Shift+Enter and a command on the numeric pad's divide, as there (Alt+Enter, the table's third chat key, stays the client's window-mode switch).
+
+### Entering a character: the progress window until the ticket (LCH-038)
+
+The original's Play (GUI.dll `LoginModule_c::SlotSelectCharacter` 0x10011be1, `Show(4)` 0x1001175a) puts the login and the character list away and shows its progress window ("Please wait...", `DimensionNetworkTimeout`, 30 s) until the server has handed out the character's ticket; only then does the loading screen go up. Running out of time (`SlotSelectCharacterTimeout` 0x10011523) goes back to the login form. The launcher now does the same: the progress window stands over the hall while the game's process logs the character in; that process writes `MAO_TICKET_UP` when the ticket has come, and the loading screen goes up from that moment in the launcher's window and carries on in the game's. Cancelled or timed out, the game's process is ended and the login form is back.

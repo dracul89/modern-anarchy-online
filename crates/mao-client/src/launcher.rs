@@ -7,8 +7,9 @@
 //! site in a Browser window over the login window (`loginviews::LoginBrowser`, [`Failure`]).
 //!
 //! A character played: the game's process logs in and reads the playfield before it has a window, some seconds. This
-//! window stays for that time with the loading screen up and goes when the game's window has drawn ([`Entering`]); the
-//! game's goes on with the same screen (`loading::begin_since`).
+//! window stays for that time, with the progress window up until the character's ticket has come and the loading screen
+//! from then, and goes when the game's window has drawn ([`Entering`]); the game's goes on with the same screen
+//! (`loading::begin_since`).
 
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
@@ -120,6 +121,11 @@ struct Entering {
     child: std::process::Child,
     /// The file the game writes once its window shows what it draws (`MAO_WINDOW_UP`).
     marker: std::path::PathBuf,
+    /// The file the game writes once the character's ticket has come (`MAO_TICKET_UP`: the system clock then, in
+    /// milliseconds); until then the progress window is up, from then the loading screen.
+    ticket: std::path::PathBuf,
+    /// The loading screen is up (the ticket has come).
+    loading: bool,
     since: std::time::Instant,
 }
 
@@ -313,6 +319,8 @@ impl Launcher {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let marker = std::env::temp_dir().join(format!("mao-window-{}.up", std::process::id()));
         let _ = std::fs::remove_file(&marker);
+        let ticket = std::env::temp_dir().join(format!("mao-ticket-{}.up", std::process::id()));
+        let _ = std::fs::remove_file(&ticket);
         let mut command = std::process::Command::new(&exe);
         command
             .args(["net", &self.game, "enter", name, "--live"])
@@ -320,7 +328,7 @@ impl Launcher {
             .env("MAO_PASSWORD", &self.password)
             .env("MAO_SERVER", self.server.trim())
             .env("MAO_NEW_CHARACTER", if self.new_character { "1" } else { "" })
-            .env("MAO_LOADING_SINCE", crate::loading::clock_millis().to_string())
+            .env("MAO_TICKET_UP", &ticket)
             .env("MAO_WINDOW_UP", &marker);
         if let Some((x, y)) = window_at {
             command.env("MAO_WINDOW_AT", format!("{x},{y}"));
@@ -339,14 +347,40 @@ impl Launcher {
             command.env("MAO_TRACE", "1");
         }
         let child = command.spawn().map_err(|e| e.to_string())?;
-        Ok(Entering { child, marker, since: std::time::Instant::now() })
+        Ok(Entering { child, marker, ticket, loading: false, since: std::time::Instant::now() })
     }
 
     fn screen(&mut self, ctx: &egui::Context) {
         self.scale = ctx.pixels_per_point();
         self.browser_view.area = None;
-        // (the game is starting: the loading screen and nothing else, as `ServerLogin3DModule_t` has it once the
-        // character is logged in; here from the press of Play, the game's own window taking it over)
+        // (the game is starting: until the character's ticket has come, the progress window alone over the hall, as
+        // `LoginModule_c::SlotSelectCharacter` 0x10011be1 has it (`Show(4)` 0x1001175a: the login and the character
+        // list put away, a `ProgressWindow_c` of `DimensionNetworkTimeout` seconds); its time running out or Cancel is
+        // `SlotSelectCharacterTimeout` 0x10011523, `Show(0)`: the login form again, the game's process ended here)
+        if let Some(e) = self.entering.as_mut()
+            && !e.loading
+            && let Some(at) = std::fs::read_to_string(&e.ticket).ok().and_then(|t| t.trim().parse::<u64>().ok())
+        {
+            e.loading = true;
+            self.progress.stop();
+            crate::loading::begin_since(crate::loading::elapsed_since(at, crate::loading::clock_millis()), crate::loading::FADE_IN, crate::loading::FADE_OUT);
+        }
+        if self.entering.as_ref().is_some_and(|e| !e.loading) {
+            let palette = self.palette.clone();
+            if self.progress.show(ctx, &palette) {
+                if let Some(mut e) = self.entering.take() {
+                    let _ = e.child.kill();
+                    let _ = e.child.wait();
+                    let _ = std::fs::remove_file(&e.ticket);
+                    let _ = std::fs::remove_file(&e.marker);
+                }
+                self.chosen = None;
+                self.stage = Stage::Form;
+            }
+            return;
+        }
+        // (the character is logged in: the loading screen and nothing else, as `ServerLogin3DModule_t` has it, the game's
+        // own window taking it over)
         if self.entering.is_some() {
             crate::loading::draw(ctx, ctx.content_rect());
             return;
@@ -764,7 +798,8 @@ impl ApplicationHandler for Launcher {
                     let size = (gfx.config.width, gfx.config.height);
                     let ui_frame = gfx.ui.run_custom(&gfx.window, &mut |ctx| self.screen(ctx));
                     // (the game is starting: the loading screen's black over everything, nothing drawn under it)
-                    let entering = self.entering.is_some();
+                    // (the loading screen is up: the hall is not drawn under it)
+                    let entering = self.entering.as_ref().is_some_and(|e| e.loading);
                     // the character picked in the list is built once and turned slowly
                     // (the creation's world, once it is there: its scenes are drawn in it, `creation_camera`)
                     let creation = !entering && matches!(self.stage, Stage::Create(..)) && self.creation_ready(&mut gfx);
@@ -927,7 +962,7 @@ impl ApplicationHandler for Launcher {
                         let at = gfx.window.outer_position().ok().map(|p| (p.x, p.y));
                         match self.start_game(&name, at) {
                             Ok(entering) => {
-                                crate::loading::begin_since(std::time::Duration::ZERO, crate::loading::FADE_IN, crate::loading::FADE_OUT);
+                                self.progress.start(crate::loginviews::network_timeout("DimensionNetworkTimeout", 30.0));
                                 self.entering = Some(entering);
                             }
                             Err(e) => self.start_error = Some(e),
@@ -1113,6 +1148,7 @@ pub fn run(game: &str) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let status = entering.child.wait().map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&entering.marker);
+    let _ = std::fs::remove_file(&entering.ticket);
     if status.code() == Some(LOGGED_OUT) {
         // (this run is over before the next starts, or the next would take it for one that never ended: `crash.rs`)
         crate::crash::end("launcher", None);

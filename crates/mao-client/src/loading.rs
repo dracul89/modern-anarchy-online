@@ -59,6 +59,20 @@ pub fn elapsed_since(since: u64, now: u64) -> Duration {
     Duration::from_millis(now.saturating_sub(since))
 }
 
+/// When the loading screen went up in the character list's window (the system's clock in milliseconds, as
+/// [`clock_millis`] gives them): the moment the character's ticket came, set by the game's process ([`set_since`]).
+static SINCE: Mutex<Option<u64>> = Mutex::new(None);
+
+/// The loading screen went up in the character list's window at `since` (see [`SINCE`]).
+pub fn set_since(since: u64) {
+    *SINCE.lock().unwrap_or_else(|e| e.into_inner()) = Some(since);
+}
+
+/// When the loading screen went up in the character list's window, if it did.
+pub fn since() -> Option<u64> {
+    *SINCE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// The system's clock in milliseconds (handed from the character list's process to the game's).
 pub fn clock_millis() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)

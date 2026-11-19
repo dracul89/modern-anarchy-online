@@ -11697,6 +11697,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
             eprintln!("logging in {} ({})", character.name, character.id);
             let ticket = session::login_character(&mut chat, character.id).map_err(|e| e.to_string())?;
             eprintln!("game server {}", ticket.host());
+            // (started from the character list: its progress window gives way to the loading screen now, as the
+            // original's `Show(4)` does once the ticket has come; `MAO_TICKET_UP=<file>` is told the clock then, and the
+            // game's own loading screen goes on from the same moment)
+            if let Some(file) = std::env::var_os("MAO_TICKET_UP") {
+                let now = crate::loading::clock_millis();
+                crate::loading::set_since(now);
+                let _ = std::fs::write(file, now.to_string());
+            }
             let mut world = session::enter_world(&ticket).map_err(|e| e.to_string())?;
             // The login connection must go: while it is open the server refuses the login a zoning needs.
             chat.close();

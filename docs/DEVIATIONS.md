@@ -8564,7 +8564,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the progress window runs only while logging in; at Play the loading screen goes up at once (a client choice)
 - A player notices: no progress window when entering a character; loading screen appears earlier
 - Where: `crates/mao-client/src/launcher.rs:227`; `crates/mao-client/src/launcher.rs:341`; `docs/GUI_DLL_PARITY.md:116`; `docs/ORIGINAL_AUDIT.md:38`; `docs/CLIENT_UI.md:1042`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Ported from GUI.dll `LoginModule_c::SlotSelectCharacter` 0x10011be1 → `Show(4)` 0x1001175a: the login and the character list are put away and a `ProgressWindow_c` of `DimensionNetworkTimeout` seconds (MainPrefs.xml, 30) is shown until the character's ticket has come; its time running out (or Cancel) is `SlotSelectCharacterTimeout` 0x10011523 → `Show(0)`, the login form again. In the client: Play starts the game's process as before, but the launcher shows the progress window over the hall; the game's process writes the file named by `MAO_TICKET_UP` with the clock as soon as `login_character` has its ticket (net.rs `enter`), and the launcher then puts the loading screen up from that moment (`loading::begin_since`), the game's own window going on from the same moment (`loading::set_since` / `since`, replacing `MAO_LOADING_SINCE`). On the time-out or Cancel the game's process (started by the launcher) is ended and the login form shown. No unit test (window flow); built. Not tried live.
 
 #### `LCH-039` Expansions' extra heads missing (head counts without the expansion flag)
 

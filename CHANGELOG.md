@@ -140,6 +140,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - Play on an inactive character asks to activate it first, or says no slot is free.
 - A character just created goes straight into the game, without the character list being fetched again first.
+- Play shows the progress window until the character is logged in, then the loading screen, as in the original; if it takes longer than the game's dimension time-out you are back at the login.
 
 ### Graphics
 
