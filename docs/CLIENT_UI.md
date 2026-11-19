@@ -6380,3 +6380,28 @@ shows the server ending a shop either.
 So the shop's window stays until Decline, Escape, the server's Complete or Decline, or another trade's start,
 as in the original; what is tried from afar the server answers with "too far away" (the client's own earlier
 log). Not found in the original: what zoning does to an open trade, and whether the window has a close box.
+
+## The inventory mouse as the original has it (2026-11-18)
+
+The user: "Inventory four" (INV-002, INV-003, INV-004, INV-016). The first three rest on the reading of
+2026-11-13 (`docs/INVENTORY_ORIGINAL.md`, each statement marked verified there), looked at again in the
+decompile where a port leans on it; the fourth had a reader on a smaller model, whose claims were checked
+here. None of it was seen in the live game.
+
+### An item is taken up by a click, not by a drag (INV-002)
+
+The original's item lists take an item up when the left button comes **up on the cell it went down on**
+(`ItemListViewBase_c` FUN_1004141b; `MultiListView_c::MouseUp`, GUI.dll 0x10133d04, signals for nothing else).
+A press that moves to another cell and is let go there does nothing. The client lifted the item as soon as a
+press moved three pixels and put it down where the button came up, a drag in one stroke.
+
+That is gone from the inventory, the wear pages, bags, the bank, corpses and chests: `multilist::click_only`
+makes a list tell of clicks only, and a press that wanders inside its cell still clicks, as the original's
+does (the grid dropped such a click before). An item is carried the original's way alone now: click to take it
+up, click again to put it down. The nano programs' list and the Action window keep their drag (the original's
+lists of that kind pick up from a held press).
+
+`loot::container_click` lost its drag case: the item pulled out of a corpse by a drag and taken when let go over
+the inventory.
+
+Tests: `gui::multilist`'s `grid_cells` (the click-only list), `invwindows`' and `loot`'s click tables.

@@ -14,7 +14,8 @@
 //! The mouse is the original's "new mouse" (`UseNewMouseFunc`; `ItemListViewBase_c`'s mouse down FUN_10041aa4 and up
 //! FUN_1004141b): a left click takes the item up, and it stays on the pointer until the next click puts it down (on a
 //! wear cell it is worn there, on the inventory it goes back into the backpack, on a hotbar slot it is added to it, on
-//! an open bag it goes in); a press that moves does the same in one stroke. A right click uses the item (button 2 is
+//! an open bag it goes in). A press that moves takes nothing up: the list signals a click only when the button comes
+//! up on the cell it went down on (`MultiListView_c::MouseUp`, 0x10133d04). A right click uses the item (button 2 is
 //! the use signal, FUN_1004266a), a bag's use opens its window and the next closes it, worn or carried. A right click
 //! with an item in hand uses that item on the one clicked (a tradeskill combine: the one in hand is the source).
 //! Shift+click shows the item's info; Ctrl+double click puts it into an open trade (FUN_100cae1b); Shift+right click
@@ -194,13 +195,13 @@ pub fn split_dialog(ctx: &egui::Context, palette: &Palette, name: &'static str, 
     }
 }
 
-/// A click's meaning by its count (0: a press that moved, a drag), the keys held, whether an item is in hand
+/// A click's meaning by its count, the keys held, whether an item is in hand
 /// already and whether the item is a stack of the backpack (more than one). The original's lists look at the
 /// qualifiers first (FUN_10041aa4: Shift or Ctrl held, nothing is taken up; FUN_10041926: Ctrl on a stack of more
 /// than one starts a split).
 pub fn click(clicks: u32, shift: bool, ctrl: bool, holding: bool, stack: bool) -> Click {
     match (shift, ctrl) {
-        (true, _) if clicks > 0 => Click::Info,
+        (true, _) => Click::Info,
         (false, true) if clicks == 1 && stack && !holding => Click::Split,
         (false, false) if !holding => Click::TakeUp,
         _ => Click::Nothing,
@@ -879,17 +880,15 @@ impl ItemWindows {
         events
     }
 
-    /// A grid's clicks and drags: a click takes the item up, as a drag does (with one in hand already, `held`, the click
-    /// is the one that puts that down); Shift+click shows its info; Ctrl+double click puts it into the trade;
-    /// Ctrl+click on a stack of the backpack asks how many to split off it (`split_box`).
+    /// A grid's clicks: a click takes the item up (with one in hand already, `held`, the click is the one that puts
+    /// that down); Shift+click shows its info; Ctrl+click on a stack of the backpack asks how many to split off it
+    /// (`split_box`). A press that moves to another cell is nothing (the list tells of none).
     fn events_of(tree: &mut Tree, list: Id, events: &mut Events, items: &[GearItem], held: Option<u32>, split_box: &mut Option<(u32, String)>) {
         let Some(ctx) = tree.measure.ctx.clone() else { return };
         let (ctrl, shift) = ctx.input(|i| (i.modifiers.ctrl, i.modifiers.shift));
+        multilist::click_only(tree, list);
         for (_, event) in multilist::take_events(tree) {
-            let (slot, clicks) = match event {
-                multilist::ItemEvent::Clicked(slot, clicks) => (slot, clicks),
-                multilist::ItemEvent::Dragged(slot) => (slot, 0),
-            };
+            let multilist::ItemEvent::Clicked(slot, clicks) = event else { continue };
             let Some(item) = items.iter().find(|i| i.slot as i64 == slot) else { continue };
             if clicks > 0 {
                 multilist::select(tree, list, Some(slot));
@@ -928,18 +927,16 @@ mod tests {
 
     #[test]
     fn a_click_takes_up_shows_or_trades() {
-        // (a plain click or a drag takes the item up; not with one in hand already)
+        // (a plain click takes the item up; not with one in hand already)
         assert_eq!(click(1, false, false, false, false), Click::TakeUp);
-        assert_eq!(click(0, false, false, false, false), Click::TakeUp);
         assert_eq!(click(1, false, false, true, false), Click::Nothing);
         assert_eq!(click(2, false, false, true, false), Click::Nothing);
         // (a stack is taken up whole by a plain click)
         assert_eq!(click(1, false, false, false, true), Click::TakeUp);
-        // (Shift: the item's info, whatever is in hand; a drag with Shift held is nothing)
+        // (Shift: the item's info, whatever is in hand)
         assert_eq!(click(1, true, false, false, false), Click::Info);
         assert_eq!(click(1, true, false, true, false), Click::Info);
         assert_eq!(click(1, true, true, false, true), Click::Info);
-        assert_eq!(click(0, true, false, false, false), Click::Nothing);
         // (Ctrl: nothing is taken up with it held, and a second click does no more: the trade takes an item by
         // Ctrl + right click, FUN_100cae1b)
         assert_eq!(click(1, false, true, false, false), Click::Nothing);
@@ -947,7 +944,6 @@ mod tests {
         // (Ctrl+click on a stack asks for a split; not with something in hand, not by a drag)
         assert_eq!(click(1, false, true, false, true), Click::Split);
         assert_eq!(click(1, false, true, true, true), Click::Nothing);
-        assert_eq!(click(0, false, true, false, true), Click::Nothing);
         assert_eq!(click(2, false, true, false, true), Click::Nothing);
     }
 }

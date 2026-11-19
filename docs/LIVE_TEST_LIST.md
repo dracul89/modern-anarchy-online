@@ -968,6 +968,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] A shop left open (2026-11-18): open a shop, walk 20 m off: the window stays; a click on a stock row there
   brings the server's "too far away" line and nothing else; Decline closes it. Send me the log if the server
   does anything else.
+- [ ] Items by clicks (2026-11-18): press on a backpack item, move to another cell, let go: nothing happens. A
+  click takes it up and a second click puts it down, in the inventory, the wear window, a bag and the bank; a
+  click on a corpse's item still loots it.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

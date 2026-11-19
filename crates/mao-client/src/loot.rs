@@ -689,21 +689,17 @@ impl LootWindow {
             });
         });
         self.keeper.after(&format!("{key}Config"), tree, list, in_list);
-        // (a click: with Shift the item's info; in one's own backpack or the bank it takes the item up, which a drag
-        // does too; in a corpse or chest it takes the item into the inventory)
+        // (a click: with Shift the item's info; in one's own backpack or the bank it takes the item up; in a corpse
+        // or chest it takes the item into the inventory. A press that moves is nothing.)
         let (shift, ctrl) = ctx.input(|i| (i.modifiers.shift, i.modifiers.ctrl));
         let hands_free = self.dragging.is_none() && crate::gear::held().is_none();
+        crate::gui::multilist::click_only(tree, list);
         for (_, event) in crate::gui::multilist::take_events(tree) {
-            let (slot, clicked) = match event {
-                crate::gui::multilist::ItemEvent::Clicked(slot, _) => (slot, true),
-                crate::gui::multilist::ItemEvent::Dragged(slot) => (slot, false),
-            };
-            if clicked {
-                crate::gui::multilist::select(tree, list, Some(slot));
-            }
+            let crate::gui::multilist::ItemEvent::Clicked(slot, _) = event else { continue };
+            crate::gui::multilist::select(tree, list, Some(slot));
             // (Ctrl on a stack of more than one of one's own backpack: a split, FUN_10041926)
             let split = ctrl && view.own && view.items.iter().any(|i| i.slot as i64 == slot && i.count > 1);
-            match container_click(clicked, shift, view.own || view.identity.0 == BANK, hands_free, split) {
+            match container_click(shift, view.own || view.identity.0 == BANK, hands_free, split) {
                 ContainerClick::Info => {
                     if crate::gear::traced() {
                         eprintln!("items: the container's place {slot}: its info");
@@ -1015,19 +1011,17 @@ pub enum ContainerClick {
     Nothing,
 }
 
-/// A click's (or, not `clicked`, a drag's) meaning: by Shift, by whether the container is one's own (a backpack, the
-/// bank), by whether nothing is in hand yet, and by `split`: Ctrl held on a stack of more than one of one's own
-/// backpack (the list's FUN_10041926: a split, and nothing is taken up).
-pub fn container_click(clicked: bool, shift: bool, own: bool, hands_free: bool, split: bool) -> ContainerClick {
+/// A click's meaning: by Shift, by whether the container is one's own (a backpack, the bank), by whether nothing is
+/// in hand yet, and by `split`: Ctrl held on a stack of more than one of one's own backpack (the list's
+/// FUN_10041926: a split, and nothing is taken up). There is no drag: the list tells of a click only
+/// (`MultiListView_c::MouseUp`, GUI.dll 0x10133d04).
+pub fn container_click(shift: bool, own: bool, hands_free: bool, split: bool) -> ContainerClick {
     match (shift, own) {
-        (true, _) if clicked => ContainerClick::Info,
-        (true, _) => ContainerClick::Nothing,
-        (false, _) if split && clicked && hands_free => ContainerClick::Split,
+        (true, _) => ContainerClick::Info,
+        (false, _) if split && hands_free => ContainerClick::Split,
         (false, _) if split => ContainerClick::Nothing,
         (false, true) if hands_free => ContainerClick::TakeUp,
-        (false, false) if clicked && hands_free => ContainerClick::Take,
-        // (dragged out of a corpse or chest: taken up, and taken when let go over the inventory)
-        (false, false) if hands_free => ContainerClick::TakeUp,
+        (false, false) if hands_free => ContainerClick::Take,
         _ => ContainerClick::Nothing,
     }
 }
@@ -1069,22 +1063,17 @@ mod tests {
     #[test]
     fn a_click_in_a_container_takes_or_takes_up() {
         // (one's own backpack: onto the pointer; a corpse: into the inventory; Shift: the info)
-        assert_eq!(container_click(true, false, true, true, false), ContainerClick::TakeUp);
-        assert_eq!(container_click(true, false, false, true, false), ContainerClick::Take);
-        assert_eq!(container_click(true, true, true, true, false), ContainerClick::Info);
-        assert_eq!(container_click(true, true, false, false, false), ContainerClick::Info);
-        // (a drag takes up out of either; nothing with something in hand already, which the click puts down)
-        assert_eq!(container_click(false, false, false, true, false), ContainerClick::TakeUp);
-        assert_eq!(container_click(false, false, true, true, false), ContainerClick::TakeUp);
-        assert_eq!(container_click(true, false, true, false, false), ContainerClick::Nothing);
-        assert_eq!(container_click(true, false, false, false, false), ContainerClick::Nothing);
-        assert_eq!(container_click(false, true, true, true, false), ContainerClick::Nothing);
-        // (Ctrl on a stack of one's own backpack: the split box, by a click with free hands only; Shift still shows
-        // the info)
-        assert_eq!(container_click(true, false, true, true, true), ContainerClick::Split);
-        assert_eq!(container_click(false, false, true, true, true), ContainerClick::Nothing);
-        assert_eq!(container_click(true, false, true, false, true), ContainerClick::Nothing);
-        assert_eq!(container_click(true, true, true, true, true), ContainerClick::Info);
+        assert_eq!(container_click(false, true, true, false), ContainerClick::TakeUp);
+        assert_eq!(container_click(false, false, true, false), ContainerClick::Take);
+        assert_eq!(container_click(true, true, true, false), ContainerClick::Info);
+        assert_eq!(container_click(true, false, false, false), ContainerClick::Info);
+        // (nothing with something in hand already, which the click puts down)
+        assert_eq!(container_click(false, true, false, false), ContainerClick::Nothing);
+        assert_eq!(container_click(false, false, false, false), ContainerClick::Nothing);
+        // (Ctrl on a stack of one's own backpack: the split box, with free hands only; Shift still shows the info)
+        assert_eq!(container_click(false, true, true, true), ContainerClick::Split);
+        assert_eq!(container_click(false, true, false, true), ContainerClick::Nothing);
+        assert_eq!(container_click(true, true, true, true), ContainerClick::Info);
     }
 
     /// An item's menu by its container: look at, reference and delete everywhere but the organization's contract

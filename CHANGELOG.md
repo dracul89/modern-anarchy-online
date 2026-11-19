@@ -56,6 +56,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   inventory item is offered for sale by Ctrl + right click (or by dropping it on the window, as before).
 - A shop's window no longer closes by itself when the character walks away from the shop (the original keeps it
   open; the server refuses what is tried from too far).
+- Items are picked up the original's way only: **click to take an item up, click again to put it down**.
+  Pressing on an item and dragging it no longer lifts it (the original ignores that gesture).
 
 ### Items
 

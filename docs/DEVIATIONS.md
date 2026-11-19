@@ -1702,7 +1702,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A press that moves takes the item up in one stroke.
 - A player notices: Dragging an item with the button held lifts it, where the original ignores such a gesture.
 - Where: `crates/mao-client/src/invwindows.rs:17`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): a press that moves takes nothing up any more, in the inventory, the wear pages and every container: the lists tell of a click only when the button comes up on the cell it went down on (`multilist::click_only`; GUI.dll 0x10133d04, FUN_1004141b). The nano programs' and the actions' lists keep their drag. `CLIENT_UI.md` "An item is taken up by a click, not by a drag".
 
 #### `INV-003` No use of an item by double click
 

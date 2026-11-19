@@ -232,6 +232,9 @@ pub struct Rows {
     last_click: Option<(i64, Instant)>,
     pressed: Option<(usize, Point)>,
     dragged: bool,
+    /// The list tells of clicks only ([`click_only`]): a press that moves is no drag, and let go on the cell it went
+    /// down on it is still a click.
+    click_only: bool,
     /// The grid's picture's size, once drawn.
     picture: Shared<Option<egui::Vec2>>,
     /// The items that are locked (`InventoryListViewItem_c` +0xf0): the lock's picture in the cell's bottom right
@@ -241,7 +244,7 @@ pub struct Rows {
 
 impl Rows {
     fn new(grid: Option<GridMode>) -> Rows {
-        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, stash: None, last_click: None, pressed: None, dragged: false, picture: Shared::new(None), locked: Vec::new() }
+        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, stash: None, last_click: None, pressed: None, dragged: false, click_only: false, picture: Shared::new(None), locked: Vec::new() }
     }
     fn step() -> f32 {
         ROW_HEIGHT + 1.0 + SPACE.y
@@ -468,6 +471,7 @@ impl Control for Rows {
             }
             // (a press moved more than 3 away drags the item: `MultiListView_c`'s drag signal)
             Mouse::Move => match self.pressed {
+                _ if self.click_only => None,
                 Some((k, from)) if !self.dragged && ((at.x - from.x).abs() > 3.0 || (at.y - from.y).abs() > 3.0) => {
                     self.dragged = true;
                     Some(Signal::ItemDragged(self.items.get(k)?.id))
@@ -982,6 +986,17 @@ pub fn set_locked(tree: &mut Tree, id: Id, locked: Vec<i64>) {
     }
 }
 
+/// Makes a list one that tells of clicks only, as the original's item lists are: `MultiListView_c::MouseUp` (GUI.dll
+/// 0x10133d04) signals when the button comes up on the cell it went down on, however far the pointer went in
+/// between, and never for another cell; nothing is taken up by a press that moves (`ItemListViewBase_c`'s
+/// FUN_1004141b takes an item up on that click).
+pub fn click_only(tree: &mut Tree, id: Id) {
+    let Some((_, _, rows)) = parts(tree, id) else { return };
+    if let Some(r) = tree.control_mut::<Rows>(rows) {
+        r.click_only = true;
+    }
+}
+
 pub fn select(tree: &mut Tree, id: Id, item: Option<i64>) {
     let Some((_, _, rows)) = parts(tree, id) else { return };
     if let Some(r) = tree.control_mut::<Rows>(rows) {
@@ -1118,6 +1133,16 @@ mod tests {
         r.mouse(Mouse::Down, Point::new(15.0, 10.0));
         assert_eq!(r.mouse(Mouse::Move, Point::new(25.0, 10.0)), Some(Signal::ItemDragged(1)));
         assert_eq!(r.mouse(Mouse::Up { inside: true }, Point::new(25.0, 10.0)), None);
+        // (a list of clicks only, an item list: a press that moves is no drag; let go on the cell it went down on
+        // it is a click, on another nothing)
+        r.click_only = true;
+        r.last_click = None;
+        r.mouse(Mouse::Down, Point::new(15.0, 10.0));
+        assert_eq!(r.mouse(Mouse::Move, Point::new(25.0, 10.0)), None);
+        assert_eq!(r.mouse(Mouse::Up { inside: true }, Point::new(25.0, 10.0)), Some(Signal::ItemClicked(1, 1)));
+        r.mouse(Mouse::Down, Point::new(15.0, 10.0));
+        assert_eq!(r.mouse(Mouse::Move, Point::new(11.0 + 58.0 + 3.0, 10.0)), None);
+        assert_eq!(r.mouse(Mouse::Up { inside: true }, Point::new(11.0 + 58.0 + 3.0, 10.0)), None);
     }
 
     fn item(id: i64, from: &str) -> Item {
