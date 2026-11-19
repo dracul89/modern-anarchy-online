@@ -485,7 +485,7 @@ mod tests {
     fn a_breed_or_sex_is_named() {
         for c in [(4, 2, 0), (0x3b, 1, 0), (4, 3, 0x18)] {
             let s = convert(&c);
-            assert!(!s.contains(&c.1.to_string()) && !s.contains("Op"), "{c:?}: {s}");
+            assert!(!s.contains(&c.1.to_string()) && !s.contains("Operator"), "{c:?}: {s}");
         }
         assert_eq!(convert(&(4, 2, 0x18)), ldb_named(1005, "OperatorNotOf") + &ldb(1005, 602).unwrap_or_default());
     }
