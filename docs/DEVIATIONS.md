@@ -7396,6 +7396,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: scaled pictures look smoothed
 - Where: `crates/mao-client/src/skin.rs:113`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The original's GUI sprites are drawn by DisplaySystem's `RenderSprite_t`, whose state blob (FUN_10079c06, drop-in rendersprite.rs `states`) sets texture stage 0's magnification and minification to point (2 with the filter on) and no mip filter unless `UseFilter(true)` is called; GUI.dll calls `RenderWindow_t::UseFilter(true)` only in `SetupScreen` (0x10017331) for the loading screen's picture. skin.rs now uploads the skin sprites with `TextureOptions::NEAREST`. No test (a texture option). Left: the "stretched by rectangle" half (how the original lays a stretched middle piece onto a window's sprite) was not read; the other egui textures (item icons, maps) were not part of this entry.
 - Looked at, left (2026-11-19, overnight): Original not stated: the GUI's sprites go through DisplaySystem with its own filtering, not read. Seen only. Left.
 
 #### `RND-077` Skinned normals use the first bone only; unknown bones fall back to rest pose

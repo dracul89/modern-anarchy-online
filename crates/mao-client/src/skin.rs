@@ -103,14 +103,16 @@ impl Skin {
         self.layers.iter().any(|l| l.index.contains_key(name))
     }
 
-    /// A sprite, uploaded on first use.
+    /// A sprite, uploaded on first use. Sampled at the nearest texel, as the original draws its GUI sprites: DisplaySystem's
+    /// `RenderSprite_t` makes its states with point magnification and minification and no mip filter (FUN_10079c06) unless
+    /// `UseFilter(true)` is called, which GUI.dll does only for the loading screen's picture (`SetupScreen`, 0x10017331).
     pub fn get(&self, name: &str) -> Option<Sprite> {
         let mut cache = self.cache.lock().unwrap();
         if let Some(found) = cache.get(name) {
             return found.clone();
         }
         let sprite = self.bytes(name).and_then(decode).map(|(rgba, size)| Sprite {
-            texture: self.ctx.load_texture(name, egui::ColorImage::from_rgba_unmultiplied(size, &rgba), egui::TextureOptions::LINEAR),
+            texture: self.ctx.load_texture(name, egui::ColorImage::from_rgba_unmultiplied(size, &rgba), egui::TextureOptions::NEAREST),
             size: egui::vec2(size[0] as f32, size[1] as f32),
         });
         cache.insert(name.to_string(), sprite.clone());

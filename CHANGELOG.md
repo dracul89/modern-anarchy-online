@@ -246,6 +246,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The character info page (/inspect, own info) shows the side experience bonus, your tokens, veteran and victory points, ICC commendations, Freelancers Inc. tokens, specializations, and the duel, solo and team ranks.
 - Text in info pages and other read-only text views can be selected by dragging the mouse (copying it waits for the right-click menu).
 - Zoning no longer shows the loading picture: the screen holds its last picture until the new area is drawn, and "Changing area" is said in the chat, as in the original.
+- Window art from the skin is drawn crisp (unfiltered), as in the original, instead of smoothed when scaled.
 
 ### Chat
 

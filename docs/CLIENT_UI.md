@@ -7702,3 +7702,7 @@ A spell of type 0xcfd4 (Gamecode FUN_100a9159) makes its effect and hands its st
 ### Lightning's effect pools (RND-054)
 
 The original's environment effects come from pools made once per kind (DisplaySystem `VisualEnvFX_t::ActivateFX`, counts set by FUN_1006228f): two cloud lights, ten bolts and twenty rocks of each of the seven kinds; an effect is refused while its pool is empty and goes back when done. A refused strike makes nothing; a refused rock still flies and splashes unseen (Gamecode FUN_100afc4c / FUN_100b103b). The client keeps the same limits.
+
+### Skin pictures drawn unfiltered (RND-076)
+
+The original draws its GUI sprites through DisplaySystem's `RenderSprite_t` with point sampling (FUN_10079c06), switching filtering on only for the loading screen's picture (GUI.dll `SetupScreen`, 0x10017331). The client now samples the skin's sprites at the nearest texel too.
