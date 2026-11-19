@@ -7566,3 +7566,7 @@ When the server sets a creature after a target (FollowTarget), the original's ve
 ### NCU in use (NAN-004)
 
 The original keeps the NCU in use (stat 180) as a running total: a starting nano adds its stat 54 (Gamecode FUN_100517f3, 0x100518a7) and an ending one takes it away again (FUN_10051041, 0x1005131b), both only for nanos whose flags have 0x10000 and none of 0x4000, 0x8000 and 0x100. The client sums the same nanos' stat 54 over the running list, which is that total; a cost of 999 counts as it is, as there.
+
+### Nano programs placed by hand (NAN-039)
+
+The original's nano grids are not arranged to start with (GUI.dll FUN_100423fc clears the list's +0x318): each program stands in the cell kept for it (NanoView_c's item_position_map, FUN_100d4d44 / FUN_100d5328), a new one in the first free cell of its school's grid in the order of the program list (FUN_100d48a9). The client does the same, keeping the cells in places.ini under the nano identity and the school. A program dragged onto another cell of its grid moves there; onto another program the two change places and the other is then in hand (FUN_100d4514, MultiListView_c::MoveItem). "Don't Auto Arrange" in the Auto Arrange sub-menu (FUN_10041637(1)) is live; each school's grid keeps its own arranging. The radius column shows "---" as the original does: N3Msg_GetFormularRadius reads a field Gamecode only ever sets to 0.

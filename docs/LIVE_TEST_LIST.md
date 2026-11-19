@@ -1106,6 +1106,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] On Arete, press the attack key at another newcomer player: "can't be attacked" and the unable-to-attack line, no attack sent.
 - [ ] In a team with a pet owner, the friendly Tab key picks their pet; the hostile one does not.
 - [ ] Pull a creature and stand still: it comes to about 4 m from you and fights from there; when the server's next path places it, the jump is small.
+- [ ] Nano programs window: drag a program to an empty cell and onto another program (the other follows the pointer; click a cell to put it down); relog and see the cells kept; pick "By Name" and back to "Don't Auto Arrange".
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

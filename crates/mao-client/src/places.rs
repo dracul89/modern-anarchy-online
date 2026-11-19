@@ -104,6 +104,35 @@ pub fn arrange(key: Key, items: &[u32], room: usize, awaited: Option<(u32, usize
     })
 }
 
+/// [`arrange`] for a list whose new items take the first free cells in the list's own order, not their places' (the
+/// nano programs window: `NanoView_c` FUN_100d48a9 adds each program at `GetFirstFreePos` in the order of
+/// `N3Msg_GetNanoSpellList`), with no end to its cells.
+pub fn arrange_listed(key: Key, items: &[u32]) -> Cells {
+    change(key, |cells| {
+        fill_listed(cells, items);
+        cells.clone()
+    })
+}
+
+/// The cells of the items no longer listed forgotten, and each new item given the first free cell in the list's order.
+pub fn fill_listed(cells: &mut Cells, items: &[u32]) {
+    let mut taken = BTreeSet::new();
+    cells.retain(|place, cell| items.contains(place) && taken.insert(*cell));
+    for &place in items {
+        if !cells.contains_key(&place) {
+            let free = (0..).find(|c| !taken.contains(c)).unwrap_or(0);
+            taken.insert(free);
+            cells.insert(place, free);
+        }
+    }
+}
+
+/// A container's cells all set anew (an arranged grid let be: `SetAutoArrange(false)` leaves each item where the
+/// arranging put it).
+pub fn replace(key: Key, new: Cells) {
+    change(key, |cells| *cells = new);
+}
+
 /// The cells remembered for a container (the character playing's), as they are.
 pub fn remembered(key: Key) -> Cells {
     with(|places| places.get(&(character(), key)).cloned().unwrap_or_default())

@@ -62,22 +62,28 @@ fn strain_name(strain: u32) -> String {
     if name == format!("2009:{strain}") { String::new() } else { name }
 }
 
-/// A window's "Auto Arrange" sub-menu (FUN_10041637, as the nano window asks for it): "Don't Auto Arrange" (not
-/// offered here: programs are not placed by hand), a separator, then "Unsorted" for the icon's column and "By
-/// <label>" for each other, the grid's sort column marked, a separator, then "Sort Ascending", marked when the order
-/// is ascending and dead while unsorted. The entries' keys (none for a separator) and what the menu shows.
-pub fn arrange_menu(labels: &[(i32, String)], sort: (i32, i32)) -> (Vec<String>, Vec<crate::gui::popup::Entry>) {
+/// A window's "Auto Arrange" sub-menu (FUN_10041637): with `own` (the nano programs window asks for it with 1, the NCU
+/// window with 0) "Don't Auto Arrange", marked while the grid is not arranged (`+0x318` clear), and a separator; then
+/// "By <label>" for each column, marked when the grid is arranged by it (the icon's column is "Unsorted" with `own` and
+/// not there without); a separator; then "Sort Ascending", marked when the order is ascending and dead while the grid
+/// is not arranged or unsorted. The entries' keys (none for a separator, read by `loot::arrange_choice`) and what the
+/// menu shows.
+pub fn arrange_menu(labels: &[(i32, String)], sort: Option<(i32, i32)>, own: bool) -> (Vec<String>, Vec<crate::gui::popup::Entry>) {
     use crate::gui::popup::Entry;
-    let mut keys = vec!["none".to_string(), String::new()];
-    let mut entries = vec![Entry::marked("Don't Auto Arrange", false, false), Entry::separator()];
-    for (id, label) in labels {
-        keys.push(format!("by:{id}"));
-        entries.push(Entry::marked(if *id == 0 { "Unsorted".to_string() } else { format!("By {label}") }, true, sort.0 == *id));
+    let (mut keys, mut entries) = (Vec::new(), Vec::new());
+    if own {
+        keys.extend(["none".to_string(), String::new()]);
+        entries.extend([Entry::marked("Don't Auto Arrange", true, sort.is_none()), Entry::separator()]);
     }
-    keys.push(String::new());
-    entries.push(Entry::separator());
-    keys.push("ascending".to_string());
-    entries.push(Entry::marked("Sort Ascending", sort.0 != 0, sort.1 == 0));
+    for (id, label) in labels {
+        if *id == 0 && !own {
+            continue;
+        }
+        keys.push(format!("by:{id}"));
+        entries.push(Entry::marked(if *id == 0 { "Unsorted".to_string() } else { format!("By {label}") }, true, sort.is_some_and(|s| s.0 == *id)));
+    }
+    keys.extend([String::new(), "ascending".to_string()]);
+    entries.extend([Entry::separator(), Entry::marked("Sort Ascending", sort.is_some_and(|s| s.0 != 0), sort.is_none_or(|s| s.1 == 0))]);
     (keys, entries)
 }
 
@@ -109,10 +115,11 @@ fn save_hidden(hidden: &BTreeSet<u32>) {
     }
 }
 
-/// The programs with their names, icons and effects from the database, by name.
+/// The programs with their names, icons and effects from the database, in the order of the list given (the original's
+/// `N3Msg_GetNanoSpellList`, which `NanoView_c` FUN_100d513f adds them in).
 pub fn describe(db: &ResourceDatabase, textures: &crate::Textures, ids: &[u32], level: i64) -> Vec<Program> {
     let mut icons: HashMap<u32, Option<Arc<Icon>>> = HashMap::new();
-    let mut list: Vec<Program> = ids
+    ids
         .iter()
         .map(|&id| {
             let data = db.get(Id { kind: NANO, instance: id }).ok().flatten();
@@ -138,9 +145,7 @@ pub fn describe(db: &ResourceDatabase, textures: &crate::Textures, ids: &[u32], 
                 effects: data.as_deref().map(|d| item::nano_modifiers_at(d, level)).unwrap_or_default().into_iter().map(|(s, a)| (s, a as i64)).collect(),
             }
         })
-        .collect();
-    list.sort_by_key(|p| p.name.to_lowercase());
-    list
+        .collect()
 }
 
 /// A program's school's grid (`NanoView_c` FUN_100d48a9: the template's stat 405 less one, 0 to 6, else 5).
@@ -157,19 +162,29 @@ const SCHOOLS: [(usize, &str); 6] = [(5, "#10000:344211"), (0, "#10000:175102436
 
 /// The nano programs window, GUI.dll's `NanoView_c` (FUN_100d5328): the `SchoolSelector_c` (a toggle button per school, in
 /// rows as wide as the window: FUN_100d6051) over a tab of item grids, one per school, in the smallest square icon size
-/// (`SetGridIconSize(0)`: 31 by 31 on `SLOT_32_CLOSED`), sorted by name; the school shown at first is Misc (5:
-/// `selected_school`'s default). A click casts the program at the target (FUN_100d44cd: `N3Msg_CastNanoSpell`; with
-/// `UseNewMouseFunc` on, a left click on a list that does not select is the use signal); a program dragged out goes onto
-/// a hotbar.
+/// (`SetGridIconSize(0)`: 31 by 31 on `SLOT_32_CLOSED`); the school shown at first is Misc (5: `selected_school`'s
+/// default). A click casts the program at the target (FUN_100d44cd: `N3Msg_CastNanoSpell`; with `UseNewMouseFunc` on, a
+/// left click on a list that does not select is the use signal); a program dragged out goes onto a hotbar.
+///
+/// The grids are not arranged to start with (`ItemListViewBase_c` FUN_100423fc clears `+0x318` and the window never sets
+/// it but from a kept `grid_sort_column`): each program stands in its own cell, the one kept for it (`item_position_map`,
+/// FUN_100d4d44 / FUN_100d5328), else the first free one of its school's grid in the order of the program list
+/// (FUN_100d48a9: `GetFirstFreePos`). A program dragged onto another cell of its grid goes there (FUN_100d4514:
+/// `MultiListView_c::MoveItem`); onto another program, the two change cells and the other is in hand next (FUN_100d41c3);
+/// onto itself, nothing. Here the cells are kept in `places.ini` (`places::arrange_listed`) under the nano identity
+/// type and the school, counted along the rows of the grid as wide as it is. Each school's grid has its own arranging
+/// (`listview_config<n>`'s `grid_sort_column`, kept here as `NanoViewArrange<n>`).
 ///
 /// The right button over a program opens its menu (FUN_100d49a0): "Look at" (its page) and "Hide", or "Unhide" in the
 /// hidden list. Elsewhere in the window it opens the window's (FUN_100d4f90): "List Mode" (every school's list under a
 /// column header with the columns of [`COLUMNS`], sorted by name until a label is pressed; kept, the original's
 /// `listview_mode`), "Show Hidden" (the list of hidden programs, FUN_100d4b49(6); a school's button leads back) and
 /// "Auto Arrange" (the grid's order, [`arrange_menu`]; dead in list mode). The school shown is kept
-/// (`selected_school`), and the hidden programs in `hiddennanos.ini` beside `mao.ini`. Not ported: programs placed by
-/// hand in the grid (`item_position_map`, "Don't Auto Arrange"), the radius column's value, and keeping the columns'
-/// widths and the list's sort (`listview_config<n>`).
+/// (`selected_school`), and the hidden programs in `hiddennanos.ini` beside `mao.ini`. The radius column is the
+/// original's `---`: `N3Msg_GetFormularRadius` (Gamecode 0x1001655a) reads the nano item's `+0xb8`, which only
+/// FUN_10086142 sets, to 0. Not ported: a program moved to another school's grid (FUN_100d4514's other branch: how a drag
+/// reaches another school's grid was not found), and the swap a drop makes in an arranged, unsorted grid
+/// (`MoveItem`'s auto-arranged branch).
 #[derive(Default)]
 pub struct ProgramsWindow {
     pub open: bool,
@@ -188,10 +203,15 @@ pub struct ProgramsWindow {
     /// The menu up (what each entry stands for and where it opened) and its picture.
     menu: Option<Vec<Vec<String>>>,
     popup: Option<crate::gui::popup::PopupMenu>,
-    /// List mode, the grid's sort (column and order) and the hidden programs; not set until the kept ones are read.
+    /// List mode, each school's grid's arranging (none: placed by hand; else the column and order it is sorted by)
+    /// and the hidden programs; not set until the kept ones are read.
     pub list: Option<bool>,
-    pub grid_sort: Option<(i32, i32)>,
+    pub arranged: HashMap<usize, Option<(i32, i32)>>,
     pub hidden: Option<BTreeSet<u32>>,
+    /// The program being dragged out of the grid (a drop on the grid moves it), and the one to take in hand next (the
+    /// one a drop changed cells with).
+    dragging: Option<u32>,
+    in_hand: Option<u32>,
     /// A preview's: where the window starts and its size.
     pub start: Option<(egui::Pos2, egui::Vec2)>,
 }
@@ -289,9 +309,22 @@ impl ProgramsWindow {
             self.views = Some(Self::build(ctx));
         }
         let school = *self.school.get_or_insert_with(|| crate::layout::tab("NanoViewSchool").filter(|s| *s <= HIDDEN).unwrap_or(5));
-        // (the kept choices as numbers: list mode; the grid's sort as twice its column and the order)
+        // (the kept choices as numbers: list mode; the school's grid's arranging, 0 for none, else one more than twice its
+        // column and the order)
         let in_list = *self.list.get_or_insert_with(|| crate::layout::tab("NanoViewConfig") == Some(1));
-        let grid_sort = *self.grid_sort.get_or_insert_with(|| crate::layout::tab("NanoViewGridSort").map_or((1, 0), |v| ((v / 2) as i32, (v % 2) as i32)));
+        let arranged = *self.arranged.entry(school).or_insert_with(|| crate::layout::tab(&format!("NanoViewArrange{school}")).and_then(|v| v.checked_sub(1)).map(|v| ((v / 2) as i32, (v % 2) as i32)));
+        let hand = arranged.is_none() && !in_list;
+        // (the program in hand gone, dropped elsewhere or let go; the one a drop changed cells with taken in hand now)
+        if !egui::DragAndDrop::has_payload_of_type::<hotbar::Action>(ctx) {
+            self.dragging = None;
+        }
+        if let Some(id) = self.in_hand.take()
+            && let Some(p) = programs.iter().find(|p| p.id == id)
+        {
+            egui::DragAndDrop::set_payload(ctx, hotbar::Action::Nano { id: p.id, name: p.name.clone(), icon: p.icon.as_ref().map(|i| i.id) });
+            self.dragging = Some(id);
+        }
+        let holding = self.dragging.is_some();
         let hidden = self.hidden.get_or_insert_with(load_hidden).clone();
         // (docked in the rollup column the window is 175 wide: the original's `SchoolSelector_c` lays its buttons in rows as
         // wide as the window (FUN_100d6051) and the grid takes as many columns as fit; here two buttons a row and four columns)
@@ -310,8 +343,17 @@ impl ProgramsWindow {
             }
         }
         crate::gui::multilist::set_list_mode(tree, list, in_list);
+        if !in_list {
+            crate::gui::multilist::set_grid(tree, list, |g| g.auto_arrange = !hand);
+        }
         // (the grid in its own order; the list in the one its header was last pressed for, kept with the widths)
-        self.keeper.before("NanoViewConfig", tree, list, (!in_list).then_some(grid_sort));
+        self.keeper.before("NanoViewConfig", tree, list, (!in_list).then(|| arranged.unwrap_or((0, 0))));
+        // (placed by hand: each program at its kept cell, counted along the rows the grid is as wide as; before the
+        // programs have come nothing is forgotten)
+        let key = (crate::gui::iteminfo::NANO_IDENTITY, school as u32);
+        let columns = crate::gui::multilist::grid_columns(tree, list).unwrap_or(6).max(1);
+        let listed: Vec<u32> = programs.iter().filter(|p| shown(p, school, &hidden)).map(|p| p.id).collect();
+        let placed = if programs.is_empty() { crate::places::remembered(key) } else { crate::places::arrange_listed(key, &listed) };
         let rows: Vec<crate::gui::multilist::Item> = programs
             .iter()
             .filter(|p| shown(p, school, &hidden))
@@ -337,12 +379,13 @@ impl ProgramsWindow {
                 // (no program runs while one is cast or recharges: faded for the time left)
                 left: crate::actions::lock_share(crate::actions::nano_lock_left(p.id)),
                 timer: crate::actions::timer_text(crate::actions::nano_lock_left(p.id)),
+                pos: placed.get(&p.id).map(|c| (c % columns, c / columns)),
                 ..Default::default()
             })
             .collect();
-        // (the same programs, in whatever order the view has sorted them: nothing to do)
+        // (the same programs at the same cells, in whatever order the view has sorted them: nothing to do)
         let ids = |items: &[crate::gui::multilist::Item]| {
-            let mut ids: Vec<i64> = items.iter().map(|i| i.id).collect();
+            let mut ids: Vec<(i64, Option<(usize, usize)>)> = items.iter().map(|i| (i.id, i.pos)).collect();
             ids.sort_unstable();
             ids
         };
@@ -354,6 +397,7 @@ impl ProgramsWindow {
         let mut open = self.open;
         let mut hovered = None;
         let mut over = None;
+        let mut dropped_on = None;
         let title = crate::gui::xml::ldb_text("#10000:346191");
         let (start_at, start_size) = self.start.unwrap_or((egui::pos2(220.0, 90.0), egui::vec2(300.0, 300.0)));
         crate::chrome::window(ctx, palette, "Nano programs", &title, &mut open, |w| w.default_pos(crate::layout::pos("Nano programs", start_at)).default_size(start_size).resizable(true), |ui| {
@@ -363,7 +407,32 @@ impl ProgramsWindow {
                 hovered = crate::gui::multilist::item_at(tree, list, response.rect.min, at).map(|id| id as u32);
                 over = area.contains(at).then_some(at);
             }
+            // (the cell a program in hand is let go on)
+            if holding
+                && ui.input(|i| i.pointer.any_released())
+                && let Some(at) = ui.input(|i| i.pointer.interact_pos()).filter(|at| area.contains(*at))
+            {
+                dropped_on = crate::gui::multilist::cell_at(tree, list, response.rect.min, at).map(|(x, y)| y * columns + x);
+            }
         });
+        // (FUN_100d4514: a program of this grid let go on one of its cells, in a grid placed by hand: into an empty cell;
+        // on another program the two change cells and the other is in hand next; on itself nothing)
+        if hand
+            && let (Some(from), Some(cell)) = (self.dragging, dropped_on)
+            && placed.contains_key(&from)
+        {
+            match crate::places::at(&placed, cell) {
+                Some(other) if other == from => {}
+                Some(other) => {
+                    crate::places::exchange(key, from, other);
+                    self.in_hand = Some(other);
+                }
+                None => crate::places::put(key, from, cell),
+            }
+        }
+        if ctx.input(|i| i.pointer.any_released()) {
+            self.dragging = None;
+        }
         let program = |id: i64| programs.iter().find(|p| p.id as i64 == id);
         let action = |p: &Program| hotbar::Action::Nano { id: p.id, name: p.name.clone(), icon: p.icon.as_ref().map(|i| i.id) };
         let events = crate::gui::multilist::take_events(tree);
@@ -371,15 +440,19 @@ impl ProgramsWindow {
         for (_, event) in events {
             match event {
                 crate::gui::multilist::ItemEvent::Clicked(id, clicks) => {
-                    // (a click casts: the list is not selectable, so FUN_1004141b's left click is the use signal -> FUN_100d44cd)
+                    // (a click casts: the list is not selectable, so FUN_1004141b's left click is the use signal -> FUN_100d44cd;
+                    // not the click that lets a program in hand go)
                     let _ = clicks;
-                    if let Some(p) = program(id) {
+                    if !holding
+                        && let Some(p) = program(id)
+                    {
                         cast = Some(action(p));
                     }
                 }
                 // (dragged out: onto a hotbar)
                 crate::gui::multilist::ItemEvent::Dragged(id) => {
                     if let Some(p) = program(id) {
+                        self.dragging = Some(p.id);
                         egui::DragAndDrop::set_payload(ctx, action(p));
                     }
                 }
@@ -408,8 +481,9 @@ impl ProgramsWindow {
                     vec![Entry::text(text("LookAtNano", "Look at"), true), Entry::text(if school == HIDDEN { text("UnHideNano", "Show again") } else { text("HideNano", "Hide") }, true)],
                 ),
                 None => {
-                    // (FUN_100d4f90: List Mode, Show Hidden, and Auto Arrange with its sub-menu, dead in list mode)
-                    let (arrange_keys, arrange) = arrange_menu(&labels, grid_sort);
+                    // (FUN_100d4f90: List Mode, Show Hidden, and Auto Arrange with its sub-menu (FUN_10041637(1)), dead in
+                    // list mode)
+                    let (arrange_keys, arrange) = arrange_menu(&labels, arranged, true);
                     (
                         vec![vec!["list".to_string()], vec!["hidden".to_string()], arrange_keys],
                         vec![Entry::marked(text("ListMode", "As a list"), true, in_list), Entry::text(text("ShowHidden", "Show the hidden ones"), true), Entry::submenu(text("AutoArrange", "Order"), !in_list, arrange)],
@@ -441,10 +515,16 @@ impl ProgramsWindow {
                     crate::layout::set_tab("NanoViewConfig", usize::from(!in_list));
                 }
                 "hidden" => self.school = Some(HIDDEN),
-                "by" | "ascending" => {
-                    let sort = if word == "by" { (number as i32, grid_sort.1) } else { (grid_sort.0, 1 - grid_sort.1) };
-                    self.grid_sort = Some(sort);
-                    crate::layout::set_tab("NanoViewGridSort", (sort.0 * 2 + sort.1) as usize);
+                "none" | "by" | "ascending" => {
+                    if let Some(new) = crate::loot::arrange_choice(key, arranged) {
+                        // (`SetAutoArrange(false)`: each program stays in the cell the arranging had it in)
+                        if new.is_none() {
+                            let order = crate::gui::multilist::order(tree, list);
+                            crate::places::replace((crate::gui::iteminfo::NANO_IDENTITY, school as u32), order.into_iter().enumerate().map(|(cell, id)| (id as u32, cell)).collect());
+                        }
+                        self.arranged.insert(school, new);
+                        crate::layout::set_tab(&format!("NanoViewArrange{school}"), new.map_or(0, |s| 1 + (s.0 * 2 + s.1) as usize));
+                    }
                 }
                 _ => {}
             }
@@ -501,18 +581,47 @@ mod tests {
     #[test]
     fn the_arrange_menu_marks_the_grids_order() {
         let labels = vec![(0, String::new()), (1, "Name".to_string()), (10, "NCU Cost".to_string())];
-        let (keys, entries) = arrange_menu(&labels, (10, 1));
+        let (keys, entries) = arrange_menu(&labels, Some((10, 1)), true);
         assert_eq!(keys, ["none", "", "by:0", "by:1", "by:10", "", "ascending"]);
         assert_eq!(entries.iter().map(|e| e.label.as_str()).collect::<Vec<_>>(), ["Don't Auto Arrange", "", "Unsorted", "By Name", "By NCU Cost", "", "Sort Ascending"]);
         // (a separator after the first and before the last, as the original's sub-menu has them)
         assert_eq!(entries.iter().map(|e| e.is_static()).collect::<Vec<_>>(), [false, true, false, false, false, true, false]);
-        // (the sort column marked; descending: "Sort Ascending" unmarked; placing by hand is not offered)
+        // (the sort column marked; descending: "Sort Ascending" unmarked)
         assert_eq!(entries.iter().map(|e| e.mark).collect::<Vec<_>>(), [Some(false), None, Some(false), Some(false), Some(true), None, Some(false)]);
-        assert!(!entries[0].enabled && entries[6].enabled);
+        assert!(entries[0].enabled && entries[6].enabled);
         // (unsorted: nothing to turn round)
-        assert!(!arrange_menu(&labels, (0, 0)).1[6].enabled);
+        assert!(!arrange_menu(&labels, Some((0, 0)), true).1[6].enabled);
+        // (NAN-039: placed by hand, "Don't Auto Arrange" marked and no column; "Sort Ascending" dead)
+        let (_, hand) = arrange_menu(&labels, None, true);
+        assert_eq!(hand.iter().map(|e| e.mark).collect::<Vec<_>>(), [Some(true), None, Some(false), Some(false), Some(false), None, Some(true)]);
+        assert!(!hand[6].enabled);
+        // (NAN-040: the NCU window's, FUN_10041637(0): no "Don't Auto Arrange", no "Unsorted")
+        let (keys, entries) = arrange_menu(&labels, Some((12, 0)), false);
+        assert_eq!(keys, ["by:1", "by:10", "", "ascending"]);
+        assert_eq!(entries.iter().map(|e| e.label.as_str()).collect::<Vec<_>>(), ["By Name", "By NCU Cost", "", "Sort Ascending"]);
+        assert_eq!(entries.iter().map(|e| e.mark).collect::<Vec<_>>(), [Some(false), Some(false), None, Some(true)]);
+        // (what the entries make of the order: a column keeps the order, "Don't Auto Arrange" places by hand)
+        assert_eq!(crate::loot::arrange_choice("by:1", Some((12, 1))), Some(Some((1, 1))));
+        assert_eq!(crate::loot::arrange_choice("ascending", Some((12, 0))), Some(Some((12, 1))));
+        assert_eq!(crate::loot::arrange_choice("none", Some((1, 0))), Some(None));
+        assert_eq!(crate::loot::arrange_choice("by:0", None), Some(Some((0, 0))));
         // (the columns as the original adds them, the name the one the list starts sorted by)
         assert_eq!(COLUMNS.iter().map(|c| c.0).collect::<Vec<_>>(), [0, 1, 9, 10, 13, 11, 5, 6, 7, 16]);
+    }
+
+    /// NAN-039: a program keeps its cell; a new one takes the first free cell in the list's order (FUN_100d48a9,
+    /// `GetFirstFreePos`); one no longer listed lets its cell go.
+    #[test]
+    fn programs_keep_their_cells_and_new_ones_take_the_first_free() {
+        let mut cells: crate::places::Cells = [(30, 0), (10, 2), (99, 1)].into_iter().collect();
+        crate::places::fill_listed(&mut cells, &[50, 10, 30, 40]);
+        assert_eq!(cells, [(30, 0), (10, 2), (50, 1), (40, 3)].into_iter().collect());
+        // (a drop on another program: the two change cells; on an empty cell: moved there)
+        crate::places::swap(&mut cells, 50, 40);
+        assert_eq!((cells[&50], cells[&40]), (3, 1));
+        crate::places::move_to(&mut cells, 30, 7);
+        assert_eq!(crate::places::at(&cells, 7), Some(30));
+        assert_eq!(crate::places::at(&cells, 0), None);
     }
 
     #[test]
