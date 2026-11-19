@@ -21,7 +21,8 @@
 //! many let go on an empty cell of the same backpack become a stack of their own there, [`Take::Split`]; a split in
 //! hand let go anywhere else ends without anything done. An item of a bag goes on the wire as
 //! `(0x6b, handle << 16 | place)` (`Chest_t`'s FUN_1007e3e3). Across two containers nothing is ever joined (a plain
-//! move). Not ported for these windows: an inventory item shown at the cell it was let go on, the menu's List Mode
+//! move). An inventory item let go on an empty cell stands there when it comes (the cell kept as +0x150, FUN_100ce25d). Not
+//! ported for these windows: the menu's List Mode
 //! and Auto Arrange, closing by Escape (`esc_backpacks`), and telling the server that a bag was closed (the
 //! original's message was not identified). Corpses, chests and the organization's contract open arranged by name, the
 //! bank and the reclaim terminal in their places' order ([`first_sort`]; the bank's stacks are not joined or split by
@@ -884,9 +885,10 @@ impl LootWindow {
             let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
             if dragged != u32::MAX && !matches!(view.identity.0, CORPSE | OVERFLOW) && crate::gear::letting_go(ctx) && shown.response.contains_pointer() {
                 take = Some(Take::Put { identity: view.identity, from: dragged });
-                // (into the bank by hand: the cell it is let go on is where it will stand, when that cell is empty;
+                // (into the bank or one's own backpack by hand: the cell it is let go on is where it will stand, when that
+                // cell is empty;
                 // FUN_100cc855 keeps the cell, or the first free one for a taken cell, and sends no cell)
-                if view.identity.0 == BANK
+                if view.placed()
                     && let Some(cell) = hovered_cell.filter(|c| crate::places::at(&cells, *c).is_none())
                 {
                     self.awaited_cell = Some((cell, std::time::Instant::now()));

@@ -2643,7 +2643,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Not ported for bag windows.
 - A player notices: An item put into a bag appears at the first free cell, not under the pointer.
 - Where: `crates/mao-client/src/loot.rs:18`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): An inventory item let go on an empty cell of one's own backpack now stands there when it arrives: GUI.dll FUN_100cc855 keeps the cell in +0x150 and FUN_100ce25d gives it to the next item added; the client did this for the bank only, now for every container placed by hand (`LootView::placed`). Test: the loot tests build.
 
 #### `INV-064` Item page "Fabric" line only in the original's debug mode, not built
 

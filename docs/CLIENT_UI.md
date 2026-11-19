@@ -7285,3 +7285,7 @@ The original's wear check (Gamecode FUN_100498ed, FUN_10080659) lets an item ont
 ### A dropped item's cell waits for it (INV-046)
 
 The original keeps the cell an item was let go on until the item comes (GUI.dll FUN_100ce25d, the view's +0x150). The client forgot it after five seconds; now it waits, so on a slow server the item still lands where it was let go.
+
+### Items put into a backpack land where they were let go (INV-063)
+
+As in the original (GUI.dll FUN_100cc855 and FUN_100ce25d), an inventory item let go on an empty cell of an open backpack now appears in that cell when the server has moved it, as it already did for the bank.
