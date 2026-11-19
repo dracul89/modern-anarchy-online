@@ -151,6 +151,8 @@ struct Gfx {
     hall: Option<Option<(Scene, crate::hall::Place)>>,
     /// The character list's character stands in the hall (the hall scene's overlay holds it).
     hall_character: bool,
+    /// That character animated (`net::ListFigure`), its breed, and when it was last posed.
+    figure: Option<(crate::net::ListFigure, i32, std::time::Instant)>,
     /// The character creation's world (`ccscene.rs`); `Some(None)` once it was looked for and not found.
     creation: Option<Option<CreationGfx>>,
     started: std::time::Instant,
@@ -714,6 +716,7 @@ impl ApplicationHandler for Launcher {
             db: None,
             hall: None,
             hall_character: false,
+            figure: None,
             creation: None,
             started: std::time::Instant::now(),
             frames: 0,
@@ -763,6 +766,7 @@ impl ApplicationHandler for Launcher {
                         gfx.shown = want.as_ref().map(|c| c.name.clone());
                         gfx.scene = None;
                         // (whoever stood in the hall leaves it)
+                        gfx.figure = None;
                         if std::mem::take(&mut gfx.hall_character) {
                             if let Some(Some((scene, _))) = gfx.hall.as_mut() {
                                 gfx.renderer.reupload_overlay(&gfx.gpu, scene, &mao_formats::model::Model::default(), &mut |_, _| None);
@@ -789,8 +793,10 @@ impl ApplicationHandler for Launcher {
                                 // `hall::stand`; a character being made is still shown alone)
                                 let in_hall = hall && matches!(self.stage, Stage::Characters(_));
                                 if let (true, Some(model), Some(Some((scene, _)))) = (in_hall, shaped.as_ref(), gfx.hall.as_mut()) {
-                                    gfx.renderer.reupload_overlay(&gfx.gpu, scene, &crate::hall::stand(model.clone()), &mut |k, i| textures.get_for_upload(k, i));
+                                    gfx.renderer.reupload_overlay(&gfx.gpu, scene, &crate::hall::stand(model.clone(), c.breed), &mut |k, i| textures.get_for_upload(k, i));
                                     gfx.hall_character = true;
+                                    // (and from now on it plays its idle and its fidgets, as the original's viewer has it)
+                                    gfx.figure = crate::net::ListFigure::new(db, c.breed, c.sex, look.as_ref()).map(|f| (f, c.breed, std::time::Instant::now()));
                                 } else if let Some(model) = shaped {
                                     let mut scene = gfx.renderer.upload(&gfx.gpu, &model, &mut |k, i| textures.get_for_upload(k, i));
                                     scene.sky = ([0.05, 0.09, 0.15], [0.01, 0.03, 0.07]);
@@ -809,6 +815,18 @@ impl ApplicationHandler for Launcher {
                                     gfx.scene = Some(scene);
                                 }
                             }
+                        }
+                    }
+                    // (the hall's character posed again, 24 times a second as the world's characters are)
+                    if gfx.hall_character
+                        && hall
+                        && let Some((figure, breed, posed)) = gfx.figure.as_mut()
+                        && posed.elapsed() >= std::time::Duration::from_millis(41)
+                        && let (Some((_, textures)), Some(Some((scene, _)))) = (gfx.db.as_ref(), gfx.hall.as_mut())
+                    {
+                        *posed = std::time::Instant::now();
+                        if let Some(model) = figure.model() {
+                            gfx.renderer.reupload_overlay(&gfx.gpu, scene, &crate::hall::stand(model, *breed), &mut |k, i| textures.get_for_upload(k, i));
                         }
                     }
                     gfx.frames += 1;

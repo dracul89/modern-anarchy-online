@@ -6013,6 +6013,86 @@ pub(crate) fn character_model_shaped(db: &Arc<ResourceDatabase>, breed: i32, sex
     Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() })
 }
 
+/// The fidgets of the character list's figure: GUI.dll's table at 0x101c3fa0, each a `social-<name>` animation.
+pub(crate) const FIDGETS: [&str; 23] = [
+    "angry", "applause", "blowkiss", "bow", "bulge", "curt", "fishsize", "giggle", "greet", "italian", "lookout", "rocky", "salute", "scared", "scratch", "strong1", "strong2", "strong3", "surprised",
+    "surrender", "thinker", "thumbs", "wave",
+];
+
+/// What the figure plays when an animation of its has ended (`CCCharacter_t::RunFunction`, GUI.dll 0x1011ac64):
+/// `rand() % 0x73` below 0x17 is that fidget of the table, anything else the idle again.
+pub(crate) fn fidget(random: u32) -> Option<&'static str> {
+    let pick = random % 0x73;
+    (pick < 0x17).then(|| FIDGETS[pick as usize])
+}
+
+/// The character list's figure, animated as the original's viewer animates it (`CharacterViewer_c`, GUI.dll
+/// 0x10005a36: a `CCCharacter_t` of medium build that plays `idle-stand_01_01`, and its frame slot 0x10005755
+/// running `CCCharacter_t::RunFunction`): each animation is played once, and when it has ended the next is the idle
+/// or, about one time in five, a fidget ([`fidget`]). A new pick starts it afresh (`Update` 0x10005802).
+///
+/// Here the idle loops under the fidgets (the world's own way with a standing character), and the choice is made
+/// each time its length or a fidget's has passed.
+pub(crate) struct ListFigure {
+    chars: Characters,
+    breed: u8,
+    sex: u8,
+    look: Option<crate::look::Look>,
+    fidget: Option<(&'static str, Instant)>,
+    until: Instant,
+    seed: u32,
+}
+
+impl ListFigure {
+    pub(crate) fn new(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, look: Option<&crate::look::Look>) -> Option<ListFigure> {
+        // (the Atrox has one body, whatever the list says)
+        let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
+        let mut chars = Characters::new(db.clone()).ok()?;
+        chars.build = 1;
+        let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |t| t.subsec_nanos()) | 1;
+        let mut figure = ListFigure { chars, breed, sex, look: look.cloned(), fidget: None, until: Instant::now(), seed };
+        figure.until = Instant::now() + figure.idle();
+        Some(figure)
+    }
+
+    /// How long the idle is.
+    fn idle(&mut self) -> Duration {
+        let name = self.chars.ensure_anim(self.breed, self.sex, mao_formats::appearance::Action::Idle);
+        Duration::from_secs_f32(self.chars.anim_by_name(&name).map_or(1000.0, |a| a.1).max(100.0) / 1000.0)
+    }
+
+    /// The figure as it stands now (Z-up, as [`character_model`] gives it).
+    pub(crate) fn model(&mut self) -> Option<Model> {
+        let now = Instant::now();
+        if now >= self.until {
+            self.seed ^= self.seed << 13;
+            self.seed ^= self.seed >> 17;
+            self.seed ^= self.seed << 5;
+            // (the C library's `rand`: fifteen bits)
+            let picked = fidget(self.seed >> 8 & 0x7fff).and_then(|name| {
+                let file = self.chars.ensure_social(self.breed, self.sex, name)?;
+                let (_, length) = self.chars.anim_by_name(&file)?;
+                Some((name, length))
+            });
+            match picked {
+                Some((name, length)) => {
+                    self.fidget = Some((name, now));
+                    self.until = now + Duration::from_secs_f32(length.max(100.0) / 1000.0);
+                }
+                None => {
+                    self.fidget = None;
+                    self.until = now + self.idle();
+                }
+            }
+        }
+        let ListFigure { chars, look, .. } = self;
+        let (textures, clothes, gear) = look.as_ref().map_or((&[][..], &[][..], &[][..]), |l| (l.textures.as_slice(), l.clothes.as_slice(), l.gear.as_slice()));
+        let parts = chars.parts(0, self.breed, self.sex, None, None, 0.0, 0.0, 100.0, textures, clothes, gear, self.fidget, None, None, false, None, None, None)?;
+        let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        Some(Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() })
+    }
+}
+
 /// `creature <game> <npc template> <out.png>`: a creature as the world draws it (what a polymorph turns a character into).
 pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &str) -> Result<(), String> {
     let mut chars = Characters::new(db.clone())?;
@@ -14043,6 +14123,15 @@ mod movement_tests {
         assert!(!worn_flight(&swapped, &[], &mut wings));
         // (another item's move does not matter)
         assert!(worn_flight(&[entry(1, 7), entry(5, 9)], &[(70, 5, false)], &mut wings));
+    }
+
+    /// The character list's figure: of 115 draws 23 are a fidget, each its own, the rest the idle.
+    #[test]
+    fn the_list_figure_fidgets_one_time_in_five() {
+        assert_eq!((0..0x73).filter(|r| fidget(*r).is_some()).count(), 23);
+        assert_eq!((fidget(0), fidget(22), fidget(23), fidget(0x72)), (Some("angry"), Some("wave"), None, None));
+        // (the draw wraps at 115)
+        assert_eq!(fidget(0x73 + 3), Some("bow"));
     }
 
     /// The equipment's lock stops a move onto a wear place and off one, and nothing between the backpack's places.

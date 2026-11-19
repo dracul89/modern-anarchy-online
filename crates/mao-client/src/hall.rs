@@ -25,8 +25,11 @@
 //! flies between them. The creation's world is here too: [`creation`] (its meshes and connectors) and
 //! [`on_connector`] (a figure stood on one).
 //!
-//! Not done: the picked character turned by the mouse, the hall's nano effect running, the figures' animations (each
-//! mesh loops in the original).
+//! The picked character plays its idle and its fidgets (`net::ListFigure`). Not gaps, as the original reads: the
+//! picked character is not turned by the mouse there (`CharacterViewer_c::SetRot` has no caller), and the hall's
+//! meshes are not animated in the login's world (`LoginWorld_c` never steps their time; looping them and stepping
+//! them is the character creation's module, `CharCreateModule_t::SlotMeshReady` and `FrameProcess`, with the "nano
+//! effect", which is the mesh `charactercreation_nanoeffect`).
 
 use mao_formats::model::Model;
 use mao_formats::resource::{Id, ResourceDatabase};
@@ -108,9 +111,16 @@ pub fn viewer_position() -> [f32; 3] {
 /// The swap of the game's upright (Y) and the renderer's (Z), which every part of the hall is drawn through.
 const SWAP: mao_formats::model::Matrix = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
 
+/// How far the viewer's figure is set down by its breed (`CCCharacter_t::RunFunction`, GUI.dll 0x1011ac64, for the
+/// medium build the viewer makes: breeds 1 and 3 by 0.02, the others not).
+pub fn viewer_drop(breed: i32) -> f32 {
+    if breed == 1 || breed == 3 { 0.02 } else { 0.0 }
+}
+
 /// A character's model (its parts in the game's frame, at the origin) stood where the picked character stands.
-pub fn stand(mut character: Model) -> Model {
-    let at = viewer_position();
+pub fn stand(mut character: Model, breed: i32) -> Model {
+    let mut at = viewer_position();
+    at[1] -= viewer_drop(breed);
     let place = mao_formats::model::trs_matrix(at, [0.0, 0.0, 0.0, 1.0], [1.0, 1.0, 1.0]);
     let matrix = mao_formats::model::multiply(&place, &SWAP);
     character.instances = (0..character.parts.len()).map(|i| (i, matrix)).collect();
@@ -273,9 +283,12 @@ mod tests {
         // (a part at the character's origin lands there, with the upright swapped for the renderer)
         let mut model = Model::default();
         model.parts.push(mao_formats::model::Part { name: "body".into(), world: mao_formats::model::IDENTITY, vertices: Vec::new(), indices: Vec::new(), material: Default::default() });
-        let stood = stand(model);
+        let stood = stand(model.clone(), 2);
         let m = stood.instances[0].1;
         assert!((m[12] - at[0]).abs() < 1e-5 && (m[13] - at[2]).abs() < 1e-5 && (m[14] - at[1]).abs() < 1e-5);
+        // (the viewer sets breeds 1 and 3 down a little)
+        let lower = stand(model, 1).instances[0].1;
+        assert!((m[14] - lower[14] - 0.02).abs() < 1e-5 && (viewer_drop(3), viewer_drop(4)) == (0.02, 0.0));
     }
 
     #[test]

@@ -8081,7 +8081,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not done
 - A player notices: cannot rotate the character on the list screen; static hall figures
 - Where: `crates/mao-client/src/hall.rs:28`; `docs/CLIENT_UI.md:1492`; `docs/ORIGINAL_AUDIT.md:26`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): Done, and the entry corrected: of its three points only one is in the original. The picked character is not turned by the mouse there (CharacterViewer_c::SetRot has no caller) and the login's hall does not animate its meshes (that, with the nano effect's mesh, is the character creation's module: ccscene.rs's gap). What the original does and the client did not: the picked figure plays its idle and, about one time in five, one of 23 social animations (CCCharacter_t::RunFunction); ported (net::ListFigure). Seen moving in my own test launcher's window.
 
 #### `LCH-038` No progress window between Play and the loading screen; the loading screen goes up at the press of Play
 

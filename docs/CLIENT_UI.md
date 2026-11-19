@@ -1489,7 +1489,7 @@ pictures, the first frames of the capture of 2026-10-30: drawn with the original
 choice stands: the view keeps the height a 4:3 window has, so at 32:9 the figures and the character are whole and
 smaller than in the original's picture, which cuts them at the knees and the head. (Asked with both pictures, the user chose the whole figures for the character list too.) Tools: `MAO_HALL_CAMERA=x,y,z,
 qx,qy,qz,qw,fov` looks from another place, the `meshboxes` example prints where each part of a named mesh lies.
-Not done: turning the character with the mouse, the hall behind the creation screens (they have their own cameras
+(Turning the character with the mouse is not in the original, and the picked figure's animation is done since 2026-11-18: see "The character list's figure".) Not done: the hall behind the creation screens (they have their own cameras
 in `CharCreateCamera.dat`, read by `hall::places` and not used yet) with their seven breed figures, the figures'
 own animations.
 
@@ -6125,3 +6125,31 @@ pictures, the control center's own vehicle button. **A guess in all of it: that 
 decompile reads it**; none was ever captured.
 Looked at offscreen (`MAO_UI_PREVIEW=vehicles`). Tests: `an_order_waits_for_its_lock_and_for_the_shock_to_pass`,
 `the_window_is_not_made_right_after_an_order`, `the_queues_actions_and_its_word` (the message's bytes).
+
+### The character list's figure (LCH-037)
+
+The entry said three things were missing: the picked character turned by the mouse, the hall's meshes looping their
+animations, the hall's nano effect running. Read in the original, two of the three are not there:
+
+- **No turning.** `CharSelectWindow_c` (GUI.dll 0x1000efb1) takes no mouse on the figure, its key handler
+  (0x1000deb7) has Play, Quit and the list's up and down, and `CharacterViewer_c::SetRot` (0x10005742) is called by
+  nothing. (Noted once before as "looked at and left"; the entry's line was not corrected then.)
+- **No animation of the hall.** The login's world, `LoginWorld_c` (0x100160c5), adds its five meshes and only shows
+  and hides them; nothing steps their time. Looping the meshes and stepping them every frame is the character
+  creation's module (`CharCreateModule_t::SlotMeshReady` 0x1011b7e0, `FrameProcess` 0x1011c355), where the "nano
+  effect" is one of the meshes, `charactercreation_nanoeffect`, drawn blended. That is `ccscene.rs`'s gap ("the
+  meshes' own animations"), not the login hall's.
+- **The figure is animated**, and that was missing. The viewer (`CharacterViewer_c` 0x10005a36) makes a
+  `CCCharacter_t` of medium build that plays `idle-stand_01_01`, and every frame runs
+  `CCCharacter_t::RunFunction` (0x1011ac64): when the animation has ended, `rand() % 0x73` below 0x17 plays that
+  entry of a table of 23 social animations (GUI.dll 0x101c3fa0: angry, applause, blowkiss, bow, bulge, curt,
+  fishsize, giggle, greet, italian, lookout, rocky, salute, scared, scratch, strong1 to strong3, surprised,
+  surrender, thinker, thumbs, wave), anything else the idle again: a fidget about one time in five. Each is played
+  once (`PlayAnim` 0x1011ab3e: priority -2, one loop). A new pick starts afresh. The same function sets the figure
+  down by its build: 0.02 for the viewer's medium build of breeds 1 and 3.
+
+Here (`net::ListFigure`, `net::fidget`, `launcher.rs`, `hall::viewer_drop`): the hall's character is posed again 24
+times a second from its own animation stack; the idle loops under the fidgets (the world's way with a standing
+character) and the choice is made each time the idle's length or a fidget's has passed. Seen in my own test
+launcher's window (`win_shot.py figure play 7,9,12,16,20 MAO_LAUNCHER_DEMO=1`): the figure differs between the
+pictures. Test: `the_list_figure_fidgets_one_time_in_five`.

@@ -53,6 +53,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The bank's items can be placed by hand: its menu has "Don't Auto Arrange", and it starts that way. Each item stays
   in the cell you put it in.
 
+### The launcher
+
+- The character you pick in the list is alive: it breathes, and now and then waves, bows, scratches its head, as in
+  the original.
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher

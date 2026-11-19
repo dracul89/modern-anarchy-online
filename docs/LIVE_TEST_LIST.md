@@ -943,6 +943,8 @@ These were written before this list; some may have been seen working since witho
   has finished (greyed where you lack the requirements). Choose one: its description shows. Order it if you like,
   and Leave vehicle after. Send me the log either way ("vehicles: Spawn(...)" and whatever the server says next):
   nothing of this was ever captured.
+- [ ] The character list's figure (2026-11-18): at the character list, watch the picked character for half a
+  minute: it should move (breathing) and now and then play a gesture. Tell me if it jerks, slides or freezes.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
