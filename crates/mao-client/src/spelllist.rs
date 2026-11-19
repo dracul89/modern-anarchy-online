@@ -33,14 +33,16 @@
 //!   stats it leaves alone. Ported: [`Outcome::SetStat`], kept for one's own character only (the client has no stats of others).
 //! * 0xcf92 (FUN_100a8107, a hoverbike's program: "Phasefront Banshee - Red" in the 08:42 capture): on a character, its
 //!   movement is handed the action 0x1d (`SwitchToFlyModeTransitionAction_t`, FUN_1006cb58's case: mode 7), or 0x27
-//!   (`LeaveFlyModeTransitionAction_t`) when the list is ending. Ported: [`Outcome::Fly`]. (It first makes a crawling,
-//!   sitting, sleeping or lounging character get up, 0x28 / 0x29 / 0x2a / 0x25: not ported.)
+//!   (`LeaveFlyModeTransitionAction_t`) when the list is ending. Ported: [`Outcome::Fly`], with the getting up it first
+//!   makes a sitting, sleeping or lounging character do (0x25 after 0x29 / 0x2a; a crawler's 0x28: no crawling is kept).
 //! * 0xcf4b (FUN_100a7bd4) and 0xcf4c (FUN_100a7c79): on a character, the flags of stat 0x49 added to its state flags (stat
 //!   224, FUN_10044aac) or taken away (FUN_10044c71): 0xcf4b adds them as it begins and takes them away as its list ends,
 //!   0xcf4c the other way round. Ported: [`Outcome::Flags`]. (With stat 0x19 set the begun spell also queues its undoing for
 //!   later, FUN_1002dfc8 → FUN_10059e90's events 0x40 / 0x80: not ported.)
-//! * Not ported (rare in the captures): 0xcf44 (FUN_100a7aa2: stat 0x167), 0xcf7d (FUN_100a83d8: feedback lines), 0xcf35 (FUN_100a517a, an
-//!   item's modify), and 0xcf16 runs (left out).
+//! * 0xcf7d (FUN_100a83d8): the caster's right to attack whom it runs on, told to the client's own caster when it has none.
+//!   Ported: [`Outcome::AttackCheck`].
+//! * Not ported (rare in the captures): 0xcf44 (FUN_100a7aa2: stat 0x167), 0xcf35 (FUN_100a517a, an item's modify), and
+//!   0xcf16 runs (left out).
 //! * 0xcfff (FUN_100a9af8): its string 0 told in the notification window (`GlobalSignals_c` +0x298), see
 //!   [`crate::notifications`]. Ported: [`Outcome::Text`]. None of the captures has one.
 
@@ -120,6 +122,10 @@ pub enum Outcome {
     /// 0xcf4b (FUN_100a7bd4) or 0xcf4c (FUN_100a7c79) on a character: the flags (the spell's stat 0x49) added to its state flags
     /// (stat 224, [`StateFlags::add`]) or taken away ([`StateFlags::remove`]).
     Flags { mask: u32, add: bool },
+    /// 0xcf7d (FUN_100a83d8): whether the caster may attack whom the spell runs on. Nothing on an item or a player; on
+    /// anything not a character, and on an NPC the caster may not attack (FUN_10069a9f without its own lines), the caster
+    /// is told why when it is the client's own: `Feedback_NeedTargetForItem`, `Feedback_NotAllowedToAttackTarget`.
+    AttackCheck { caster: Holder },
 }
 
 /// What the spell runner needs to know of the world besides the criteria's stats.
@@ -247,6 +253,8 @@ pub fn fire(run: &mut Run, scene: &dyn Scene, now: f64) -> Vec<Outcome> {
         }
         // (FUN_100a9af8: string 0 told in the notification window, by the range rule of `notifications::spell_line`)
         0xcfff if !run.ending => vec![Outcome::Text { spell: spell.clone() }],
+        // (FUN_100a83d8: begun or ending alike)
+        0xcf7d => vec![Outcome::AttackCheck { caster: run.caster }],
         // (FUN_100a8107: on a `SimpleChar_t` only; 0x1d, or 0x27 from an ending list)
         mao_formats::item::FLY_SPELL if run.on.0 == crate::requirements::CHARACTER => vec![Outcome::Fly { begin: !run.ending }],
         // (FUN_100a7bd4 and FUN_100a7c79: on a `SimpleChar_t` only, the run's bit 0 of +0x24 telling the ending)
@@ -613,14 +621,16 @@ mod tests {
                             Outcome::Fly { begin: false } => "fly ends",
                             Outcome::Flags { add: true, .. } => "flags on",
                             Outcome::Flags { add: false, .. } => "flags off",
+                            Outcome::AttackCheck { .. } => "attack check",
                         })
                         .or_default() += 1;
                 }
             }
         }
         assert_eq!(lists, 4128);
-        // (the two flights of the 08:42 capture: a Banshee's and a Wraith's program begun and ended, each with its 0xcf4c)
-        assert_eq!(tally, [("effect", 576), ("stun", 720), ("stun ends", 716), ("stat", 36), ("fly", 2), ("fly ends", 2), ("flags off", 2), ("flags on", 2)].into_iter().collect());
+        // (the two flights of the 08:42 capture: a Banshee's and a Wraith's program begun and ended, each with its 0xcf4c;
+        // five 0xcf7d attack checks)
+        assert_eq!(tally, [("effect", 576), ("stun", 720), ("stun ends", 716), ("stat", 36), ("fly", 2), ("fly ends", 2), ("flags off", 2), ("flags on", 2), ("attack check", 5)].into_iter().collect());
     }
 
     /// 0xcf82 (the duel buffs' "Stun") and 0xcf22.

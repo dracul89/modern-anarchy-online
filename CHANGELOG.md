@@ -285,6 +285,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The NCU window's menu has the original's Auto Arrange choices (sort the icons by any column, ascending or not), kept between sessions.
 - A program that changes your character's build or profession now does so (it was ignored).
 - Nanos that the game marks as instant (such as the Lend Nano line) no longer show a cast bar or casting pose.
+- A program that needs an attackable target now says so when it lands on something you may not attack, as the original does.
 
 ### Sound
 

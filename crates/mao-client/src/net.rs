@@ -1852,6 +1852,24 @@ impl World {
                         crate::notifications::add(&line);
                     }
                 }
+                // (FUN_100a83d8: an item, nothing; anything not a character, "need a target"; a character that is not an
+                // NPC, nothing; an NPC the caster may attack (its weapon holder's FUN_10069a9f, no lines of its own),
+                // nothing, else "not allowed". Told only when the caster is the client's own character, FUN_10059047.)
+                crate::spelllist::Outcome::AttackCheck { caster } => {
+                    if caster != (crate::requirements::CHARACTER, self.own) || self.item_dynels.contains_key(&on.1) {
+                        continue;
+                    }
+                    let line = if on.0 != crate::requirements::CHARACTER {
+                        Some("Feedback_NeedTargetForItem")
+                    } else if on.1 != self.own && self.names.get(&on.1).is_some_and(|n| !n.1) && crate::combat::can_attack(self.attacker(), self.attack_target(Some(on.1))).is_err() {
+                        Some("Feedback_NotAllowedToAttackTarget")
+                    } else {
+                        None
+                    };
+                    if let Some(name) = line {
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
+                    }
+                }
             }
         }
     }
@@ -14231,6 +14249,34 @@ mod door_tests {
         assert!(w.in_play(9));
         w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 9), data: hex("0000000001000000c200000000") }.frame(1));
         assert!(!w.in_play(9));
+    }
+
+    /// Spell 0xcf7d (FUN_100a83d8): one's own caster is told it needs a target when the spell lands on no character, and
+    /// that it may not attack an NPC it may not attack; a player, an NPC it may attack and someone else's cast say nothing.
+    #[test]
+    fn the_attack_check_spell() {
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let base = Message { kind: n3::ENTITY_INFO, identity: (0xc350, 1), data: hex("003a04206aca0000021c43f5f0c7410028f643dc31c6000000003f38bec4000000003f31371600000741094d6f7068696e673400001812410001000100000f7e00000000") }.entity_info().unwrap();
+        let me = (crate::requirements::CHARACTER, own);
+        let (guard, beast, player) = (0x41, 0x42, 0x7b1a0030);
+        for (id, npc) in [(guard, true), (beast, true), (player, false)] {
+            w.infos.insert(id, base.clone());
+            w.names.insert(id, ("Someone".into(), !npc));
+        }
+        // (the guard cannot be attacked: its state flag 0x20000000)
+        w.others_stats.entry(guard).or_default().insert(224, 0x20000000);
+        let check = |w: &mut World, on: (u32, u32), caster: (u32, u32)| {
+            w.game_lines.clear();
+            w.spell_outcomes(vec![(on, crate::spelllist::Outcome::AttackCheck { caster })]);
+            w.game_lines.len()
+        };
+        assert_eq!(check(&mut w, (crate::requirements::CHARACTER, guard), me), 1);
+        assert_eq!(check(&mut w, (crate::requirements::CHARACTER, beast), me), 0);
+        assert_eq!(check(&mut w, (crate::requirements::CHARACTER, player), me), 0);
+        assert_eq!(check(&mut w, (0xc79c, 5), me), 1);
+        assert_eq!(check(&mut w, (crate::requirements::CHARACTER, guard), (crate::requirements::CHARACTER, player)), 0);
     }
 
     /// What ends fly mode besides the list's ending (FUN_10045020): the state flag 0x2000000 coming on (FUN_10044aac), a

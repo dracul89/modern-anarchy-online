@@ -7690,3 +7690,7 @@ The original's set-stat spell (0xcf22, Gamecode FUN_100a4f8a) leaves eight stats
 ### Nanos cast at once by their flag (NAN-020)
 
 The original's cast time (Gamecode FUN_1005141d) is nothing, whatever the nano's times and the caster's skill, for a nano whose flags (stat 0) hold 0x80000 (the test at 0x10051591 through the nano's vtable +0x14, FUN_10003d5b). The client follows it (`timers::instant_cast`): such a nano shows no cast bar and no casting stance, one's own or anyone's. Others' cast times are still the nano's own time, since their initiative and aggression are not sent.
+
+### The attack-check spell (NAN-047)
+
+The original's spell 0xcf7d (Gamecode FUN_100a83d8) checks whether the caster may attack whom the spell lands on: on anything that is not a character the caster is told it needs a target, on an NPC it may not attack (FUN_10069a9f, without that function's own lines) that it is not allowed to attack it; items and players say nothing. The client does the same for its own character as the caster.
