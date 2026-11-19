@@ -8343,6 +8343,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: accounts needing activation or limbo cannot proceed in the client
 - Where: `docs/GUI_DLL_PARITY.md:70`; `crates/mao-client/src/launcher.rs`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): Play on an inactive character asks (CharacterActivateWindow.xml, ActivateCharacterWarning) or, with no slot free, shows CharacterSlotsExhausted, as SlotLoginPressed 0x1000dcf0 does; test play_asks_for_an_inactive_character. The limbo window (system message 0x4e) is left: no capture of it.
 
 #### `LCH-036` Patching and licence dialog not done
 

@@ -284,7 +284,28 @@ impl ProgressWindow {
     }
 }
 
-/// The confirmation (`CharDeleteWindow_c`).
+/// What Play does with the selected character (`CharSelectWindow_c::SlotLoginPressed` 0x1000dcf0): an active one (its
+/// list flag's bit 1) logs in; an inactive one asks first (`CharActivateWindow_c`), or, with no slot free
+/// (`slots <= active`), only says so (`CharacterSlotsExhausted`, category 10000, with OK) and sends nothing. Slots not
+/// known (-1, the tests' pictures) ask as with a slot free.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PlayAsk {
+    Play,
+    Activate,
+    Exhausted,
+}
+
+pub fn play_ask(flag: i32, slots: i64, taking: i64) -> PlayAsk {
+    if flag & 1 != 0 {
+        PlayAsk::Play
+    } else if slots >= 0 && slots <= taking {
+        PlayAsk::Exhausted
+    } else {
+        PlayAsk::Activate
+    }
+}
+
+/// The confirmation (`CharDeleteWindow_c`), and the activation's (`CharActivateWindow_c`).
 struct DeleteWindow {
     window: XmlWindow,
     character: Character,
@@ -299,6 +320,10 @@ pub struct CharSelectScreen {
     /// Each character's item, in the list's order.
     items: Vec<Id>,
     delete: Option<DeleteWindow>,
+    /// `Views/CharacterActivateWindow.xml` for an inactive character Play was pressed on.
+    activate: Option<DeleteWindow>,
+    /// The `CharacterSlotsExhausted` box is up.
+    exhausted: bool,
     pub status: String,
 }
 
@@ -425,7 +450,27 @@ impl CharSelectScreen {
                         *selected = Some(c.name.clone());
                     }
                 }
-                "login_btn" => action = selected.clone().filter(|n| usable(n)).map(CharAction::Play),
+                "login_btn" => {
+                    if let Some(c) = selected.as_ref().filter(|n| usable(n)).and_then(|n| list.iter().find(|c| &c.name == n)) {
+                        match play_ask(c.flag, slots, taking) {
+                            PlayAsk::Play => action = Some(CharAction::Play(c.name.clone())),
+                            PlayAsk::Exhausted => self.exhausted = true,
+                            PlayAsk::Activate => {
+                                // (CharActivateWindow_c 0x1000d688: text 700 `ActivateCharacterWarning` fed the name, the
+                                // slots left and the slots in all)
+                                if let Some((mut atree, aroot)) = crate::gui::load_view(&dirs(ctx), "CharacterActivateWindow.xml", "") {
+                                    atree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+                                    let text = crate::gui::xml::ldb_named(700, "ActivateCharacterWarning", "Activate %s? %d of %d character slots are free.");
+                                    let shown = mao_formats::ldb::format(&text, &[mao_formats::ldb::Arg::Text(&c.name), mao_formats::ldb::Arg::Int(slots.max(0) - taking), mao_formats::ldb::Arg::Int(slots.max(0))]);
+                                    set_text(&mut atree, aroot, "confirmation_text", &shown);
+                                    self.activate = Some(DeleteWindow { window: XmlWindow { name: "Activate Character".into(), title: "Activate Character".into(), tree: atree, root: aroot, open: true, default_size: egui::vec2(340.0, 0.0) }, character: (*c).clone() });
+                                } else {
+                                    action = Some(CharAction::Play(c.name.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
                 "create_btn" => action = Some(CharAction::New),
                 "quit_btn" => action = Some(CharAction::Back),
                 "delete_btn" => {
@@ -468,6 +513,34 @@ impl CharSelectScreen {
                 self.delete = None;
             }
         }
+        // the activation: Yes logs in (SlotLoginConfirmPressed 0x1000da5c), Cancel closes
+        if let Some(a) = self.activate.as_mut() {
+            let signals = a.window.show(ctx, palette);
+            let mut close = !a.window.open;
+            for (id, signal) in signals {
+                if signal != crate::gui::host::Signal::Clicked {
+                    continue;
+                }
+                match a.window.tree.get(id).name.as_str() {
+                    "ok_btn" => {
+                        action = Some(CharAction::Play(a.character.name.clone()));
+                        close = true;
+                    }
+                    "cancel_btn" => close = true,
+                    _ => {}
+                }
+            }
+            if close {
+                self.activate = None;
+            }
+        }
+        if self.exhausted {
+            let text = crate::gui::xml::ldb_named(10000, "CharacterSlotsExhausted", "No character slot is free.");
+            let ok = crate::gui::xml::ldb_named(10000, "MsgBox_OK", "OK");
+            if crate::chrome::dialog(ctx, palette, "slots-exhausted", "", &text, &[&ok]).is_some() {
+                self.exhausted = false;
+            }
+        }
         action
     }
 }
@@ -475,6 +548,17 @@ impl CharSelectScreen {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Play on an active character logs in; on an inactive one it asks, or with every slot taken only says so.
+    #[test]
+    fn play_asks_for_an_inactive_character() {
+        assert_eq!(play_ask(1, 8, 8), PlayAsk::Play);
+        assert_eq!(play_ask(3, -1, 0), PlayAsk::Play);
+        assert_eq!(play_ask(0, 8, 7), PlayAsk::Activate);
+        assert_eq!(play_ask(0, 8, 8), PlayAsk::Exhausted);
+        assert_eq!(play_ask(2, 3, 5), PlayAsk::Exhausted);
+        assert_eq!(play_ask(0, -1, 4), PlayAsk::Activate);
+    }
 
     /// The slots line: the slots left, then the slots in all, in the game's own text (`MAO_GAME`).
     #[test]

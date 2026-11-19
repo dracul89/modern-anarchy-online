@@ -134,6 +134,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   page; Ctrl + click on a character switches your attack to it. Shift + right drag turns the character as a plain
   right drag does (only Ctrl keeps it to the camera).
 
+### Login
+
+- Play on an inactive character asks to activate it first, or says no slot is free.
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher

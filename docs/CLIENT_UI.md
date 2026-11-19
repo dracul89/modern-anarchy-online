@@ -6957,3 +6957,16 @@ The user's word after the play test: "I want the square PF Map as an option and 
 corner map and its overlay are on by default again (`round_map = on`). The original's square playfield map window opens from
 the control center's Map menu either way. The setting has a new name: the first one, `own_map`, had already been written as
 off by the build that made the square window the default.
+
+## Overnight of 2026-11-19
+
+Unattended work while the user slept: entries of docs/DEVIATIONS.md, none of it tried live.
+
+### Play on an inactive character asks first (LCH-035)
+
+`CharSelectWindow_c::SlotLoginPressed` (0x1000dcf0): an active character (its list flag's bit 1) logs in; an inactive one
+opens `Views/CharacterActivateWindow.xml` (`CharActivateWindow_c` 0x1000d688), its text 700 `ActivateCharacterWarning`
+fed the name, the slots left and the slots in all, and Yes logs in, Cancel closes; with no slot free (`slots <= active`)
+only text 10000 `CharacterSlotsExhausted` comes, with OK, and nothing is sent. Slots not known (-1) ask as with one free
+(the client's own rule). Test: `play_asks_for_an_inactive_character`. The limbo window (system message 0x4e, a countdown
+before login) is not ported: no capture of the message, and the client closes its connection after the list.
