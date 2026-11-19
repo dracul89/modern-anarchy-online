@@ -197,6 +197,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Far scenery no longer fades into a haze in areas without fog; it stays clear to the view distance, as in the original.
 - Trees and grass no longer sway in a wind of the client's own or bend away as you walk through them; plants whose meshes have their own animation now play it, as in the original.
 - Nano hit effects no longer ease in and out by the client's own fade; their particles fade as the effect itself says.
+- Other players are drawn thin, medium or fat as they were made, and robed when they wear a robe; a hoverboard rider does a trick when jumping.
 
 ### Interface
 

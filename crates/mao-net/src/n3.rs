@@ -1930,7 +1930,7 @@ mod tests {
 /// * bit 5: the identity the character is fighting (`FightingTarget`, type and instance);
 /// * always the position (three floats);
 /// * bit 9: the rotation (four floats, x y z w);
-/// * always a packed `i32`: three bits, two bits, breed (3 bits at 5), sex (2
+/// * always a packed `i32`: the side (three bits), the build (two bits at 3), breed (3 bits at 5), sex (2
 ///   bits at 8), two bits, five bits from bit 12;
 /// * the name: a length byte (counting the NUL) and the bytes;
 /// * `i32` flags 2, an `i32` of two 16-bit values, and (without flag bit 0)
@@ -1950,6 +1950,9 @@ pub struct EntityInfo {
     /// The side (the packed word's low three bits, Gamecode FUN_1007916d's +0x8b: 0 neutral, 1 clan, 2 omni, more for
     /// monsters), what the Tab keys tell friend from foe by (`N3Msg_GetCloseTarget`, stat 33).
     pub side: u8,
+    /// The body's build, the packed word's two bits at 3 (FUN_1007916d's +0x8a), which the exec FUN_1007835c sets as
+    /// the `Fatness` stat (47): 0 thin, 1 medium, 2 fat (the body FUN_100585bf asks for, `appearance::body_names`).
+    pub fatness: u8,
     pub name: String,
     pub flags2: u32,
     /// A number after the flags that varies widely per character (365 to
@@ -1982,6 +1985,9 @@ pub struct EntityInfo {
     /// the exec FUN_1007835c hands to FUN_10064ea9 for stat 360: the value the `Scale` goes back to when the temporary
     /// set ends, a Yalmaha's 20 for one). 110, 100 and 90 for the captures' riders.
     pub kept_scale: Option<u8>,
+    /// The robe flag: the byte after the scale and the short after it (FUN_1007916d's +0x32e), which the exec
+    /// FUN_1007835c hands to FUN_10057800 (1 is a robed body, `appearance::body_names`). Where the message goes that far.
+    pub robe: Option<u8>,
     /// A creature's health and its maximum (flag bit 0): Gamecode's reader (FUN_1007916d) takes, after the second flags word
     /// and an `i32`, the family, line-of-sight height and one more value (each a byte with flag bits 17, 19 and 25, else an
     /// `i16`), an `i16` and a byte when that is above zero, the level (a byte, an `i16` with bit 12), the maximum (`+0x98`: an
@@ -2121,8 +2127,8 @@ pub const PATH_RUN: u8 = 0x19;
 /// the captures, 28 for a creature, the same structure). Then the head's mesh (a word, flag 0x80), the run speed (a
 /// byte, a short with flag 0x2000), and with flag 0x800000 the byte of [`EntityInfo::kept_scale`] (read only where
 /// the flags 0x10 and 0x400, whose fields were not laid out here, are both clear, as on every rider in the captures).
-/// The two after the scale: the movement mode and the kept scale.
-fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, flags2: u32) -> Option<(u32, u16, Option<u8>, Option<u8>)> {
+/// The three after the scale: the movement mode, the kept scale and the robe flag (the byte after the scale's short).
+fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, flags2: u32) -> Option<(u32, u16, Option<u8>, Option<u8>, Option<u8>)> {
     let take = |at: &mut usize, n: usize| -> Option<&[u8]> {
         let b = d.get(*at..*at + n)?;
         *at += n;
@@ -2150,6 +2156,7 @@ fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, fl
     take(&mut at, if flags & 0x4000 != 0 { 1 } else { wide })?;
     let monster = u32::from_be_bytes(take(&mut at, 4)?.try_into().ok()?);
     let scale = u16::from_be_bytes(take(&mut at, 2)?.try_into().ok()?);
+    let robe = d.get(at + 2).copied();
     let mut rest = || -> Option<(u8, Option<u8>)> {
         take(&mut at, 3)?;
         let length = u32::from_be_bytes(take(&mut at, 4)?.try_into().ok()?) as usize;
@@ -2162,7 +2169,7 @@ fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, fl
         Some((mode, kept))
     };
     let (mode, kept) = rest().map_or((None, None), |(mode, kept)| (Some(mode), kept));
-    Some((monster, scale, mode, kept))
+    Some((monster, scale, mode, kept, robe))
 }
 
 /// What a creature's entity message says of it after the second flags word and the `i32` after it, read in the order of
@@ -2185,6 +2192,8 @@ struct Creature {
     /// movement mode FUN_10070a2f returns.
     move_mode: Option<u8>,
     run_speed: Option<u16>,
+    /// The byte after the scale's short (`+0x32e`), the robe flag ([`EntityInfo::robe`]).
+    robe: Option<u8>,
 }
 
 fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<Creature> {
@@ -2210,7 +2219,7 @@ fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<Creature> {
         creature.template = Some(take(4)?);
         creature.scale = Some(take(2)? as u16);
         take(2)?;
-        take(1)?;
+        creature.robe = Some(take(1)? as u8);
         let length = take(4)? as usize;
         // (the block, `length` bytes read one by one: its byte 12 kept)
         for k in 0..length {
@@ -2666,6 +2675,7 @@ impl Message {
         // The breed is the three bits at 5 (a Nanomage female packs 0x768, a Solitus female 0x729); the sex the two at 8.
         let (breed, sex) = (((packed >> 5) & 7) as u8, ((packed >> 8) & 3) as u8);
         let side = (packed & 7) as u8;
+        let fatness = ((packed >> 3) & 3) as u8;
         let length = take(&mut at, 1)?[0] as usize;
         let text = take(&mut at, length)?;
         let name = String::from_utf8_lossy(text).trim_end_matches('\0').to_string();
@@ -2678,15 +2688,16 @@ impl Message {
         // (a creature's fields in the reader's order, FUN_1007916d)
         let creature = creature_fields(d, at, flags).filter(|_| flags & 1 != 0);
         let (template, scale) = creature.as_ref().map_or((None, None), |c| (c.template.filter(|&t| t != 0), c.scale));
+        let creature_robe = creature.as_ref().and_then(|c| c.robe);
         // (a player's: no template, which would have it drawn as a creature, but its scale and its monster body)
-        let (monster, scale, player_mode, kept_scale) = match player_monster_and_scale(d, at, version, flags, flags2).filter(|_| flags & 1 == 0) {
-            Some((monster, scale, mode, kept)) => (Some(monster), Some(scale), mode, kept),
-            None => (None, scale, None, None),
+        let (monster, scale, player_mode, kept_scale, robe) = match player_monster_and_scale(d, at, version, flags, flags2).filter(|_| flags & 1 == 0) {
+            Some((monster, scale, mode, kept, robe)) => (Some(monster), Some(scale), mode, kept, robe),
+            None => (None, scale, None, None, creature_robe),
         };
         let move_mode = creature.as_ref().and_then(|c| c.move_mode).or(player_mode);
         let run_speed = creature.as_ref().and_then(|c| c.run_speed);
         let (family, pet_type, health) = creature.as_ref().map_or((None, None, None), |c| (Some(c.family), Some(c.pet_type), Some(c.health)));
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, health, family, pet_type, move_mode, run_speed })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, run_speed })
     }
 }
 
@@ -2880,6 +2891,17 @@ mod entity_tests {
         // (cut short before the scale: none, and the rest still read)
         let short = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x1234), data: hex("003a00204ac80020da154561917f42510f5b4444583a00000000bf70e0f5000000003ead5c330000058809414141414141414100001812410001000100000014000000000005000f0006000a00030003000301003c00000000") }.entity_info().unwrap();
         assert_eq!((short.monster, short.scale, short.unknown_a0), (None, None, Some(0x14)));
+        assert_eq!(short.robe, None);
+        // (the build, the packed word's two bits at 3, and the robe flag, the byte after the scale's short: the first
+        // player is medium, the fourth (a Nanomage male, packed 0x660) thin, neither robed; the fourth with the byte set)
+        let look = |s: &str| {
+            let info = Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x1234), data: hex(s) }.entity_info().unwrap();
+            (info.breed, info.sex, info.fatness, info.robe)
+        };
+        assert_eq!(look("003a00204ac80020da154561917f42510f5b4444583a00000000bf70e0f5000000003ead5c330000058809414141414141414100001812410001000100000014000000000005000f0006000a00030003000301003c0000000000006e001f000000002a80"), (4, 1, 1, Some(0)));
+        let thin = "003a04006aca0000028f45455000424dc7ad4458800000000000bf3504f3800000003f3504f4000006600a4141414141414141410000181249000100010000141b000000000005017d017d017d01e8018001ac0019f81800054f4f4f4f4f7e06420000000000005a007f000000002a80";
+        assert_eq!(look(thin), (3, 2, 0, Some(0)));
+        assert_eq!(look(&thin.replace("5a007f00", "5a007f01")), (3, 2, 0, Some(1)));
     }
 
     /// The original's capture of 2026-10-30, Arete Landing: a Wounded Dockworker is announced sitting on the ground

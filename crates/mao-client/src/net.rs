@@ -1829,6 +1829,14 @@ impl World {
         *crate::ui::TIMERS.lock().unwrap_or_else(|e| e.into_inner()) = self.timer_bars.shown(&self.timers);
     }
 
+    /// A character's `Fatness` stat (47), the build of the body it is drawn with (0 thin, 1 medium, 2 fat: Gamecode
+    /// FUN_100585bf): one's own as its stats have it, another's as its full update said (the packed word's two bits at
+    /// 3, `EntityInfo::fatness`) or a `Stat` message changed it since; 1 for one not announced.
+    fn fatness(&self, id: u32) -> i32 {
+        let announced = self.infos.get(&id).map_or(1, |i| i.fatness as i32);
+        if id == self.own { self.stats.get(&47).map_or(announced, |&v| v as i32) } else { announced }
+    }
+
     /// Another character's own body's scale in percent: the `Scale` stat its full update set (`EntityInfo::scale`: a
     /// player's too since 2026-11-18, before which every other player and humanoid NPC was drawn at 100), not below
     /// 20, which is where `SimpleChar_t`'s SetStat (FUN_1005a3b1) holds stat 360; 100 for one not announced. A player
@@ -2929,6 +2937,10 @@ impl World {
                 };
                 let field = |v: &mao_net::schema::Value, name: &str| v.get(name).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 if let Some(info) = self.infos.get_mut(&m.identity.1) {
+                    // (the message's last byte is the robe flag, FUN_10071bc2 → FUN_10057800: the body is asked for again)
+                    if let Some(robe) = p.value.get("Unknown1").and_then(mao_net::schema::Value::as_int) {
+                        info.robe = Some(robe as u8);
+                    }
                     for t in list("Textures") {
                         if let Some(part) = CLOTH_PARTS.get(field(&t, "Place") as usize) {
                             info.clothes.retain(|(n, _)| n != part);
@@ -4487,6 +4499,11 @@ impl World {
                             self.prop_anim.insert(m.identity.1, (play.unwrap_or(old.0), pos.unwrap_or(old.1), Instant::now()));
                         }
                     }
+                    // (the `Fatness` stat set: the body is asked for again at that build, FUN_1006288f → FUN_1003e464)
+                    let fatness = items.iter().filter(|i| i.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(47)).filter_map(|i| i.get("Item2")?.as_int()).last();
+                    if let (Some(fatness), Some(info)) = (fatness, self.infos.get_mut(&m.identity.1)) {
+                        info.fatness = fatness as u8;
+                    }
                     let health = items.iter().filter(|i| i.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(27)).filter_map(|i| i.get("Item2")?.as_int()).last();
                     if let Some(hp) = health {
                         let id = m.identity.1;
@@ -5179,7 +5196,7 @@ struct Characters {
     /// Instances looked up by (type, name).
     ids: std::collections::HashMap<(u32, String), Option<u32>>,
     /// By (breed, sex): the body, its head and the head's attractor.
-    bodies: std::collections::HashMap<(u8, u8), Option<(mao_formats::catmesh::CatMesh, Model, Option<mao_formats::catmesh::Attractor>)>>,
+    bodies: std::collections::HashMap<(u8, u8, i32, i32), Option<(mao_formats::catmesh::CatMesh, Model, Option<mao_formats::catmesh::Attractor>)>>,
     /// Creatures by NPC template: the template and its CAT mesh.
     creatures: std::collections::HashMap<u32, Option<(mao_formats::npc::Template, mao_formats::catmesh::CatMesh, Option<Model>)>>,
     /// The ones whose death is held at its end from the first frame: remains found lying, which nobody saw fall.
@@ -5234,9 +5251,12 @@ struct Characters {
     /// The breed and sex of each head mesh, by its file name (`bareskin::body_of_head`), for a body the server's word is not at
     /// hand for.
     head_bodies: std::collections::HashMap<u32, (u8, u8)>,
-    /// The body's build (0 small, 1 medium, 2 large: GUI.dll's `CCCharacter_t::ChangeMesh` names the bodies
-    /// `<breed>_<sex>_thin.cir` and `_fat.cir`), where such a body exists; medium for the world's characters.
+    /// The build of the body drawn next (0 small, 1 medium, 2 large: GUI.dll's `CCCharacter_t::ChangeMesh` names the
+    /// bodies `<breed>_<sex>_thin.cir` and `_fat.cir`, and Gamecode's FUN_100585bf takes the world's characters' from
+    /// their `Fatness` stat 47), where such a body exists; set for each character before it is drawn.
     build: i32,
+    /// The robe flag of the body drawn next (FUN_100585bf's +0x208: 1 asks for the `_robe` body).
+    robe: i32,
     /// The vehicle body (an NPC template) a vehicle program gives each body, by (program, body CAT mesh).
     vehicles: std::collections::HashMap<(u32, u32), Option<u32>>,
     /// Each character's attractors on its last posed body, by name: frames in its local space (Y up, the body's scale
@@ -5401,6 +5421,30 @@ struct Motion {
 /// How long a jump is in the air (twice the rise time) and how long the landing plays, in ms.
 const AIR_MS: f32 = 1400.0;
 const LAND_MS: f32 = 350.0;
+
+/// The action a character on a vehicle body (a board's or bike's NPC template) asks its body's set for `ms` into a jump,
+/// as the character's vehicle does for any body: the jump's start (FUN_1006dcdb) plays 0x9c when the movement status
+/// says no move ahead or back (its +8 at 1; a sidestep alone is none) and 0x9d otherwise (FUN_1006d8f6, looping on
+/// layer 2 until the landing), whose variants are a hoverboard's three tricks; the landing (FUN_1006dd6a) by the
+/// movement mode (+4): 0xb9 walking, 0xba running, and with no move ahead or back 0xbb (or 0xb9 when its +0x10 is 2,
+/// not followed here: what that field holds was not read), a board's run. None once landed. The times in the air and
+/// of the landing are the client's own, as for a player's jump (`AIR_MS`, `LAND_MS`).
+fn vehicle_jump_action(ms: f32, moving: Option<mao_formats::appearance::Action>) -> Option<u32> {
+    use mao_formats::appearance::Action::{Run, RunBack, StrafeLeft, StrafeRight};
+    let ahead = moving.filter(|a| !matches!(a, StrafeLeft | StrafeRight));
+    if ms < AIR_MS {
+        Some(if ahead.is_some() { 0x9d } else { 0x9c })
+    } else if ms < AIR_MS + LAND_MS {
+        Some(match ahead {
+            Some(Run | RunBack) => 0xba,
+            Some(_) => 0xb9,
+            None => 0xbb,
+        })
+    } else {
+        None
+    }
+}
+
 /// The playback rate of a movement animation, as the original's FUN_1007009f: the calibration factor of the mesh and animation
 /// (`Setupf/animcalibration.txt`), times 100 over the character's scale (stat 360), times the speed over the action's reference
 /// speed; over 1.3 it is held at 1.3 when the character moves faster than 4 units a second.
@@ -5655,7 +5699,7 @@ impl Characters {
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
         let head_races = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, name, instance)| (instance, crate::bareskin::race_of_head(name))).collect();
         let head_bodies = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).filter_map(|(_, name, instance)| Some((instance, crate::bareskin::body_of_head(name)?))).collect();
-        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, build: 1, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default(), creature_last: Default::default() })
+        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, build: 1, robe: 0, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default(), creature_last: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -5946,11 +5990,12 @@ impl Characters {
     }
 
     /// The vehicle body a vehicle program (`nano`) puts a character of this breed and sex on: the NPC template of its `ChangeMesh`
-    /// spell whose criteria the body meets (`mao_formats::item::vehicle_template`). The character's own mesh is the breed's
-    /// plain body (the thin, fat and robed ones the spells also name are not drawn here).
+    /// spell whose criteria the body meets (`mao_formats::item::vehicle_template`). The character's own mesh is its body
+    /// at the build and robe set (`body_instance`, the mesh stat 12 the spells' criteria test: a robed body rides a
+    /// board of its own).
     fn vehicle(&mut self, nano: u32, breed: u8, sex: u8) -> Option<u32> {
         use mao_formats::resource::Id;
-        let mesh = self.find_cached(0xf6952, mao_formats::appearance::player_meshes(breed, sex)?.0)?;
+        let mesh = self.body_instance(breed, sex)?;
         let db = self.db.clone();
         *self.vehicles.entry((nano, mesh)).or_insert_with(|| {
             let data = db.get(Id { kind: 0xfde85, instance: nano }).ok()??;
@@ -5966,15 +6011,22 @@ impl Characters {
     /// template's stats on the character, among them its `Mesh` (12), so the body is the template's; the animations follow
     /// the template's list). The board's body has no head of its own: the rider keeps the character's head (and worn
     /// meshes) on the body's head attractor, and its clothes by material name.
-    fn vehicle_parts(&mut self, id: u32, breed: u8, sex: u8, template: u32, moving: Option<mao_formats::appearance::Action>, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>) -> Option<Vec<Part>> {
+    fn vehicle_parts(&mut self, id: u32, breed: u8, sex: u8, template: u32, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let db = self.db.clone();
         self.ensure_body(breed, sex);
         self.creatures.entry(template).or_insert_with(|| load_template(&db, template));
         let action = moving.unwrap_or(mao_formats::appearance::Action::Idle);
+        // (a jump asks the body's own set, as a player's does: `vehicle_jump_action`; the board's are its tricks, the
+        // bike has none and goes on with what plays)
+        let jump = jumped.and_then(|since| vehicle_jump_action(since.as_secs_f32() * 1000.0, moving));
         let (candidates, start, mesh_id) = {
             let (record, _, _) = self.creatures.get(&template)?.as_ref()?;
-            (record.animation_candidates(action, id), record.start_candidates(action, id), record.mesh.unwrap_or(0))
+            let candidates = match jump {
+                Some(key) => record.variant(key, id).map(|anim| vec![(key, anim)]).unwrap_or_default(),
+                None => record.animation_candidates(action, id),
+            };
+            (candidates, record.start_candidates(action, id), record.mesh.unwrap_or(0))
         };
         // (the first of the action's animations the database really holds; none along the original's fallbacks, the one
         // playing goes on, FUN_1006c370; none ever, the client's own start, `start_candidates`)
@@ -6015,7 +6067,8 @@ impl Characters {
         let key = match self.movement_keys.get(&id) {
             // (a kept animation is not started again: it goes on as it plays)
             Some(&playing) if kept && playing.2 == anim => playing,
-            _ => (action, 20, anim),
+            // (the jump and the landing each start their animation anew, from its beginning)
+            _ => (action, jump.map_or(20, |key| key as u8), anim),
         };
         if self.movement_keys.get(&id) != Some(&key) {
             let handle = stack.set_animation(anim, 0, -1, 2, 0, 1.0, length);
@@ -6044,7 +6097,7 @@ impl Characters {
         }
         over_the_skin(&mut self.ids, &self.index, &mut parts, breed, sex, race_by_head(&self.head_races, gear).unwrap_or(1));
         let custom_head = gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED || (g.0 == 0 && self.head_meshes.contains(&g.1)));
-        if let (Some(Some((_, head, _))), Some(attractor), false) = (self.bodies.get(&(breed, sex)), mesh.attractor_named("Attractor01_head"), custom_head) {
+        if let (Some(Some((_, head, _))), Some(attractor), false) = (self.bodies.get(&(breed, sex, self.build, self.robe)), mesh.attractor_named("Attractor01_head"), custom_head) {
             parts.extend(mesh.attach(&bones, attractor, head));
         }
         parts.extend(wear(&db, &mut self.statics, mesh, &bones, gear));
@@ -6059,20 +6112,28 @@ impl Characters {
         Some(parts)
     }
 
-    /// The breed's and sex's body, its default head and the head's attractor, loaded once.
+    /// The body's CAT mesh for the breed and sex at the build and robe set (`build`, `robe`): the first of the names the
+    /// original asks for (Gamecode FUN_100585bf → FUN_1005853e, `appearance::body_names`) that the database has. Where
+    /// it has none the original keeps the mesh the character had, at first the breed's plain body (FUN_10057a2e), which
+    /// is what is taken here. (Stat 888's `_hires` / `_lores` bodies are in no database, so the detail is left at 0.)
+    fn body_instance(&mut self, breed: u8, sex: u8) -> Option<u32> {
+        let names = mao_formats::appearance::body_names(breed, sex, self.build, self.robe, 0).unwrap_or_default();
+        names.iter().find_map(|name| self.find_cached(0xf6952, name)).or_else(|| self.find_cached(0xf6952, mao_formats::appearance::player_meshes(breed, sex)?.0))
+    }
+
+    /// The breed's and sex's body at the build and robe set, its default head and the head's attractor, loaded once.
     fn ensure_body(&mut self, breed: u8, sex: u8) {
         use mao_formats::resource::Id;
+        let key = (breed, sex, self.build, self.robe);
+        if self.bodies.contains_key(&key) {
+            return;
+        }
+        let instance = self.body_instance(breed, sex);
         let db = self.db.clone();
         let index = &self.index;
-        let build = self.build;
-        self.bodies.entry((breed, sex)).or_insert_with(|| {
-            let (body_name, head_name) = mao_formats::appearance::player_meshes(breed, sex)?;
-            let built = match build {
-                0 => index.find(0xf6952, &body_name.replace(".cir", "_thin.cir")),
-                2 => index.find(0xf6952, &body_name.replace(".cir", "_fat.cir")),
-                _ => None,
-            };
-            let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: built.or_else(|| index.find(0xf6952, body_name))? }).ok()??).ok()?;
+        self.bodies.entry(key).or_insert_with(|| {
+            let (_, head_name) = mao_formats::appearance::player_meshes(breed, sex)?;
+            let body = mao_formats::catmesh::parse(&db.get(Id { kind: 0xf6952, instance: instance? }).ok()??).ok()?;
             // (breed 5's body has no head: head mesh 0, FUN_10057a2e)
             let head = match head_name {
                 Some(head_name) => crate::load_model_attached(&db, Id { kind: 0xf6951, instance: index.find(0xf6951, head_name)? }).ok()?,
@@ -6384,14 +6445,15 @@ impl Characters {
     /// `vehicle`: the vehicle body (NPC template) a vehicle program puts the character on, drawn instead of its own.
     fn parts(&mut self, id: u32, breed: u8, sex: u8, moving: Option<mao_formats::appearance::Action>, jumped: Option<Duration>, _phase: f32, speed: f32, scale: f32, textures: &[(String, u32)], clothes: &[(String, u32)], gear: &[(u8, u32, u32)], social: Option<(&str, Instant)>, swing: Option<(u32, u32, Instant, u32, u32)>, weapon: Option<(u32, u32)>, fighting: bool, dying: Option<u32>, deform: Option<(&mao_formats::gfx::Deform, f32)>, vehicle: Option<u32>) -> Option<Vec<Part>> {
         if let Some(template) = vehicle {
-            if let Some(parts) = self.vehicle_parts(id, breed, sex, template, moving, speed, scale, textures, clothes, gear, deform) {
+            if let Some(parts) = self.vehicle_parts(id, breed, sex, template, moving, jumped, speed, scale, textures, clothes, gear, deform) {
                 return Some(parts);
             }
         }
         // The movement plays at the original's rate for this body, animation and speed.
         let rate = match moving.and_then(|a| a.reference_speed().map(|r| (a, r))) {
             Some((a, reference)) => {
-                let body = mao_formats::appearance::player_meshes(breed, sex).and_then(|(body, _)| self.find_cached(0xf6952, body)).unwrap_or(0);
+                // (the calibration is the body's own, the mesh stat 12 FUN_1007009f reads: a thin or fat body has none)
+                let body = self.body_instance(breed, sex).unwrap_or(0);
                 let name = mao_formats::appearance::animation_name(breed, sex, a);
                 let anim = self.find_cached(0xf6953, &name).unwrap_or(0);
                 movement_rate(crate::effects::calibration(body, anim), scale, speed, reference)
@@ -6466,7 +6528,7 @@ impl Characters {
         let dt = self.stack_tick(id);
         let db = self.db.clone();
         self.ensure_body(breed, sex);
-        let (body, head, attractor) = self.bodies.get(&(breed, sex))?.as_ref()?;
+        let (body, head, attractor) = self.bodies.get(&(breed, sex, self.build, self.robe))?.as_ref()?;
         let bones = {
             let (stack, _) = self.stacks.get_mut(&id)?;
             stack.advance(dt);
@@ -6822,6 +6884,11 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (one's own character runs or walks by its mode, as the original's FUN_1006c370 does; the others by theirs too
             // where it is known, else by their speed)
             let running = if id == world.own { !world.own_walking } else { world.runs(id, speed) };
+            // (the body's build and robe, as FUN_100585bf asks for the body: the `Fatness` stat 47, which the full update
+            // sets (FUN_1007835c from the packed word) and a `Stat` message changes (FUN_1006288f → FUN_1003e464), and
+            // the robe flag of the full update and the appearance update (FUN_10057800))
+            chars.build = world.fatness(id);
+            chars.robe = info.robe.unwrap_or(0) as i32;
             // (a character running a vehicle program rides its board or bike)
             let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
             // (fly mode: one's own as the game loop has it; another's only when the server's spell list said so, `flying`.
@@ -9889,8 +9956,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         // more than 5 m apart: FUN_1005a1e7, told `Feedback_TargetOutsideRangeForTrade`)
                         let mut sphere_of = |who: u32, scale: f32| {
                             characters.as_mut().zip(state.infos.get(&who)).and_then(|(c, i)| {
+                                (c.build, c.robe) = (state.fatness(who), i.robe.unwrap_or(0) as i32);
                                 c.ensure_body(i.breed, i.sex);
-                                let packed = c.bodies.get(&(i.breed, i.sex))?.as_ref()?.0.colour;
+                                let packed = c.bodies.get(&(i.breed, i.sex, c.build, c.robe))?.as_ref()?.0.colour;
                                 Some(crate::hazards::body_sphere(packed, scale))
                             })
                         };
@@ -10955,8 +11023,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let built = Instant::now();
                 // (the character's body sphere, as for a mine: its breed's and sex's mesh, by its scale)
                 let own_sphere = characters.as_mut().zip(state.infos.get(&own)).and_then(|(c, i)| {
+                    (c.build, c.robe) = (state.fatness(own), i.robe.unwrap_or(0) as i32);
                     c.ensure_body(i.breed, i.sex);
-                    let packed = c.bodies.get(&(i.breed, i.sex))?.as_ref()?.0.colour;
+                    let packed = c.bodies.get(&(i.breed, i.sex, c.build, c.robe))?.as_ref()?.0.colour;
                     Some(crate::hazards::body_sphere(packed, state.stats.get(&360).map_or(1.0, |&s| s as f32 / 100.0)))
                 });
                 state.tick_doors(position, own_sphere.unwrap_or(NO_MESH_SPHERE));
@@ -11060,8 +11129,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     let turned = second_ticks.step();
                     if state.hazards.map.values().any(|h| h.kind == crate::hazards::Kind::Mine) {
                         let own_sphere = state.infos.get(&own).and_then(|i| {
+                            (c.build, c.robe) = (state.fatness(own), i.robe.unwrap_or(0) as i32);
                             c.ensure_body(i.breed, i.sex);
-                            let packed = c.bodies.get(&(i.breed, i.sex))?.as_ref()?.0.colour;
+                            let packed = c.bodies.get(&(i.breed, i.sex, c.build, c.robe))?.as_ref()?.0.colour;
                             let scale = state.stats.get(&360).map_or(1.0, |&s| s as f32 / 100.0);
                             Some(crate::hazards::body_sphere(packed, scale))
                         });
@@ -11339,7 +11409,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         // (the body the ring is fitted to: breed, sex and the fatness stat 47)
                         let body = |id: u32| -> Option<(i32, i32, i32)> {
                             let info = state.infos.get(&id)?;
-                            let fatness = if id == own { state.stats.get(&47).copied().unwrap_or(1) as i32 } else { 1 };
+                            let fatness = if id == own { state.stats.get(&47).copied().unwrap_or(1) as i32 } else { info.fatness as i32 };
                             Some((info.breed as i32, info.sex as i32, fatness))
                         };
                         // (the spell lists' effects on each character, keyed apart from the programs by the top bit)
@@ -14697,6 +14767,67 @@ mod movement_tests {
         let hovering = chars.parts(2, 1, MALE, movement_action(Mode::Fly, false, 0, false), None, 0.0, 0.0, 100.0, &[], &[], &[], None, None, None, false, None, None, None).unwrap();
         assert_eq!(chars.movement_keys.get(&2).map(|k| k.0), Some(Action::Hover));
         assert_ne!(lowest(&standing), lowest(&hovering));
+    }
+
+    /// `MAO_GAME`: a world character's body is the one FUN_100585bf asks for by its `Fatness` stat and robe flag (the
+    /// thin, fat and robed bodies of every breed are in the database), and each build is a body of its own, drawn.
+    #[test]
+    fn a_characters_body_follows_its_build() {
+        use mao_formats::appearance::{ATROX, FEMALE, MALE, NANOMAGE};
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let mut chars = Characters::new(db).unwrap();
+        let named: Vec<Option<u32>> = ["solitus_male.cir", "solitus_male_thin.cir", "nanomage_female_fat.cir", "athrox_male_fat_robe.cir"].iter().map(|n| chars.index.find(0xf6952, n)).collect();
+        assert!(named.iter().all(Option::is_some));
+        let mut body = |breed: u8, sex: u8, build: i32, robe: i32| {
+            (chars.build, chars.robe) = (build, robe);
+            chars.body_instance(breed, sex)
+        };
+        assert_eq!(body(1, MALE, 1, 0), named[0]);
+        assert_eq!(body(1, MALE, 0, 0), named[1]);
+        assert_eq!(body(NANOMAGE, FEMALE, 2, 0), named[2]);
+        assert_eq!(body(ATROX, 1, 2, 1), named[3]);
+        // (a build with no name of its own is the medium body)
+        assert_eq!(body(1, MALE, 3, 0), named[0]);
+        // (each build its own body in the cache, and posed)
+        for build in 0..3 {
+            (chars.build, chars.robe) = (build, 0);
+            assert!(chars.parts(10 + build as u32, 1, FEMALE, None, None, 0.0, 0.0, 100.0, &[], &[], &[], None, None, None, false, None, None, None).is_some());
+        }
+        assert_eq!(chars.bodies.keys().filter(|k| k.0 == 1 && k.1 == FEMALE).count(), 3);
+    }
+
+    /// A jump on a vehicle body: the standing jump 0x9c, the moving one 0x9d (a sidestep alone is standing), the landings
+    /// 0xbb, 0xb9 and 0xba by the movement, nothing once landed (FUN_1006dcdb, FUN_1006dd6a). `MAO_GAME`: a Phasefront
+    /// hoverboard's body (template 270044) plays one of its tricks in the air and its run on landing; a hoverbike's
+    /// (270812) has no jump and goes on with what plays.
+    #[test]
+    fn a_vehicle_jumps_with_its_bodys_animations() {
+        use mao_formats::appearance::Action::*;
+        assert_eq!(vehicle_jump_action(0.0, None), Some(0x9c));
+        assert_eq!(vehicle_jump_action(500.0, Some(StrafeLeft)), Some(0x9c));
+        assert_eq!(vehicle_jump_action(500.0, Some(Run)), Some(0x9d));
+        assert_eq!(vehicle_jump_action(500.0, Some(WalkBack)), Some(0x9d));
+        assert_eq!(vehicle_jump_action(AIR_MS + 1.0, None), Some(0xbb));
+        assert_eq!(vehicle_jump_action(AIR_MS + 1.0, Some(Walk)), Some(0xb9));
+        assert_eq!(vehicle_jump_action(AIR_MS + 1.0, Some(RunBack)), Some(0xba));
+        assert_eq!(vehicle_jump_action(AIR_MS + LAND_MS, Some(Run)), None);
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let mut chars = Characters::new(db).unwrap();
+        let tricks = [269085, 269086, 269087];
+        let playing = |chars: &Characters, id: u32| chars.movement_keys.get(&id).map(|k| (k.1, k.2));
+        assert!(chars.vehicle_parts(1, 1, mao_formats::appearance::MALE, 270044, None, Some(Duration::from_millis(100)), 0.0, 100.0, &[], &[], &[], None).is_some());
+        assert!(playing(&chars, 1).is_some_and(|(tag, anim)| tag == 0x9c && tricks.contains(&anim)), "{:?}", playing(&chars, 1));
+        chars.vehicle_parts(1, 1, mao_formats::appearance::MALE, 270044, Some(Run), Some(Duration::from_millis(1500)), 8.0, 100.0, &[], &[], &[], None).unwrap();
+        assert_eq!(playing(&chars, 1), Some((0xba, 269079)));
+        chars.vehicle_parts(1, 1, mao_formats::appearance::MALE, 270044, Some(Run), Some(Duration::from_millis(3000)), 8.0, 100.0, &[], &[], &[], None).unwrap();
+        assert_eq!(playing(&chars, 1).map(|p| p.0), Some(20));
+        // (the bike: standing, then a jump keeps its standing animation playing)
+        chars.vehicle_parts(2, 1, mao_formats::appearance::MALE, 270812, None, None, 0.0, 100.0, &[], &[], &[], None).unwrap();
+        let before = playing(&chars, 2);
+        chars.vehicle_parts(2, 1, mao_formats::appearance::MALE, 270812, None, Some(Duration::from_millis(100)), 0.0, 100.0, &[], &[], &[], None).unwrap();
+        assert_eq!(playing(&chars, 2), before);
     }
 
     /// `MAO_GAME`: a Yalmaha's wear list sets the body's `Scale` to 20 for as long as it is worn, and adds 300 `RunSpeed`

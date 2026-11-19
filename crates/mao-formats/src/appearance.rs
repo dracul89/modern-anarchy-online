@@ -31,6 +31,49 @@ pub fn player_meshes(breed: u8, sex: u8) -> Option<(&'static str, Option<&'stati
     })
 }
 
+/// The body (a CAT mesh's file name) the original asks for a character of breed 1 to 4 once its look changes (Gamecode
+/// FUN_100585bf → FUN_100583fa): `<breed>_<sex>`, a neuter (1) taken as a male, then `_thin` for the `Fatness` stat
+/// (47) 0 or `_fat` for 2, `_robe` when the robe flag (the full update's byte at +0x32e, the appearance update's last
+/// byte) is 1, `_hires` or `_lores` for stat 888 at 1 or 2, and `.cir`. When the database has no such body and the
+/// name has the last part, FUN_1005853e asks once more without it; that second name is the list's second. None for a
+/// breed or sex with no name (FUN_100585bf leaves breeds above 4 alone).
+pub fn body_names(breed: u8, sex: u8, fatness: i32, robe: i32, detail: i32) -> Option<Vec<String>> {
+    let breed = match breed {
+        SOLITUS => "solitus",
+        OPIFEX => "opifex",
+        NANOMAGE => "nanomage",
+        ATROX => "athrox",
+        _ => return None,
+    };
+    let sex = match sex {
+        1 | MALE => "male",
+        FEMALE => "female",
+        _ => return None,
+    };
+    let name = |detail: i32| {
+        let mut name = format!("{breed}_{sex}");
+        match fatness {
+            0 => name.push_str("_thin"),
+            2 => name.push_str("_fat"),
+            _ => {}
+        }
+        if robe == 1 {
+            name.push_str("_robe");
+        }
+        match detail {
+            1 => name.push_str("_hires"),
+            2 => name.push_str("_lores"),
+            _ => {}
+        }
+        name + ".cir"
+    };
+    let mut names = vec![name(detail)];
+    if detail != 0 {
+        names.push(name(0));
+    }
+    Some(names)
+}
+
 /// What a character is doing, as far as the animation choice goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -267,5 +310,19 @@ mod tests {
             assert_eq!(action_animation_names(breed, sex, HOVER_ACTION).unwrap().0[0], file);
         }
         assert_eq!(Action::Hover.reference_speed(), None);
+    }
+
+    /// FUN_100583fa's body names: breed, sex (neuter as male), the build, the robe, the detail; FUN_1005853e's second try
+    /// without the detail.
+    #[test]
+    fn the_body_names() {
+        assert_eq!(body_names(SOLITUS, MALE, 1, 0, 0).unwrap(), ["solitus_male.cir"]);
+        assert_eq!(body_names(NANOMAGE, FEMALE, 0, 0, 0).unwrap(), ["nanomage_female_thin.cir"]);
+        assert_eq!(body_names(OPIFEX, MALE, 2, 1, 0).unwrap(), ["opifex_male_fat_robe.cir"]);
+        assert_eq!(body_names(ATROX, 1, 1, 1, 0).unwrap(), ["athrox_male_robe.cir"]);
+        assert_eq!(body_names(SOLITUS, FEMALE, 3, 2, 2).unwrap(), ["solitus_female_lores.cir", "solitus_female.cir"]);
+        assert_eq!(body_names(SOLITUS, FEMALE, 0, 1, 1).unwrap(), ["solitus_female_thin_robe_hires.cir", "solitus_female_thin_robe.cir"]);
+        assert_eq!(body_names(5, 1, 1, 0, 0), None);
+        assert_eq!(body_names(SOLITUS, 0, 1, 0, 0), None);
     }
 }
