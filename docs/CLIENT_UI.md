@@ -7440,3 +7440,7 @@ The client's own plant motion (a sway in the wind, stronger towards the top, and
 ### Generic particle emitter draws its template's own numbers (RND-191)
 
 The generic emitter (kinds 1003 and 1005-1008, used by the `MAO_CAST` preview) used to dim dense clouds by their coverage, scatter particles round their origin and clamp life, size and count. It now draws the template's own life, rate, sizes and colours, as the original's emitters run by their template.
+
+### Hit effects keep their own fading (RND-192)
+
+A nano's hit effect used to have its particles eased in over the first 0.1 s and out over the last 0.4 s of the client's landing window. That fade of the client's own is gone: the particles show as their template fades them, as the original's hit effects do.

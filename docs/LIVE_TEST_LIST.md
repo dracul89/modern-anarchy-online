@@ -1081,6 +1081,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Cast a nano on yourself and on a target: no coloured rings, the program's own hit effect still shows.
 - [ ] Outdoors in an area without fog (e.g. a clear desert): the far hills are drawn clear to the view distance, no haze; in a fogged area the fog is as before.
 - [ ] Walk through grass and past trees (e.g. a park in a city): nothing bends away; plants with an animation of their own move by it, the rest stand still.
+- [ ] Cast a damage nano with a particle hit effect: the hit's sparks appear at full strength on landing and fade by the effect's own timing.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

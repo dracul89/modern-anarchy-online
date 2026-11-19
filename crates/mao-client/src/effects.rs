@@ -3008,17 +3008,13 @@ impl Shot {
             }
         }
         let landed = if travelling { age - FLIGHT } else { age };
+        // (the hit's particles as its own controls fade them: no fade in or out of the client's own)
         if let (Some(hit), true) = (&self.hit, landed >= 0.0 && landed < LANDING) {
-            let fade = (((LANDING - landed) / 0.4).min(1.0)).max(0.0) * (landed / 0.1).min(1.0);
             let from_body = match (hit, &body) {
                 (Visual::Stars(s), Some(b)) if s.mode == 15 => Some(stars_off_body(s, b, landed)),
                 _ => None,
             };
-            let parts = from_body.unwrap_or_else(|| visual_particles(hit, [self.to[0], self.to[1], self.to[2] - 1.0], landed, Reach::Medium));
-            for mut p in parts {
-                p.colour[3] *= fade;
-                out.push(p);
-            }
+            out.extend(from_body.unwrap_or_else(|| visual_particles(hit, [self.to[0], self.to[1], self.to[2] - 1.0], landed, Reach::Medium)));
         }
         out
     }
@@ -3540,6 +3536,10 @@ mod tests {
         assert!(at.iter().all(|p| p.size <= 0.55 + 1e-4 && p.size >= 0.1 * 0.5 - 1e-4));
         // a shot's hit uses the body when it is known, and a ring when not
         let shot = Shot { from: [0.0; 3], to: [1.0, 0.0, 1.2], tracer: None, hit: Some(Visual::Stars(s.clone())) };
+        // (just landed, the hit's own stars as their template fades them: the client adds no fade of its own)
+        let own = stars_off_body(&s, &body, (FLIGHT + 0.05) - FLIGHT);
+        assert!(own.iter().any(|p| p.colour[3] > 0.0));
+        assert_eq!(shot.particles(FLIGHT + 0.05, Some(body)), own);
         let with = shot.particles(FLIGHT + 0.3, Some(body));
         assert!(!with.is_empty() && with.iter().all(|p| p.position[1] == 0.0));
         assert!(!shot.particles(FLIGHT + 0.3, None).is_empty());

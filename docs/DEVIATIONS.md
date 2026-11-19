@@ -8534,7 +8534,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: hit particles' alpha multiplied by a fade over the last 0.4 s and first 0.1 s
 - A player notices: hit particles ease in and out
 - Where: `crates/mao-client/src/effects.rs:2981`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): `effects::Shot::particles` no longer multiplies a landed hit's particles' alpha by a fade over the first 0.1 s and the last 0.4 s of the client's landing window: the hit's particles (`visual_particles`, or Stars mode 15 thrown off the body) keep the alpha their own template and controls give them, as the original's hit effects (the program's HitEffectType) end as their own controls fade them. The landing window itself (`LANDING`, 1.4 s, or the hit's own length) is unchanged. Test: `effects::tests::stars_mode_15_fly_off_the_body_s_surface_along_its_normals` now also checks that a hit just landed (0.05 s, where the old fade-in halved the alpha) is its template's own stars.
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original's hit effects end as their own controls fade them; an extra fade in and out changes their look.
 
 #### `RND-193` Textures block-compressed on the card, on by default
