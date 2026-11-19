@@ -17,9 +17,10 @@ pub const CREATE_CHARACTER: u32 = 0x0f;
 pub const CREATE_REFUSED: u32 = 0x10;
 pub const CREATED: u32 = 0x11;
 pub const SUGGEST_NAME: u32 = 0x55;
-/// Deleting a character: system message 0x14 with its id, answered by 0x15 with the same id (aosharp's
-/// `DeleteCharacterMessage` / `CharacterDeletedMessage`; the Arete Landing capture's `00000014 7afc16a7` and
-/// `00000015 7afc16a7`).
+/// Deleting a character: system message 0x14 with its id, answered by 0x15 with the same id (the original's
+/// Interfaces.dll `Client_t::DeleteCharacter` 0x10001a67 sends 0x14 with `s_nCharID`; `Client_t::ProcessMessage`
+/// 0x10002a9e takes 0x15 at 0x10002e71; aosharp's `DeleteCharacterMessage` / `CharacterDeletedMessage` and the Arete
+/// Landing capture's `00000014 7afc16a7` and `00000015 7afc16a7` agree).
 pub const DELETE_CHARACTER: u32 = 0x14;
 pub const CHARACTER_DELETED: u32 = 0x15;
 pub const SUGGESTED_NAME: u32 = 0x56;

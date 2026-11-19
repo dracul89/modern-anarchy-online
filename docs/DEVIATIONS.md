@@ -8425,7 +8425,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: delete character (0x14, 0x15) is named from AOSharp's messages and the Arete capture, not the original's code
 - A player notices: none visible
 - Where: `crates/mao-net/src/create.rs:20`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Checked against the original: Interfaces.dll `Client_t::DeleteCharacter` 0x10001a67 builds system message 0x14 with `s_nCharID` (push 0x14 at 0x10001aa9), and `Client_t::ProcessMessage` 0x10002a9e handles 0x15 at 0x10002e71 (with `s_nCharID`, telling its listeners). The client's 0x14 / 0x15 are the original's; only the comment in `mao_net::create` now names the original's functions (comment-only commit).
 
 #### `LCH-024` Creation timings and text details are guesses or not done
 
