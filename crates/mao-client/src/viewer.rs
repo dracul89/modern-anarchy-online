@@ -113,8 +113,7 @@ pub struct Input {
     pub char_distance: f32,
     /// Take everything from a corpse when it opens (a setting).
     pub auto_loot: bool,
-    /// An item to take from the open container: a counter that steps with each, the container's handle and the item's place
-    /// (`u32::MAX` for all of them).
+    /// An item to take from the open container: a counter that steps with each, the container's handle and the item's place.
     pub take: (u8, u32, u32),
     /// An inventory item to put in the open container: a counter that steps with each, the container's identity and the item's place.
     pub put: (u8, u32, u32, u32),
@@ -3147,12 +3146,6 @@ impl ApplicationHandler for App {
                             }
                             crate::loot::Take::Delete { handle, place, low, high } => {
                                 self.keys.bag_delete = (self.keys.bag_delete.0.wrapping_add(1), handle, place, low, high);
-                            }
-                            crate::loot::Take::All { handle } => {
-                                self.keys.take = (self.keys.take.0.wrapping_add(1), handle, u32::MAX);
-                                if let Some(loot) = self.hud.loot.iter_mut().find(|l| l.handle == handle) {
-                                    loot.items.clear();
-                                }
                             }
                         }
                     }

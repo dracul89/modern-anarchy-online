@@ -10131,11 +10131,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let id = if kind == crate::loot::BANK { own } else { id };
                 let _ = connection.send(&n3::container_add_item(own, (kind, id), (0x68, from)));
             }
-            // An item taken from the open container (or all of them).
+            // An item taken from the open container.
             if keys.take.0 != take_seen {
                 take_seen = keys.take.0;
                 let (_, handle, place) = keys.take;
-                let places: Vec<u32> = if place == u32::MAX { state.loots.iter().filter(|l| l.handle == handle).take(1).flat_map(|l| l.entries.iter().map(|e| e.slot)).collect() } else { vec![place] };
+                let places: Vec<u32> = vec![place];
                 // (the bank's items by its own way of naming them: only when it is the bank's window that asks, handle 0)
                 let bank = state.loots.iter().find(|l| l.identity.0 == crate::loot::BANK && l.handle == handle).map(|l| l.entries.clone());
                 // (out of the overflow: `N3Msg_MoveItemToInventory((0x6e, place), 1, 0x6f)`, Gamecode 0x10027bac; nothing

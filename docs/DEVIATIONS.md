@@ -2828,7 +2828,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Corpses, chests and the overflow list (anything not one's own, not bank or organization) have a "Take all" button.
 - A player notices: All items can be looted with one click.
 - Where: `crates/mao-client/src/loot.rs:276`; `docs/CLIENT_UI.md:3701`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): Removed the "Take all" button from corpse, chest and overflow windows (loot.rs), its `Take::All` request, the viewer's handling and the net thread's "place u32::MAX = every item" branch; the window no longer reserves the button's row. As the original's container window (GUI.dll `InventoryView_c` FUN_100ccefe, `ItemContainerView_c` FUN_100ce55d: the list only), an item is taken by a click, one at a time (FUN_100cc6e8). The `auto_loot` option (INV-079) is untouched. Tests: `loot` (10 pass).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: GUI.dll's container window has no "Take all" button or handler (docs/INVENTORY_ORIGINAL.md section 4, confirmed in `InventoryView_c` FUN_100ccefe / `ItemContainerView_c` FUN_100ce55d, which build only the list), so the button is a visible departure in a window that is to match the original; the corpse case is covered by the `auto_loot` option (INV-079). (If the user wants it kept, it could move behind an option like `auto_loot`.)
 
 #### `INV-081` Tradeskill guide made from item descriptions

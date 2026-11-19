@@ -7389,3 +7389,7 @@ Each message that tells one's own death with a reason says the game's death line
 ### The mission journal's list (NPC-002)
 
 The server's missions are added to the journal as the original adds them (Gamecode FUN_10056cdd: pushed onto the list without looking), so a mission told again is listed again; a zoning empties the list, as the original's new character has none.
+
+### No "Take all" in container windows (INV-080)
+
+The client's own "Take all" button is gone from corpse, chest and overflow windows. As in the original (GUI.dll `InventoryView_c` FUN_100ccefe, `ItemContainerView_c` FUN_100ce55d, which build only the item list), items are taken one click at a time; the `auto_loot` option still empties a corpse as it opens.

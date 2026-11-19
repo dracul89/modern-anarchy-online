@@ -3,7 +3,8 @@
 //! `item_position_map` places them three to a row, 21 places), titled with the container's name; a corpse or chest that
 //! is empty closes a second later (its `EventTimer_c` started for 1 000 000 µs). An item is taken by a click (the
 //! list's pick-up signal, which a container that is not one's own answers with `MoveItemToInventory`: FUN_100cc6e8),
-//! by a right click (not on a corpse), or all of them at once. In one's own backpack and the bank a click takes the item up instead
+//! or by a right click (not on a corpse), one at a time: the window has no "Take all" (its views are the list alone,
+//! FUN_100ccefe, FUN_100ce55d). In one's own backpack and the bank a click takes the item up instead
 //! (the same function's `BeginDrag`): it stays on the pointer until the next click, which over the inventory window
 //! takes it out. Shift+click shows an item's info.
 //!
@@ -12,7 +13,7 @@
 //! three to a row, titled with the bag's name, which the window's menu (FUN_100cbace) can change ("Rename":
 //! FUN_100cb852's "Enter backpack name." box with OK, "Reset to default" and Cancel; the original keeps the name in
 //! the bag's own file, `Containers/Container_<type>x<instance>.xml`, here in `backpacks.ini` beside `mao.ini`). It
-//! does not close when empty and has no "Take all". Its items stand where they are put (`item_position_map`; here
+//! does not close when empty. Its items stand where they are put (`item_position_map`; here
 //! `places.rs`): the item taken up let go on an empty cell of the same backpack moves there, on another item the two
 //! change cells and the other is in hand (FUN_100cc855; nothing is sent). Stacks join and split inside a backpack as
 //! they do in the inventory (the same handler, FUN_100cc855, serves every item view): a stack let go on another of
@@ -177,7 +178,6 @@ pub const BANK: u32 = 0xdead;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Take {
     One { handle: u32, place: u32 },
-    All { handle: u32 },
     /// An inventory item (its place) dropped on the window: put it in the container.
     Put { identity: (u32, u32), from: u32 },
     /// Two stacks of one's own backpack made one (`N3Msg_JoinItems(onto, held)`): their places in it.
@@ -656,7 +656,7 @@ impl LootWindow {
         // (room for the columns and the scroll bar, and up to six rows: the bank's, or as many as the items fill)
         // (one's own backpack: its 21 places)
         let rows_shown = if view.identity.0 == BANK { 6 } else if view.own { BAG_PLACES / cols } else { view.items.len().div_ceil(cols).clamp(1, 6) };
-        let size = egui::vec2(cols as f32 * crate::gui::multilist::grid::STEP + 2.0 * crate::gui::multilist::grid::BORDER + 32.0, crate::gui::multilist::grid::size(rows_shown * cols, cols).1 + if view.identity.0 == BANK || view.own { 0.0 } else { 26.0 });
+        let size = egui::vec2(cols as f32 * crate::gui::multilist::grid::STEP + 2.0 * crate::gui::multilist::grid::BORDER + 32.0, crate::gui::multilist::grid::size(rows_shown * cols, cols).1);
         // (a backpack's window by its identity, titled with the name the player gave it or the bag's own)
         let name = window_name(view, self.temp);
         let title = if view.own { bag_name(view.identity).unwrap_or_else(|| view.title.clone()) } else { view.title.clone() };
@@ -676,12 +676,8 @@ impl LootWindow {
             tip
         };
         let shown = crate::chrome::window(ctx, palette, &name, &title, &mut open, |w| w.default_pos(crate::layout::pos(&name, at)).default_size(size).resizable(true), |ui| {
-            // (the views over the window less the room of the "Take all" row under them)
-            // (laid out from the bottom: the button first, the views over what is left, so the window does not grow)
+            // (the views over the whole window, laid out from the bottom so the window does not grow)
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                if !view.items.is_empty() && !matches!(view.identity.0, BANK | ORGANIZATION) && !view.own && crate::chrome::button(ui, palette, "Take all", true).clicked() {
-                    take = Some(Take::All { handle: view.handle });
-                }
                 let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
                 // (`MAO_ITEM_TRACE`: where the container's list and each of its items are, in the window's pixels, for a
                 // script's clicks; told when it changes)
