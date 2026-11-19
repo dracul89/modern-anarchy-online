@@ -99,6 +99,25 @@ impl Material {
     }
 }
 
+/// How a character mesh's material treats its texture's alpha. The object's texture list holds a flag for each texture, read
+/// as alpha mode 5 when set and 0 when not (`operator>>(BinaryStream &, TextureData_t &)`, GameData 0x1000c0b4), and given to
+/// the material (randy31's FUN_10040645, by DisplaySystem's FUN_10074b03):
+/// - not `alpha_is_light` (mode 0): blended by the alpha of a texture that has any;
+/// - `alpha_is_light` (mode 5): the alpha of a texture that has any is light added to the lighting, and nothing is blended.
+///
+/// A texture without alpha changes nothing in either, and the material is blended by its opacity alone when that is under
+/// 255/256 (`set_opacity`). A texture a character wears is not light.
+pub fn set_texture_alpha(material: &mut crate::model::Material, alpha_is_light: bool) {
+    use crate::model::Blend;
+    let blend = if material.opacity < 0.996_093_75 { Blend::Alpha } else { Blend::None };
+    material.alpha_ref = None;
+    material.no_z_write = false;
+    material.blend = blend;
+    material.alpha_lights = alpha_is_light;
+    material.ignore_alpha = alpha_is_light || blend == Blend::None;
+    material.blend_by_texture = alpha_is_light || blend == Blend::None;
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Bone {
     pub name: String,
@@ -415,11 +434,14 @@ impl CatMesh {
             for l in &g.lists {
                 let Some(m) = self.materials.get(l.material) else { continue };
                 // The object's texture list names the instance of each texture.
-                let instance = self.textures.iter().find(|t| t.name.eq_ignore_ascii_case(&m.name)).map(|t| t.value1 as u32);
+                let listed = self.textures.iter().find(|t| t.name.eq_ignore_ascii_case(&m.name));
+                let instance = listed.map(|t| t.value1 as u32);
                 let triangles: Vec<u16> = l.indices.iter().copied().filter(|&i| (i as usize) < l.vertices.len()).collect();
                 if triangles.len() < 3 || l.vertices.is_empty() {
                     continue;
                 }
+                let mut material = ModelMaterial { name: m.name.clone(), diffuse: m.diffuse, specular: m.specular, ambient: m.ambient, emissive: m.emissive, opacity: m.opacity, textures: instance.map(|i| vec![(texture_kind, i)]).unwrap_or_default(), foliage: false, two_sided: m.two_sided(), ..Default::default() };
+                set_texture_alpha(&mut material, listed.is_some_and(|t| t.flag != 0));
                 parts.push(Part {
                     name: format!("{}:{}", g.name, m.name),
                     world: swap,
@@ -432,7 +454,7 @@ impl CatMesh {
                         })
                         .collect(),
                     indices: triangles,
-                    material: ModelMaterial { name: m.name.clone(), diffuse: m.diffuse, specular: m.specular, ambient: m.ambient, emissive: m.emissive, opacity: 1.0, textures: instance.map(|i| vec![(texture_kind, i)]).unwrap_or_default(), ignore_alpha: true, alpha_lights: false, foliage: false, two_sided: m.two_sided(), ..Default::default() },
+                    material,
                 });
             }
         }

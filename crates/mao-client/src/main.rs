@@ -54,6 +54,7 @@ mod hall;
 mod dimensions;
 mod dropitem;
 mod picking;
+mod bareskin;
 mod loading;
 mod whiteout;
 mod missionlog;
@@ -274,6 +275,12 @@ impl Textures {
     }
 
     fn decode(&self, kind: u32, instance: u32) -> Option<Texture> {
+        // (what a character wears over its naked skin: `bareskin`)
+        if kind == bareskin::KIND {
+            let ((top_kind, top), naked) = bareskin::pair(instance)?;
+            let top = self.decode(top_kind, top)?;
+            return Some(self.load(0xf695b, naked).and_then(|naked| bareskin::compose(&top, &naked)).unwrap_or(top));
+        }
         // The original falls back through the other texture types when one
         // is missing; try the object itself and then those.
         let order: &[u32] = match kind {
@@ -290,7 +297,7 @@ impl Textures {
         match kind {
             0xf6956 | 0xf6965 | 0xf6966 => texture::decode_ground(&object).ok(),
             mao_formats::item::ICON_TYPE => texture::decode(&object).ok().map(icon_key),
-            _ => texture::decode(&object).ok().map(skin_tint),
+            _ => texture::decode(&object).ok(),
         }
     }
 }
@@ -303,24 +310,8 @@ fn load_cat(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     Ok(cat.rest_model(0xf6954))
 }
 
-/// The game paints a character's skin colour into the pure-green areas of
-/// its textures at runtime; until that colour is known, they get a plain tan.
-fn skin_tint(mut t: Texture) -> Texture {
-    const SKIN: [u8; 3] = [214, 164, 128];
-    for p in t.rgba.chunks_exact_mut(4) {
-        if p[0] < 70 && p[1] > 190 && p[2] < 70 {
-            let shade = p[1] as f32 / 255.0;
-            p[0] = (SKIN[0] as f32 * shade) as u8;
-            p[1] = (SKIN[1] as f32 * shade) as u8;
-            p[2] = (SKIN[2] as f32 * shade) as u8;
-        }
-    }
-    t
-}
-
 /// An icon's pure-green areas are its key, as in the skin's pictures: nothing is drawn there, so the slot an item lies
-/// in shows round it. (Before 2026-11-12 the icons went through [`skin_tint`] like every other texture, and every item
-/// stood on a tan square.) The key is taken with the same room for off-greens as the skin tint has.
+/// in shows round it. The key is taken with some room for off-greens.
 fn icon_key(mut t: Texture) -> Texture {
     for p in t.rgba.chunks_exact_mut(4) {
         if p[0] < 70 && p[1] > 190 && p[2] < 70 {

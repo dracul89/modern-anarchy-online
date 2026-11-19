@@ -224,6 +224,29 @@ struct PartUniform {
     blend: [f32; 4],
 }
 
+/// Remembers whether a texture just decoded has a see-through pixel in its full-size image.
+fn note_see_through(seen: &std::sync::Mutex<std::collections::HashSet<(u32, u32)>>, key: (u32, u32), t: &Texture) {
+    let size = (t.width as usize * t.height as usize * 4).min(t.rgba.len());
+    if t.rgba[..size].chunks_exact(4).any(|p| p[3] < 255) {
+        seen.lock().unwrap_or_else(|e| e.into_inner()).insert(key);
+    }
+}
+
+/// A part whose material goes by its texture ([`mao_formats::model::Material::blend_by_texture`]): a texture with a
+/// see-through pixel has its alpha used as light (unblended) or to blend by; one without is drawn whole.
+fn blend_by_texture(uniform: &mut PartUniform, material: &mao_formats::model::Material, seen: &std::sync::Mutex<std::collections::HashSet<(u32, u32)>>) {
+    if !material.blend_by_texture {
+        return;
+    }
+    let has_alpha = material.textures.first().is_some_and(|key| seen.lock().unwrap_or_else(|e| e.into_inner()).contains(key));
+    match (material.alpha_lights, has_alpha) {
+        (true, true) => uniform.blend[0] = 0.0,
+        (true, false) => uniform.flags[1] = 1.0,
+        (false, true) => (uniform.blend[0], uniform.flags[1]) = (1.0, 0.0),
+        (false, false) => {}
+    }
+}
+
 /// A material's blending for the part's uniform.
 fn blend_of(material: &mao_formats::model::Material) -> [f32; 4] {
     use mao_formats::model::Blend;
@@ -1488,6 +1511,8 @@ pub struct Renderer {
     depth: Option<((u32, u32), u32, wgpu::TextureView)>,
     /// The textures uploaded so far, by (type, instance), kept between uploads.
     textures: std::cell::RefCell<HashMap<(u32, u32), Option<wgpu::TextureView>>>,
+    /// The textures seen so far that have a see-through pixel: what a material of `blend_by_texture` asks.
+    see_through: std::sync::Mutex<std::collections::HashSet<(u32, u32)>>,
     /// The liquid passes' textures, uniform and phases.
     liquid: LiquidResources,
 }
@@ -1756,7 +1781,7 @@ impl Renderer {
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }],
         });
         let liquid = LiquidResources::new(gpu, liquid_bind_layout, &white, &sampler, &fsr_sampler, &sprite_layout);
-        Renderer { shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), culling, binds: std::sync::Mutex::new(HashMap::new()), records_layout, records: None, taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, compress_textures: true, mip_bias: std::env::var_os("MAO_NO_MIP_BIAS").is_none(), sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
+        Renderer { see_through: Default::default(), shadow_cache: None, shadow_pipeline, pipeline_sets, shaders, antialiasing: Antialiasing::default(), culling, binds: std::sync::Mutex::new(HashMap::new()), records_layout, records: None, taa_pipeline, taa_layout, taa_sampler, taa: None, copy_pipeline, timer: GpuTimer::new(gpu), gpu_ms: None, frame: 0, previous: None, sprites: HashMap::new(), sprite_layout, white_sprite, shadow_view, shadow_bind, shadow_layout, shadow_sampler, shadow_size: SHADOW_SIZE, shadows: true, refraction: std::env::var_os("MAO_NO_REFRACTION").is_none(), stats: Stats::default(), render_scale: 1.0, compress_textures: true, mip_bias: std::env::var_os("MAO_NO_MIP_BIAS").is_none(), sharpness: 0.2, fsr_easu, fsr_rcas, fsr_layout, fsr_sampler, fsr: None, samples, msaa: None, started: std::time::Instant::now(), globals_layout, part_layout, sampler, white, format, depth: None, textures: Default::default(), liquid }
     }
 
     /// Puts a model on the GPU. `texture` finds a texture by (type, instance).
@@ -1823,11 +1848,12 @@ impl Renderer {
         let mut cache = self.textures.borrow_mut();
         let mut vertices: Vec<GpuVertex> = Vec::with_capacity((vertex_bytes / stride) as usize);
         let mut indices: Vec<u16> = Vec::with_capacity((index_bytes / 2) as usize);
+        let see_through = &self.see_through;
         let mut parts = Vec::with_capacity(draw_list.len());
         for (index, world) in draw_list {
             let part = &model.parts[index];
             let key = part.material.textures.first().copied();
-            let view = key.and_then(|(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| upload_blocks(gpu, &t, self.compress_textures, false))).clone());
+            let view = key.and_then(|(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| texture(kind, instance).map(|t| { note_see_through(&self.see_through, (kind, instance), &t); upload_blocks(gpu, &t, self.compress_textures, false) })).clone());
             let (base_vertex, first_index) = (vertices.len() as i32, indices.len() as u32);
             let (mut lo, mut hi, mut height) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN), 0.0f32);
             for v in &part.vertices {
@@ -1848,7 +1874,8 @@ impl Renderer {
             let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
             let d = part.material.diffuse;
             let material = &part.material;
-            let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
+            let mut uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
+            blend_by_texture(&mut uniform, material, see_through);
             let bind = texture_bind(&gpu.device, &self.part_layout, &self.sampler, &self.white, &self.binds, key, view.as_ref());
             parts.push(GpuPart {
                 vertices: vertex_buffer.clone(),
@@ -1967,7 +1994,7 @@ impl Renderer {
                 let (base_vertex, first_index) = (v.len() as i32, i.len() as u32);
                 v.extend(part.vertices.iter().map(|v: &Vertex| GpuVertex { position: v.position, normal: v.normal, uv: v.uv, colour: v.colour }));
                 i.extend_from_slice(&part.indices);
-                let view = part.material.textures.first().and_then(|&(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| { let t0 = std::time::Instant::now(); let r = texture(kind, instance).map(|t| upload_blocks(gpu, &t, self.compress_textures, false)); tex_time += t0.elapsed(); tex_count += 1; r }).clone());
+                let view = part.material.textures.first().and_then(|&(kind, instance)| cache.entry((kind, instance)).or_insert_with(|| { let t0 = std::time::Instant::now(); let r = texture(kind, instance).map(|t| { note_see_through(&self.see_through, (kind, instance), &t); upload_blocks(gpu, &t, self.compress_textures, false) }); tex_time += t0.elapsed(); tex_count += 1; r }).clone());
                 // A plant's height (in its own Y-up space) sets how it bends.
                 let height = part.vertices.iter().map(|v| v.position[1]).fold(0.0f32, f32::max);
                 let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
@@ -1996,6 +2023,7 @@ impl Renderer {
             .collect();
         let buffers = &buffers;
         // Each draw's own part (a playfield draws tens of thousands of props): made on every core.
+        let see_through = &self.see_through;
         let geometry = &geometry;
         let build = |slice: &[(usize, [f32; 16])]| -> Vec<GpuPart> {
             slice
@@ -2016,7 +2044,8 @@ impl Renderer {
                     let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
                     let d = model.parts[index].material.diffuse;
                     let material = &model.parts[index].material;
-                    let uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
+                    let mut uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, material.foliage as u32 as f32, *height], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
+                    blend_by_texture(&mut uniform, material, see_through);
                     Some(GpuPart { vertices: vb.clone(), vertex_id: *vertex_id, base_vertex: packed.base_vertex, indices: ib.clone(), index_id: *index_id, first_index: packed.first_index, index_count: packed.count, geometry: packed.id, characters: false, bind: packed.bind.clone(), center, radius, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default(), before: Default::default() })
                 })
                 .collect()

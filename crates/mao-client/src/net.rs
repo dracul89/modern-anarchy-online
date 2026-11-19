@@ -4971,6 +4971,13 @@ struct Characters {
     /// The player head meshes (`head_solitusmale12.abiff` and so on): an appearance update that names one at position 0 replaces
     /// the breed's default head.
     head_meshes: std::collections::HashSet<u32>,
+    /// The race of each head mesh, by its file name (`bareskin::race_of_head`).
+    head_races: std::collections::HashMap<u32, u8>,
+    /// The breed and sex the server says the creature drawn next has (a template has neither), for its skin.
+    creature_body: Option<(u8, u8)>,
+    /// The breed and sex of each head mesh, by its file name (`bareskin::body_of_head`), for a body the server's word is not at
+    /// hand for.
+    head_bodies: std::collections::HashMap<u32, (u8, u8)>,
     /// The body's build (0 small, 1 medium, 2 large: GUI.dll's `CCCharacter_t::ChangeMesh` names the bodies
     /// `<breed>_<sex>_thin.cir` and `_fat.cir`), where such a body exists; medium for the world's characters.
     build: i32,
@@ -5014,6 +5021,30 @@ fn load_template(db: &ResourceDatabase, template: u32) -> Option<(mao_formats::n
     // A humanoid's head is a separate mesh on the body's head attractor.
     let head = record.head.filter(|&h| h != 0).and_then(|h| crate::load_model_attached(db, Id { kind: 0xf6951, instance: h }).ok());
     Some((record, mesh, head))
+}
+
+/// The race of a character by the head its look names (Gamecode FUN_100585bf: stat 89, then the head's own list, FUN_100c316c).
+fn race_by_head(races: &std::collections::HashMap<u32, u8>, gear: &[(u8, u32, u32)]) -> Option<u8> {
+    gear.iter().find(|g| g.0 == 0).and_then(|g| races.get(&g.1).copied())
+}
+
+/// The five body parts of a character of a breed over their naked textures (`bareskin`).
+fn over_the_skin(ids: &mut std::collections::HashMap<(u32, String), Option<u32>>, index: &mao_formats::instances::Instances, parts: &mut [Part], breed: u8, sex: u8, race: u8) {
+    if !(1..=4).contains(&breed) {
+        return;
+    }
+    for part in parts {
+        let name = part.material.name.to_ascii_lowercase();
+        if !crate::bareskin::PARTS.contains(&name.as_str()) {
+            continue;
+        }
+        let Some(&top) = part.material.textures.first() else { continue };
+        let Some(file) = crate::bareskin::naked_name(&name, breed, sex, race) else { continue };
+        let naked = *ids.entry((0xf695b, file)).or_insert_with_key(|(kind, file)| index.find(*kind, file));
+        if let Some(naked) = naked {
+            part.material.textures[0] = crate::bareskin::composed(top, naked);
+        }
+    }
 }
 
 /// Whether a static mesh's file name is a player head (`head_opifexfemale37.abiff`, `head_athrox05.abiff`).
@@ -5338,7 +5369,9 @@ impl Characters {
         let index = mao_formats::instances::Instances::parse(&get(0xf424a, 1)?).map_err(|e| e.to_string())?;
         let _ = get;
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
-        Ok(Characters { head_meshes, build: 1, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default() })
+        let head_races = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, name, instance)| (instance, crate::bareskin::race_of_head(name))).collect();
+        let head_bodies = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).filter_map(|(_, name, instance)| Some((instance, crate::bareskin::body_of_head(name)?))).collect();
+        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, build: 1, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -5393,6 +5426,7 @@ impl Characters {
     /// action (FUN_1003cac9 asks the creature's own set), else along FUN_10010b3c's fallbacks (`die-knees` to `die-pain`).
     fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>, dying: Option<u32>, swing: Option<(u32, u32, Instant, u32, u32)>, gear: &[(u8, u32, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
+        let told_body = self.creature_body.take().filter(|body| (1..=4).contains(&body.0));
         let db = self.db.clone();
         let entry = self.creatures.entry(template).or_insert_with(|| load_template(&db, template));
         let (record, mesh, head) = entry.as_ref()?;
@@ -5567,6 +5601,16 @@ impl Characters {
             let wanted = clothes.iter().chain(textures.iter()).find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name));
             if let Some((_, instance)) = wanted {
                 part.material.textures = vec![(0xf6954, *instance)];
+                mao_formats::catmesh::set_texture_alpha(&mut part.material, false);
+            }
+        }
+        // (a humanoid's skin, for one with a head: its breed and sex as the server tells them, else as its head's file says; the
+        // race by the head, else the template's: stats 4, 59, 89 and 64, FUN_100585bf)
+        let head_mesh = gear.iter().find(|g| g.0 == 0 && self.head_races.contains_key(&g.1)).map(|g| g.1).or(Some(record.stat(64)).filter(|&h| h != 0));
+        if let Some(head_mesh) = head_mesh {
+            if let Some((breed, sex)) = told_body.or_else(|| self.head_bodies.get(&head_mesh).copied()) {
+                let race = self.head_races.get(&head_mesh).copied().unwrap_or(record.stat(89) as u8);
+                over_the_skin(&mut self.ids, &self.index, &mut parts, breed, sex, race);
             }
         }
         // (the meshes the creature's update lists are worn as a player's are, `wear`: a helmet in the head's place, with
@@ -5664,8 +5708,10 @@ impl Characters {
             let wanted = clothes.iter().chain(textures.iter()).find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name));
             if let Some((_, instance)) = wanted {
                 part.material.textures = vec![(0xf6954, *instance)];
+                mao_formats::catmesh::set_texture_alpha(&mut part.material, false);
             }
         }
+        over_the_skin(&mut self.ids, &self.index, &mut parts, breed, sex, race_by_head(&self.head_races, gear).unwrap_or(1));
         let custom_head = gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED || (g.0 == 0 && self.head_meshes.contains(&g.1)));
         if let (Some(Some((_, head, _))), Some(attractor), false) = (self.bodies.get(&(breed, sex)), mesh.attractor("head"), custom_head) {
             parts.extend(mesh.attach(&bones, attractor, head));
@@ -6104,8 +6150,10 @@ impl Characters {
             let wanted = clothes.iter().chain(textures.iter()).find(|(n, i)| *i != 0 && n.eq_ignore_ascii_case(&part.material.name));
             if let Some((_, instance)) = wanted {
                 part.material.textures = vec![(0xf6954, *instance)];
+                mao_formats::catmesh::set_texture_alpha(&mut part.material, false);
             }
         }
+        over_the_skin(&mut self.ids, &self.index, &mut model.parts, breed, sex, race_by_head(&self.head_races, gear).unwrap_or(1));
         if let (Some(a), false) = (attractor, custom_head) {
             model.parts.extend(body.attach(&bones, a, head));
         }
@@ -6246,6 +6294,8 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
     }).collect();
     // (`MAO_HELD=<action, hex>`: the action the body holds, as a seated or dead one does: d5 is sitting down's)
     let held = std::env::var("MAO_HELD").ok().and_then(|v| u32::from_str_radix(v.trim(), 16).ok());
+    // (`MAO_CREATURE_BODY=<breed>,<sex>`: what the server would say of it, for its skin)
+    chars.creature_body = std::env::var("MAO_CREATURE_BODY").ok().and_then(|v| Some((v.split(',').next()?.parse().ok()?, v.split(',').nth(1)?.parse().ok()?)));
     let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None, held, None, &gear).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
@@ -6366,6 +6416,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // with no weapon item never swung at all: Arete's dockers and collectors stood still while they hit.)
             let swing = world.swings.get(&id).map(|&(slot, began, pick, class)| (world.weapons.get(&(id, slot as u8)).copied().unwrap_or(0), slot, began, pick, class));
             chars.creature_fight.insert(id, world.fighting.contains_key(&id));
+            chars.creature_body = Some((info.breed, info.sex));
             if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.held_action(id), swing, &info.meshes) {
                 // (the creature at the size its update gives it, a percentage of its template's: the original's dynel
                 // takes its `Scale` stat as the body's scale, `SetBodyScale`, Gamecode FUN_100892ca; the bosses of Arete

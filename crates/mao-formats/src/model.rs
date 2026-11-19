@@ -84,6 +84,10 @@ pub struct Material {
     pub foliage: bool,
     /// How the pixels are blended (render state 27, with 19 and 20 for the factors).
     pub blend: Blend,
+    /// What the texture's alpha does depends on whether it has any (randy31's `RMaterial_t` alpha modes 0 and 5, FUN_10040645,
+    /// which ask the texture): the renderer knows, once it has the texture. With `alpha_lights`, the alpha of a texture that
+    /// has any is light and nothing is blended; without, it is blended by that alpha. A texture without alpha is drawn whole.
+    pub blend_by_texture: bool,
     /// The material turns depth writes off (`ZWRITEENABLE`, 14, set to 0).
     pub no_z_write: bool,
     /// The material's own alpha test (`ALPHATESTENABLE` 15 with a reference, `ALPHAREF` 24, above 0): pixels under it,
@@ -377,6 +381,7 @@ fn material(a: &Archive, index: i32) -> Material {
         foliage: false,
         // (a texture whose alpha is light is not a blend's alpha)
         blend: if alpha_lights { Blend::None } else { blend },
+        blend_by_texture: false,
         no_z_write,
         alpha_ref,
         two_sided,

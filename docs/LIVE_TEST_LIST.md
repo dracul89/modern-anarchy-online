@@ -987,6 +987,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Doors (2026-11-18): walk up to a shop's door: it opens as you reach it and shuts behind you at once. Walk through
   a shut door's doorway between rooms: nothing stops you. **Tell me of any door that used to open and no longer does**,
   with the playfield: 684 doors count as locked now until the server says otherwise.
+- [ ] Bare skin and glowing creatures (2026-11-18): hands and arms of players and human NPCs in their own breed's skin, no green anywhere, also on remains; an African or Asian Solitus has matching hands; creature eyes and lamps glow, and no creature has holes in its body
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

@@ -6006,7 +6006,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: build_model gives every character part opacity 1.0 and ignore_alpha true
 - A player notices: glass, hair edges or see-through parts drawn solid
 - Where: `crates/mao-formats/src/catmesh.rs:435`; `docs/CLIENT_UI.md:56`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the texture list's flag is read as the original reads it: alpha that blends (clear) or alpha that is light (set), by whether the texture has alpha; the material's opacity is used. Two listed textures with a full alpha channel are drawn plain where the original lights them fully. Compared offline, not seen live.
 
 #### `RND-021` Character skin colour is a plain tan
 
@@ -6015,7 +6016,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the green areas get a fixed tan (214,164,128) shaded by the green
 - A player notices: every character, where skin colour is not applied elsewhere, has the same tan skin
 - Where: `crates/mao-client/src/main.rs:297`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the original has no skin colour: pure green (565 0x07e0) shows the breed's, sex's and Solitus race's naked texture, for hands, body, feet, arms and legs of a body with a head. Remains and morphs take breed and sex from the head's file name. Compared offline, not seen live.
 
 #### `RND-022` Attach points use fixed figures for a standing body, not the posed skeleton
 

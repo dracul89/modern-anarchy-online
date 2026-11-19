@@ -52,9 +52,8 @@ motion only in the live window; offscreen: `MAO_PLAYER=x,y,z` (Z-up world).
 ## 4. Visual enhancements (done)
 Sky gradient, distance fog into the horizon colour (live view), hemisphere
 ambient light with a warm sun, 4x MSAA (where the device supports it), mip
-chains and 16x anisotropic filtering for every texture, and character textures
-drawn opaque (their alpha channel is not a cut-out mask: that fixed the Waste
-Collector). The sky and fog are the effect scripts' per playfield now (see "The sky"). Bloom is not a look the original
+chains and 16x anisotropic filtering for every texture. A character texture's alpha is
+not a cut-out mask: it blends or it is light (see "What a character texture's alpha does"). The sky and fog are the effect scripts' per playfield now (see "The sky"). Bloom is not a look the original
 had and is not planned.
 
 ## 4b. Shadows and water
@@ -6597,3 +6596,48 @@ character through (stat 335, a second), the push back from a door that does not 
 (class 0x6f) and the door's own use, which keeps its five seconds (ZON-004).
 
 Tests: `a_door_is_held_open_by_the_touch`, `doors_are_numbered_from_their_ids`, `a_generated_missions_doors_are_usable`.
+
+## Bare skin and the alpha of character textures (2026-11-18)
+
+The user: "RND-020, RND-021". What the ports rest on was checked here in the decompile and counted over the game's own
+data, and compared in offline pictures. None of it was seen in the live game.
+
+### What a character texture's alpha does (RND-020)
+
+Character parts were drawn whole, whatever their texture's alpha. The object's texture list holds one word for each texture,
+and the stream reader turns it into an alpha mode: set is mode 5, clear is mode 0 (`operator>>(BinaryStream &, TextureData_t &)`,
+GameData 0x1000c0b4; randy31's FUN_10040645 then applies the mode). **The word is not the mode itself**: read as a mode, 1 would
+be an alpha test at 0x80, which cuts nearly the whole body out of the creatures that use it (`catmesh::set_texture_alpha`).
+
+- **Clear (3441 of the game's 4248 listed textures):** a texture with alpha is blended by it; 156 of them have some.
+- **Set (807):** the alpha of a texture that has any is light, added to the lighting before the colour is multiplied in, and
+  nothing is blended. These are the glowing eyes, lamps and chest lights of the creatures; 738 of them have such alpha.
+- **A texture without alpha** is drawn whole either way. A material with an opacity under 255/256 is then blended by that
+  opacity (`set_opacity`). The opacity reaches the renderer now; every part had 1.0.
+- **What a character wears** takes mode 0.
+
+The renderer finds out whether a texture has alpha when it decodes it (`blend_by_texture`). It counts a pixel under 255, where
+the original asks the texture's format: two listed textures have an alpha channel that is full everywhere, and the original
+would light those fully.
+
+### Bare skin under the clothes (RND-021)
+
+The catalog's "paints a skin colour" was wrong: **the original has no skin colour.** Pure green in a body texture is a key, and
+the character's naked texture shows through it (`bareskin.rs`; DisplaySystem FUN_1007457f and FUN_10074393).
+
+- **The key is exact:** 565 colour `0x07e0`, which is red and blue up to 7 and green from 252. The client's old tan took a much
+  wider range of greens.
+- **The naked texture** is `<part>_<breed><sex>[_<race>]_naked.png` (type 0xf695b, FUN_1006ff7f), for hands, body, feet, arms and
+  legs. Only Solitus have a race (`caucation`, `african`, `asian`), and an Atrox is always `male`. All 55 files exist.
+- **The race** is the head's: Gamecode's table FUN_100c3239 gives `head_solitus…_african` 2, `_asian` 3 and the others 1
+  (`bareskin::race_of_head`). It lists most plain Solitus heads, and for the ones it leaves out the original keeps stat 89; here
+  they count as race 1.
+- **A body gets its skin only with a head mesh** (FUN_100585bf: stat 64), with the breed and sex the server sends. Remains and
+  morphs have neither at hand, so this client reads them from the head's file name (`bareskin::body_of_head`): that is this
+  client's own way to the same answer.
+
+Pictures compared offline, before and after: 6 creatures (the alpha) and 6 humanoid NPCs, and all seven breed and sex pairs in
+the appearance scene. `MAO_CREATURE_BODY=<breed>,<sex>` gives the `creature` preview a server's word.
+
+Tests: `the_green_is_exact`, `the_naked_texture_shows_where_the_green_is`, `the_naked_textures_names`, `a_pair_has_one_number`,
+`a_head_names_its_body`.
