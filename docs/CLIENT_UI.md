@@ -7854,3 +7854,7 @@ The original's chat requests wait in ChatGUIModule_c's queue, which its tick (GU
 ### Plain copies of chat lines (CHT-021)
 
 The chat window draws a line's markup with the port of HTMLParser_c; the plain copy the client keeps beside it (for tips, logs and filters) now reads the entities as the markup reader does: one pass over Utils.dll's table (nbsp, quot, gt, lt, amp) and the numbered characters (String::GetUCChar FUN_1000db51).
+
+### Filling the game's texts (CHT-027)
+
+LDBformat::Feed prints each `%` piece of a game text with snprintf and the piece as the format, and Dump joins the pieces with the leading spaces dropped and each run of spaces made one (the ldb drop-in's format.rs). The client now does the same: widths, flags, precision, hex, characters, floats (msvcr100's three-digit exponent) and times (" 1 day 2 hours ..."), a number in a `%s` as `int_value<n>`, and the spaces collapsed. Only a text fed into a number's place still prints the text, where the original would print its address.

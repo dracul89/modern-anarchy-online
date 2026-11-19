@@ -73,7 +73,15 @@ pub fn elf_hash(name: &str) -> u32 {
 #[derive(Clone, Debug)]
 pub enum Arg<'a> {
     Text(&'a str),
+    /// `Feed(int)`: in a `%s` piece it prints as `int_value<n>`.
     Int(i64),
+    /// `Feed(unsigned int)`: in a `%s` piece it prints as `uint_value<n>`.
+    Uint(u32),
+    /// `FeedFloat`: printed by the piece's own conversion (`%f`, `%.1f`, `%e`, `%g` ...).
+    Float(f32),
+    /// `FeedTime` (`FormatTime`): days, hours, minutes and seconds, printed as " 1 day 2 hours ..." whatever the piece's
+    /// conversion, each part only when it is not 0.
+    Time(i32, i32, i32, i32),
 }
 
 /// The pieces `LDBformat::Init` cuts a text into (the ldb drop-in's `format.rs`), each with the number of the argument that
@@ -215,30 +223,281 @@ fn choose(token: &str, flags: u32) -> Option<String> {
     best.map(|(start, end)| c[start..end].iter().collect())
 }
 
-/// A text with its arguments fed in order, as `LDBformat::Init` and `Feed` do it: argument `n` fills every piece that is
-/// its own: a `%s` with a text, a `%d`/`%i`/`%u` with a number (either kind of value prints in either), and a choice
-/// `#n{1:one | many}` with the alternative its value picks (a number 0 has the flag `0`, 1 the flag `1`, any other value
-/// none). `%%` is a percent sign. Pieces with nothing fed print as they are.
+/// A `printf` conversion as the pieces hold it (`%-08.3lx`): its flags, width, precision, size and conversion letter.
+/// `None` when the piece is not one (its letters out of order, or no letter at its end).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Spec {
+    left: bool,
+    plus: bool,
+    space: bool,
+    zero: bool,
+    alternate: bool,
+    width: usize,
+    precision: Option<usize>,
+    short: bool,
+    conversion: char,
+}
+
+fn spec(piece: &str) -> Option<Spec> {
+    let c: Vec<char> = piece.chars().collect();
+    let mut s = Spec::default();
+    let mut p = 1;
+    while let Some(&ch) = c.get(p) {
+        match ch {
+            '-' => s.left = true,
+            '+' => s.plus = true,
+            ' ' => s.space = true,
+            '0' => s.zero = true,
+            '#' => s.alternate = true,
+            _ => break,
+        }
+        p += 1;
+    }
+    while let Some(d) = c.get(p).and_then(|ch| ch.to_digit(10)) {
+        s.width = s.width.saturating_mul(10).saturating_add(d as usize);
+        p += 1;
+    }
+    if c.get(p) == Some(&'.') {
+        p += 1;
+        let mut precision = 0usize;
+        while let Some(d) = c.get(p).and_then(|ch| ch.to_digit(10)) {
+            precision = precision.saturating_mul(10).saturating_add(d as usize);
+            p += 1;
+        }
+        s.precision = Some(precision);
+    }
+    while let Some(&ch) = c.get(p).filter(|ch| matches!(ch, 'h' | 'l' | 'L')) {
+        s.short |= ch == 'h';
+        p += 1;
+    }
+    s.conversion = *c.get(p)?;
+    (p + 1 == c.len()).then_some(s)
+}
+
+/// `body` (digits, or a float's text) with its sign or prefix put in the conversion's width, as msvcr100's `_output`
+/// does: spaces before, or zeros after the sign (`0`, not with `-` nor with an integer's precision), or spaces after (`-`).
+fn pad(s: &Spec, sign: &str, body: &str, zeros_allowed: bool) -> String {
+    let length = sign.chars().count() + body.chars().count();
+    let fill = s.width.saturating_sub(length);
+    if s.left {
+        format!("{sign}{body}{}", " ".repeat(fill))
+    } else if s.zero && zeros_allowed {
+        format!("{sign}{}{body}", "0".repeat(fill))
+    } else {
+        format!("{}{sign}{body}", " ".repeat(fill))
+    }
+}
+
+/// An integer conversion (`d i u o x X c`) of a 32-bit value.
+fn print_int(s: &Spec, value: u32) -> Option<String> {
+    let c = s.conversion;
+    if c == 'c' {
+        return Some(pad(s, "", &((value as u8) as char).to_string(), true));
+    }
+    let signed = matches!(c, 'd' | 'i');
+    let (negative, magnitude): (bool, u64) = if signed {
+        let v = if s.short { value as u16 as i16 as i64 } else { value as i32 as i64 };
+        (v < 0, v.unsigned_abs())
+    } else {
+        (false, if s.short { value as u16 as u64 } else { value as u64 })
+    };
+    let mut digits = match c {
+        'd' | 'i' | 'u' => magnitude.to_string(),
+        'o' => format!("{magnitude:o}"),
+        'x' => format!("{magnitude:x}"),
+        'X' => format!("{magnitude:X}"),
+        _ => return None,
+    };
+    if let Some(precision) = s.precision {
+        if precision == 0 && magnitude == 0 {
+            digits.clear();
+        }
+        if digits.len() < precision {
+            digits = format!("{}{digits}", "0".repeat(precision - digits.len()));
+        }
+    }
+    let sign = if signed && negative {
+        "-"
+    } else if signed && s.plus {
+        "+"
+    } else if signed && s.space {
+        " "
+    } else if s.alternate && magnitude != 0 && c == 'x' {
+        "0x"
+    } else if s.alternate && magnitude != 0 && c == 'X' {
+        "0X"
+    } else {
+        ""
+    };
+    if s.alternate && c == 'o' && !digits.starts_with('0') {
+        digits.insert(0, '0');
+    }
+    Some(pad(s, sign, &digits, s.precision.is_none()))
+}
+
+/// The exponent as msvcr100 writes it: a sign and at least three digits.
+fn exponent(e: i32) -> String {
+    format!("{}{:03}", if e < 0 { '-' } else { '+' }, e.unsigned_abs())
+}
+
+/// A float conversion (`f e E g G`) of a value.
+fn print_float(s: &Spec, value: f64) -> Option<String> {
+    let c = s.conversion;
+    if !matches!(c, 'f' | 'e' | 'E' | 'g' | 'G') {
+        return None;
+    }
+    let sign = if value.is_sign_negative() {
+        "-"
+    } else if s.plus {
+        "+"
+    } else if s.space {
+        " "
+    } else {
+        ""
+    };
+    let v = value.abs();
+    // (msvcr100's words for the values that are not numbers; a guess beyond the default precision)
+    if v.is_infinite() || v.is_nan() {
+        return Some(pad(s, sign, if v.is_nan() { "1.#QNAN0" } else { "1.#INF00" }, false));
+    }
+    let precision = s.precision.unwrap_or(6);
+    let e_form = |precision: usize, upper: bool| -> String {
+        let t = format!("{v:.precision$e}");
+        let (mantissa, e) = t.split_once('e').unwrap_or((&t, "0"));
+        let mut mantissa = mantissa.to_string();
+        if s.alternate && precision == 0 {
+            mantissa.push('.');
+        }
+        format!("{mantissa}{}{}", if upper { 'E' } else { 'e' }, exponent(e.parse().unwrap_or(0)))
+    };
+    let body = match c {
+        'f' => {
+            let mut t = format!("{v:.precision$}");
+            if s.alternate && precision == 0 {
+                t.push('.');
+            }
+            t
+        }
+        'e' | 'E' => e_form(precision, c == 'E'),
+        _ => {
+            // (`%g`: the shorter of the two by the exponent, its trailing zeros dropped unless `#`)
+            let p = precision.max(1);
+            let t = format!("{v:.prec$e}", prec = p - 1);
+            let x: i32 = t.split_once('e').and_then(|(_, e)| e.parse().ok()).unwrap_or(0);
+            let mut text = if x < -4 || x >= p as i32 { e_form(p - 1, c == 'G') } else { format!("{v:.prec$}", prec = (p as i32 - 1 - x).max(0) as usize) };
+            if !s.alternate {
+                let (number, rest) = match text.find(['e', 'E']) {
+                    Some(at) => (text[..at].to_string(), text[at..].to_string()),
+                    None => (text.clone(), String::new()),
+                };
+                let number = if number.contains('.') { number.trim_end_matches('0').trim_end_matches('.').to_string() } else { number };
+                text = number + &rest;
+            }
+            text
+        }
+    };
+    Some(pad(s, sign, &body, true))
+}
+
+/// `%s` (a text): its precision cuts it, its width pads it.
+fn print_text(s: &Spec, text: &str) -> String {
+    let cut: String = match s.precision {
+        Some(precision) => text.chars().take(precision).collect(),
+        None => text.to_string(),
+    };
+    pad(s, "", &cut, true)
+}
+
+thread_local! {
+    /// LDB.dll's one 1 KB buffer every conversion is printed into: a time of all zeros prints nothing into it, and the
+    /// piece gets what was printed there last.
+    static PRINTED: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+/// What `Feed` prints into a `%` piece of its argument (the drop-in's `feed_*`, ACE's `snprintf` with the piece as the
+/// format, at most 1023 bytes); `None` where the value and the conversion do not go together (the piece stays as it is).
+fn print(piece: &str, arg: &Arg) -> Option<String> {
+    let s = spec(piece)?;
+    let printed = match arg {
+        // (a number fed into a `%s` prints in a format of its own, whatever the piece's width: `conversion()`)
+        Arg::Int(v) if s.conversion == 's' => format!("int_value<{}>", *v as i32),
+        Arg::Uint(v) if s.conversion == 's' => format!("uint_value<{v}>"),
+        Arg::Float(v) if s.conversion == 's' => format!("float_value<{:.6}>", *v as f64),
+        Arg::Int(v) => print_int(&s, *v as u32)?,
+        Arg::Uint(v) => print_int(&s, *v)?,
+        // (a float handed to an integer conversion is read as its double's low word)
+        Arg::Float(v) if matches!(s.conversion, 'd' | 'i' | 'u' | 'o' | 'x' | 'X' | 'c') => print_int(&s, (*v as f64).to_bits() as u32)?,
+        Arg::Float(v) => print_float(&s, *v as f64)?,
+        Arg::Text(t) if s.conversion == 's' => print_text(&s, t),
+        // (a text in a number's place: the original prints the text's address; the client prints the text)
+        Arg::Text(t) if matches!(s.conversion, 'd' | 'i' | 'u') => t.to_string(),
+        Arg::Text(_) => return None,
+        Arg::Time(days, hours, minutes, seconds) => {
+            let mut t = String::new();
+            for (n, one, many) in [(*days, "day", "days"), (*hours, "hour", "hours"), (*minutes, "minute", "minutes"), (*seconds, "second", "seconds")] {
+                match n {
+                    0 => {}
+                    1 => t += &format!(" 1 {one}"),
+                    _ => t += &format!(" {n} {many}"),
+                }
+            }
+            if t.is_empty() {
+                return Some(PRINTED.with(|p| p.borrow().clone()));
+            }
+            t
+        }
+    };
+    let mut printed = printed;
+    if printed.len() > 0x3ff {
+        let mut end = 0x3ff;
+        while !printed.is_char_boundary(end) {
+            end -= 1;
+        }
+        printed.truncate(end);
+    }
+    PRINTED.with(|p| *p.borrow_mut() = printed.clone());
+    Some(printed)
+}
+
+/// `Dump()`: the pieces joined, the spaces at the start dropped and each run of spaces made one.
+fn dump(pieces: impl Iterator<Item = String>) -> String {
+    let mut out = String::new();
+    let mut space = true;
+    for piece in pieces {
+        for c in piece.chars() {
+            if space {
+                if c != ' ' {
+                    space = false;
+                    out.push(c);
+                }
+            } else {
+                space = c == ' ';
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
+/// A text with its arguments fed in order, as `LDBformat::Init`, `Feed` and `Dump` do it: argument `n` fills every
+/// piece that is its own: a `%` conversion is printed with the value as `printf` would (a number in a `%s` as
+/// `int_value<n>`), and a choice `#n{1:one | many}` takes the alternative its value picks (a number 0 has the flag `0`,
+/// 1 the flag `1`, any other value none). `%%` is a percent sign. Pieces with nothing fed print as they are. The
+/// result has no spaces at its start and no runs of spaces.
 pub fn format(text: &str, args: &[Arg]) -> String {
     let mut tokens = tokens(text);
     for (n, arg) in args.iter().enumerate() {
         let n = n as u32 + 1;
         for (index, piece) in tokens.iter_mut().filter(|t| t.0 == n) {
             if piece.starts_with('%') {
-                let filled = match (piece.chars().last(), arg) {
-                    (Some('s' | 'd' | 'i' | 'u'), Arg::Text(t)) => Some(t.to_string()),
-                    (Some('u'), Arg::Int(v)) => Some((*v as u32).to_string()),
-                    (Some('s' | 'd' | 'i'), Arg::Int(v)) => Some(v.to_string()),
-                    _ => None,
-                };
-                if let Some(filled) = filled {
+                if let Some(filled) = print(piece, arg) {
                     *piece = filled;
                     *index = 0;
                 }
             } else {
                 let flags = match arg {
-                    Arg::Int(0) => 0x400_0000,
-                    Arg::Int(1) => 0x800_0000,
+                    Arg::Int(0) | Arg::Uint(0) => 0x400_0000,
+                    Arg::Int(1) | Arg::Uint(1) => 0x800_0000,
                     _ => 0,
                 };
                 if let Some(chosen) = choose(piece, flags) {
@@ -247,7 +506,7 @@ pub fn format(text: &str, args: &[Arg]) -> String {
             }
         }
     }
-    tokens.into_iter().map(|t| t.1).collect()
+    dump(tokens.into_iter().map(|t| t.1))
 }
 
 /// `FromBase85`: five digits (`!` + digit, most significant first); `None` at a byte outside `!`..`u`.
@@ -311,7 +570,8 @@ fn remote_at(texts: &Texts, b: &[u8]) -> (String, usize) {
     let mut consumed = 0;
     let text = texts.get(category as i32, id as i32).unwrap_or("");
     let mut parts: Vec<String> = Vec::new();
-    let mut numbers: Vec<Option<i64>> = Vec::new();
+    // (the words: `i` fed as an int, `u` as an unsigned one, `f` as a float)
+    let mut numbers: Vec<Option<(u8, u32)>> = Vec::new();
     let mut i = 12;
     while i < b.len() {
         let c = b[i];
@@ -337,20 +597,8 @@ fn remote_at(texts: &Texts, b: &[u8]) -> (String, usize) {
             }
             b'f' | b'i' | b'u' => {
                 let Some(value) = from_base85(at) else { break };
-                match c {
-                    b'f' => {
-                        parts.push(format!("{}", f32::from_bits(value)));
-                        numbers.push(None);
-                    }
-                    b'i' => {
-                        parts.push(String::new());
-                        numbers.push(Some(value as i32 as i64));
-                    }
-                    _ => {
-                        parts.push(String::new());
-                        numbers.push(Some(value as i64));
-                    }
-                }
+                parts.push(String::new());
+                numbers.push(Some((c, value)));
                 i += 6;
             }
             b'~' => {
@@ -360,7 +608,17 @@ fn remote_at(texts: &Texts, b: &[u8]) -> (String, usize) {
             _ => break,
         }
     }
-    let args: Vec<Arg> = parts.iter().zip(&numbers).map(|(t, n)| n.map_or(Arg::Text(t), Arg::Int)).collect();
+    let args: Vec<Arg> = parts
+        .iter()
+        .zip(&numbers)
+        .map(|(t, n)| match *n {
+            None => Arg::Text(t),
+            Some((b'i', v)) => Arg::Int(v as i32 as i64),
+            Some((b'u', v)) => Arg::Uint(v),
+            // (`FeedFloat` of the word, a signalling NaN made quiet: the drop-in's `quiet`)
+            Some((_, v)) => Arg::Float(f32::from_bits(if (v & 0x7f80_0000) == 0x7f80_0000 && (v & 0x007f_ffff) != 0 { v | 0x0040_0000 } else { v })),
+        })
+        .collect();
     (format(text, &args), consumed)
 }
 
@@ -396,14 +654,42 @@ mod tests {
         assert_eq!(format("100%% of %d", &[Arg::Int(-3)]), "100% of -3");
         assert_eq!(format("%s and %s", &[Arg::Text("one")]), "one and %s");
         // (a choice by the second argument, as the texts for a reward have it: 1 picks the flagged alternative, another
-        // number the one without flags; the spaces about the bar belong to the alternatives, as in the original)
+        // number the one without flags; the spaces about the bar belong to the alternatives, as in the original, and `Dump`
+        // makes a run of them one)
         let reward = "%d points, %d #2{1:coin | coins}.";
         assert_eq!(format(reward, &[Arg::Int(5), Arg::Int(1)]), "5 points, 1 coin .");
-        assert_eq!(format(reward, &[Arg::Int(5), Arg::Int(40)]), "5 points, 40  coins.");
+        assert_eq!(format(reward, &[Arg::Int(5), Arg::Int(40)]), "5 points, 40 coins.");
         assert_eq!(format(reward, &[Arg::Int(5)]), "5 points, %d {1:coin | coins}.");
         // (`#2:` makes the next `%` the second argument; a `#` that is neither stays)
         assert_eq!(format("#2:%s then #1:%s", &[Arg::Text("a"), Arg::Text("b")]), "b then a");
         assert_eq!(format("item #7 of %d", &[Arg::Int(9)]), "item #7 of 9");
+    }
+
+    #[test]
+    fn prints_each_conversion_as_printf() {
+        // (widths, flags, precision and the other integer conversions, msvcr100's way)
+        assert_eq!(format("[%5d|%-5d|%05d|%+d|% d]", &[Arg::Int(42), Arg::Int(42), Arg::Int(-42), Arg::Int(7), Arg::Int(7)]), "[ 42|42 |-0042|+7| 7]");
+        assert_eq!(format("%x %X %#x %08X %o %#o %c", &[Arg::Int(255), Arg::Int(255), Arg::Int(255), Arg::Uint(0xbeef), Arg::Int(8), Arg::Int(8), Arg::Int(65)]), "ff FF 0xff 0000BEEF 10 010 A");
+        assert_eq!(format("%.3d|%.0d|%hd|%u", &[Arg::Int(5), Arg::Int(0), Arg::Int(65535), Arg::Int(-1)]), "005||-1|4294967295");
+        // (a text: its precision cuts it, its width pads it, though `Dump` makes the padding one space)
+        assert_eq!(format("<%-6s><%6s><%.2s>", &[Arg::Text("ab"), Arg::Text("ab"), Arg::Text("abcdef")]), "<ab >< ab><ab>");
+        // (a number in a `%s` prints in LDBformat's own words, whatever the width)
+        assert_eq!(format("%s and %5s and %s", &[Arg::Int(-3), Arg::Uint(4), Arg::Float(1.5)]), "int_value<-3> and uint_value<4> and float_value<1.500000>");
+    }
+
+    #[test]
+    fn prints_floats_and_times() {
+        assert_eq!(format("%f %.1f %8.2f %e %E", &[Arg::Float(1.5), Arg::Float(2.25), Arg::Float(-3.0), Arg::Float(1234.5), Arg::Float(0.5)]), "1.500000 2.2 -3.00 1.234500e+003 5.000000E-001");
+        assert_eq!(format("%g %g %g %G %.3g", &[Arg::Float(0.5), Arg::Float(100000.0), Arg::Float(1000000.0), Arg::Float(0.00001), Arg::Float(3.14159)]), "0.5 100000 1e+006 1E-005 3.14");
+        // (a time: its parts that are not 0, whatever the conversion; a time of all zeros gives what was printed last)
+        assert_eq!(format("Back in%s.", &[Arg::Time(1, 2, 0, 1)]), "Back in 1 day 2 hours 1 second.");
+        assert_eq!(format("%d then%s", &[Arg::Int(9), Arg::Time(0, 0, 0, 0)]), "9 then9");
+    }
+
+    #[test]
+    fn dump_drops_leading_spaces_and_runs() {
+        assert_eq!(format("  a   b %s", &[Arg::Text("  c")]), "a b c");
+        assert_eq!(format("end ", &[]), "end ");
     }
 
     #[test]
