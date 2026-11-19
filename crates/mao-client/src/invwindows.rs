@@ -259,6 +259,7 @@ fn entry(item: &GearItem, textures: &mut HashMap<u32, egui::TextureHandle>, ctx:
         pos,
         // (an item whose use is locked, a stim while First Aid is: faded for the time left, as a locked action is)
         left: crate::actions::lock_share(crate::actions::item_lock_left(item.item_id)),
+        timer: crate::actions::timer_text(crate::actions::item_lock_left(item.item_id)),
         colour: None,
     }
 }

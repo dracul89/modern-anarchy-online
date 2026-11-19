@@ -219,6 +219,12 @@ pub fn nano_lock_left(nano: u32) -> Option<(f32, f32)> {
     longest(busy.into_iter().chain(crate::net::lock_skills(0xfde85, nano).into_iter().filter_map(skill_lock_left)))
 }
 
+/// The time left written over an icon while its lock runs (GUI FUN_1003f8c2 for the item, nano and action views),
+/// empty without one.
+pub fn timer_text(lock: Option<(f32, f32)>) -> String {
+    lock.filter(|l| l.0 > 0.0).map_or_else(String::new, |(left, _)| crate::shortcutbar::timer_text(left))
+}
+
 /// The share of a lock's time that is gone, as the list views fade an icon by it (`multilist::Item::left`).
 pub fn lock_share(lock: Option<(f32, f32)>) -> Option<f32> {
     lock.map(|(left, total)| 1.0 - left / total.max(1.0))
@@ -499,6 +505,7 @@ impl ActionsWindow {
                 keys: vec![(1, name.clone())],
                 // (a locked perk fades out until its lock is free, as the NCU's running nanos do)
                 left: left.map(|(s, total)| 1.0 - s / total.max(1.0)),
+                timer: timer_text(*left),
                 ..Default::default()
             })
             .collect();
@@ -624,6 +631,14 @@ mod tests {
     }
 
     /// WIN-112: the Crawl tile starts and leaves a crawl as `N3Msg_CrawlToggle` does, and the tile then shows the other half.
+    #[test]
+    fn a_locked_icon_writes_its_time_left() {
+        assert_eq!(timer_text(None), "");
+        assert_eq!(timer_text(Some((0.0, 10.0))), "");
+        assert_eq!(timer_text(Some((4.2, 10.0))), " 5s");
+        assert_eq!(timer_text(Some((125.0, 300.0))), " 2m");
+    }
+
     #[test]
     fn the_crawl_tile_toggles_the_crawl() {
         assert_eq!(crawl_toggle(false, false, 0), Crawl::Movement(START_CRAWL));

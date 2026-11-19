@@ -1126,3 +1126,5 @@ These were written before this list; some may have been seen working since witho
   click stands up; while swimming it does nothing.
 - [ ] Launcher PATCH (LCH-036, 2026-11-19): only when a dimension really is newer than the game folder (do not fake
   it: the patcher changes the game folder). PATCH opens AnarchyPatcher.exe for that dimension and the launcher closes.
+- [ ] Icon time text (CMB-023, 2026-11-19): after a special or a nano, the Actions window tile and the nano programs'
+  icon show the yellow time left (" 9s", then minutes over 60 s), as the shortcut bar does.

@@ -490,6 +490,10 @@ struct World {
     mods_dirty: bool,
     /// The identity type each entity was first heard of with (what a use message names it by).
     types: BTreeMap<u32, u32>,
+    /// The items standing in the world (`SimpleItemFullUpdate` with a place), by instance: their flags (stat 0, the
+    /// dynel's +0x4c that the flag checks of vtable +0x14 read, FUN_10003d5b) and template (stat 23), for what an attack at
+    /// one asks (FUN_10069a9f).
+    item_dynels: BTreeMap<u32, (u32, u32)>,
     /// The vending machines (booths: shops, and the mission booths' companions) with their positions.
     vendors: BTreeMap<u32, [f32; 3]>,
     /// The Notum Wars tower sites of each playfield heard of (`PlayfieldAllTowers`, then `PlayfieldTowerUpdateClient`;
@@ -2245,6 +2249,7 @@ impl World {
     /// Takes the playfield's built-in props: the doors are also remembered by number.
     fn set_static_props(&mut self, props: Vec<(u32, (u32, [f32; 3], [f32; 4]), Option<u8>)>) {
         self.terminals.clear();
+        self.item_dynels.clear();
         self.door_slots.clear();
         self.doors_open.clear();
         self.doors_touched.clear();
@@ -2422,6 +2427,11 @@ impl World {
                     }
                     self.terminals.insert(m.identity.1, [x, y, z]);
                     self.types.insert(m.identity.1, 0xc73d);
+                    let flags = match p.value.get("Stats") {
+                        Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(0)).and_then(|s| s.get("Item2")?.as_int()),
+                        _ => None,
+                    };
+                    self.item_dynels.insert(m.identity.1, (flags.unwrap_or(0) as u32, template.unwrap_or(0) as u32));
                     if let Some(name) = template.and_then(|t| template_name(t as u32)) {
                         self.names.insert(m.identity.1, (name, false));
                     }
@@ -2653,6 +2663,7 @@ impl World {
                 self.prop_textures.remove(&id);
                 self.objects.remove(&id);
                 self.terminals.remove(&id);
+                self.item_dynels.remove(&id);
             } else if !(self.dead.contains_key(&id) && self.corpses.get(&id).is_some_and(|c| self.objects.contains_key(c))) {
                 self.dead.remove(&id);
                 self.bodies.remove(&id);
@@ -4913,14 +4924,33 @@ impl World {
         }
         if number != crate::actions::SEARCH {
             let Some(t) = target else { return Some(Vec::new()) };
-            if t == self.own {
-                return line("Feedback_YouCantAttackYourself");
-            }
-            if self.swimming.contains(&self.own) {
-                return line("Feedback_YouCantAttackWhileSwimming");
-            }
-            if self.dead.contains_key(&t) {
-                return line("Feedback_TargetIsAlreadyDead");
+            // (FUN_10069a9f: an item, `SimpleItem_t`, is judged by its own flags: without 0x10000000 it cannot be attacked;
+            // with it, by its requirements for action 11 (FUN_100816f6), told as the evaluator tells them; the character's
+            // own checks are not asked)
+            if let Some(&(flags, template)) = self.item_dynels.get(&t) {
+                if flags & 0x1000_0000 == 0 {
+                    return line("Feedback_YouCantAttackThisItem");
+                }
+                if let Some(db) = ITEM_DB.get() {
+                    let quality = template_stat(template, 54).unwrap_or(1).max(1) as u32;
+                    let entry = inventory::Entry { slot: 0, flags: 0, count: 1, container: (0xc73d, t), low_id: template, high_id: template, quality, extra: 0 };
+                    if let Some(action) = crate::derived::actions(db, &entry).into_iter().find(|a| a.kind == 11) {
+                        let (met, told) = crate::requirements::evaluate_told(&action.criteria, (crate::requirements::CHARACTER, self.own), self);
+                        if met == Ok(false) {
+                            return Some(told.iter().map(crate::feedback::requirement).collect());
+                        }
+                    }
+                }
+            } else {
+                if t == self.own {
+                    return line("Feedback_YouCantAttackYourself");
+                }
+                if self.swimming.contains(&self.own) {
+                    return line("Feedback_YouCantAttackWhileSwimming");
+                }
+                if self.dead.contains_key(&t) {
+                    return line("Feedback_TargetIsAlreadyDead");
+                }
             }
         }
         if let Some(left) = locked(stat) {
@@ -9633,8 +9663,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let _ = connection.send(&n3::action(own, 0x42));
                         }
                         None => {
+                            // (FUN_10072d55: the target's own identity, an attackable item's too)
                             if let Some(t) = aim {
-                                let _ = connection.send(&n3::special_attack(own, t, n));
+                                let _ = connection.send(&n3::special_attack(own, (state.types.get(&t).copied().unwrap_or(n3::CHARACTER), t), n));
                             }
                         }
                     }
@@ -14027,6 +14058,21 @@ mod door_tests {
         assert_eq!(w.special_refusal(148, Some(9), &clear), None);
         assert_eq!(w.special_refusal(148, Some(9), &wall), Some(vec![crate::feedback::plain("Feedback_NoLineOfSight")]));
         assert_eq!(seen.get(), Some(([10.0, 3.6, 20.0], [13.0, 2.6, 20.0])), "from the attacker's eyes to the target's");
+    }
+
+    /// A special at an item (FUN_10069a9f's `SimpleItem_t` branch): refused unless the item's flags have 0x10000000; the
+    /// character's own checks (swimming and the rest) are not asked of it.
+    #[test]
+    fn a_special_at_an_item_asks_the_items_flags() {
+        let own = 0x4bc80;
+        let mut w = World { own, specials_told: Some(vec![148]), ..World::default() };
+        w.objects.insert(own, [10.0, 2.0, 20.0]);
+        w.objects.insert(0x77, [13.0, 1.0, 20.0]);
+        w.item_dynels.insert(0x77, (0, 0));
+        assert_eq!(w.special_refusal(148, Some(0x77), &clear), Some(vec![crate::feedback::plain("Feedback_YouCantAttackThisItem")]));
+        w.item_dynels.insert(0x77, (0x1000_0000, 0));
+        w.swimming.insert(own);
+        assert_eq!(w.special_refusal(148, Some(0x77), &clear), None);
     }
 
     /// A special attack is refused as the original refuses it: one not in the list, one whose skill the server has

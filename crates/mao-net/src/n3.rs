@@ -1022,9 +1022,9 @@ pub fn train_perk(character: u32, perk: u32, train: bool) -> Frame {
 
 /// `CharSecSpecAttack` (`51492120`): a weapon special attack at a target: a zero byte, the target identity and the skill's stat (the
 /// captured ones: 142 Brawl, 144 Dimach, 147 Fast Attack, 148 Burst, 150 Fling Shot).
-pub fn special_attack(character: u32, target: u32, stat: u32) -> Frame {
+pub fn special_attack(character: u32, target: (u32, u32), stat: u32) -> Frame {
     let mut data = vec![0u8];
-    for word in [CHARACTER, target, stat] {
+    for word in [target.0, target.1, stat] {
         data.extend_from_slice(&word.to_be_bytes());
     }
     Message { kind: 0x51492120, identity: (CHARACTER, character), data }.frame(character)
@@ -1760,8 +1760,10 @@ mod tests {
         assert_eq!(hex(use_perk(0x4bc7f, 0x2991, *b"QISH")), "00000000b3000000000000c3500004bc7f00002991514953480000");
         assert_eq!(hex(use_perk(0x4bc7f, 0x2a0a, *b"WRTK")), "00000000b3000000000000c3500004bc7f00002a0a5752544b0000");
         assert_eq!(hex(use_perk(0x4bc80, 0x27bc, *b"BICC")), "00000000b3000000000000c3500004bc80000027bc424943430000");
-        assert_eq!(hex(special_attack(0x4bc80, 0x7b017c2a, 142)), "000000c3507b017c2a0000008e");
-        assert_eq!(hex(special_attack(0x4bc80, 0x7b017c2a, 150)), "000000c3507b017c2a00000096");
+        assert_eq!(hex(special_attack(0x4bc80, (CHARACTER, 0x7b017c2a), 142)), "000000c3507b017c2a0000008e");
+        assert_eq!(hex(special_attack(0x4bc80, (CHARACTER, 0x7b017c2a), 150)), "000000c3507b017c2a00000096");
+        // (an attackable item is named by its own type)
+        assert_eq!(hex(special_attack(0x4bc80, (0xc73d, 0x1234), 150)), "000000c73d0000123400000096");
         assert_eq!(hex(take_from_container(0x4bc80, 0x70, 1)), "000000006b007000010000006f");
         assert_eq!(hex(take_from_container(0x4bc80, 0x70, 0)), "000000006b007000000000006f");
         assert_eq!(hex(take_from_container(0x4bc7f, 0x7a, 1)), "000000006b007a00010000006f");

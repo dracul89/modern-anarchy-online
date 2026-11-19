@@ -635,6 +635,7 @@ impl LootWindow {
                     ],
                     pos: shown.3,
                     left: None,
+                    timer: String::new(),
                     colour: None,
                 })
                 .collect();

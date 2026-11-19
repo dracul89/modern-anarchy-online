@@ -71,6 +71,9 @@ pub struct Item {
     /// A running nano's time left as a share of its whole: the icon's part past it is faded (`ItemIconView_c`
     /// FUN_1003f9ea, `+0x174`).
     pub left: Option<f32>,
+    /// The time left written over the icon (`IconTimerText`, GUI FUN_1003f8c2: "%2ds" up to a minute, else "%2dm"),
+    /// empty when there is none; the icon view writes it centred in yellow (FUN_1003f9ea).
+    pub timer: String,
     /// The row's text colour (`MultiListViewItem_c` +0x68, 0xrrggbb) when it is not the default.
     pub colour: Option<u32>,
 }
@@ -362,6 +365,11 @@ impl Rows {
                 let text = item.count.to_string();
                 let w = p.env.measure.width(font, &text);
                 super::controls::text(p, font, egui::pos2(cell.right() - w, cell.top()), &text, egui::Color32::YELLOW);
+            }
+            if !item.timer.is_empty() {
+                let w = p.env.measure.width(FontId::NORMAL, &item.timer);
+                let h = p.env.measure.height(FontId::NORMAL);
+                super::controls::text(p, FontId::NORMAL, egui::pos2(cell.center().x - w / 2.0, cell.center().y - h / 2.0), &item.timer, egui::Color32::YELLOW);
             }
             if self.selected == Some(item.id)
                 && let Some(s) = skin.and_then(|s| s.get(grid::SELECTED))

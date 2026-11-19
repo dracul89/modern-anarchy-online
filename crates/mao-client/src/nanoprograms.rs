@@ -336,6 +336,7 @@ impl ProgramsWindow {
                 keys,
                 // (no program runs while one is cast or recharges: faded for the time left)
                 left: crate::actions::lock_share(crate::actions::nano_lock_left(p.id)),
+                timer: crate::actions::timer_text(crate::actions::nano_lock_left(p.id)),
                 ..Default::default()
             })
             .collect();

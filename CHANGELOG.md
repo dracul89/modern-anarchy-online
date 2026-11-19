@@ -150,6 +150,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A special attack at a target behind a wall or out of view says "no line of sight" at once and is not sent, as the original's client checks.
 - At one's own death the world turns wholly white at once when the death has played out, and is clear again the moment one lives, as in the original (no slow fade).
 - Damage and healing numbers no longer float over characters; the fight is told in the chat's combat lines, as in the original.
+- A special attack at an item is sent as at that item (it was sent as at a character), and an item that cannot be attacked says so, as in the original.
 
 ### Launcher
 
@@ -197,6 +198,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### Interface
 
+- Locked actions, nanos and items show their time left over the icon in the Actions, nano and inventory windows too, as on the shortcut bars.
 - The Pick-Up and Crawl action tiles work: Pick-Up asks for the selected item (or says the inventory is full), and Crawl starts and stops crawling, its tile showing the other half meanwhile.
 - Shift+Enter also opens the chat input and the numeric pad's / also starts a chat command, as in the original (new settings files; an existing mao.ini keeps its keys).
 - Bold and italic interface texts (the BOLD, HUGE, CC17 and ITALIC fonts of the skins) are drawn bold and italic, as in the original.

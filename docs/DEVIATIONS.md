@@ -43,16 +43,16 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 50 | 4 | 0 | 0 | 0 | **0** |
-| **medium** | 158 | 47 | 29 | 55 | 27 | 0 | **0** |
+| **medium** | 158 | 48 | 28 | 55 | 27 | 0 | **0** |
 | **low** | 725 | 117 | 20 | 532 | 56 | 0 | **0** |
-| **all** | 937 | 214 | 53 | 587 | 83 | 0 | **0** |
+| **all** | 937 | 215 | 52 | 587 | 83 | 0 | **0** |
 
 ### By area
 
 | Area | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Movement (`MOV`) | 33 | 10 | 1 | 18 | 4 | 0 | **0** |
-| Combat (`CMB`) | 38 | 10 | 4 | 23 | 1 | 0 | **0** |
+| Combat (`CMB`) | 38 | 11 | 3 | 23 | 1 | 0 | **0** |
 | Targeting and mouse (`TGT`) | 17 | 4 | 3 | 10 | 0 | 0 | **0** |
 | Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
 | NPCs and creatures (`NPC`) | 40 | 13 | 7 | 19 | 1 | 0 | **0** |
@@ -84,11 +84,10 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `MOV-004` Own walking and collision where a playfield has no surfaces (and with noclip) (SIMPLIFIED) - looked at, left
 - `MOV-021` Flight: entering effect and the ways flight ends missing (MISSING) - part done
 
-**Combat** (3)
+**Combat** (2)
 
 - `CMB-003` Attack key checks only the first refusals (SIMPLIFIED) - part done
 - `CMB-016` Creature with weapon points but no weapon swings the unarmed swing (GUESS) - looked at, left
-- `CMB-023` Action tiles do not follow state; some tiles, CharacterAction 0xb2/0x14/0xfc, icon time text, special at attackable item undone (MISSING) - part done
 
 **Targeting and mouse** (2)
 
@@ -1084,7 +1083,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: none done
 - A player notices: tiles do not change with state; some tiles do nothing
 - Where: `docs/CLIENT_UI.md:3823`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19): The last two: the icon's time text (GUI FUN_1003ddd9 / FUN_1003f8c2 / FUN_1003f9ea: '%2ds' up to 60 s else '%2dm', centred yellow) is on the list views' icons too (Actions window, nano programs, inventory: multilist::Item::timer); a special at an item follows FUN_10069a9f's SimpleItem_t branch (flags stat 0 without 0x10000000: Feedback_YouCantAttackThisItem; with it, the item's action-11 requirements, FUN_100816f6) and CharSecSpecAttack names the target's own identity (FUN_10072d55). Tests: a_special_at_an_item_asks_the_items_flags, a_locked_icon_writes_its_time_left.
 - Done in part (2026-11-19): Pick-Up and Crawl act (see WIN-112). Left: the icon's time text and a special attack at an attackable item.
 - Done in part (2026-11-19, overnight): Most of this list was done before tonight (by WIN-113 and the 2026-11-18 batch): the six pair tiles show what a click does next (actions.rs shown_template, FUN_1004300e, test actions::a_pairs_tile_shows_what_a_click_does_next); Use, Walk/Run and Suspended Animation/Disrupt tiles act (net.rs action-tile match); CharacterAction 0x14 (lock lengthened), 0xb2 (no per-action flag kept, comment only) and 0xfc (all perk locks off, stat 577 to 0) are in the 0xaa family arm of net.rs. Left: Pick-Up (ClientGetItem is in no capture), Crawl (the client keeps no crawling mode), the icon's time text and a special attack at an attackable item (the message's target layout for an item is in no capture).
 

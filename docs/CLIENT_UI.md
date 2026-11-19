@@ -3830,6 +3830,18 @@ seen live), the special's range and the line of sight; the queue of specials not
 0x14 and 0xfc; the icon's time text; the special attack at an attackable item (the message names a character).
 Not tried live against a target.
 
+**The last two (CMB-023, 2026-11-19).** The icon's time text: the original's icon view (GUI FUN_1003ddd9, for the item,
+nano and action views: kinds 1, 4 and 6) asks the progress and, with `IconTimerText`, writes the time left over the icon
+(FUN_1003f8c2: "%2ds" up to 60 s, else "%2dm"), centred in yellow (FUN_1003f9ea's `<center><font color=yellow>`). The
+shortcut bars had it; the list views' icons now have it too (`multilist::Item::timer`, `actions::timer_text`): the
+Actions window, the nano programs and the inventory grids. A special attack at an item: FUN_10069a9f judges a
+`SimpleItem_t` by its own flags (the dynel's +0x4c, stat 0, read by FUN_10003d5b): without 0x10000000 it says
+`Feedback_YouCantAttackThisItem`; with it the item's requirements for action 11 decide (FUN_100816f6, told by the
+evaluator); none of the character checks (oneself, swimming, the dead) is asked. The client keeps the flags and template
+of the items standing in the world (`World::item_dynels`, from `SimpleItemFullUpdate`), and `CharSecSpecAttack` now
+names the target by its own identity (FUN_10072d55) instead of always as a character. Tests:
+`a_special_at_an_item_asks_the_items_flags`, `a_locked_icon_writes_its_time_left`.
+
 **The teleport target window (2026-11-15; the user: "in the grid the notum controller and organisation city should
 open a window to let you select either org city or any towers field your org has control of").** Their log had the
 server's message at the Grid's organisation city exit, of a kind the client did not know: 0x0639474d, which is
