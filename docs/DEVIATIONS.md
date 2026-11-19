@@ -38,36 +38,36 @@ client does today, what a player notices, and where it is in the code.
 <!-- status: made by status.py; run it again after marking entries -->
 ## Where it stands
 
-Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; "looked at, left" was read and not ported for a reason its entry gives; "left by decision" is your call to keep the client's way.
+Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; "looked at, left" was read and not ported for a reason its entry gives; "kept by decision" is your answer to keep the client's way.
 
-| | all | done | part done | looked at, left | left by decision | your call | open |
+| | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| **high** | 54 | 46 | 7 | 0 | 1 | 0 | **0** |
-| **medium** | 158 | 38 | 29 | 55 | 0 | 36 | **0** |
-| **low** | 725 | 101 | 20 | 532 | 0 | 72 | **0** |
-| **all** | 937 | 185 | 56 | 587 | 1 | 108 | **0** |
+| **high** | 54 | 47 | 7 | 0 | 0 | 0 | **0** |
+| **medium** | 158 | 38 | 29 | 55 | 27 | 9 | **0** |
+| **low** | 725 | 101 | 20 | 532 | 56 | 16 | **0** |
+| **all** | 937 | 186 | 56 | 587 | 83 | 25 | **0** |
 
 ### By area
 
-| Area | all | done | part done | looked at, left | left by decision | your call | open |
+| Area | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Movement (`MOV`) | 33 | 8 | 1 | 18 | 0 | 6 | **0** |
-| Combat (`CMB`) | 38 | 8 | 5 | 23 | 0 | 2 | **0** |
-| Targeting and mouse (`TGT`) | 17 | 3 | 3 | 10 | 1 | 0 | **0** |
+| Movement (`MOV`) | 33 | 8 | 1 | 18 | 4 | 2 | **0** |
+| Combat (`CMB`) | 38 | 8 | 5 | 23 | 1 | 1 | **0** |
+| Targeting and mouse (`TGT`) | 17 | 4 | 3 | 10 | 0 | 0 | **0** |
 | Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
-| NPCs and creatures (`NPC`) | 40 | 12 | 7 | 19 | 0 | 2 | **0** |
-| Inventory and items (`INV`) | 84 | 30 | 12 | 36 | 0 | 6 | **0** |
-| Nano programs (`NAN`) | 60 | 6 | 3 | 46 | 0 | 5 | **0** |
-| Zoning and playfields (`ZON`) | 28 | 4 | 0 | 19 | 0 | 5 | **0** |
-| Chat and commands (`CHT`) | 80 | 15 | 1 | 53 | 0 | 11 | **0** |
-| Windows and interface (`WIN`) | 180 | 37 | 13 | 102 | 0 | 28 | **0** |
+| NPCs and creatures (`NPC`) | 40 | 12 | 7 | 19 | 1 | 1 | **0** |
+| Inventory and items (`INV`) | 84 | 30 | 12 | 36 | 4 | 2 | **0** |
+| Nano programs (`NAN`) | 60 | 6 | 3 | 46 | 3 | 2 | **0** |
+| Zoning and playfields (`ZON`) | 28 | 4 | 0 | 19 | 4 | 1 | **0** |
+| Chat and commands (`CHT`) | 80 | 15 | 1 | 53 | 6 | 5 | **0** |
+| Windows and interface (`WIN`) | 180 | 37 | 13 | 102 | 23 | 5 | **0** |
 | Camera (`CAM`) | 13 | 4 | 0 | 8 | 0 | 1 | **0** |
-| Rendering and world (`RND`) | 194 | 20 | 4 | 158 | 0 | 12 | **0** |
+| Rendering and world (`RND`) | 194 | 20 | 4 | 158 | 8 | 4 | **0** |
 | Sound and music (`SND`) | 17 | 3 | 0 | 14 | 0 | 0 | **0** |
-| Launcher, login, character creation (`LCH`) | 51 | 17 | 4 | 23 | 0 | 7 | **0** |
-| Settings and files (`SET`) | 54 | 8 | 2 | 27 | 0 | 17 | **0** |
-| Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 0 | 2 | **0** |
-| Other (`OTH`) | 21 | 3 | 1 | 13 | 0 | 4 | **0** |
+| Launcher, login, character creation (`LCH`) | 51 | 17 | 4 | 23 | 6 | 1 | **0** |
+| Settings and files (`SET`) | 54 | 8 | 2 | 27 | 17 | 0 | **0** |
+| Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 2 | 0 | **0** |
+| Other (`OTH`) | 21 | 3 | 1 | 13 | 4 | 0 | **0** |
 
 ### High weight not finished
 
@@ -211,114 +211,31 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 "Your call": a client addition read overnight; its entry recommends keeping or removing it.
 
-- `MOV-027` (medium) /follow is the client's own walk-after-target: Addition: recommend KEEP: the original does have /follow, but not this one: N3Msg_TextCommand's FUN_1003fe10 (0x10042221..0x100423ec) refuses in movement modes 
-- `MOV-028` (medium) Walk-to-place with its own obstacle detours: Addition: recommend KEEP: the original has no /waypoint command and no walk to a point for the player (its WaypointPathIIR_c paths are the server's, for creatur
 - `MOV-029` (low) /sit command is the client's own: Addition: recommend REMOVE: the original's command list has no /sit (GUI.dll's command table FUN_100b2ac9 and the text interpreter list none); the X key (N3Msg_
-- `MOV-031` (low) Own character glides between server updates: Addition: recommend KEEP: the original moves its character every frame in the vehicle; the client steps it in its network thread and draws between steps, so the
-- `MOV-032` (low) Walk-through-props toggle (noclip) and key layout: Addition: recommend KEEP as an unbound testing toggle (it is unbound by default and only reachable by binding it); the original has no such key and C is its sid
 - `MOV-033` (low) Walk/run mode announced on entering each playfield: Addition: recommend REMOVE: the original never sends the walk/run mode on entering a playfield: across all captures (several zonings) its own movement messages 
-- `CMB-037` (medium) Damage meter window (client's own): Addition: recommend KEEP: the original has no damage meter (no such window or text in GUI.dll or Gamecode); the user asked for it (the client's own tools of 202
 - `CMB-038` (medium) Floating combat numbers: Addition: recommend REMOVE (or put behind an option, off by default): the original draws no damage numbers over characters (no such view or setting in GUI.dll, 
-- `NPC-039` (medium) Mission helper: "Looking for" lists and "Keep asking until one fits": Addition: recommend KEEP: it is opt-in, sends only the original's own QuestAlternative request at a pace no faster than a player clicking (1.2 s, capped count, 
 - `NPC-040` (low) Clicked NPC answer echoed locally; client line for rejected items: Addition: recommend REMOVE: the original writes NPC chat only from the server's KnubotAppendText, with no local echo of a clicked answer and no "N item(s) given
-- `INV-079` (medium) Auto loot of fresh corpses: Addition: recommend KEEP: an option, off by default (`auto_loot`), that changes nothing of the original's look or rules until the player turns it on; no auto lo
 - `INV-080` (medium) Container and overflow windows have a "Take all" button: Addition: recommend REMOVE: GUI.dll's container window has no "Take all" button or handler (docs/INVENTORY_ORIGINAL.md section 4, confirmed in `InventoryView_c`
-- `INV-081` (medium) Tradeskill guide made from item descriptions: Addition: recommend KEEP: a window of the client's own among its other own tools (damage meter, item finder, mission helper), opened only when asked for; it cha
 - `INV-082` (low) Backpack count heading: Addition: recommend REMOVE: the "Backpack 12/30" heading is no longer in the client's code (no such text in the inventory window); only docs/CLIENT_UI.md:1957 s
-- `INV-083` (low) Item finder (/find) is the client's own tool: Addition: recommend KEEP: one of the client's own tools the user asked for (2026-11-12 batch: damage meter, item finder, mission helper), opened only by `/find`
-- `INV-084` (medium) A swap by right click is judged without the item that comes off: Addition: recommend KEEP: added on 2026-11-18 at the user's own wish ("we should be checking requirements before starting equipment swaps that could cause probl
 - `NAN-056` (medium) Nano landing glow: three widening rings, colour from stats or school: Addition: recommend REMOVE: the original draws only the gfxtweak.bin effect a nano names (no rings of its own; the EffectRed/Green/Blue stats feed those effects
-- `NAN-057` (medium) Programs fade while a cast or recharge runs; locks from the client's own timing: Addition: recommend KEEP for now: the original does lock casting while a cast and its recharge run (the server's 0xaa locks and FUN_1004fbe4's refusals), but ho
 - `NAN-058` (low) "Nano programs available." chat line: Addition: recommend REMOVE: no such line exists in the original (no text of that kind in GUI.dll's or Gamecode's strings, none sent by name from text.mdb); the 
-- `NAN-059` (low) Nano program and NCU tips are the client's own layout: Addition: recommend KEEP until the original's tooltip for nano programs is ported: the original shows its own tip from GUI.dll's item views, which was not read 
-- `NAN-060` (low) Right-click "Cancel this nano" entry is the client's own: Addition: recommend KEEP: Gamecode has N3Msg_DeleteNano, so the original can take a running nano off, but no GUI.dll code calls it (its caller is presumably Int
 - `ZON-024` (medium) Client says the Shadowlands expansion is missing at the Jobe booth: Addition: recommend REMOVE (replace with the original's path): the text is the original's, but it is a criterion's failure line, not an error box: FUN_1000556a 
-- `ZON-025` (medium) Whom-Pah destinations learned from play and remembered: Addition: recommend KEEP: the original shows no destinations (the server decides them, and the capture and live tests show no menu or message), so the learned l
-- `ZON-026` (medium) Whom-Pah window with a Go button that walks to the booth: Addition: recommend KEEP: the original has no such window (GUI_DLL_PARITY.md: "Whom-pah ... ours"); it only walks with ordinary movement messages and stops on a
-- `ZON-027` (low) Interior exit offered like a Whom-Pah booth: Addition: recommend KEEP with the Whom-Pah window (ZON-026): the original offers no such list; the exit entry only walks there with ordinary movement.
-- `ZON-028` (low) Whom-Pah booths labelled by their sign texture: Addition: recommend KEEP with the Whom-Pah window: the original never reads the sign statel as a destination; the label is the client's own help and sends nothi
-- `CHT-069` (medium) Chat commands of the client's own: Addition: recommend KEEP: the commands only open the client's own tools or act on the client (none sends anything the original would not), and a player who neve
 - `CHT-070` (medium) Use key adds a "Using X" line and a "Nothing targeted to use" notice: Addition: recommend REMOVE: the original's use key (N3Msg_UseItem / the target's use, GUI.dll) prints no "Using X" line and no "Nothing targeted" notice; these 
-- `CHT-071` (low) "Chat server is not connected" line: Addition: recommend KEEP: the original has its own not-connected line for /cc ("Error: Not connected to chat-server.", a literal of FUN_100ba6f4); a player need
 - `CHT-072` (low) /fxscript with only a name gets a parameter mark added: Addition: recommend REMOVE: the original runs a script only when a parameters part follows the name; adding the mark runs scripts the original would not.
-- `CHT-073` (low) /setoption names the client's own settings: Addition: recommend KEEP: /setoption is the only way to set the client's own options from the chat line, and the original's distributed values are still set as 
-- `CHT-074` (low) Client's own chat status lines: Addition: recommend KEEP: the connection lines tell why chat stopped; the original has no such lines but also a different connection handling.
 - `CHT-075` (low) Deposit to Market adds a client line: Addition: recommend REMOVE: the original says nothing; the market window itself shows what was sent.
 - `CHT-076` (low) Inspect result also told as a chat line: Addition: recommend REMOVE: the original only opens the info page.
 - `CHT-078` (low) Own confirmation lines for several commands: Addition: recommend REMOVE: the original says nothing for these commands (e.g. /gfx); the lines are the client's own.
-- `CHT-079` (low) Scripts folder beside the client's settings is searched first: Addition: recommend KEEP: the original's folder is still searched; the client's own folder beside its settings only adds a place.
-- `CHT-080` (low) Team invitation text is the client's own: Addition: recommend KEEP until the original's invitation text is found (the box's line was not read); the box is needed to accept an invitation.
-- `WIN-153` (medium) Client settings window beside the original's option panel: Addition: recommend KEEP: the original's option panel is only the skin's Root.xml (FUN_100c3d62, see WIN-032) and has no display mode, renderer, upscaling or th
 - `WIN-154` (medium) Client's own message box for 14 seconds: Addition: recommend REMOVE: the original has no such box; its messages go to the chat window as feedback lines (and some, like the screenshot, say nothing at al
-- `WIN-155` (medium) Hotbar "is not ready: queued" message and own cooldowns: Addition: recommend KEEP: the queueing and own cooldowns belong to the client's smart hotbars, an optional bar of its own (`smart_hotbar = off` gives the origin
-- `WIN-156` (medium) Map: dots for nearby characters and the character arrow: Addition: recommend KEEP: the dots and the arrow are drawn only on the client's own round corner map and its overlay (automap.rs show, lines 848 and 880), which
-- `WIN-157` (low) A skin without its own TextColors.xml takes the game's: Addition: recommend KEEP: the original always has its Default folder's TextColors.xml beside a skin; taking it when a skin lacks one is what the original's own 
-- `WIN-158` (low) Actions tooltip has the client's own text: Addition: recommend KEEP: a tooltip on the action tiles; it adds information without changing what the tiles do.
-- `WIN-159` (low) AOU mod skins bundled and selectable: Addition: recommend KEEP: the AOU skins are optional themes; the default is the game's own skin.
-- `WIN-160` (low) Creature inspect page is the client's own headline with health: Addition: recommend KEEP until the original's creature info page is read; it is a stand-in where the original's page was not found.
-- `WIN-161` (low) Error boxes are queued, never repeated: Addition: recommend KEEP: queuing the boxes without repeats only spares a player a stack of the same refusal; each text still shows.
-- `WIN-162` (low) Escape always closes the client's own Options, Whom-Pah, Browser and Help windows: Addition: recommend KEEP: the windows concerned are the client's own (Options, Whom-Pah, Browser, Help), which the original's esc_* options do not know; the ori
-- `WIN-163` (low) Help assistant ("Ask the guides") is the client's own window: Addition: recommend KEEP: one of the client's own tools the user asked for; network use only when its sources are turned on.
-- `WIN-164` (low) Help window (Ctrl+H) with find and chat input history: Addition: recommend KEEP: the key list window and the chat history add help without taking anything of the original away.
-- `WIN-165` (low) Hover breakdown tooltips on stats and skills: Addition: recommend KEEP: an extra tooltip with the stat's parts; the original's bar tips (TooltipHealth ...) are still there.
 - `WIN-166` (low) Inbox status line and "Sending ..." text: Addition: recommend REMOVE the status line (or keep only the delete refusal): the original's mail window shows only InboxSize ("n/30", GUI.dll FUN_10109489), an
-- `WIN-167` (low) Info view file:// pages also search the game's text folder: Addition: recommend KEEP: one more folder searched for a file:// page only finds files the original would have shown as missing; nothing changes for the pages t
 - `WIN-168` (low) Inspect window: title carries the character's name, right click opens the item page: Addition: recommend REMOVE both for faithfulness: the original's Inspect window is titled Inspect and a right press opens the item menu (FUN_100e24b8); the name
-- `WIN-169` (low) Missing game texts fall back to the client's own words: Addition: recommend KEEP: the game's texts are always used when text.mdb has them; the client's words only fill in where the file lacks a text.
-- `WIN-170` (low) Performance overlay: Addition: recommend KEEP: off by default (/perf), a developer's and player's help.
-- `WIN-171` (low) Plain strip drawn when there is no skin: Addition: recommend KEEP: drawn only when no skin can be found at all, where the original could not draw its strip either.
-- `WIN-172` (low) Planet map window: map choice list inside the window: Addition: recommend KEEP: the choice is the original's own option (`PlanetMapIndexFile`; FUN_1004cb15 lists the indexes); the list in the window is a shorter wa
 - `WIN-173` (low) Shop status line "Trade complete.": Addition: recommend REMOVE: the original's trade shows no such line; the trade window closing says it was done.
-- `WIN-174` (low) Shop window title carries the shop's name: Addition: recommend KEEP: a name in the title bar the skin's view leaves out; nothing is hidden by it.
 - `WIN-175` (low) Skills window messages use the client's own words: Addition: recommend REMOVE the client's own status texts where the original says nothing, keeping text.mdb's (Skill_LackIP) where it does; "Changes sent." and "
-- `WIN-176` (low) The client can build planet maps of its own and list any map folder: Addition: recommend KEEP: the maps made here (Atlas of Rubi-Ka) are the user's own work; the game's maps are still listed and the default.
-- `WIN-177` (low) The client's own tool windows (damage meter, item finder, guide): Addition: recommend KEEP: the client's own tools the user asked for.
-- `WIN-178` (low) Web pages: loading page and 8 s / 30 s proxy time-outs: Addition: recommend KEEP: the loading line and the time-outs only show while a page is coming or a site is silent.
-- `WIN-179` (low) Window icon is the client's own emblem on a slate square: Addition: recommend KEEP: the icon is the original's own emblem picture (GFX_GUI_AO_LOGO); a program must have one.
-- `WIN-180` (low) Windows that can be docked include ones the original does not dock: Addition: recommend KEEP: docking more windows is an option a player chooses; the original's docked windows are docked by default as there.
 - `CAM-013` (low) Camera mode change prints a chat line: Addition: recommend REMOVE: the game's texts have no such line (text.mdb's camera texts are the menu's labels and tips only), so the original changes the mode s
-- `RND-183` (medium) Anti-aliasing, anisotropic filtering, mips and hemisphere light: Addition: recommend KEEP: anti-aliasing, anisotropic filtering and mips are display-quality settings with no rule of the original's to break (its DirectX 7 devi
-- `RND-184` (medium) Coloured boxes stand in for characters with no model: Addition: recommend KEEP: the original has a model for every character (its fallback is `unfinished-breed.cir`, see RND-028), so the boxes only show where this 
 - `RND-185` (medium) Distance haze when the area has no fog: Addition: recommend REMOVE: the original's only fog is the area's VisualFog_t; with none it draws clear to its far clip, so the haze is a look of the client's o
-- `RND-186` (medium) Name plates are the client's own: Addition: recommend KEEP: the original's name tags are VisualSprite_t in the world (HandleNametags 0x100268ee); until those are ported (RND-027) the client's pl
 - `RND-187` (medium) Plants sway in the wind and bend away from the player: Addition: recommend REMOVE: the original has no plant flag and moves plants only through their meshes' own animations; the sway and the bend away from the playe
-- `RND-188` (medium) Real sun shadows from the playfield's props, shadow-map options: Addition: recommend KEEP: it is an option and `shadows` off gives the original's blob shadows only (GfxVisualSimpleShadow_c); suggest it default to off if the o
-- `RND-189` (low) Drawing scale with FSR 1 upscaling and a mip bias: Addition: recommend KEEP: a performance option for slow machines that defaults to full scale; it does not change the picture's content.
-- `RND-190` (low) Frame limiter and background frame rate: Addition: recommend KEEP: frame limiting is a machine setting with no rule of the original's to break.
 - `RND-191` (low) Generic emitter: dense clouds dimmed, jitter and clamps: Addition: recommend REMOVE: the dimming, jitter and clamps change the generic emitter's look away from the template's own numbers; if a template makes a cloud t
 - `RND-192` (low) Hit effect fade-in and fade-out added: Addition: recommend REMOVE: the original's hit effects end as their own controls fade them; an extra fade in and out changes their look.
-- `RND-193` (low) Textures block-compressed on the card, on by default: Addition: recommend KEEP: compression saves video memory and is a launcher option; the original's DX7 device also took compressed (DXT) textures where the files
-- `RND-194` (low) View distance and character distance settings: Addition: recommend KEEP: the original has a view distance setting of its own in its options; the character distance is a performance option.
 - `LCH-043` (medium) An account with no characters is sent back to the form: Addition: recommend REMOVE: the original goes to the character screen for every character list (GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179: reply 0xe ->
-- `LCH-044` (medium) Character screen figure is dressed from a remembered look (looks.ini): Addition: recommend KEEP: no store of looks was found in the original (GUI.dll's login strings name only the creation meshes for `LoginWorld_c`; the list's `Cha
-- `LCH-046` (low) "No heads found" message in creation: Addition: recommend KEEP: it shows only when the game's files have none of the breed's head meshes, where the original would have offered no head and sent a cre
-- `LCH-048` (low) Game folder is looked for in usual install places: Addition: recommend KEEP: the original runs from inside its own folder and never needs to find it; the client is installed apart from the game, so looking in th
-- `LCH-049` (low) Launcher has its own backgrounds (night sky, own picture) and a news-page switch: Addition: recommend KEEP: the default (`background = game`) is the original's own pictures; the night sky and an own picture only show when chosen. The news-pag
-- `LCH-050` (low) Launcher Visual page adds frame limit, shadows, monitor, presets: Addition: recommend KEEP: the Visual page's added rows are the wgpu counterparts of the original's Direct3D choices (see SET-042), which have no meaning here.
-- `LCH-051` (low) Launcher window hidden at start, web view moved in after load: Addition: recommend KEEP: nothing a player sees differs from the original but the missing white flash of an empty web view; it is how a WebView2 child is shown 
-- `SET-038` (medium) Character draw distance and auto-loot settings: Addition: recommend KEEP: the character draw distance is the original's own (`/chardist`, registered by GUI.dll FUN_100bb3e0), only reached here also from a set
-- `SET-039` (medium) Frame limit, background limit and vsync choice: Addition: recommend KEEP: the original's only frame control is its fixed cap and the `/framerate` counter (`FramerateView_t`); a limit, a background limit and t
-- `SET-040` (medium) Interface size setting: Addition: recommend KEEP: the original has no interface scale (no scale string in GUI.dll), and at today's resolutions its 1024x768-sized windows are unreadably
-- `SET-041` (medium) Item finder files of what was seen: Addition: recommend KEEP: the item finder is one of the client's own tools the user asked for (memory "MAO own tools"); its files are only written beside the cl
-- `SET-042` (medium) Own graphics and display options (presets, scale, FSR, shadows, monitor, distances): Addition: recommend KEEP: the original's graphics settings are Direct3D 7 device, colour depth and texture choices that have no meaning for wgpu (LCH-002); the 
-- `SET-043` (medium) Themes, skin folders and the built-in palette: Addition: recommend KEEP: the default theme is `original` (the game's own skin and GUIColors.xml); the AOU themes and other folders only apply when chosen.
-- `SET-044` (medium) Window modes with F11 / Alt+Enter and a chosen monitor: Addition: recommend KEEP, but note: Alt+Enter is one of the original's three chat keys (GUI.dll's key table at 0x101aab28: `COMMAND_TEXT_INPUT_START_TEXT_INPUT`
-- `SET-045` (low) Account file with last-played character first: Addition: recommend KEEP the pre-selection, which is the original's own (`CharSelectWindow_c::SlotCharListReceived` 0x1000ebd5 selects the row of the value `Sel
-- `SET-046` (low) AutoAFK controlled by /setoption: Addition: recommend KEEP: `/setoption` is the original's own command for setting any distributed value, and `AutoAFK` is one (LoginPrefs.xml), so the original's
-- `SET-047` (low) Client brings its own PlanetMap folder: Addition: recommend KEEP: the game's own PlanetMap folder is still read; the client's folder only adds maps (memory: they reached the real folder 2026-11-15) wi
-- `SET-048` (low) Crash log, run markers and error box: Addition: recommend KEEP: the crash log, run markers and error box only show where the client fails, which is where the original would have shown its own crash 
-- `SET-049` (low) Extra key actions of the client: Addition: recommend KEEP, with one note: Alt+Enter (CycleWindowMode) is one of the original's chat-input keys in GUI.dll's key table (see SET-044); the other ex
-- `SET-050` (low) Game folder is a setting with Browse picker and auto-detection: Addition: recommend KEEP: the client lives apart from the game's folder (LCH-048), so it needs to be told or to find where the game is.
-- `SET-051` (low) Game log written to game-log.txt: Addition: recommend KEEP: a log file beside the settings that a player never has to look at; it carries nothing of the account.
-- `SET-052` (low) Option panel folder list uses egui widgets with a "Client settings" link: Addition: recommend KEEP: the folder list is the original's (its folders and pages from the option panel files); the "Client settings" link is the only way from
-- `SET-053` (low) Pet window, planet map and camera settings in mao.ini: Addition: recommend KEEP: the settings themselves are the original's (`PetWindowConfig`, `PlanetMapIndexFile`, `PreferredCameraMode`); only where they are kept 
-- `SET-054` (low) Tradeskill guide keeps a record of what the window said: Addition: recommend KEEP: the tradeskill guide is one of the client's own tools; the window itself still shows each answer as the original does.
-- `NET-012` (low) Help assistant: hosted model and guide crawler: Addition: recommend KEEP: off by default, and the hosted model and the guide crawler only run when the player sets them up; the original game never contacts the
-- `NET-013` (low) Protocol read by a schema generated from SmokeLounge/AOSharp definitions: Addition: recommend KEEP: the schema is how the client reads and writes messages, not something a player sees; where the original's own readers have been read t
-- `OTH-018` (medium) Help assistant: a small language model run inside the client: Addition: recommend KEEP: the help assistant is one of the client's own tools the user asked for; the model is fetched only on request and runs only while the w
-- `OTH-019` (low) Help assistant: crafting texts as a source: Addition: recommend KEEP: part of the client's own help assistant; the texts are the game's own books and descriptions.
-- `OTH-020` (low) Linux and macOS builds exist: Addition: recommend KEEP: other platforms change nothing for the Windows client.
-- `OTH-021` (low) Screenshot key saves a PNG with a notes file: Addition: recommend KEEP the notes file (the user's tool for finding places and meshes); the original's screenshot key saves a picture too, so only the .txt bes
 
 Low weight: see the counts above and each area's lists below.
 <!-- /status -->
@@ -449,100 +366,100 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Movement**
 
-- [ ] `MOV-027` /follow is the client's own walk-after-target **(your call)**
-- [ ] `MOV-028` Walk-to-place with its own obstacle detours **(your call)**
+- [x] `MOV-027` /follow is the client's own walk-after-target **(kept by decision)**
+- [x] `MOV-028` Walk-to-place with its own obstacle detours **(kept by decision)**
 - [ ] `MOV-029` /sit command is the client's own **(your call)**
 - [x] `MOV-030` Auto-run key **(done)**
-- [ ] `MOV-031` Own character glides between server updates **(your call)**
-- [ ] `MOV-032` Walk-through-props toggle (noclip) and key layout **(your call)**
+- [x] `MOV-031` Own character glides between server updates **(kept by decision)**
+- [x] `MOV-032` Walk-through-props toggle (noclip) and key layout **(kept by decision)**
 - [ ] `MOV-033` Walk/run mode announced on entering each playfield **(your call)**
 
 **Combat**
 
-- [ ] `CMB-037` Damage meter window (client's own) **(your call)**
+- [x] `CMB-037` Damage meter window (client's own) **(kept by decision)**
 - [ ] `CMB-038` Floating combat numbers **(your call)**
 
 **Targeting and mouse**
 
-- [x] `TGT-017` Double click uses what the first click took; Shift/Ctrl/Alt clicks not ported **(left by decision)**
+- [x] `TGT-017` Double click uses what the first click took; Shift/Ctrl/Alt clicks not ported **(done)**
 
 **NPCs and creatures**
 
-- [ ] `NPC-039` Mission helper: "Looking for" lists and "Keep asking until one fits" **(your call)**
+- [x] `NPC-039` Mission helper: "Looking for" lists and "Keep asking until one fits" **(kept by decision)**
 - [ ] `NPC-040` Clicked NPC answer echoed locally; client line for rejected items **(your call)**
 
 **Inventory and items**
 
-- [ ] `INV-079` Auto loot of fresh corpses **(your call)**
+- [x] `INV-079` Auto loot of fresh corpses **(kept by decision)**
 - [ ] `INV-080` Container and overflow windows have a "Take all" button **(your call)**
-- [ ] `INV-081` Tradeskill guide made from item descriptions **(your call)**
+- [x] `INV-081` Tradeskill guide made from item descriptions **(kept by decision)**
 - [ ] `INV-082` Backpack count heading **(your call)**
-- [ ] `INV-083` Item finder (/find) is the client's own tool **(your call)**
-- [ ] `INV-084` A swap by right click is judged without the item that comes off (added 2026-11-18) **(your call)**
+- [x] `INV-083` Item finder (/find) is the client's own tool **(kept by decision)**
+- [x] `INV-084` A swap by right click is judged without the item that comes off (added 2026-11-18) **(kept by decision)**
 
 **Nano programs**
 
 - [ ] `NAN-056` Nano landing glow: three widening rings, colour from stats or school **(your call)**
-- [ ] `NAN-057` Programs fade while a cast or recharge runs; locks from the client's own timing **(your call)**
+- [x] `NAN-057` Programs fade while a cast or recharge runs; locks from the client's own timing **(kept by decision)**
 - [ ] `NAN-058` "Nano programs available." chat line **(your call)**
-- [ ] `NAN-059` Nano program and NCU tips are the client's own layout **(your call)**
-- [ ] `NAN-060` Right-click "Cancel this nano" entry is the client's own **(your call)**
+- [x] `NAN-059` Nano program and NCU tips are the client's own layout **(kept by decision)**
+- [x] `NAN-060` Right-click "Cancel this nano" entry is the client's own **(kept by decision)**
 
 **Zoning and playfields**
 
 - [ ] `ZON-024` Client says the Shadowlands expansion is missing at the Jobe booth **(your call)**
-- [ ] `ZON-025` Whom-Pah destinations learned from play and remembered **(your call)**
-- [ ] `ZON-026` Whom-Pah window with a Go button that walks to the booth **(your call)**
-- [ ] `ZON-027` Interior exit offered like a Whom-Pah booth **(your call)**
-- [ ] `ZON-028` Whom-Pah booths labelled by their sign texture **(your call)**
+- [x] `ZON-025` Whom-Pah destinations learned from play and remembered **(kept by decision)**
+- [x] `ZON-026` Whom-Pah window with a Go button that walks to the booth **(kept by decision)**
+- [x] `ZON-027` Interior exit offered like a Whom-Pah booth **(kept by decision)**
+- [x] `ZON-028` Whom-Pah booths labelled by their sign texture **(kept by decision)**
 
 **Chat and commands**
 
-- [ ] `CHT-069` Chat commands of the client's own **(your call)**
+- [x] `CHT-069` Chat commands of the client's own **(kept by decision)**
 - [ ] `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice **(your call)**
-- [ ] `CHT-071` "Chat server is not connected" line **(your call)**
+- [x] `CHT-071` "Chat server is not connected" line **(kept by decision)**
 - [ ] `CHT-072` /fxscript with only a name gets a parameter mark added **(your call)**
-- [ ] `CHT-073` /setoption names the client's own settings **(your call)**
-- [ ] `CHT-074` Client's own chat status lines **(your call)**
+- [x] `CHT-073` /setoption names the client's own settings **(kept by decision)**
+- [x] `CHT-074` Client's own chat status lines **(kept by decision)**
 - [ ] `CHT-075` Deposit to Market adds a client line **(your call)**
 - [ ] `CHT-076` Inspect result also told as a chat line **(your call)**
 - [x] `CHT-077` New mail needs a recipient and subject (client's own check) **(done)**
 - [ ] `CHT-078` Own confirmation lines for several commands **(your call)**
-- [ ] `CHT-079` Scripts folder beside the client's settings is searched first **(your call)**
-- [ ] `CHT-080` Team invitation text is the client's own **(your call)**
+- [x] `CHT-079` Scripts folder beside the client's settings is searched first **(kept by decision)**
+- [x] `CHT-080` Team invitation text is the client's own **(kept by decision)**
 
 **Windows and interface**
 
 - [x] `WIN-151` Fog-of-war corner map and overlay map are the client's own **(done)**
 - [x] `WIN-152` Smart hotbars with priority lists and queued presses **(done)**
-- [ ] `WIN-153` Client settings window beside the original's option panel **(your call)**
+- [x] `WIN-153` Client settings window beside the original's option panel **(kept by decision)**
 - [ ] `WIN-154` Client's own message box for 14 seconds **(your call)**
-- [ ] `WIN-155` Hotbar "is not ready: queued" message and own cooldowns **(your call)**
-- [ ] `WIN-156` Map: dots for nearby characters and the character arrow **(your call)**
-- [ ] `WIN-157` A skin without its own TextColors.xml takes the game's **(your call)**
-- [ ] `WIN-158` Actions tooltip has the client's own text **(your call)**
-- [ ] `WIN-159` AOU mod skins bundled and selectable **(your call)**
-- [ ] `WIN-160` Creature inspect page is the client's own headline with health **(your call)**
-- [ ] `WIN-161` Error boxes are queued, never repeated **(your call)**
-- [ ] `WIN-162` Escape always closes the client's own Options, Whom-Pah, Browser and Help windows **(your call)**
-- [ ] `WIN-163` Help assistant ("Ask the guides") is the client's own window **(your call)**
-- [ ] `WIN-164` Help window (Ctrl+H) with find and chat input history **(your call)**
-- [ ] `WIN-165` Hover breakdown tooltips on stats and skills **(your call)**
+- [x] `WIN-155` Hotbar "is not ready: queued" message and own cooldowns **(kept by decision)**
+- [x] `WIN-156` Map: dots for nearby characters and the character arrow **(kept by decision)**
+- [x] `WIN-157` A skin without its own TextColors.xml takes the game's **(kept by decision)**
+- [x] `WIN-158` Actions tooltip has the client's own text **(kept by decision)**
+- [x] `WIN-159` AOU mod skins bundled and selectable **(kept by decision)**
+- [x] `WIN-160` Creature inspect page is the client's own headline with health **(kept by decision)**
+- [x] `WIN-161` Error boxes are queued, never repeated **(kept by decision)**
+- [x] `WIN-162` Escape always closes the client's own Options, Whom-Pah, Browser and Help windows **(kept by decision)**
+- [x] `WIN-163` Help assistant ("Ask the guides") is the client's own window **(kept by decision)**
+- [x] `WIN-164` Help window (Ctrl+H) with find and chat input history **(kept by decision)**
+- [x] `WIN-165` Hover breakdown tooltips on stats and skills **(kept by decision)**
 - [ ] `WIN-166` Inbox status line and "Sending ..." text **(your call)**
-- [ ] `WIN-167` Info view file:// pages also search the game's text folder **(your call)**
+- [x] `WIN-167` Info view file:// pages also search the game's text folder **(kept by decision)**
 - [ ] `WIN-168` Inspect window: title carries the character's name, right click opens the item page **(your call)**
-- [ ] `WIN-169` Missing game texts fall back to the client's own words **(your call)**
-- [ ] `WIN-170` Performance overlay **(your call)**
-- [ ] `WIN-171` Plain strip drawn when there is no skin **(your call)**
-- [ ] `WIN-172` Planet map window: map choice list inside the window **(your call)**
+- [x] `WIN-169` Missing game texts fall back to the client's own words **(kept by decision)**
+- [x] `WIN-170` Performance overlay **(kept by decision)**
+- [x] `WIN-171` Plain strip drawn when there is no skin **(kept by decision)**
+- [x] `WIN-172` Planet map window: map choice list inside the window **(kept by decision)**
 - [ ] `WIN-173` Shop status line "Trade complete." **(your call)**
-- [ ] `WIN-174` Shop window title carries the shop's name **(your call)**
+- [x] `WIN-174` Shop window title carries the shop's name **(kept by decision)**
 - [ ] `WIN-175` Skills window messages use the client's own words **(your call)**
-- [ ] `WIN-176` The client can build planet maps of its own and list any map folder **(your call)**
-- [ ] `WIN-177` The client's own tool windows (damage meter, item finder, guide) **(your call)**
-- [ ] `WIN-178` Web pages: loading page and 8 s / 30 s proxy time-outs **(your call)**
-- [ ] `WIN-179` Window icon is the client's own emblem on a slate square **(your call)**
-- [ ] `WIN-180` Windows that can be docked include ones the original does not dock **(your call)**
+- [x] `WIN-176` The client can build planet maps of its own and list any map folder **(kept by decision)**
+- [x] `WIN-177` The client's own tool windows (damage meter, item finder, guide) **(kept by decision)**
+- [x] `WIN-178` Web pages: loading page and 8 s / 30 s proxy time-outs **(kept by decision)**
+- [x] `WIN-179` Window icon is the client's own emblem on a slate square **(kept by decision)**
+- [x] `WIN-180` Windows that can be docked include ones the original does not dock **(kept by decision)**
 
 **Camera**
 
@@ -550,62 +467,62 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Rendering and world**
 
-- [ ] `RND-183` Anti-aliasing, anisotropic filtering, mips and hemisphere light **(your call)**
-- [ ] `RND-184` Coloured boxes stand in for characters with no model **(your call)**
+- [x] `RND-183` Anti-aliasing, anisotropic filtering, mips and hemisphere light **(kept by decision)**
+- [x] `RND-184` Coloured boxes stand in for characters with no model **(kept by decision)**
 - [ ] `RND-185` Distance haze when the area has no fog **(your call)**
-- [ ] `RND-186` Name plates are the client's own **(your call)**
+- [x] `RND-186` Name plates are the client's own **(kept by decision)**
 - [ ] `RND-187` Plants sway in the wind and bend away from the player **(your call)**
-- [ ] `RND-188` Real sun shadows from the playfield's props, shadow-map options **(your call)**
-- [ ] `RND-189` Drawing scale with FSR 1 upscaling and a mip bias **(your call)**
-- [ ] `RND-190` Frame limiter and background frame rate **(your call)**
+- [x] `RND-188` Real sun shadows from the playfield's props, shadow-map options **(kept by decision)**
+- [x] `RND-189` Drawing scale with FSR 1 upscaling and a mip bias **(kept by decision)**
+- [x] `RND-190` Frame limiter and background frame rate **(kept by decision)**
 - [ ] `RND-191` Generic emitter: dense clouds dimmed, jitter and clamps **(your call)**
 - [ ] `RND-192` Hit effect fade-in and fade-out added **(your call)**
-- [ ] `RND-193` Textures block-compressed on the card, on by default **(your call)**
-- [ ] `RND-194` View distance and character distance settings **(your call)**
+- [x] `RND-193` Textures block-compressed on the card, on by default **(kept by decision)**
+- [x] `RND-194` View distance and character distance settings **(kept by decision)**
 
 **Launcher, login, character creation**
 
 - [ ] `LCH-043` An account with no characters is sent back to the form **(your call)**
-- [ ] `LCH-044` Character screen figure is dressed from a remembered look (looks.ini) **(your call)**
+- [x] `LCH-044` Character screen figure is dressed from a remembered look (looks.ini) **(kept by decision)**
 - [x] `LCH-045` Logging out (/camp) restarts the launcher and logs in again **(done)**
-- [ ] `LCH-046` "No heads found" message in creation **(your call)**
+- [x] `LCH-046` "No heads found" message in creation **(kept by decision)**
 - [x] `LCH-047` Character list shows free slots and offers New Character only while one is free **(done)**
-- [ ] `LCH-048` Game folder is looked for in usual install places **(your call)**
-- [ ] `LCH-049` Launcher has its own backgrounds (night sky, own picture) and a news-page switch **(your call)**
-- [ ] `LCH-050` Launcher Visual page adds frame limit, shadows, monitor, presets **(your call)**
-- [ ] `LCH-051` Launcher window hidden at start, web view moved in after load **(your call)**
+- [x] `LCH-048` Game folder is looked for in usual install places **(kept by decision)**
+- [x] `LCH-049` Launcher has its own backgrounds (night sky, own picture) and a news-page switch **(kept by decision)**
+- [x] `LCH-050` Launcher Visual page adds frame limit, shadows, monitor, presets **(kept by decision)**
+- [x] `LCH-051` Launcher window hidden at start, web view moved in after load **(kept by decision)**
 
 **Settings and files**
 
-- [ ] `SET-038` Character draw distance and auto-loot settings **(your call)**
-- [ ] `SET-039` Frame limit, background limit and vsync choice **(your call)**
-- [ ] `SET-040` Interface size setting **(your call)**
-- [ ] `SET-041` Item finder files of what was seen **(your call)**
-- [ ] `SET-042` Own graphics and display options (presets, scale, FSR, shadows, monitor, distances) **(your call)**
-- [ ] `SET-043` Themes, skin folders and the built-in palette **(your call)**
-- [ ] `SET-044` Window modes with F11 / Alt+Enter and a chosen monitor **(your call)**
-- [ ] `SET-045` Account file with last-played character first **(your call)**
-- [ ] `SET-046` AutoAFK controlled by /setoption **(your call)**
-- [ ] `SET-047` Client brings its own PlanetMap folder **(your call)**
-- [ ] `SET-048` Crash log, run markers and error box **(your call)**
-- [ ] `SET-049` Extra key actions of the client **(your call)**
-- [ ] `SET-050` Game folder is a setting with Browse picker and auto-detection **(your call)**
-- [ ] `SET-051` Game log written to game-log.txt **(your call)**
-- [ ] `SET-052` Option panel folder list uses egui widgets with a "Client settings" link **(your call)**
-- [ ] `SET-053` Pet window, planet map and camera settings in mao.ini **(your call)**
-- [ ] `SET-054` Tradeskill guide keeps a record of what the window said **(your call)**
+- [x] `SET-038` Character draw distance and auto-loot settings **(kept by decision)**
+- [x] `SET-039` Frame limit, background limit and vsync choice **(kept by decision)**
+- [x] `SET-040` Interface size setting **(kept by decision)**
+- [x] `SET-041` Item finder files of what was seen **(kept by decision)**
+- [x] `SET-042` Own graphics and display options (presets, scale, FSR, shadows, monitor, distances) **(kept by decision)**
+- [x] `SET-043` Themes, skin folders and the built-in palette **(kept by decision)**
+- [x] `SET-044` Window modes with F11 / Alt+Enter and a chosen monitor **(kept by decision)**
+- [x] `SET-045` Account file with last-played character first **(kept by decision)**
+- [x] `SET-046` AutoAFK controlled by /setoption **(kept by decision)**
+- [x] `SET-047` Client brings its own PlanetMap folder **(kept by decision)**
+- [x] `SET-048` Crash log, run markers and error box **(kept by decision)**
+- [x] `SET-049` Extra key actions of the client **(kept by decision)**
+- [x] `SET-050` Game folder is a setting with Browse picker and auto-detection **(kept by decision)**
+- [x] `SET-051` Game log written to game-log.txt **(kept by decision)**
+- [x] `SET-052` Option panel folder list uses egui widgets with a "Client settings" link **(kept by decision)**
+- [x] `SET-053` Pet window, planet map and camera settings in mao.ini **(kept by decision)**
+- [x] `SET-054` Tradeskill guide keeps a record of what the window said **(kept by decision)**
 
 **Network and protocol**
 
-- [ ] `NET-012` Help assistant: hosted model and guide crawler **(your call)**
-- [ ] `NET-013` Protocol read by a schema generated from SmokeLounge/AOSharp definitions **(your call)**
+- [x] `NET-012` Help assistant: hosted model and guide crawler **(kept by decision)**
+- [x] `NET-013` Protocol read by a schema generated from SmokeLounge/AOSharp definitions **(kept by decision)**
 
 **Other**
 
-- [ ] `OTH-018` Help assistant: a small language model run inside the client **(your call)**
-- [ ] `OTH-019` Help assistant: crafting texts as a source **(your call)**
-- [ ] `OTH-020` Linux and macOS builds exist **(your call)**
-- [ ] `OTH-021` Screenshot key saves a PNG with a notes file **(your call)**
+- [x] `OTH-018` Help assistant: a small language model run inside the client **(kept by decision)**
+- [x] `OTH-019` Help assistant: crafting texts as a source **(kept by decision)**
+- [x] `OTH-020` Linux and macOS builds exist **(kept by decision)**
+- [x] `OTH-021` Screenshot key saves a PNG with a notes file **(kept by decision)**
 
 ## Movement
 
@@ -888,8 +805,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: walks after the target to 3.5 m (2.0 m if fighting it, since the server answered "too far" at 3.5), restarts a metre past that, stops on any movement key, and says "Following X" / "Stopped following" / "The target is gone: stopped following"
 - A player notices: automatic following with the client's own distances and chat lines
 - Where: `crates/mao-client/src/net.rs:7616-7655`; `docs/CLIENT_UI.md:2690`; `docs/CLIENT_UI.md:2851`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original does have /follow, but not this one: N3Msg_TextCommand's FUN_1003fe10 (0x10042221..0x100423ec) refuses in movement modes 1, 8, 9, 0xb, 0xc with Feedback_YouCantMove, else builds a FollowTargetIIR_c (FUN_10073a41) for the target at 2.5 m (0x1015e8bc), sends it and says FollowingX (category 110) with the target's name; other targets get Feedback_CantFollow. Porting means sending that FollowTarget (0x260f3671) message, and no capture holds a C>S one (all 19,777 captured are S>C), so the bytes are unknown; keep the client's own walk-after until a capture of the original's /follow exists.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `MOV-028` Walk-to-place with its own obstacle detours
 
@@ -898,8 +816,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Whom-Pah Go button and /waypoint walk straight toward a point, turn aside for 1.6 s when no progress for 0.9 s (six angles), give up after 12 detours with "Can't find a way round (stopped)"; stop within 1.2 m
 - A player notices: a click-to-walk feature with the client's own path-finding
 - Where: `crates/mao-client/src/net.rs:7687-7698`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has no /waypoint command and no walk to a point for the player (its WaypointPathIIR_c paths are the server's, for creatures); the client's walk with detours is what the Whom-Pah Go button and the unattended live tests' /waypoint routes use, and it sends only ordinary movement messages.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `MOV-029` /sit command is the client's own
 
@@ -928,8 +847,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: between updates the character, its name tag, shadow and the camera are moved on at the speed it was walking, up to 0.12 s ahead, using the step's own time
 - A player notices: smoother motion; the picture can run slightly ahead of the server's position
 - Where: `crates/mao-client/src/viewer.rs:1962-1970`; `docs/CLIENT_UI.md:1288`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original moves its character every frame in the vehicle; the client steps it in its network thread and draws between steps, so the glide only stands in for the original's per-frame movement on screen and sends nothing.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `MOV-032` Walk-through-props toggle (noclip) and key layout
 
@@ -938,8 +858,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a toggle lets the character walk through props (unbound by default now; was C, then Ctrl+Shift+C); strafing is on Z/C
 - A player notices: the player can walk through props, which the original does not offer
 - Where: `crates/mao-client/src/viewer.rs:29`; `crates/mao-client/src/viewer.rs:1370`; `crates/mao-client/src/settings.rs:195-197`; `docs/CLIENT_UI.md:95`; `README.md:49`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP as an unbound testing toggle (it is unbound by default and only reachable by binding it); the original has no such key and C is its sidestep, which the client's layout keeps on Z/C.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `MOV-033` Walk/run mode announced on entering each playfield
 
@@ -1330,8 +1251,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: /damage, /dps window counting damage done, taken and healing by everyone near, split into fights, per attacker, with copy as text
 - A player notices: a damage meter
 - Where: `crates/mao-client/src/damage.rs:1`; `docs/CLIENT_UI.md:971`; `docs/LIVE_TEST_LIST.md:596`; `crates/mao-client/src/net.rs:1402`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has no damage meter (no such window or text in GUI.dll or Gamecode); the user asked for it (the client's own tools of 2026-11-12) and it only reads the fight messages, sending nothing.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `CMB-038` Floating combat numbers
 
@@ -2079,8 +2001,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: lists of reward-name and place parts, a green frame on fitting offers; "Keep asking" re-requests every 1.2 s up to a limit (default 20, at most 200) and stops after 10 s with no answer; kept in missionhelper.txt
 - A player notices: players can roll missions automatically, spending credits, until a wanted reward or place comes up
 - Where: `crates/mao-client/src/mission.rs:101`; `crates/mao-client/src/mission.rs:102`; `crates/mao-client/src/mission.rs:183`; `docs/LIVE_TEST_LIST.md:579`; `docs/CLIENT_UI.md:934`; `docs/CLIENT_UI.md:944` and 1 more
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: it is opt-in, sends only the original's own QuestAlternative request at a pace no faster than a player clicking (1.2 s, capped count, stops when the server stops answering) and pays the same credits; it saves the tedium players used outside helpers for. (The original has no such helper: GUI.dll's mission window FUN_100d09cb sends one request per button press.)
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `NPC-040` Clicked NPC answer echoed locally; client line for rejected items
 
@@ -2894,8 +2817,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: With the auto_loot setting on (off by default) a corpse that just opened is emptied automatically.
 - A player notices: Corpses loot themselves when the option is on.
 - Where: `crates/mao-client/src/net.rs:8436`; `crates/mao-client/src/settings.rs:548`; `docs/CLIENT_UI.md:1906`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: an option, off by default (`auto_loot`), that changes nothing of the original's look or rules until the player turns it on; no auto loot was found in GUI.dll or Gamecode (no handler takes a container's items without a click).
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `INV-080` Container and overflow windows have a "Take all" button
 
@@ -2914,8 +2838,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Guide built by reading item descriptions ("it will make", "to create" ...), linking item names into steps; no skill requirements.
 - A player notices: A tradeskill guide window the original lacks, complete only as far as descriptions say.
 - Where: `crates/mao-formats/src/crafting.rs:29`; `crates/mao-client/src/craftguide.rs:1`; `docs/CLIENT_UI.md:895`; `docs/CLIENT_UI.md:908`; `docs/LIVE_TEST_LIST.md:554`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: a window of the client's own among its other own tools (damage meter, item finder, mission helper), opened only when asked for; it changes no original window or rule. No such guide exists in the original (which combinations work is the server's answer to a pair).
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `INV-082` Backpack count heading
 
@@ -2934,8 +2859,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A window (/find <part of a name>) searching every character played with this client by words in an item's name, saying which character, where (worn, inventory, bag, bank) and how old the knowledge is; clicking a result opens the item's description. "Look into my bags" uses each unseen bag of the played character half a second apart without a window; the character's items are written to disk every few seconds. It cannot see bags never looked into, a bank never seen, a bag inside the bank, or characters not yet played with this client.
 - A player notices: A player can look up where an item is, even on a character not logged in; bags are opened silently on request.
 - Where: `crates/mao-client/src/itemindex.rs:2`; `crates/mao-client/src/itemindex.rs:14`; `crates/mao-client/src/net.rs:8010`; `docs/CLIENT_UI.md:949`; `docs/CLIENT_UI.md:962`; `docs/LIVE_TEST_LIST.md:586`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: one of the client's own tools the user asked for (2026-11-12 batch: damage meter, item finder, mission helper), opened only by `/find`; it changes no original window or rule (its silent bag look-in happens only when the player asks).
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `INV-084` A swap by right click is judged without the item that comes off
 
@@ -2944,8 +2870,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: When the wear place is taken, the new item's requirements are judged on the shown values less the effects of the item that will come off (derived::modifiers_without, net.rs Stripped); a no ends the use with the game's line and nothing moves.
 - A player notices: A swap that would strand the old item is refused at the click; a swap the original would have tried (and the server refused) is not tried.
 - Where: `crates/mao-client/src/net.rs` (`World::wear_refusal`, the use of an item that is worn instead); `crates/mao-client/src/derived.rs` (`modifiers_without`); `docs/CLIENT_UI.md` ("An item is judged before anything is taken off")
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: added on 2026-11-18 at the user's own wish ("we should be checking requirements before starting equipment swaps that could cause problems later"), after a mission belt was stranded; the original asks `N3Msg_IsItemPossibleToWear` with the old item still on (Gamecode 0x10028883) and was confirmed to have no such check.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 ## Nano programs
 
@@ -3528,8 +3455,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A nano lock (cast time plus the nano's RechargeDelay 210, or a skill lock the run locks) fades every program in the windows; the locks come from the client's own cast as the server starts it.
 - A player notices: Program icons grey out after a cast, possibly differing from the server's lock.
 - Where: `crates/mao-client/src/net.rs:1308`; `crates/mao-client/src/net.rs:1317`; `crates/mao-client/src/nanoprograms.rs:332`; `docs/CLIENT_UI.md:4866`; `docs/CLIENT_UI.md:4877`; `crates/mao-client/src/net.rs:1343`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP for now: the original does lock casting while a cast and its recharge run (the server's 0xaa locks and FUN_1004fbe4's refusals), but how its nano window shows it was not found in GUI.dll (no lock or ready call for program icons among its strings), so the client's fade cannot yet be replaced by the original's; it sends nothing and only greys icons.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `NAN-058` "Nano programs available." chat line
 
@@ -3548,8 +3476,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A hover tip with name, NCU (or "x of y left"), description (420 characters) and up to ten stat changes.
 - A player notices: Extra hover text.
 - Where: `crates/mao-client/src/nanoprograms.rs:450`; `crates/mao-client/src/ncu.rs:281`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP until the original's tooltip for nano programs is ported: the original shows its own tip from GUI.dll's item views, which was not read tonight; the client's layout only stands in for it.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `NAN-060` Right-click "Cancel this nano" entry is the client's own
 
@@ -3558,8 +3487,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Over a nano the menu has an extra entry that cancels it.
 - A player notices: Extra way to cancel a running nano.
 - Where: `crates/mao-client/src/ncu.rs:178`; `docs/GUI_DLL_PARITY.md:80`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: Gamecode has N3Msg_DeleteNano, so the original can take a running nano off, but no GUI.dll code calls it (its caller is presumably Interfaces.dll, not in the exports), so the original's own menu entry, if any, is unknown.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 ## Zoning and playfields
 
@@ -3823,8 +3753,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: learns where a booth leads when the server zones a character standing at it (within 20 s), keeps it in whompah.ini, tells "Whom-Pah: this booth leads to X (remembered)", and seeds one booth checked live; others show "Whom-Pah" until used
 - A player notices: booth labels and a chat line the original does not show
 - Where: `crates/mao-client/src/whompah.rs:3`; `crates/mao-client/src/net.rs:7142`; `docs/CLIENT_UI.md:208`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original shows no destinations (the server decides them, and the capture and live tests show no menu or message), so the learned labels are the client's own; they send nothing and feed the client's own Whom-Pah window (ZON-026), which GUI_DLL_PARITY.md already lists as "ours".
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `ZON-026` Whom-Pah window with a Go button that walks to the booth
 
@@ -3833,8 +3764,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a window lists booths with distance and a Go button that auto-walks the character to the booth
 - A player notices: auto-walk to booths
 - Where: `docs/CLIENT_UI.md:117`; `crates/mao-client/src/net.rs:5837`; `crates/mao-client/src/ui.rs:1892`; `crates/mao-client/src/net.rs:5898`; `docs/GUI_DLL_PARITY.md:113`; `crates/mao-client/src/whompah.rs:1`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has no such window (GUI_DLL_PARITY.md: "Whom-pah ... ours"); it only walks with ordinary movement messages and stops on any movement key.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `ZON-027` Interior exit offered like a Whom-Pah booth
 
@@ -3843,8 +3775,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: an interior's door blocker is offered in the booth list (labelled, with a Go button that walks there)
 - A player notices: the interior's way out appears in the Whom-Pah window
 - Where: `crates/mao-client/src/net.rs:5837`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP with the Whom-Pah window (ZON-026): the original offers no such list; the exit entry only walks there with ordinary movement.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `ZON-028` Whom-Pah booths labelled by their sign texture
 
@@ -3853,8 +3786,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: an unused booth is labelled from the texture name of the sign statel within two units
 - A player notices: booths show where they lead before first use
 - Where: `crates/mao-client/src/whompah.rs:9`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP with the Whom-Pah window: the original never reads the sign statel as a destination; the label is the client's own help and sends nothing.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 ## Chat and commands
 
@@ -4557,8 +4491,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: adds /befriend, /sit, /pet, /perf, /damage (/dps), /find, /crafting (/craft), /follow, /inspect, /open, /close, /items, /waypoint, /selectself and window open/close by name ("No window called ..." when unknown); /follow walks client-side and the server is told nothing; view and character distance commands
 - A player notices: extra commands that open the client's own tools or act on the client only
 - Where: `crates/mao-client/src/chat_commands.rs:250`; `crates/mao-client/src/viewer.rs:2812`; `docs/CLIENT_UI.md:1910`; `docs/ORIGINAL_AUDIT.md:120`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the commands only open the client's own tools or act on the client (none sends anything the original would not), and a player who never types them sees the original's behaviour; /follow is the one that moves the character without the original's server-side follow, and could be dropped if strictness wins.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `CHT-070` Use key adds a "Using X" line and a "Nothing targeted to use" notice
 
@@ -4577,8 +4512,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a system line says "The chat server is not connected."
 - A player notices: extra message
 - Where: `crates/mao-client/src/net.rs:1047`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has its own not-connected line for /cc ("Error: Not connected to chat-server.", a literal of FUN_100ba6f4); a player needs to know why a line went nowhere.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `CHT-072` /fxscript with only a name gets a parameter mark added
 
@@ -4597,8 +4533,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: /setoption sets vsync, render_scale, sharpness, antialiasing, ui_scale, view_distance, char_distance, auto_loot, camera_mode, log_messages (and AutoAFK)
 - A player notices: display options and AutoAFK changeable from chat
 - Where: `crates/mao-client/src/settings.rs:668`; `crates/mao-client/src/afk.rs:29`; `docs/CLIENT_UI.md:3554`; `docs/GUI_DLL_PARITY.md:306`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: /setoption is the only way to set the client's own options from the chat line, and the original's distributed values are still set as they are.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `CHT-074` Client's own chat status lines
 
@@ -4607,8 +4544,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: says "Connected to the chat server again.", "The chat connection ended: ...", "The chat server cannot be reached: no more tries..." and "Asking the chat server about <name>." in the chat window
 - A player notices: extra system lines in chat
 - Where: `crates/mao-client/src/net.rs:6033`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the connection lines tell why chat stopped; the original has no such lines but also a different connection handling.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `CHT-075` Deposit to Market adds a client line
 
@@ -4637,7 +4575,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: refuses an empty recipient or subject with "A mail needs a recipient and a subject."
 - A player notices: a mail with no subject cannot be sent from the client
 - Where: `crates/mao-client/src/mailmessage.rs:278`
-- Decision: [x] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
 - Done (2026-11-19, overnight): Removed with WIN-013 tonight: the original's Send (FUN_1010733d) has no recipient or subject check, so the client's own refusal is gone.
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: FUN_1010733d checks only negative credits, the lengths and the money/C.O.D.; the server answers an empty recipient itself.
 
@@ -4658,8 +4596,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: looks in a `scripts` folder beside the client's settings first, then the original's
 - A player notices: scripts can come from a different folder
 - Where: `crates/mao-client/src/scripts.rs:17`; `crates/mao-client/src/scripts.rs:53`; `docs/GUI_DLL_PARITY.md:152`; `docs/CLIENT_UI.md:854`; `docs/LIVE_TEST_LIST.md:474`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original's folder is still searched; the client's own folder beside its settings only adds a place.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `CHT-080` Team invitation text is the client's own
 
@@ -4668,8 +4607,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: 'X invites you to join a team.' with fallback name 'Character 0x...'
 - A player notices: invitation line may differ from the original
 - Where: `crates/mao-client/src/net.rs:2853`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP until the original's invitation text is found (the box's line was not read); the box is needed to accept an invitation.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 ## Windows and interface
 
@@ -6214,8 +6154,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: when the skin has no panel (or from the panel's "Client settings") the client's own settings window opens, with key bindings, themes, window mode and size, presets
 - A player notices: a settings window the original does not have
 - Where: `crates/mao-client/src/ui.rs:943`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original's option panel is only the skin's Root.xml (FUN_100c3d62, see WIN-032) and has no display mode, renderer, upscaling or theme settings for this client's own renderer; the client's settings window holds exactly those and is reached only when the skin has no panel or from the panel's "Client settings" entry, so it does not replace an original page.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-154` Client's own message box for 14 seconds
 
@@ -6234,8 +6175,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the hotbar tells "<name> is not ready (x.xs): queued" and holds the press; each entry has a fixed cooldown number stored in hotbar.ini
 - A player notices: different messages and a press that fires later
 - Where: `crates/mao-client/src/hotbar.rs:171`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the queueing and own cooldowns belong to the client's smart hotbars, an optional bar of its own (`smart_hotbar = off` gives the original's shortcut bars, which follow the original: the skill-wait line UnableToPerformActionSkill and nothing sent); a player who wants the original's behaviour has it.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-156` Map: dots for nearby characters and the character arrow
 
@@ -6244,8 +6186,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: booths as cyan rings; players (blue), friendly (green), hostile (red) and the target (yellow, larger) as coloured dots; the character as a gold arrow pointing the way it faces
 - A player notices: the map shows creatures and players as live coloured dots
 - Where: `crates/mao-client/src/automap.rs:572`; `crates/mao-client/src/net.rs:9581`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the dots and the arrow are drawn only on the client's own round corner map and its overlay (automap.rs show, lines 848 and 880), which is itself a setting (`round_map`/own_map) beside the original's playfield map window (PlayfieldMapView_c, which the client ports separately without them).
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-157` A skin without its own TextColors.xml takes the game's
 
@@ -6254,8 +6197,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: falls back to the game's Default TextColors.xml; the built-in look carries it too
 - A player notices: markup colour names resolve under any skin
 - Where: `crates/mao-client/src/theme.rs:108`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original always has its Default folder's TextColors.xml beside a skin; taking it when a skin lacks one is what the original's own layout of files gives.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-158` Actions tooltip has the client's own text
 
@@ -6264,8 +6208,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: name, "Available in N s" and a kind line ("Weapon attack", "Perk action", "Character action") or the description
 - A player notices: extra hover text on action tiles
 - Where: `crates/mao-client/src/actions.rs:386`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: a tooltip on the action tiles; it adds information without changing what the tiles do.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-159` AOU mod skins bundled and selectable
 
@@ -6274,8 +6219,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: bundles four AOU GUI mod skins (`assets/gui`, GPL) and lets the player switch theme
 - A player notices: optional alternate skins
 - Where: `docs/CLIENT_UI.md:164`; `README.md:94`; `crates/mao-client/src/theme.rs:40`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the AOU skins are optional themes; the default is the game's own skin.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-160` Creature inspect page is the client's own headline with health
 
@@ -6284,8 +6230,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: For a creature the page is the client's own headline with health.
 - A player notices: Creature info page differs.
 - Where: `crates/mao-client/src/net.rs:2699`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP until the original's creature info page is read; it is a stand-in where the original's page was not found.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-161` Error boxes are queued, never repeated
 
@@ -6294,8 +6241,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: error boxes shown one after another; a text already waiting is not queued twice
 - A player notices: a repeated refusal shows one box
 - Where: `crates/mao-client/src/chrome.rs:59`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: queuing the boxes without repeats only spares a player a stack of the same refusal; each text still shows.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-162` Escape always closes the client's own Options, Whom-Pah, Browser and Help windows
 
@@ -6304,8 +6252,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the client's own windows always close with Escape, with no option
 - A player notices: Escape closes windows the original does not have
 - Where: `crates/mao-client/src/ui.rs:406`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the windows concerned are the client's own (Options, Whom-Pah, Browser, Help), which the original's esc_* options do not know; the original's windows follow the options.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-163` Help assistant ("Ask the guides") is the client's own window
 
@@ -6314,8 +6263,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A window (/open assistant, Help menu) ranks pieces of the game's help pages and optionally AO-Universe guides by word matching; optionally a downloaded local model (Qwen2.5 1.5B, 1.1 GB, frame rate dips) or an OpenAI/Anthropic-protocol endpoint under [help]; reads sites with the system's curl, off by default.
 - A player notices: An extra window and extra network use when sources are turned on.
 - Where: `crates/mao-client/src/helpwindow.rs:2`; `docs/HELP_ASSISTANT.md:3`; `docs/CLIENT_UI.md:3295`; `README.md:91`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: one of the client's own tools the user asked for; network use only when its sources are turned on.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-164` Help window (Ctrl+H) with find and chat input history
 
@@ -6324,8 +6274,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a window listing keys as bound now, mouse controls and the chat commands the client carries out, with a Find field; Up/Down history of the last 100 chat lines
 - A player notices: a help window and input history the original does not have
 - Where: `crates/mao-client/src/help.rs:1`; `docs/CLIENT_UI.md:1848`; `docs/GUI_DLL_PARITY.md:109`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the key list window and the chat history add help without taking anything of the original away.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-165` Hover breakdown tooltips on stats and skills
 
@@ -6334,8 +6285,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Resting on a value shows Trained / Equipment / Perks / Nano buffs / Attributes / Organization parts and each modifier's source.
 - A player notices: Extra tooltip with value breakdown.
 - Where: `crates/mao-client/src/stats.rs:17`; `docs/CLIENT_UI.md:1675`; `docs/STAT_ENGINE.md:420`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: an extra tooltip with the stat's parts; the original's bar tips (TooltipHealth ...) are still there.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-166` Inbox status line and "Sending ..." text
 
@@ -6354,8 +6306,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: tries the path, then the help folder, then the game's text folder (an extra place)
 - A player notices: more places searched for text files
 - Where: `crates/mao-client/src/gui/infoview.rs:71`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: one more folder searched for a file:// page only finds files the original would have shown as missing; nothing changes for the pages the original finds.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-168` Inspect window: title carries the character's name, right click opens the item page
 
@@ -6374,8 +6327,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: where the game's text is missing, the client's own words are used (own labels, "neutral/clan/omni")
 - A player notices: windows show the client's wording when the game's text files are absent
 - Where: `crates/mao-client/src/charinfo.rs:45`; `crates/mao-client/src/net.rs:771`; `crates/mao-client/src/gui/xml.rs:365`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the game's texts are always used when text.mdb has them; the client's words only fill in where the file lacks a text.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-170` Performance overlay
 
@@ -6384,8 +6338,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: /perf or Options > Graphics > Show performance shows frame rate, frame-time graph, processor, memory, GPU time, adapter, draw counts, window and render size, anti-aliasing
 - A player notices: an overlay at the top left
 - Where: `crates/mao-client/src/perf.rs:1`; `crates/mao-client/src/viewer.rs:2668`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: off by default (/perf), a developer's and player's help.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-171` Plain strip drawn when there is no skin
 
@@ -6394,8 +6349,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Without a skin the old plain strip (vitals::show) is drawn.
 - A player notices: Non-original look when there is no skin.
 - Where: `crates/mao-client/src/ui.rs:1109`; `docs/CLIENT_UI.md:201`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: drawn only when no skin can be found at all, where the original could not draw its strip either.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-172` Planet map window: map choice list inside the window
 
@@ -6404,8 +6360,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a drop-down under the buttons lists every map of the planet's kind and saves the pick as the option
 - A player notices: a player can change the planet map from the window itself
 - Where: `crates/mao-client/src/planetwindow.rs:199`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the choice is the original's own option (`PlanetMapIndexFile`; FUN_1004cb15 lists the indexes); the list in the window is a shorter way to it.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-173` Shop status line "Trade complete."
 
@@ -6424,8 +6381,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The window title carries the shop's name (or "Booth <id>").
 - A player notices: A name shows in the title bar that the original does not show.
 - Where: `crates/mao-client/src/shop.rs:426`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: a name in the title bar the skin's view leaves out; nothing is hidden by it.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-175` Skills window messages use the client's own words
 
@@ -6444,8 +6402,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a planet map can be made of one's own pictures (planetmap::pack, index_text, `planetmapbuild` example, `tools/planetmap_fit.py`); discover lists every index file one folder deep in any maps' folder so maps made here (Atlas of Rubi-Ka) show beside the game's
 - A player notices: the planet map window shows maps the original does not have
 - Where: `CHANGELOG.md:76`; `crates/mao-formats/src/planetmap.rs:12`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the maps made here (Atlas of Rubi-Ka) are the user's own work; the game's maps are still listed and the default.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-177` The client's own tool windows (damage meter, item finder, guide)
 
@@ -6454,8 +6413,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Damage meter (/damage, /dps), item finder (/find), tradeskill guide and others are opened, closed (/close) and drawn by name from extras.rs.
 - A player notices: Extra windows and chat commands.
 - Where: `crates/mao-client/src/extras.rs:1`; `crates/mao-client/src/ui.rs:343`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the client's own tools the user asked for.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-178` Web pages: loading page and 8 s / 30 s proxy time-outs
 
@@ -6464,8 +6424,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A "Loading ..." page shows at once; proxy requests time out after 8 s to connect and 30 s in all.
 - A player notices: A loading line instead of a blank pane; a silent site is reported in seconds.
 - Where: `crates/mao-client/src/browser.rs:302`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the loading line and the time-outs only show while a page is coming or a site is silent.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-179` Window icon is the client's own emblem on a slate square
 
@@ -6474,8 +6435,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the original GUI's steel emblem (GFX_GUI_AO_LOGO) on a slate square as the executable's resource and every window's icon
 - A player notices: the window icon differs from the original's
 - Where: `README.md:87`; `crates/mao-client/src/icon.rs:1`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the icon is the original's own emblem picture (GFX_GUI_AO_LOGO); a program must have one.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `WIN-180` Windows that can be docked include ones the original does not dock
 
@@ -6484,8 +6446,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: also lets Friends, PetWindow, Stats, Missions and MissionView be docked
 - A player notices: more windows have a dock button
 - Where: `crates/mao-client/src/rollup.rs:23`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: docking more windows is an option a player chooses; the original's docked windows are docked by default as there.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 ## Camera
 
@@ -8472,8 +8435,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: 4x MSAA by default or temporal anti-aliasing, mip chains, 16x anisotropic filtering, hemisphere ambient light with a warm sun
 - A player notices: smoother, differently lit picture
 - Where: `crates/mao-render/src/lib.rs:1292`; `crates/mao-render/src/lib.rs:1690`; `docs/CLIENT_UI.md:55`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: anti-aliasing, anisotropic filtering and mips are display-quality settings with no rule of the original's to break (its DirectX 7 device simply had none); the hemisphere ambient is the part that changes the look, and it only stands in where the scripts give no light (see RND-001).
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `RND-184` Coloured boxes stand in for characters with no model
 
@@ -8482,8 +8446,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a character with no loadable model is a box (red own, blue creature, green player) with a yellow nose
 - A player notices: boxes appear in place of unmodelled characters
 - Where: `crates/mao-client/src/net.rs:5428`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has a model for every character (its fallback is `unfinished-breed.cir`, see RND-028), so the boxes only show where this client cannot yet load one; without them such characters would be invisible and unclickable.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `RND-185` Distance haze when the area has no fog
 
@@ -8502,8 +8467,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: names within 40 units, nearest forty, colour by kind; no health bars or levels (level added later for targeted characters); an Org after the name
 - A player notices: floating names over characters
 - Where: `docs/CLIENT_UI.md:1840`; `crates/mao-client/src/main.rs:1760`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original's name tags are VisualSprite_t in the world (HandleNametags 0x100268ee); until those are ported (RND-027) the client's plates are the only way names show, and removing them would leave none.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `RND-187` Plants sway in the wind and bend away from the player
 
@@ -8522,8 +8488,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the playfield's statels/meshes throw real shadows into a sun shadow map (1024, 2048 or 4096 texels, a setting), kept and redrawn only when the player moved 8 m, the sun turned, shadows toggled or playfield changed; render scale, sharpness, anti-aliasing and texture compression options; Renderer::shadows=false gives the original's
 - A player notices: shadows from trees and buildings the original never drew; they update in steps
 - Where: `crates/mao-render/src/lib.rs:2367`; `crates/mao-render/src/lib.rs:455`; `crates/mao-client/src/viewer.rs:2573`; `docs/CLIENT_UI.md:2253`; `docs/CLIENT_UI.md:2754`; `docs/ORIGINAL_AUDIT.md:69` and 3 more
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: it is an option and `shadows` off gives the original's blob shadows only (GfxVisualSimpleShadow_c); suggest it default to off if the original's look is wanted out of the box.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `RND-189` Drawing scale with FSR 1 upscaling and a mip bias
 
@@ -8532,8 +8499,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the scene can be drawn at 40 to 100 percent of the window and upscaled with FSR 1 plus sharpening; textures are read with a bias of log2 of the scale (liquids and particles unchanged)
 - A player notices: a render-scale setting; softer or sharper picture
 - Where: `crates/mao-render/src/lib.rs:1458`; `docs/CLIENT_UI.md:1452`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: a performance option for slow machines that defaults to full scale; it does not change the picture's content.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `RND-190` Frame limiter and background frame rate
 
@@ -8542,8 +8510,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: fps_limit and background_fps with a 2 ms spin-wait before a limited frame
 - A player notices: client can be capped lower when not in front
 - Where: `crates/mao-client/src/settings.rs:589`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: frame limiting is a machine setting with no rule of the original's to break.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `RND-191` Generic emitter: dense clouds dimmed, jitter and clamps
 
@@ -8572,8 +8541,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: textures are re-encoded to BC7/BC3 at upload when the card allows (BC3 for mesh textures); sides not multiples of four stay plain; "Compressed textures" is a launcher option, default on
 - A player notices: less video memory, slightly lossy colours, possible banding or stutter
 - Where: `crates/mao-render/src/lib.rs:2908`; `crates/mao-client/src/settings.rs:585`; `crates/mao-client/src/launchwindow.rs:484`; `docs/CLIENT_UI.md:1388`; `docs/LIVE_TEST_LIST.md:678`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: compression saves video memory and is a launcher option; the original's DX7 device also took compressed (DXT) textures where the files had them.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `RND-194` View distance and character distance settings
 
@@ -8582,8 +8552,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: view distance slider (fog ends there) and character distance (beyond it characters not drawn)
 - A player notices: extra settings
 - Where: `crates/mao-client/src/settings.rs:545`; `docs/CLIENT_UI.md:1880`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has a view distance setting of its own in its options; the character distance is a performance option.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 ## Sound and music
 
@@ -9216,8 +9187,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the live client writes the last-played clothes and gear to looks.ini whenever the look changes and dresses the figure from it; a character never played wears the base clothes (head/height/width unused)
 - A player notices: list screen shows the last outfit; a first-time character shows the default body
 - Where: `crates/mao-client/src/look.rs:2`; `crates/mao-client/src/launcher.rs:222`; `crates/mao-client/src/net.rs:9503`; `docs/CLIENT_UI.md:1977`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: no store of looks was found in the original (GUI.dll's login strings name only the creation meshes for `LoginWorld_c`; the list's `CharacterData_t` carries breed, sex, head and size), so the original's figure wears the list's look; the client's looks.ini only dresses the same figure in the last-seen outfit and is harmless, but it is not the original's. REMOVE if the screen must match the original exactly.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `LCH-045` Logging out (/camp) restarts the launcher and logs in again
 
@@ -9236,8 +9208,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: if no heads exist for the breed it says "No heads were found for this breed in the game's files." instead of sending
 - A player notices: only if game files lack heads
 - Where: `crates/mao-client/src/charcreate.rs:864`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: it shows only when the game's files have none of the breed's head meshes, where the original would have offered no head and sent a creation with a head that does not exist; with a complete game it never appears.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `LCH-047` Character list shows free slots and offers New Character only while one is free
 
@@ -9256,8 +9229,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: looks through usual install folders (Funcom, Steam) when none was chosen, checks the folder, opens the settings if none
 - A player notices: first start finds the game on its own
 - Where: `crates/mao-client/src/launchwindow.rs:222`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original runs from inside its own folder and never needs to find it; the client is installed apart from the game, so looking in the usual install places is what makes its first start work.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `LCH-049` Launcher has its own backgrounds (night sky, own picture) and a news-page switch
 
@@ -9266,8 +9240,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: by the launcher's `background` setting: the game's pictures, a generated night sky (cloud band, 1500 twinkling stars) with the game's steel emblem keyed out of green, or a picture of the user's
 - A player notices: optional different launcher look
 - Where: `crates/mao-client/src/launchwindow.rs:6`; `crates/mao-client/src/launchskin.rs:1`; `docs/CLIENT_UI.md:762`; `docs/LIVE_TEST_LIST.md:395`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the default (`background = game`) is the original's own pictures; the night sky and an own picture only show when chosen. The news-page switch only leaves the page out.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `LCH-050` Launcher Visual page adds frame limit, shadows, monitor, presets
 
@@ -9276,8 +9251,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: frame limit (none, 60-240) with a lower background rate (30), shadow quality, monitor choice, four presets, upscaler steps
 - A player notices: extra options
 - Where: `docs/CLIENT_UI.md:1462`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the Visual page's added rows are the wgpu counterparts of the original's Direct3D choices (see SET-042), which have no meaning here.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `LCH-051` Launcher window hidden at start, web view moved in after load
 
@@ -9286,8 +9262,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: web view made beside the window and moved into place 300 ms after it says it has loaded (or after 8 s); window shown with its first frame (or after 2 s)
 - A player notices: no white flash
 - Where: `crates/mao-client/src/launchwindow.rs:75`; `docs/CLIENT_UI.md:4698`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: nothing a player sees differs from the original but the missing white flash of an empty web view; it is how a WebView2 child is shown without one.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 ## Settings and files
 
@@ -9681,8 +9658,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a setting hides characters farther than a chosen distance (0 draws all); another takes everything from a corpse when it opens
 - A player notices: far characters can be hidden; fewer clicks at corpses
 - Where: `crates/mao-client/src/net.rs:9277`; `crates/mao-client/src/viewer.rs:102`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the character draw distance is the original's own (`/chardist`, registered by GUI.dll FUN_100bb3e0), only reached here also from a setting; auto-loot is not in the original (no such string in GUI.dll or Gamecode.dll) but is off by default (`auto_loot: false`), so a player who does not turn it on sees the original's corpse window.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-039` Frame limit, background limit and vsync choice
 
@@ -9691,8 +9669,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a frame limit, a lower one while the window is not in front, and a vsync choice (Immediate/Mailbox/Fifo); pacing sleeps until 2 ms before then waits awake (`LIMIT_SPIN_MICROS`)
 - A player notices: the player can cap or uncap the frame rate and save power in the background; the limiter uses some CPU
 - Where: `crates/mao-client/src/viewer.rs:1133`; `crates/mao-client/src/settings.rs:590`; `docs/LIVE_TEST_LIST.md:442`; `docs/CLIENT_UI.md:1228`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original's only frame control is its fixed cap and the `/framerate` counter (`FramerateView_t`); a limit, a background limit and the vsync choice are what a wgpu client on today's monitors needs (unlimited by default, as the old cap has no meaning at 144 Hz).
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-040` Interface size setting
 
@@ -9701,8 +9680,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a UI scale 0.6-2.0 (slider, Ctrl+= / Ctrl+- keys) multiplies the window's own scale; the slider's value is taken when it is let go (a typed value at once)
 - A player notices: the whole interface can be made larger or smaller
 - Where: `crates/mao-client/src/ui.rs:1045`; `crates/mao-client/src/ui.rs:549`; `docs/CLIENT_UI.md:1961`; `docs/CLIENT_UI.md:1866`; `docs/CLIENT_UI.md:1498`; `crates/mao-client/src/settings.rs:127`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original has no interface scale (no scale string in GUI.dll), and at today's resolutions its 1024x768-sized windows are unreadably small without it; at 1.0 (the default) nothing differs from the original.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-041` Item finder files of what was seen
 
@@ -9711,8 +9691,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Writes a plain-text file per character and dimension in an items folder beside the settings, with sections for worn, inventory, each bag and the bank and when each was last seen; a bag's contents are only as they were when last opened, and the bank's as when a bank terminal was last used.
 - A player notices: Search results can be out of date, and cannot see bags never opened, a bag inside the bank, or a character never played with this client.
 - Where: `crates/mao-client/src/itemindex.rs:5`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the item finder is one of the client's own tools the user asked for (memory "MAO own tools"); its files are only written beside the client's settings and change nothing the original does.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-042` Own graphics and display options (presets, scale, FSR, shadows, monitor, distances)
 
@@ -9721,8 +9702,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: own options window and mao.ini keys: window mode, size, monitor, graphics adapter, Low/Medium/High/Ultra presets, anti-aliasing (MSAA/TAA), shadows, texture compression, drawing scale with FSR (0.4-1.0) and sharpening, view and character distance, VSync, frame limits, performance overlay, auto-loot, interface size, theme, skin folder, key rebinding, Quit game; some wait for a zone or the launcher
 - A player notices: many settings (and a rebindable key list) with no counterpart in the original
 - Where: `crates/mao-client/src/ui.rs:2362`; `crates/mao-client/src/launchwindow.rs:269`; `crates/mao-client/src/settings.rs:515`; `docs/CLIENT_UI.md:1359`; `docs/CLIENT_UI.md:78`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the original's graphics settings are Direct3D 7 device, colour depth and texture choices that have no meaning for wgpu (LCH-002); the client's options are the counterparts a modern renderer needs, and the skin's option panel is still there.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-043` Themes, skin folders and the built-in palette
 
@@ -9731,8 +9713,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: built-in dark warm silver-and-gold palette, themes `original`, `aou_translucent`, `aou_cyt`, `aou_slim_cni`, `aou_slim_cnt` (bundled), or any folder; skin folder stack (gui_dir, theme folder, game default); `MAO_THEME`; choosable in the options
 - A player notices: the interface can be themed from a setting.
 - Where: `crates/mao-client/src/theme.rs:78`; `crates/mao-client/src/viewer.rs:3063`; `docs/CLIENT_UI.md:2024`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the default theme is `original` (the game's own skin and GUIColors.xml); the AOU themes and other folders only apply when chosen.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-044` Window modes with F11 / Alt+Enter and a chosen monitor
 
@@ -9741,8 +9724,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: windowed, borderless or exclusive full screen at the monitor's best mode, switched with mao.ini, F11, Alt+Enter or the options window; chosen monitor; falls back to borderless where there is no exclusive mode
 - A player notices: own window-mode controls
 - Where: `crates/mao-client/src/viewer.rs:2`; `docs/CLIENT_UI.md:13`; `crates/mao-client/src/settings.rs:280`; `README.md:48`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP, but note: Alt+Enter is one of the original's three chat keys (GUI.dll's key table at 0x101aab28: `COMMAND_TEXT_INPUT_START_TEXT_INPUT` on Enter, Shift+Enter, Alt+Enter), so the window-mode switch takes a key from the original; F11 and the options are free. Moving the switch to F11 alone would give Alt+Enter back to the chat.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-045` Account file with last-played character first
 
@@ -9751,8 +9735,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: account.ini stores the account, the character played last (listed first and pre-selected) and the other accounts; only the name is written, never the password
 - A player notices: the character list starts with the last-played character selected
 - Where: `crates/mao-client/src/launcher.rs:103`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP the pre-selection, which is the original's own (`CharSelectWindow_c::SlotCharListReceived` 0x1000ebd5 selects the row of the value `SelectedCharacter`, and the account list is `LauncherConfig`'s `Account%d` / `SelectedAccount`); REMOVE only the moving of that character to the top of the list, which the original does not do (it keeps the server's order).
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-046` AutoAFK controlled by /setoption
 
@@ -9761,8 +9746,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: /setoption AutoAFK off sets it
 - A player notices: you can turn going away by itself on or off in game
 - Where: `crates/mao-client/src/afk.rs:29`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: `/setoption` is the original's own command for setting any distributed value, and `AutoAFK` is one (LoginPrefs.xml), so the original's `/setoption AutoAFK false` does the same.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-047` Client brings its own PlanetMap folder
 
@@ -9771,8 +9757,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Looks first in a PlanetMap folder beside mao.ini (aftermarket maps the client brings), then in the game's cd_image/textures/PlanetMap.
 - A player notices: Extra planet maps can be supplied without touching the game folder.
 - Where: `crates/mao-client/src/planetmaps.rs:3`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the game's own PlanetMap folder is still read; the client's folder only adds maps (memory: they reached the real folder 2026-11-15) without writing into the game's folder.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-048` Crash log, run markers and error box
 
@@ -9781,8 +9768,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: writes crash.log and run-<part>.txt markers, notices a run that ended without a clean exit, and shows a system message box with the panic message (packaged build, or by MAO_ERROR_BOX)
 - A player notices: an error box when the launcher or login fails
 - Where: `crates/mao-client/src/crash.rs:1`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the crash log, run markers and error box only show where the client fails, which is where the original would have shown its own crash dialog (BugReport_t); they change nothing in a run that works.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-049` Extra key actions of the client
 
@@ -9791,8 +9779,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: NoClip (debug aid), CycleWindowMode (Alt+Enter), ToggleFullscreen (F11), ToggleOptions (F10), Quit (Ctrl+Q), MapOverlay (O), whompah, mail and help window keys (empty by default), plus its own movement actions
 - A player notices: extra key commands exist.
 - Where: `crates/mao-client/src/settings.rs:278`; `docs/CLIENT_UI.md:25`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP, with one note: Alt+Enter (CycleWindowMode) is one of the original's chat-input keys in GUI.dll's key table (see SET-044); the other extra actions use keys the original leaves free or have no key.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-050` Game folder is a setting with Browse picker and auto-detection
 
@@ -9801,8 +9790,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Game folder row in settings (Browse via rfd, Open, check), detection of usual install places, launcher starts without a folder; changing folder restarts the launcher
 - A player notices: extra setup flow
 - Where: `crates/mao-client/src/launchwindow.rs:587`; `docs/CLIENT_UI.md:1505`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the client lives apart from the game's folder (LCH-048), so it needs to be told or to find where the game is.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-051` Game log written to game-log.txt
 
@@ -9811,8 +9801,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: game-log.txt beside the settings (previous run kept as game-log.previous.txt); log_messages = on adds the server's messages ("message log: on", "server n3" lines)
 - A player notices: extra log files appear beside the settings
 - Where: `crates/mao-client/src/launcher.rs:318`; `docs/CLIENT_UI.md:3501`; `docs/LIVE_TEST_LIST.md:372`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: a log file beside the settings that a player never has to look at; it carries nothing of the account.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-052` Option panel folder list uses egui widgets with a "Client settings" link
 
@@ -9821,8 +9812,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: egui collapsing headers and selectable labels, plus a "Client settings" link for window mode, resolution, keys and theme.
 - A player notices: the panel has an extra link to the client's own settings.
 - Where: `crates/mao-client/src/gui/options.rs:482`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the folder list is the original's (its folders and pages from the option panel files); the "Client settings" link is the only way from the original's panel to the client's own window, keys and theme.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-053` Pet window, planet map and camera settings in mao.ini
 
@@ -9831,8 +9823,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: kept in mao.ini (`pet_buttons`, `fixed_pet_buttons`, `planet_map`, `shadowlands_map`, `camera_mode` free/rubber/lock).
 - A player notices: those settings are in the client's file.
 - Where: `crates/mao-client/src/settings.rs:568`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the settings themselves are the original's (`PetWindowConfig`, `PlanetMapIndexFile`, `PreferredCameraMode`); only where they are kept differs, as for every other value the client keeps (the original's Prefs files are not written by this client).
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-054` Tradeskill guide keeps a record of what the window said
 
@@ -9841,8 +9834,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Every result, quality range and skill requirement shown for a pair of items is written to tradeskills.txt and shown in the guide under "What the tradeskill window told you".
 - A player notices: A player-made recipe table grows with use and is kept between sessions.
 - Where: `crates/mao-client/src/craftguide.rs:14`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the tradeskill guide is one of the client's own tools; the window itself still shows each answer as the original does.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 ## Network and protocol
 
@@ -9973,8 +9967,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: with a hosted endpoint set, the question and top results' text go to the model's provider; when the player turns the source on, a crawler fetches AO-Universe's 676 guides through curl (one page per two seconds or slower, robots.txt obeyed), off by default
 - A player notices: data leaves the machine or web requests are made only if the player sets it up
 - Where: `docs/HELP_ASSISTANT.md:162`; `docs/HELP_ASSISTANT.md:35`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: off by default, and the hosted model and the guide crawler only run when the player sets them up; the original game never contacts them.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `NET-013` Protocol read by a schema generated from SmokeLounge/AOSharp definitions
 
@@ -9983,8 +9978,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a schema generated from the SmokeLounge/AOSharp definitions is the generic reader and writer, with one size taken from captures; some names (mission fields) set by hand from a capture's values
 - A player notices: none visible
 - Where: `crates/mao-net/src/schema.rs:1`; `docs/CLIENT_UI.md:3111`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the schema is how the client reads and writes messages, not something a player sees; where the original's own readers have been read they win (the hand-set names, the captured size).
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 ## Other
 
@@ -10175,8 +10171,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Qwen2.5 1.5B Instruct (1,117 MB) fetched on request and run by candle; search is plain word matching, so a small model may answer wrongly from the nearest pieces; about a gigabyte held, frame rate drops while answering
 - A player notices: answers appear in the window and can be off; frame rate dips
 - Where: `docs/HELP_ASSISTANT.md:221`; `docs/HELP_ASSISTANT.md:259`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the help assistant is one of the client's own tools the user asked for; the model is fetched only on request and runs only while the window is asked something, so a player who never opens it sees nothing of it.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `OTH-019` Help assistant: crafting texts as a source
 
@@ -10185,8 +10182,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: books and item descriptions that speak of making (3,476 pages) are a source, on by default
 - A player notices: "How do I make a nano crystal" is answered from the game's own book; one question joined two texts wrongly
 - Where: `docs/TRADESKILL_GUIDE.md:91`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: part of the client's own help assistant; the texts are the game's own books and descriptions.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `OTH-020` Linux and macOS builds exist
 
@@ -10195,8 +10193,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: builds for Linux x86-64 and Apple-silicon macOS; neither run on a real machine
 - A player notices: new platforms, untested
 - Where: `docs/PLATFORMS.md:3`; `docs/PLATFORMS.md:104`
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: other platforms change nothing for the Windows client.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `OTH-021` Screenshot key saves a PNG with a notes file
 
@@ -10205,6 +10204,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: F12 saves a picture with HUD (on Windows the monitor's picture of the window, including web pages over it), plus a text file with place, position, camera and the looks of characters around
 - A player notices: extra feature and .txt file beside screenshots
 - Where: `crates/mao-client/src/screenshot.rs:1`; `crates/mao-client/src/shotnotes.rs:1`; `crates/mao-client/src/viewer.rs:2645`; `docs/CLIENT_UI.md:1820`; `crates/mao-client/src/viewer.rs:2654`; `docs/CLIENT_UI.md:3472` and 1 more
-- Decision: [ ] keep  [ ] remove
+- Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP the notes file (the user's tool for finding places and meshes); the original's screenshot key saves a picture too, so only the .txt beside it is extra.
+- Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
