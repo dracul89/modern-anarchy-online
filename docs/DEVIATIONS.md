@@ -971,7 +971,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a variant is picked per character (`pick` stands for rand())
 - A player notices: less variety of swings
 - Where: `crates/mao-client/src/net.rs:4888`; `crates/mao-formats/src/item.rs:327`; `docs/CLIENT_UI.md:2392`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Each swing now draws the CRT rand() (msvcr100's LCG, seeded 1, crate::audio::Rand) and takes it modulo the weapon's attack actions, as FUN_10045976 picks rand() % count of an action's variants at each start; the client cycled through the variants in order of swings. The original's rand() state is the CRT's own, shared with its other callers, so the exact sequence cannot be matched; only the rule. Test: net::door_tests::an_attack_swings_the_weapon_the_server_said_is_held (now expects 41 then 18467).
 
 #### `CMB-007` Damage floaters fixed 2 m above the target
 

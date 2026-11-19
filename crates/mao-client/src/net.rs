@@ -434,9 +434,12 @@ struct World {
     landings: Vec<[f32; 3]>,
     /// The effect scripts' visuals this frame (the sky), for the viewer.
     sky_frame: Option<crate::fxs::visuals::Frame>,
-    /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a count
-    /// picking the swing, and the animation class (0xb, or a special's).
+    /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a number
+    /// picking the swing (`swing_rand`), and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
+    /// The CRT `rand()` each swing's variant is picked by: FUN_10045976 takes `rand() % count` of an action's variants at each
+    /// start (the original's state is the CRT's own, shared with its other callers, so its sequence cannot be matched).
+    swing_rand: crate::audio::Rand,
     /// The special each character has queued (`CharSecSpecAttack` from the server: FUN_10068cd9 pushes the special's stat on
     /// the attack part's queue at +0x8c, whose front FUN_10068aa3 gives the next `SpecialAttackInfo` its animation class).
     queued_specials: BTreeMap<u32, u32>,
@@ -2516,7 +2519,7 @@ impl World {
                 let (attacker, defender) = (id("Attacker"), id("Defender"));
                 // (a miss swings the weapon too: FUN_100a1077 → FUN_1006b399 → FUN_1006ae3c with the place in `Unknown2`)
                 let slot = p.value.get("Unknown2").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
-                let n = self.swings.get(&attacker).map_or(0, |s| s.2.wrapping_add(1));
+                let n = self.swing_rand.next() as u32;
                 self.swings.insert(attacker, (slot, Instant::now(), n, 0xb));
                 // (FUN_1006b399 → FUN_1006ae3c: no damage, no hit)
                 self.attacks.insert((attacker, slot), (defender, 0, 0));
@@ -2741,7 +2744,7 @@ impl World {
         if m.kind == 0x46002f16 {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let slot = p.value.get("WeaponSlot").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
-                let n = self.swings.get(&m.identity.1).map_or(0, |s| s.2.wrapping_add(1));
+                let n = self.swing_rand.next() as u32;
                 self.swings.insert(m.identity.1, (slot, Instant::now(), n, 0xb));
                 // (the line: FUN_1009b6b7's feedback, the damage type the attacking weapon's, FUN_1009b525)
                 let int = |name: &str| p.value.get(name).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
@@ -2789,7 +2792,7 @@ impl World {
                     Some((class, false)) => class,
                     _ => 0xb,
                 };
-                let n = self.swings.get(&m.identity.1).map_or(0, |s| s.2.wrapping_add(1));
+                let n = self.swing_rand.next() as u32;
                 self.swings.insert(m.identity.1, (slot, Instant::now(), n, class));
                 // (the line, FUN_1006af0e: a weapon hit's with the special's skill named for the damage type; the rounds
                 // left go to the weapon, FUN_10068869, and the hit is remembered as a weapon's is, for the `Stat` after it)
@@ -14195,9 +14198,10 @@ mod door_tests {
         let attack = Message { kind: 0x46002f16, identity: (0xc350, 0x630193db), data: hex("0000000008ffffffff000000060000c3500004bc80000000000000000300000000") };
         w.add(&attack.frame(1));
         let (slot, _, pick, class) = w.swings[&0x630193db];
-        assert_eq!((slot, pick, class), (6, 0, 0xb));
+        // (CMB-006: the variant is picked by the CRT's rand(), seeded 1: 41, then 18467)
+        assert_eq!((slot, pick, class), (6, 41, 0xb));
         w.add(&attack.frame(1));
-        assert_eq!(w.swings[&0x630193db].2, 1);
+        assert_eq!(w.swings[&0x630193db].2, 18467);
         // (a captured Attack: the player 0x4bc80 attacks 0x7b017c2a; its StopFight ends it)
         w.add(&Message { kind: 0x28494070, identity: (0xc350, 0x4bc80), data: hex("000000c3507b017c2a00") }.frame(1));
         assert_eq!(w.fighting.get(&0x4bc80), Some(&0x7b017c2a));

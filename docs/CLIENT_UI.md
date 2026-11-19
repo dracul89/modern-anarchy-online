@@ -7113,3 +7113,7 @@ The server sends a weapon or special hit and then the victim's new health. The o
 ### NCU in use (NAN-004)
 
 The original adds a running nano's NCU (its stat 54) to stat 180 only for nanos flagged 0x10000 and none of 0x4000, 0x8000 (hostile) and 0x100 (Gamecode FUN_100517f3). The NCU window's title and the strip sum the running nanos by that rule (`ncu::ncu_cost`), so heals and hostile nanos running on the character take no NCU.
+
+### Which swing an attack plays (CMB-006)
+
+Of a weapon's attack actions the original picks one by rand() at each swing (FUN_10045976: rand() % count). The client draws the CRT's rand() (seeded 1) for each swing (`World::swing_rand`); it used to go through them in order.
