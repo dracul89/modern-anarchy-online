@@ -7213,3 +7213,7 @@ The original makes the planet map window with the frame Rect(0, 0, 300, 400) (`P
 ### Bars show their maximum as it is (WIN-105)
 
 The original's bars (`PowerbarView_c`, GUI.dll FUN_1007fed3) fill to value over maximum, no more than full, and label themselves with the two numbers as they are. The client no longer raises a bar's maximum to its current value when the computed maximum is lower; the bar is full and its text shows both numbers.
+
+### The inbox keeps its columns (WIN-131)
+
+The original's mail window keeps its list's column widths and sort in `MailWindowConfig` (read by FUN_10109002, written by FUN_1010911b). The client now keeps them too, with the other windows' lists.

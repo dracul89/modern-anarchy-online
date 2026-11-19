@@ -94,6 +94,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The control center's Team > Team, Vehicle and Windows > Chat Config entries open their windows.
 - The organization's leave and promotion questions come up in the middle of the screen, as in the original.
 - The planet map window first opens 300 by 400 at the top left of the screen, as in the original.
+- The mail inbox remembers its column widths and sort order.
 
 ### Items
 

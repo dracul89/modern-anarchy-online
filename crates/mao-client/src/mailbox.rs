@@ -91,13 +91,16 @@ pub struct MailWindow {
     list: Option<crate::gui::view::Id>,
     shown: Option<(Vec<Entry>, Option<usize>)>,
     deleting: Option<u32>,
+    /// The inbox list's column widths and sort, kept as `MailWindowConfig`'s `listview_config`, `sort_column` and
+    /// `sort_order` (FUN_10109002 reads them when the window is made, FUN_1010911b writes them when it goes).
+    keeper: crate::gui::multilist::Keeper,
     /// Lines for the chat window: what the game says of a mail (a delete it refuses).
     pub said: Vec<String>,
 }
 
 impl Default for MailWindow {
     fn default() -> MailWindow {
-        MailWindow { open: false, count: None, entries: Vec::new(), selected: None, opened: None, status: String::new(), message: Default::default(), window: None, list: None, shown: None, said: Vec::new(), deleting: None }
+        MailWindow { open: false, count: None, entries: Vec::new(), selected: None, opened: None, status: String::new(), message: Default::default(), window: None, list: None, shown: None, said: Vec::new(), deleting: None, keeper: Default::default() }
     }
 }
 
@@ -181,6 +184,8 @@ impl MailWindow {
         }
         self.window = Some(w);
         self.shown = None;
+        // (a new list: the kept widths and sort are set on it again)
+        self.keeper = Default::default();
         true
     }
 
@@ -220,6 +225,7 @@ impl MailWindow {
         }
         if let (Some(w), Some(list)) = (self.window.as_mut(), self.list) {
             let root = w.root;
+            self.keeper.before("MailWindowConfig", &mut w.tree, list, None);
             // (the rows follow the inbox; the size "n/30")
             let shown = (self.entries.clone(), self.count);
             if self.shown.as_ref() != Some(&shown) {
@@ -247,6 +253,7 @@ impl MailWindow {
                     crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
                 });
             });
+            self.keeper.after("MailWindowConfig", &w.tree, list, true);
             // (a row clicked: selected; twice, opened in the message window: FUN_10109548)
             for (_, id, clicks) in crate::gui::multilist::take_signals(&mut w.tree) {
                 crate::gui::multilist::select(&mut w.tree, list, Some(id));

@@ -5763,7 +5763,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not remembered
 - A player notices: columns reset
 - Where: `docs/GUI_DLL_PARITY.md:86`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The mail window's list config is ported: GUI.dll FUN_10109002 reads MailWindowConfig's `listview_config` (LoadColumnInfo), `sort_column` and `sort_order` (SetListSortColumn) when the window is made, and FUN_1010911b writes them back (StoreColumnInfo, GetListSortColumn, GetListSortOrder) when it goes. mailbox.rs now keeps the inbox's widths and sort through gui::multilist::Keeper under "MailWindowConfig" (before each frame, after the window is shown), as the NCU, nano and mission lists do; the keeper starts afresh when the window is made so a reopened list gets the kept values again. Mail tests pass; the list keeping itself is covered by multilist's Keeper test.
 
 #### `WIN-132` Menu ItemTemplate (special action menu styling) not kept
 
