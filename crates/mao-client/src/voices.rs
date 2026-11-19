@@ -22,8 +22,11 @@
 //!   (FUN_1008c5db), sent with record 1 (`BBBSS`, FUN_10089628) as the blob, said in the vicinity (the original's selected
 //!   group, Vicinity by default; this client has no other to pick).
 //!
-//! Not here: the ignore list's say (a sender on it is heard only when record 2's flag has bit 0), and the tags' doings
-//! (FUN_1008c5db: `T` flashes the speaker's name in the team window, `M` signals `GlobalSignals_c` +0x150).
+//! * A sender on the ignore list is neither shown nor heard unless record 2's flag has bit 0 ([`heard`]:
+//!   `HandleVicinityMessage`, `HandleGroupMessage`).
+//!
+//! Not here: the tags' doings (FUN_1008c5db: `T` flashes the speaker's name in the team window, `M` signals
+//! `GlobalSignals_c` +0x150).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -149,6 +152,13 @@ pub fn parse(blob: &[u8]) -> (Option<Voice>, u8) {
     (voice, flag)
 }
 
+/// Whether a message of a sender is taken at all (`HandleVicinityMessage`, `HandleGroupMessage`): not when the sender
+/// is ignored and the records' flag (record 2) lacks bit 0; `records` are the blob's records (a vicinity message's
+/// after its leading byte).
+pub fn heard(ignored: bool, records: &[u8]) -> bool {
+    !ignored || parse(records).1 & 1 != 0
+}
+
 /// The names to try (FUN_1008c847).
 pub fn candidates(sender: &str, v: &Voice) -> Vec<String> {
     let breed = match v.breed {
@@ -252,6 +262,15 @@ mod tests {
         let mut v = (t.len() as u16).to_be_bytes().to_vec();
         v.extend(t.as_bytes());
         v
+    }
+
+    /// `HandleVicinityMessage` / `HandleGroupMessage`: an ignored sender only with record 2's bit 0.
+    #[test]
+    fn an_ignored_sender_is_heard_only_by_the_flag() {
+        assert!(heard(false, &[]));
+        assert!(!heard(true, &[]));
+        assert!(!heard(true, &[2, 2]));
+        assert!(heard(true, &[2, 1]));
     }
 
     #[test]

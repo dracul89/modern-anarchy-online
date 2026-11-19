@@ -1189,6 +1189,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] `/viewdist 60` then open the options: the view distance slider shows 60 % and the world is seen to about 600 m; `/chardist 40` shows characters out to 40 m; `/viewdist` alone says the too-few-arguments error.
 - [ ] A chat window with "fade messages" on: lines fade about 8 s after they come, also while typing in that window or with the mouse over it.
 - [ ] With your own private group up (someone invited and joined), right button on it in the chat settings: "Disband" is taken, "Leave" greyed; Disband removes the group and the members are put out. On another's group only "Leave" is taken.
+- [ ] Ignore a player who uses /voice in vicinity: neither the line nor the voice comes.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

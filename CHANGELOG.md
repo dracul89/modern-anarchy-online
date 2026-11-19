@@ -300,6 +300,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A script's arguments in double quotes are one word (quotes kept), as in the original.
 - The arrow keys recall the last 200 lines sent, and a line sent again moves to the newest place; a chat window shows its last 200 lines.
 - The chat settings can disband your own private chat group (right button on its row), as in the original.
+- Voice lines from ignored players no longer play.
 
 ### Movement
 

@@ -501,16 +501,28 @@ fn ignore_path() -> std::path::PathBuf {
     crate::settings::Settings::path().with_file_name("ignore.ini")
 }
 
+/// The ignore list as the chat connection's thread sees it (`IgnoreSystem_t::IsCharacterIgnored`, which
+/// `HandleVicinityMessage` and `HandleGroupMessage` ask before anything else).
+static IGNORED: std::sync::Mutex<std::collections::BTreeSet<String>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Whether a character is on the ignore list.
+pub fn ignores(name: &str) -> bool {
+    IGNORED.lock().unwrap_or_else(|e| e.into_inner()).contains(&name.to_lowercase())
+}
+
 fn load_ignored() -> std::collections::BTreeSet<String> {
     // (previews and tests do not read the player's list)
     if std::env::var_os("MAO_UI_PREVIEW").is_some() || cfg!(test) {
         return Default::default();
     }
-    std::fs::read_to_string(ignore_path()).map(|t| t.lines().map(|l| l.trim().to_lowercase()).filter(|l| !l.is_empty()).collect()).unwrap_or_default()
+    let list: std::collections::BTreeSet<String> = std::fs::read_to_string(ignore_path()).map(|t| t.lines().map(|l| l.trim().to_lowercase()).filter(|l| !l.is_empty()).collect()).unwrap_or_default();
+    *IGNORED.lock().unwrap_or_else(|e| e.into_inner()) = list.clone();
+    list
 }
 
 fn save_ignored(list: &std::collections::BTreeSet<String>) {
     if !cfg!(test) {
+        *IGNORED.lock().unwrap_or_else(|e| e.into_inner()) = list.clone();
         let _ = std::fs::write(ignore_path(), list.iter().map(|n| format!("{n}\n")).collect::<String>());
     }
 }

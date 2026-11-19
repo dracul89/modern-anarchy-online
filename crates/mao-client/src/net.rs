@@ -8007,16 +8007,22 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 crate::voices::vicinity_message(&mut voices, &name, &blob);
                                 Some(Line::new(Kind::System, mao_net::chat::plain(&text)).with_markup("", &text))
                             }
+                            // (an ignored sender is neither shown nor heard unless the records' flag has bit 0:
+                            // `HandleVicinityMessage`; the records follow the blob's leading byte)
+                            Some(Packet::Vicinity { sender, blob, .. }) if !crate::voices::heard(names.get(&sender).is_some_and(|n| crate::chatwindow::ignores(n)), blob.get(1..).unwrap_or(&[])) => None,
                             Some(Packet::Vicinity { sender, text, blob }) => {
                                 let text = unpacked(text);
                                 // (a sender whose name the chat library has not been told yet has the empty name its
                                 // map gives [FUN_10014b93], and FUN_1009bc20 then writes no name and no ": ", only the text)
                                 let who = names.get(&sender).cloned().unwrap_or_default();
                                 crate::voices::vicinity_message(&mut voices, &who, &blob);
+                                // (an ignored sender's line let through by the flag is not taken out by the window's
+                                // own ignore test)
+                                let from = Some(who.clone()).filter(|w| !crate::chatwindow::ignores(w));
                                 if who.is_empty() {
                                     Some(Line { kind: Kind::Channel, text: mao_net::chat::plain(&text), from: None, markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup("", &text))
                                 } else {
-                                    Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup(&format!("{}: ", crate::chatwindow::name_link(&who)), &text))
+                                    Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from, markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup(&format!("{}: ", crate::chatwindow::name_link(&who)), &text))
                                 }
                             }
                             // (`HandlePrivateMessage` shows only a tell whose blob begins with the kind 0, 2 or 6: one with
@@ -8043,6 +8049,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             // (a voice line in a channel that allows none is dropped, line and all: `HandleGroupMessage`)
                             Some(Packet::Message { channel, blob, .. }) if channel_flags.get(&channel.1).is_some_and(|f| f & 0x40 != 0) && crate::voices::parse(&blob).0.is_some_and(|v| !v.line.is_empty()) => None,
+                            // (`HandleGroupMessage`: an ignored sender likewise, by the blob's records)
+                            Some(Packet::Message { sender, blob, .. }) if !crate::voices::heard(names.get(&sender).is_some_and(|n| crate::chatwindow::ignores(n)), &blob) => None,
                             Some(Packet::Message { channel, sender, text, blob }) => {
                                 let text = unpacked(text);
                                 // (a sender of id 0, or one whose name is not known yet, has an empty name [the chat
@@ -8056,7 +8064,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 if who.is_empty() {
                                     Some(Line { kind: Kind::Channel, text: format!("[{place}] {}", mao_net::chat::plain(&text)), from: None, markup: None, group: place.clone(), at: None }.with_markup(&format!("[{}] ", crate::chatwindow::group_link(&place)), &text))
                                 } else {
-                                    Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: place.clone(), at: None }.with_markup(&format!("[{}] {}: ", crate::chatwindow::group_link(&place), crate::chatwindow::name_link(&who)), &text))
+                                    let from = Some(who.clone()).filter(|w| !crate::chatwindow::ignores(w));
+                                    Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from, markup: None, group: place.clone(), at: None }.with_markup(&format!("[{}] {}: ", crate::chatwindow::group_link(&place), crate::chatwindow::name_link(&who)), &text))
                                 }
                             }
                             Some(Packet::Buddy { id, online, kind }) => {

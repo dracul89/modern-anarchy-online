@@ -7882,3 +7882,7 @@ The original keeps the last 200 lines sent for the arrow keys (FUN_1008f5b5: a l
 ### Disbanding one's own private group (CHT-060)
 
 The original's menu on a private group's row in the chat settings (GUI.dll FUN_100a1102) offers "Disband" for the character's own group and "Leave" for another's; disbanding sends the chat server packet 54 and takes the group out of the windows (FUN_100852e8). The client now has both entries; before, it offered only "Leave", for any group.
+
+### Ignored players in vicinity and groups (CHT-067)
+
+The original's `HandleVicinityMessage` and `HandleGroupMessage` drop a message from an ignored character, text and voice, unless the message's records carry a flag with bit 0, which lets it through. The client now does the same; before, an ignored player's voice line still played.
