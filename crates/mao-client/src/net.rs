@@ -6122,10 +6122,16 @@ pub(crate) struct ListFigure {
 
 impl ListFigure {
     pub(crate) fn new(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, look: Option<&crate::look::Look>) -> Option<ListFigure> {
+        ListFigure::of_build(db, breed, sex, look, 1)
+    }
+
+    /// The figure of a build (0 to 2): the character creation's chosen one, which the same `RunFunction` animates
+    /// (`CharCreateModule_t::FrameProcess`, GUI.dll 0x1011c355, runs it for the chosen character alone).
+    pub(crate) fn of_build(db: &Arc<ResourceDatabase>, breed: i32, sex: i32, look: Option<&crate::look::Look>, build: i32) -> Option<ListFigure> {
         // (the Atrox has one body, whatever the list says)
         let (breed, sex) = (breed as u8, if breed == 4 { 1 } else { sex as u8 });
         let mut chars = Characters::new(db.clone()).ok()?;
-        chars.build = 1;
+        chars.build = build;
         let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |t| t.subsec_nanos()) | 1;
         let mut figure = ListFigure { chars, breed, sex, look: look.cloned(), fidget: None, until: Instant::now(), seed };
         figure.until = Instant::now() + figure.idle();
@@ -11436,7 +11442,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             let db = Arc::new(ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?);
             let index = mao_formats::instances::Instances::parse(&db.get(mao_formats::resource::Id { kind: 0xf424a, instance: 1 }).map_err(|e| e.to_string())?.ok_or("no instance index")?).map_err(|_| "the instance index is cut short")?;
-            let heads = crate::charcreate::heads(b, s, &|n| index.find(0xf6951, n));
+            // (every head the game has for the breed: the server says whether the account may have it)
+            let heads = crate::charcreate::heads(b, s, true, &|n| index.find(0xf6951, n));
             let n: usize = head.parse().map_err(|_| "bad head")?;
             let (mesh, race, file) = heads.get(n).cloned().ok_or_else(|| format!("{} heads for that breed", heads.len()))?;
             let c = mao_net::create::NewCharacter { name, breed: b, sex: s, profession: crate::charcreate::profession(prof.parse().map_err(|_| "bad profession")?), head: mesh as i32, height: crate::charcreate::height(height.parse().map_err(|_| "bad height")?), width: width.parse().map_err(|_| "bad build")? };

@@ -77,6 +77,12 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The special attacks shown are confirmed to be built the way the original builds them (the server's three plus
   what each weapon in a hand gives); two small corner cases of it were made the original's.
 
+### Launcher
+
+- Character creation: the far suns, the stars and the intro's shuttle move, and the character being made stands
+  breathing and fidgeting instead of frozen. A short or tall character is shown at the original's size, and the
+  heads offered are the original's list (more of them with Shadowlands, a few odd ones gone).
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher

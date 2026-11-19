@@ -6299,3 +6299,39 @@ That is what `special_numbers` does. Two small things differed and are the origi
   above -1 (FUN_1006ae3c, FUN_10068869: `net::rounds_after`), so a weapon without ammunition stays one.
 
 Test: the specials test's `rounds_after` line.
+
+### The character creation's scenes move (LCH-034)
+
+The catalog's entry said more than the original does. Read to the end (GUI.dll `CharCreateModule_t::FrameProcess`
+0x1011c355, `SlotMeshReady` 0x1011b7e0, `CCCharacter_t::RunFunction` 0x1011ac64, `BreedScene_t::SlotBreedButton`
+0x10113baa, FUN_1011d692):
+
+- **The meshes' animations run** (`hall::Creation::moving`, `moving_at`): every one of the six meshes is set to
+  loop and is given each frame's time (at most half a second a frame), in every scene. Two of them have frames
+  that move: the main mesh's two far suns and its star field, and the intro mesh's two star layers and the
+  shuttle. `mao_formats::model::build_full_animated` gives each part its animation; the parts that move are kept
+  out of the scene and drawn on the renderer's second layer at the director's time (`Director::total`), 24 times
+  a second. The profession hall's four meshes have no animation that moves anything: **the profession figures do
+  not animate in the original either** (they are plain meshes).
+- **The chosen character plays its idle and its fidgets**, by the same function as the character list's figure
+  (`net::ListFigure::of_build`). The seven breed figures stand still: the original runs that function for the
+  chosen character alone.
+- **The chosen character's size and place are the original's now** (`hall::creation_scale`,
+  `creation_drop`, `on_connector_set_down`): the scene shows a short one at 0.95 and a tall one at 1.05 (the
+  floats 0x101c404c and 0x101c4048; the client drew 0.9 and 1.1, the numbers the server is sent), and sets a
+  Solitus or a Nanomage down from its connector by its sex and build (0.02, 0.05 or 0.07, a thin woman raised by
+  0.01).
+- **The heads offered follow the account's Shadowlands flag** (`charcreate::head_sets`, `head_left_out`):
+  FUN_1011d692 tries more numbers of eight sets with `ExpansionFlags & 2` (Opifex women 32 to 43, Opifex men 30
+  to 43, Solitus women 50 to 75, Solitus men 51 to 71, the Solitus men's Asian set 6 to 9, Nanomage men 30 to
+  41, Nanomage women 30 to 43, Atrox 30 to 41) and never offers thirteen numbers of the Solitus women's first set
+  nor fourteen of the Solitus men's, whatever the flag. The client offered the smaller sets to everybody and the
+  left-out numbers too (where the game has the files). An account whose flags are not known gets the larger sets,
+  as it is let to the Shadowlands' professions. **A head's place in the list changed with this** for a Solitus:
+  `net <game> create ... <head n>` counts the new list.
+- **There is no selection glow to port.** `CCCharacter_t::ShowSelectionGlow` (0x1011ae3c) has one caller, the
+  breed button's slot, which turns it on and off again in the same call: it is never drawn. The camera's debug
+  display is developer text behind a flag. Neither is in the client.
+
+Tests: `hall`'s `the_creation_figure_is_sized_and_set_down_by_its_choices`, `charcreate`'s head counts in its
+name test. Seen: the demo creation in a test window (`MAO_LAUNCHER_DEMO=1 MAO_LAUNCHER_CREATE=...`).

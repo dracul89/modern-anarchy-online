@@ -164,8 +164,12 @@ pub fn model(db: &ResourceDatabase) -> Option<Model> {
 /// hall's four meshes as another (shown from the profession scene on), and the main mesh's connectors, on which the
 /// figures stand.
 pub struct Creation {
+    /// (without the parts that move: those are `moving`)
     pub station: Model,
     pub professions: Model,
+    /// The station's parts whose frames are animated (the two far suns and the star field of the main mesh, the
+    /// stars and the shuttle of the intro's), each with its animation: [`Creation::moving_at`] places them.
+    pub moving: Vec<(mao_formats::model::Part, mao_formats::model::Animated)>,
     /// Each connector's name and its frame's matrix, in the meshes' own space (Y up).
     pub connectors: Vec<(String, mao_formats::model::Matrix)>,
 }
@@ -174,12 +178,34 @@ impl Creation {
     pub fn connector(&self, name: &str) -> Option<&mao_formats::model::Matrix> {
         self.connectors.iter().find(|(n, _)| n == name).map(|(_, m)| m)
     }
+
+    /// The moving parts as they are `time` seconds into the creation (each animation looped: `SlotMeshReady`,
+    /// GUI.dll 0x1011b7e0, sets every mesh's `SetLoop(true)`).
+    pub fn moving_at(&self, time: f32) -> Model {
+        let mut model = Model::default();
+        for (part, animation) in &self.moving {
+            let (world, visible) = animation.world_at(time);
+            if !visible {
+                continue;
+            }
+            let mut part = part.clone();
+            part.world = world;
+            if let Some([a, b, c, d]) = animation.texture_at(time) {
+                for v in &mut part.vertices {
+                    v.uv = [v.uv[0] * a + c, v.uv[1] * b + d];
+                }
+            }
+            model.parts.push(part);
+        }
+        model.instances = (0..model.parts.len()).map(|i| (i, SWAP)).collect();
+        model
+    }
 }
 
 /// The creation's meshes (those the database has).
 pub fn creation(db: &ResourceDatabase) -> Option<Creation> {
     let index = mao_formats::instances::Instances::parse(&db.get(Id { kind: 0xf424a, instance: 1 }).ok()??).ok()?;
-    let (mut station, mut professions, mut connectors) = (Model::default(), Model::default(), Vec::new());
+    let (mut station, mut professions, mut connectors, mut moving) = (Model::default(), Model::default(), Vec::new(), Vec::new());
     for (i, name) in crate::ccscene::MESHES.iter().enumerate() {
         let Some(instance) = index.find(0xf6951, name) else { continue };
         let Some(object) = db.get(Id { kind: 0xf6951, instance }).ok().flatten() else { continue };
@@ -187,13 +213,19 @@ pub fn creation(db: &ResourceDatabase) -> Option<Creation> {
         if i == 0 {
             connectors = mao_formats::model::connectors(&mesh).unwrap_or_default();
         }
-        if let Ok(built) = mao_formats::model::build(&mesh) {
-            if crate::ccscene::of_the_hall(i) { &mut professions } else { &mut station }.parts.extend(built.parts);
+        if let Ok((built, animations)) = mao_formats::model::build_full_animated(&mesh) {
+            for (part, animation) in built.parts.into_iter().zip(animations) {
+                match animation.filter(|a| a.moves()) {
+                    Some(animation) => moving.push((part, animation)),
+                    None if crate::ccscene::of_the_hall(i) => professions.parts.push(part),
+                    None => station.parts.push(part),
+                }
+            }
         }
     }
     station.instances = (0..station.parts.len()).map(|i| (i, SWAP)).collect();
     professions.instances = (0..professions.parts.len()).map(|i| (i, SWAP)).collect();
-    (!station.parts.is_empty()).then_some(Creation { station, professions, connectors })
+    (!station.parts.is_empty()).then_some(Creation { station, professions, moving, connectors })
 }
 
 /// A turn about an axis as a matrix.
@@ -206,12 +238,45 @@ fn turn(axis: [f32; 3], angle: f32) -> mao_formats::model::Matrix {
 /// `CCCharacter_t::MoveToConnector` (0x1011b2f4) stands one: at the connector's place, turned as the connector is and
 /// then by the two turns the function adds (half a turn about X, -0.5 about Y: its constants 0x101c4070, 0x101c406c).
 /// `MAO_CC_TURN=x,y` tries other angles.
-pub fn on_connector(mut character: Model, connector: &mao_formats::model::Matrix, scale: f32) -> Model {
+pub fn on_connector(character: Model, connector: &mao_formats::model::Matrix, scale: f32) -> Model {
+    on_connector_set_down(character, connector, scale, 0.0)
+}
+
+/// The size the creation's chosen figure is drawn at for its height choice (`CCCharacter_t::RunFunction`, GUI.dll
+/// 0x1011ac64: the floats 0x101c404c and 0x101c4048 for the choices 0 and 2, 1 for any other). The character made is
+/// sent as 90, 100 or 110 (`charcreate::height`); the scene shows the difference at half that.
+pub fn creation_scale(height: i32) -> f32 {
+    match height {
+        0 => 0.95,
+        2 => 1.05,
+        _ => 1.0,
+    }
+}
+
+/// How far the creation's chosen figure is set down from its connector (the same function, the doubles 0x101ae2e8,
+/// 0x101c4040, 0x101c4038 and 0x101bb800): breeds 1 and 3 only; a woman (sex 3) of build 1 by 0.02, of build 2 by
+/// 0.07, of build 0 raised by 0.01; a man of build 2 by 0.05, of any other by 0.02.
+pub fn creation_drop(breed: i32, sex: i32, build: i32) -> f32 {
+    if breed != 1 && breed != 3 {
+        return 0.0;
+    }
+    match (sex == 3, build) {
+        (true, 1) => 0.02,
+        (true, 2) => 0.07,
+        (true, _) => -0.01,
+        (false, 2) => 0.05,
+        (false, _) => 0.02,
+    }
+}
+
+/// [`on_connector`], the figure `drop` lower than the connector (the game's upright).
+pub fn on_connector_set_down(mut character: Model, connector: &mao_formats::model::Matrix, scale: f32, drop: f32) -> Model {
     let angles = std::env::var("MAO_CC_TURN").ok().map(|t| t.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<f32>>()).filter(|v| v.len() == 2);
     let (x, y) = angles.map_or((std::f32::consts::PI, -0.5), |v| (v[0], v[1]));
     let size = mao_formats::model::trs_matrix([0.0; 3], [0.0, 0.0, 0.0, 1.0], [scale; 3]);
     let turned = mao_formats::model::multiply(&mao_formats::model::multiply(&size, &turn([0.0, 1.0, 0.0], y)), &turn([1.0, 0.0, 0.0], x));
-    let matrix = mao_formats::model::multiply(&mao_formats::model::multiply(&turned, connector), &SWAP);
+    let lowered = mao_formats::model::trs_matrix([0.0, -drop, 0.0], [0.0, 0.0, 0.0, 1.0], [1.0; 3]);
+    let matrix = mao_formats::model::multiply(&mao_formats::model::multiply(&mao_formats::model::multiply(&turned, connector), &lowered), &SWAP);
     character.instances = (0..character.parts.len()).map(|i| (i, matrix)).collect();
     character
 }
@@ -254,6 +319,22 @@ pub fn line_meets_box(from: [f32; 3], along: [f32; 3], lo: [f32; 3], hi: [f32; 3
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The chosen figure's size and set-down, as `CCCharacter_t::RunFunction` has them; the set-down is along the
+    /// game's upright, the renderer's third axis.
+    #[test]
+    fn the_creation_figure_is_sized_and_set_down_by_its_choices() {
+        assert_eq!((creation_scale(0), creation_scale(1), creation_scale(2)), (0.95, 1.0, 1.05));
+        assert_eq!((creation_drop(1, 3, 0), creation_drop(1, 3, 1), creation_drop(3, 3, 2)), (-0.01, 0.02, 0.07));
+        assert_eq!((creation_drop(1, 2, 0), creation_drop(3, 2, 1), creation_drop(1, 2, 2)), (0.02, 0.02, 0.05));
+        assert_eq!((creation_drop(2, 3, 2), creation_drop(4, 1, 1)), (0.0, 0.0));
+        let mut model = Model::default();
+        model.parts.push(mao_formats::model::Part { name: "body".into(), world: mao_formats::model::IDENTITY, vertices: Vec::new(), indices: Vec::new(), material: Default::default() });
+        let connector = mao_formats::model::trs_matrix([3.0, 5.0, 7.0], [0.0, 0.0, 0.0, 1.0], [1.0; 3]);
+        let (on, down) = (on_connector(model.clone(), &connector, 1.0).instances[0].1, on_connector_set_down(model, &connector, 1.0, 0.07).instances[0].1);
+        assert!((on[12] - 3.0).abs() < 1e-5 && (on[13] - 7.0).abs() < 1e-5 && (on[14] - 5.0).abs() < 1e-5, "{on:?}");
+        assert!((on[14] - down[14] - 0.07).abs() < 1e-5 && on[12] == down[12] && on[13] == down[13]);
+    }
 
     #[test]
     fn a_line_and_a_box() {

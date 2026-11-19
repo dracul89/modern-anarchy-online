@@ -173,6 +173,17 @@ struct CreationGfx {
     world: crate::hall::Creation,
     figures: Vec<Option<mao_formats::model::Model>>,
     shown: String,
+    /// The chosen character animated (`net::ListFigure`) with its breed, sex, build and height choice, and when the
+    /// moving things (it, the suns, the stars, the shuttle) were last placed.
+    figure: Option<(crate::net::ListFigure, i32, i32, i32, i32)>,
+    posed: std::time::Instant,
+}
+
+/// One model's parts and instances put after another's.
+fn append(into: &mut mao_formats::model::Model, model: &mao_formats::model::Model) {
+    let base = into.parts.len();
+    into.parts.extend(model.parts.iter().cloned());
+    into.instances.extend(model.instances.iter().map(|&(part, at)| (part + base, at)));
 }
 
 struct Launcher {
@@ -544,7 +555,12 @@ impl Launcher {
                 scene.sky = ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
                 scene.fog = (4000.0, 5000.0);
                 let figures = (1..=7).map(|choice| crate::charcreate::breed_and_sex(choice).and_then(|(breed, sex)| crate::net::character_model_shaped(db, breed, sex, None, 1, 100.0))).collect();
-                Some(CreationGfx { scene, world, figures, shown: String::new() })
+                // (the scene's bounds with the far suns and the stars, which are drawn apart from it)
+                if let Some((lo, hi)) = crate::hall::extent(&world.moving_at(0.0)) {
+                    let corner = |k: usize| scene.center[k].abs() + lo[k].abs().max(hi[k].abs());
+                    scene.radius = scene.radius.max((corner(0).powi(2) + corner(1).powi(2) + corner(2).powi(2)).sqrt());
+                }
+                Some(CreationGfx { scene, world, figures, shown: String::new(), figure: None, posed: std::time::Instant::now() })
             });
             gfx.creation = Some(built);
         }
@@ -559,40 +575,50 @@ impl Launcher {
         let d = creating.director.as_ref()?;
         let chosen = creating.breed_and_sex().map(|(breed, sex)| (breed, sex, creating.head, creating.build, creating.height));
         let key = format!("{} {} {} {chosen:?}", d.figures, d.professions, d.connector);
-        if key != c.shown {
+        let changed = key != c.shown;
+        if changed {
             c.shown = key;
             let mut overlay = mao_formats::model::Model::default();
-            let mut add = |m: &mao_formats::model::Model| {
-                let base = overlay.parts.len();
-                overlay.parts.extend(m.parts.iter().cloned());
-                overlay.instances.extend(m.instances.iter().map(|&(part, at)| (part + base, at)));
-            };
             if d.professions {
-                add(&c.world.professions);
+                append(&mut overlay, &c.world.professions);
             }
             creating.world = crate::charcreate::World::default();
             if d.figures {
+                // (the seven stand still: the original runs the chosen character's frame function alone)
                 for (i, name) in crate::ccscene::BREED_CONNECTORS.iter().enumerate() {
                     if let (Some(Some(figure)), Some(connector)) = (c.figures.get(i), c.world.connector(name)) {
                         let stood = crate::hall::on_connector(figure.clone(), connector, 1.0);
                         creating.world.figures[i] = crate::hall::extent(&stood);
-                        add(&stood);
+                        append(&mut overlay, &stood);
                     }
                 }
             }
-            if let (Some((breed, sex, _, build, height)), Some(connector)) = (chosen, c.world.connector(d.connector)) {
+            c.figure = None;
+            if let Some((breed, sex, _, build, height)) = chosen {
                 // (the chosen head: the look's gear at attachment 0)
                 let look = creating.head_mesh(&self.game).map(|mesh| crate::look::Look { name: String::new(), breed: breed as u8, sex: sex as u8, clothes: Vec::new(), textures: Vec::new(), gear: vec![(0, mesh, 0)] });
-                if let Some(model) = crate::net::character_model_shaped(db, breed, sex, look.as_ref(), build, crate::charcreate::height(height) as f32) {
-                    let stood = crate::hall::on_connector(model, connector, 1.0);
-                    // (the head, for the face's camera: the figure's top less a head's half, in the game's frame)
-                    if let Some((lo, hi)) = crate::hall::extent(&stood) {
-                        creating.world.head = Some([(lo[0] + hi[0]) * 0.5, hi[2] - 0.12, (lo[1] + hi[1]) * 0.5]);
-                    }
-                    add(&stood);
-                }
+                c.figure = crate::net::ListFigure::of_build(db, breed, sex, look.as_ref(), build).map(|f| (f, breed, sex, build, height));
             }
             gfx.renderer.reupload_overlay(&gfx.gpu, &mut c.scene, &overlay, &mut |k, i| textures.get_for_upload(k, i));
+        }
+        // The things that move, placed 24 times a second as the world's characters are: the meshes' animated parts at
+        // the creation's time (`FrameProcess` gives all six meshes each frame's time, in every scene) and the chosen
+        // character at its idle or fidget (`CCCharacter_t::RunFunction`: sized by its height, set down by its build).
+        if changed || c.posed.elapsed() >= std::time::Duration::from_millis(41) {
+            c.posed = std::time::Instant::now();
+            let mut moving = c.world.moving_at(d.total());
+            if let (Some((figure, breed, sex, build, height)), Some(connector)) = (c.figure.as_mut(), c.world.connector(d.connector))
+                && let Some(model) = figure.model()
+            {
+                let stood = crate::hall::on_connector_set_down(model, connector, crate::hall::creation_scale(*height), crate::hall::creation_drop(*breed, *sex, *build));
+                // (the head, for the face's camera: the figure's top less a head's half, in the game's frame; taken
+                // as the figure is first stood, so that the camera does not follow its swaying)
+                if changed && let Some((lo, hi)) = crate::hall::extent(&stood) {
+                    creating.world.head = Some([(lo[0] + hi[0]) * 0.5, hi[2] - 0.12, (lo[1] + hi[1]) * 0.5]);
+                }
+                append(&mut moving, &stood);
+            }
+            gfx.renderer.reupload_follow(&gfx.gpu, &mut c.scene, &moving, &mut |k, i| textures.get_for_upload(k, i));
         }
         let (eye, forward, up) = d.mover.view();
         let eye = mao_render::glam::Vec3::from(eye);

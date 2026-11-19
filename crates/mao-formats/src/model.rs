@@ -854,3 +854,8 @@ pub fn build_dynel_animated(mesh: &MeshObject) -> Result<(Model, Vec<Option<Anim
 pub fn build_placed_animated(mesh: &MeshObject) -> Result<(Model, Vec<Option<Animated>>), Error> {
     build_animated(mesh, Root::Placed)
 }
+
+/// [`build`]'s parts with their animations, one per part (the character creation's suns, stars and shuttle).
+pub fn build_full_animated(mesh: &MeshObject) -> Result<(Model, Vec<Option<Animated>>), Error> {
+    build_animated(mesh, Root::Full)
+}

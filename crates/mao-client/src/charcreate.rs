@@ -57,28 +57,40 @@ pub fn height(choice: i32) -> i32 {
 }
 
 /// The head meshes' file names a breed and sex may wear, with each set's race (1, 2 African, 3 Asian) and how many of its
-/// numbers are tried (the original's counts without the expansion flag `ExpansionFlags & 2`, which raises some of them);
-/// the Opifex female set skips its number 30.
-pub fn head_sets(breed: i32, sex: i32) -> &'static [(&'static str, u8, u32)] {
+/// numbers are tried (GUI.dll FUN_1011d692): `shadowlands` is the account's expansion flag `ExpansionFlags & 2`, which
+/// raises eight of the counts.
+pub fn head_sets(breed: i32, sex: i32, shadowlands: bool) -> Vec<(&'static str, u8, u32)> {
+    let n = |plain: u32, more: u32| if shadowlands { more } else { plain };
     match (breed, sex) {
-        (2, 3) => &[("head_opifexfemale", 1, 32)],
-        (2, _) => &[("head_opifexmale", 1, 30)],
-        (1, 3) => &[("head_solitusfemale", 1, 50), ("head_solitusfemale_african", 2, 8), ("head_solitusfemale_asian", 3, 7)],
-        (1, _) => &[("head_solitusmale", 1, 51), ("head_solitusmale_african", 2, 9), ("head_solitusmale_asian", 3, 6)],
-        (3, 2) => &[("head_nanomale", 1, 30)],
-        (3, _) => &[("head_nanofemale", 1, 30)],
-        (4, _) => &[("head_athrox", 1, 30)],
-        _ => &[],
+        (2, 3) => vec![("head_opifexfemale", 1, n(32, 43))],
+        (2, _) => vec![("head_opifexmale", 1, n(30, 43))],
+        (1, 3) => vec![("head_solitusfemale", 1, n(50, 75)), ("head_solitusfemale_african", 2, 8), ("head_solitusfemale_asian", 3, 7)],
+        (1, _) => vec![("head_solitusmale", 1, n(51, 71)), ("head_solitusmale_african", 2, 9), ("head_solitusmale_asian", 3, n(6, 9))],
+        (3, 2) => vec![("head_nanomale", 1, n(30, 41))],
+        (3, _) => vec![("head_nanofemale", 1, n(30, 43))],
+        (4, _) => vec![("head_athrox", 1, n(30, 41))],
+        _ => Vec::new(),
+    }
+}
+
+/// The numbers of a set that the same function never offers, whatever the flag: one of the Opifex women's, thirteen
+/// of the Solitus women's first set and fourteen of the Solitus men's.
+pub fn head_left_out(set: &str, n: u32) -> bool {
+    match set {
+        "head_opifexfemale" => n == 30,
+        "head_solitusfemale" => [3, 4, 8, 9, 10, 13, 14, 22, 29, 30, 43, 46, 47].contains(&n),
+        "head_solitusmale" => [3, 4, 10, 11, 12, 14, 28, 29, 31, 32, 34, 37, 41, 47].contains(&n),
+        _ => false,
     }
 }
 
 /// The heads offered, in order: each set's numbered meshes (`<set><nn>.abiff`, type 0xf6951) that the game has (`find`
 /// gives a name's instance), with their race.
-pub fn heads(breed: i32, sex: i32, find: &dyn Fn(&str) -> Option<u32>) -> Vec<(u32, u8, String)> {
+pub fn heads(breed: i32, sex: i32, shadowlands: bool, find: &dyn Fn(&str) -> Option<u32>) -> Vec<(u32, u8, String)> {
     let mut out = Vec::new();
-    for &(set, race, count) in head_sets(breed, sex) {
+    for (set, race, count) in head_sets(breed, sex, shadowlands) {
         for n in 0..count {
-            if set == "head_opifexfemale" && n == 30 {
+            if head_left_out(set, n) {
                 continue;
             }
             let name = format!("{set}{n:02}.abiff");
@@ -289,8 +301,10 @@ fn heads_of(game: &str, breed: i32, sex: i32) -> Vec<(u32, u8, String)> {
         let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(game)).ok()?;
         mao_formats::instances::Instances::parse(&db.get(mao_formats::resource::Id { kind: 0xf424a, instance: 1 }).ok()??).ok()
     });
+    // (an account whose flags are not known is offered the larger sets, as it is let to the Shadowlands' professions)
+    let shadowlands = shadowlands_professions(EXPANSIONS.load(std::sync::atomic::Ordering::Relaxed));
     match index {
-        Some(index) => heads(breed, sex, &|n| index.find(0xf6951, n)),
+        Some(index) => heads(breed, sex, shadowlands, &|n| index.find(0xf6951, n)),
         None => Vec::new(),
     }
 }
@@ -1010,8 +1024,17 @@ mod tests {
         assert_eq!(plain_text("Difficulty: <FONT color=\"#ffff00\"> High </FONT><br>The Bureaucrat"), "Difficulty:  High 
 The Bureaucrat");
         let found = |n: &str| (n == "head_opifexfemale00.abiff" || n == "head_opifexfemale30.abiff" || n == "head_opifexfemale31.abiff").then_some(n.len() as u32);
-        let got: Vec<String> = heads(2, 3, &found).into_iter().map(|h| h.2).collect();
+        let got: Vec<String> = heads(2, 3, false, &found).into_iter().map(|h| h.2).collect();
         assert_eq!(got, vec!["head_opifexfemale00.abiff", "head_opifexfemale31.abiff"]);
+        // (FUN_1011d692's counts with and without the Shadowlands' flag, and the numbers it leaves out)
+        let all = |n: &str| Some(n.len() as u32);
+        let count = |breed, sex, shadowlands| heads(breed, sex, shadowlands, &all).len();
+        assert_eq!((count(2, 3, false), count(2, 3, true), count(2, 2, false), count(2, 2, true)), (31, 42, 30, 43));
+        assert_eq!((count(1, 3, false), count(1, 3, true)), (50 - 13 + 8 + 7, 75 - 13 + 8 + 7));
+        assert_eq!((count(1, 2, false), count(1, 2, true)), (51 - 14 + 9 + 6, 71 - 14 + 9 + 9));
+        assert_eq!((count(3, 2, false), count(3, 2, true), count(3, 3, false), count(3, 3, true)), (30, 41, 30, 43));
+        assert_eq!((count(4, 1, false), count(4, 1, true)), (30, 41));
+        assert!(head_left_out("head_solitusfemale", 22) && head_left_out("head_solitusmale", 37) && !head_left_out("head_solitusmale_asian", 3));
     }
 }
 

@@ -8056,7 +8056,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: figures and ships stand still; the hovered breed is only named in the text; no glow; no expansion rules; no debug display
 - A player notices: static creation scenes, no highlight on the chosen figure
 - Where: `crates/mao-client/src/ccscene.rs:31`; `docs/CLIENT_UI.md:4537`; `docs/GUI_DLL_PARITY.md:71`; `CHANGELOG.md:46`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): what the original really does is ported, and the entry's "Original" line says more than that. Ported: the meshes' animations (the far suns, the stars, the intro's shuttle), the chosen character's idle and fidgets with its size (0.95 / 1.05) and set-down by build, and the heads by the Shadowlands flag with the numbers the original leaves out. Not in the original: animated profession figures (plain meshes) and a drawn selection glow (turned on and off in the same call, GUI.dll 0x10113baa). The camera's debug display is developer text and was left. `CLIENT_UI.md` "The character creation's scenes move".
 
 #### `LCH-035` No account activation window and no limbo window
 

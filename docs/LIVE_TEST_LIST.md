@@ -958,6 +958,9 @@ These were written before this list; some may have been seen working since witho
   press Build on land you do not mean to build on: it uses the item at once.
 - [ ] The battlestation (2026-11-18): after signing up, the invitation box, the small map at the top with the
   points and scores, the end's box. Send me the log: none of its messages was ever captured.
+- [ ] Character creation (2026-11-18): the intro's shuttle flies, the stars and suns drift; on the appearance
+  scene the character moves, and its feet are on the floor at each build and height. With a Shadowlands account
+  the head arrows go through more heads than before.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

@@ -418,6 +418,13 @@ impl Director {
     }
 
     /// A frame (`FrameProcess`): the camera moved, the states followed. True when the walk to the shuttle is over.
+    /// Seconds since the creation began, each frame counted as half a second at most: the time the meshes'
+    /// animations run by (`CharCreateModule_t::FrameProcess`, GUI.dll 0x1011c355, gives every mesh the frame's
+    /// time, in every scene).
+    pub fn total(&self) -> f32 {
+        self.total
+    }
+
     pub fn frame(&mut self, dt: f32) -> bool {
         // (the original takes at most half a second for a frame)
         let dt = dt.clamp(0.0, 0.5);
