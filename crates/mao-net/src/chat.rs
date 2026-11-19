@@ -424,25 +424,27 @@ pub fn plain(text: &str) -> String {
         }
     }
     out.push_str(rest);
-    // (the characters written by number, `numbered_character`)
-    let mut numbered = String::with_capacity(out.len());
+    // (the entities, read once from left to right as the game's markup reader does: Utils.dll's table of named
+    // ones, a space that is not a break, a quote, the angle brackets and the ampersand, then a character written by
+    // its number, `numbered_character`)
+    const ENTITIES: [(&str, char); 5] = [("nbsp;", ' '), ("quot;", '"'), ("gt;", '>'), ("lt;", '<'), ("amp;", '&')];
+    let mut decoded = String::with_capacity(out.len());
     let mut rest = out.as_str();
-    while let Some(at) = rest.find("&#") {
-        numbered.push_str(&rest[..at]);
-        match numbered_character(&rest[at..]) {
-            Some((c, len)) => {
-                numbered.push(c);
-                rest = &rest[at + len..];
-            }
-            None => {
-                numbered.push_str("&#");
-                rest = &rest[at + 2..];
-            }
+    while let Some(at) = rest.find('&') {
+        decoded.push_str(&rest[..at]);
+        if let Some((name, c)) = ENTITIES.iter().find(|(name, _)| rest[at + 1..].starts_with(name)) {
+            decoded.push(*c);
+            rest = &rest[at + 1 + name.len()..];
+        } else if let Some((c, len)) = numbered_character(&rest[at..]) {
+            decoded.push(c);
+            rest = &rest[at + len..];
+        } else {
+            decoded.push('&');
+            rest = &rest[at + 1..];
         }
     }
-    numbered.push_str(rest);
-    let out: String = numbered.chars().map(|c| if matches!(c, '\n' | '\r' | '\t') { ' ' } else { c }).collect();
-    out.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&amp;", "&")
+    decoded.push_str(rest);
+    decoded.chars().map(|c| if matches!(c, '\n' | '\r' | '\t') { ' ' } else { c }).collect()
 }
 
 /// A blocking connection to the chat server.
@@ -616,6 +618,9 @@ mod tests {
         // (a character by its number: decimal, a digit first, the `;` before the thirteenth byte, not 0)
         assert_eq!(plain("Mocham&#39;s Gift &#8217; &amp;#39; &#x27; &#; &#0; &#39 &#12345678901;"), "Mocham's Gift \u{2019} &#39; &#x27; &#; &#0; &#39 &#12345678901;");
         assert_eq!((numbered_character("&#39;s"), numbered_character("&#0000000039;"), numbered_character("&#00000000039;")), (Some(('\'', 5)), Some(('\'', 13)), None));
+        // (the named entities of the markup reader's table, `&nbsp;` among them, each read once: what one gives is
+        // not read again)
+        assert_eq!(plain("a&nbsp;b &lt;c&gt; &quot;d&quot; &other; &#38;lt; &amp;amp;"), "a b <c> \"d\" &other; &lt; &amp;");
     }
 
     #[test]

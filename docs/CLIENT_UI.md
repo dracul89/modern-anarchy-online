@@ -7850,3 +7850,7 @@ The original writes nothing in the chat when a friend logs on or off: the chat l
 ### Lines typed while the chat is down (CHT-011)
 
 The original's chat requests wait in ChatGUIModule_c's queue, which its tick (GUI.dll FUN_1008a2c1) works through only while the chat socket is open, and the chat library holds a message until it has logged in (FUN_1016c84a → FUN_1017265d). The client now keeps what was typed while the chat server was away and sends it after reconnecting, instead of dropping it.
+
+### Plain copies of chat lines (CHT-021)
+
+The chat window draws a line's markup with the port of HTMLParser_c; the plain copy the client keeps beside it (for tips, logs and filters) now reads the entities as the markup reader does: one pass over Utils.dll's table (nbsp, quot, gt, lt, amp) and the numbered characters (String::GetUCChar FUN_1000db51).

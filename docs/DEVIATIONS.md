@@ -4023,7 +4023,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: chat::plain strips tags and decodes only a few entities (lt, gt, quot, amp, decimal numbers), turns line breaks and tabs into spaces
 - A player notices: other entities and formatting of a line are lost where plain text is used
 - Where: `crates/mao-net/src/chat.rs:392`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The chat lines keep their markup and the chat window draws them with the client's port of HTMLParser_c (gui/text.rs: fonts, links, pictures, Utils.dll's entity table); `chat::plain` is only the plain copy (tells' tips, logs, filters, the bubble text). Its entity reading now follows the markup reader: one left-to-right pass over Utils.dll's table (nbsp, quot, gt, lt, amp, each with its `;`), then a character by its number (String::GetUCChar FUN_1000db51); before, `&nbsp;` stayed as written and a numbered `&#38;lt;` was read twice into `<`. Tags are still cut at the first `>` outside quotes (HTMLParser_c::_ParseTag) and line breaks and tabs made spaces, which is what a plain copy is for. Test: mao-net `chat::tests::markup_is_stripped`.
 - Looked at, left (2026-11-19, overnight): The game's HTMLParser_c is a full markup renderer; chat::plain is only the plain-text copy, while the chat lines keep their markup for the client's own renderer. Porting HTMLParser_c is far over the time box. Left.
 
 #### `CHT-022` Chat server reconnect timing and give-up
