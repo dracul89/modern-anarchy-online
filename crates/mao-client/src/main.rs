@@ -576,6 +576,33 @@ pub(crate) fn door_locked(flags: u32) -> bool {
     flags & 0x40 != 0
 }
 
+/// What the locked door's question reads of a door (`Door_t`'s FUN_1007fad8): its flags (stat 259: 0x10 nobody
+/// passes, 0x20 an item with the door's key lets through, 1 the door's own requirements are asked), its exit (stat
+/// 189: a door that has one lets everybody through), its key (stat 195, which the server's word on the door sets
+/// too) and its building (stat 188, which an access card may name).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DoorStats {
+    pub flags: u32,
+    pub exit: u32,
+    pub key: u32,
+    pub building: u32,
+}
+
+/// The stats of the playfield's built-in doors by their numbers: each door's own, else its template's.
+pub(crate) fn door_stats(db: &ResourceDatabase, playfield: u32) -> std::collections::HashMap<u8, DoorStats> {
+    let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Default::default() };
+    let mut templates: std::collections::HashMap<u32, Option<mao_formats::item::Item>> = std::collections::HashMap::new();
+    mao_formats::dynels::parse(&object)
+        .into_iter()
+        .filter(|d| d.kind == 0xc748)
+        .map(|d| {
+            let template = templates.entry(d.template).or_insert_with(|| db.get(Id { kind: mao_formats::item::TEMPLATE, instance: d.template }).ok().flatten().and_then(|x| mao_formats::item::Item::parse(&x)));
+            let stat = |k: u32| d.stat(k).or_else(|| template.as_ref().and_then(|t| t.stat(k))).unwrap_or(0);
+            ((d.instance >> 16) as u8, DoorStats { flags: stat(259), exit: stat(189), key: stat(195), building: stat(188) })
+        })
+        .collect()
+}
+
 /// The playfield's built-in terminals, booths and signs (its dynel table, the doors left out: the server announces
 /// those), for the mouse to pick: `(kind, instance, position, template, name)`, the name its item template's.
 pub(crate) fn table_dynels(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, u32, [f32; 3], u32, String)> {
@@ -1682,6 +1709,24 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{same} stats equal, {different} different; {} modifiers computed", mods.len());
             return Ok(());
         }
+    }
+    // `doors <game>`: the locked doors of every playfield's table, with what the locked door's question reads of them.
+    if let [game, word] = args
+        && word == "doors"
+    {
+        let db = ResourceDatabase::open_game(Path::new(game)).map_err(|e| e.to_string())?;
+        let (mut doors, mut locked) = (0, 0);
+        for p in mao_formats::playfield::all(&db) {
+            let mut stats: Vec<(u8, DoorStats)> = door_stats(&db, p.number).into_iter().collect();
+            stats.sort_by_key(|s| s.0);
+            doors += stats.len();
+            for (n, s) in stats.into_iter().filter(|(_, s)| door_locked(s.flags) || s.key != 0 || s.building != 0 || s.flags & 0x31 != 0) {
+                locked += usize::from(door_locked(s.flags));
+                println!("{:>5} {:<28} door {n:>3}: flags {:#x} exit {} key {:#x} building {}", p.number, p.name.trim(), s.flags, s.exit, s.key, s.building);
+            }
+        }
+        println!("{doors} doors, {locked} locked");
+        return Ok(());
     }
     if let [game, word, rest @ ..] = args {
         if word == "list" {

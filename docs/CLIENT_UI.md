@@ -6016,3 +6016,43 @@ menu (`MAO_LOOT_BANK=1 MAO_LOOT_MENU=1`), the frame's menu on the inventory, the
 window (`MAO_FRAME_MENU=<window's name>` shows the frame's own). **Not tried: every mouse path** (locking by the
 menu, a refused move, items moved in the bank, an item put into the bank on a cell).
 Tests: `the_locked_equipment_stays_as_it_is`, `the_arrange_menu_follows_the_container`.
+
+### The locked door's question (ZON-017, what was left)
+
+Read again in the original (Gamecode; `Door_t`'s vtable by RTTI: +0xdc the touch FUN_1007fccc, +0xfc "locked",
++0x100 its own access FUN_100857ac, +0xac open):
+
+- **Locked** is bit 0x40 of the door's own flags word, which the door's set-up (FUN_1007fdd4) clears unless stat
+  259 has the bit, and which the server's `DoorStatusUpdate` sets and clears: its apply (FUN_100a015a) unlocks the
+  door when the message's locked byte is 0 and locks it otherwise (which shuts an open one), then opens or closes
+  it by the open byte, then sets the door's stat 195 to the message's key.
+- **The touch** (FUN_1007fccc) of a locked door asks FUN_1007fad8 and opens the door for one it lets through,
+  telling the server nothing; one it refuses is pushed back from the door (FUN_1007f8ee).
+- **The question** (FUN_1007fad8), in its order: a door with an exit (stat 189) lets everybody through; so does
+  one that is not locked; one whose stat 259 has 0x10 lets nobody; one whose stat 259 has 0x20 lets through who
+  holds an item whose stat 195 is the door's (FUN_1004777e: every item of the inventory, and of the bags in it);
+  then the door's own access (FUN_100857ac: the door's requirements when stat 259 has 1, then a list the door
+  keeps, of identities and of access cards: an `AccessCard_t` in the backpack whose stat 195 has the key's upper
+  28 bits and at least its lowest four, or whose stat 188 is the key, FUN_100472d0 / FUN_1007d041); then
+  everybody inside an owned building (`PlayfieldAnarchy_t::IsOwnedBuilding`, which does not look at the
+  character; the team's part after it cannot be reached). The one line it says,
+  `Feedback_YouNeedFreeEntryInInventory`, is for a door whose list holds a card to give when the backpack is
+  full; a refusal is silent otherwise. The catalog's "team's mission" is not in it.
+
+**What the game's data has**: of the 5,082 doors in the playfields' tables 13 are locked (11 in Will To Fight, 2 in
+The Crypt of Home), all with flags 0x68 (locked, a key door) and no key of their own: the server gives the key.
+All 201 doors the captures' servers announce have flags 0 and no key, and all 306 captured door words are
+"unlocked, no key". So no locked door was ever seen being passed. `mao-client <game> doors` lists the tables'.
+
+Here (`net.rs` `door_lock`, `door_may_pass`, `World::tick_doors`, `keys_held`; `main.rs` `DoorStats`,
+`door_stats`):
+- The server's word locks and unlocks a door now, and its key is kept. Before, a door was locked or not by its
+  flags when it was first known, for good: a door the server unlocked stayed shut at the approach.
+- A locked door in reach asks the question and opens for one who may pass: a door with an exit, a key door when an
+  item's stat 195 is its key, any door inside an owned building (the playfield message that
+  `Message::owned_building` reads; taken to be what `IsOwnedBuilding` asks for).
+- **Not asked: the door's own access**, its requirements and its list, which are not kept here: a door only they
+  would open stays shut until the server opens it. An item's key is its template's stat (an item's own stats are
+  not kept). The line about the full backpack hangs on the list and is not said, and nobody is pushed back.
+Tests: `a_locked_door_lets_through_who_may_pass`, `a_locked_door_opens_at_the_touch_of_one_who_may_pass`, the door
+word's lock in `door_tests`.

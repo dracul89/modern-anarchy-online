@@ -569,8 +569,16 @@ struct World {
     prop_anim: BTreeMap<u32, (u32, u32, Instant)>,
     /// The statels' moving parts (`crate::AnimatedPart`), drawn each frame.
     animated_statels: Arc<Vec<crate::AnimatedPart>>,
-    /// The doors that open as the character comes up to them (by number).
+    /// The doors that open as the character comes up to them (by number): those that are not locked.
     approach_doors: std::collections::HashSet<u8>,
+    /// What the locked door's question reads of each door (`door_may_pass`): the table's, an announced door's own,
+    /// and the key the server's word on the door sets.
+    door_stats: std::collections::HashMap<u8, crate::DoorStats>,
+    /// Whether the playfield is an owned building's inside (its playfield message says so, `Message::owned_building`).
+    owned_inside: bool,
+    /// The keys the character holds (stat 195 of each item's template), and what they were read for: the items' count
+    /// and ids added up, so that they are read again when the items change.
+    held_keys: (u64, Vec<u32>),
     /// The playfield's own door props (`static_props`' keys) and their numbers: a door the server announces takes the
     /// number's slot with its own id, and the table's prop still swings and goes with that door.
     door_props: BTreeMap<u32, u8>,
@@ -827,6 +835,39 @@ const SERVER_OPEN: Duration = Duration::from_secs(24 * 3600);
 /// version is another.
 fn door_open(data: &[u8]) -> Option<bool> {
     (data.get(1..5)? == [0, 0, 0, 2]).then(|| data.get(6).map(|&b| b != 0)).flatten()
+}
+
+/// The rest of a `DoorStatusUpdate`'s word ([`door_open`]): whether the door is locked, and its key. The message's
+/// apply (FUN_100a015a) unlocks the door when the locked flag is 0 and locks it otherwise (which also shuts an open
+/// one), then opens or closes it, then sets the door's stat 195 to the key.
+fn door_lock(data: &[u8]) -> Option<(bool, u32)> {
+    door_open(data)?;
+    Some((*data.get(5)? != 0, u32::from_be_bytes(data.get(7..11)?.try_into().ok()?)))
+}
+
+/// Whether a character may pass a locked door: `Door_t`'s question at its touch (Gamecode FUN_1007fad8), which
+/// opens the door for the one it lets through (FUN_1007fccc) and tells the server nothing. In its order: a door with
+/// an exit (stat 189) lets everybody through; so does one that is not locked; one whose flags have 0x10 lets nobody;
+/// one whose flags have 0x20 lets through who holds an item whose stat 195 is the door's (FUN_1004777e: any item of
+/// the inventory, and of the bags in it); then the door's own access (FUN_100857ac: its requirements when its flags
+/// have 1, and its list of identities and of access cards); then everybody inside an owned building
+/// (`PlayfieldAnarchy_t::IsOwnedBuilding`, which does not look at the character).
+///
+/// The door's own access is not asked here: neither its requirements nor its list are kept, so a door only they
+/// would open stays shut until the server opens it. An item's key is its template's stat (an item's own stats are
+/// not kept either). The line the original says when the door's card cannot be given for a full inventory
+/// (`Feedback_YouNeedFreeEntryInInventory`) hangs on that list too and is not said.
+fn door_may_pass(door: crate::DoorStats, locked: bool, holds_key: &dyn Fn(u32) -> bool, owned_building: bool) -> bool {
+    if door.exit != 0 || !locked {
+        return true;
+    }
+    if door.flags & 0x10 != 0 {
+        return false;
+    }
+    if door.flags & 0x20 != 0 && holds_key(door.key) {
+        return true;
+    }
+    owned_building
 }
 const OBJECT_TYPE: u32 = 0xc76a;
 
@@ -1964,8 +2005,21 @@ impl World {
     /// FUN_10085684 back from its end; FUN_10088970 steps it each frame).
     fn tick_doors(&mut self, own: [f32; 3]) {
         let now = Instant::now();
+        let reached = |at: [f32; 3]| (at[0] - own[0]).hypot(at[2] - own[2]) < APPROACH_REACH && (at[1] - own[1]).abs() < 3.0;
+        // (a locked door in reach asks whether this character may pass, and opens for one who may: `door_may_pass`)
+        let asked: Vec<u8> = self.door_slots.iter().filter(|(n, (_, at))| !self.approach_doors.contains(n) && reached(*at) && self.doors_open.get(n).is_none_or(|until| *until <= now)).map(|(n, _)| *n).collect();
+        let mut passed: Vec<u8> = Vec::new();
+        if !asked.is_empty() {
+            let keys = self.keys_held();
+            for n in asked {
+                let door = self.door_stats.get(&n).copied().unwrap_or_default();
+                if door_may_pass(door, true, &|key| keys.contains(&key), self.owned_inside) {
+                    passed.push(n);
+                }
+            }
+        }
         for (&n, &(_, at)) in &self.door_slots {
-            if self.approach_doors.contains(&n) && (at[0] - own[0]).hypot(at[2] - own[2]) < APPROACH_REACH && (at[1] - own[1]).abs() < 3.0 {
+            if (self.approach_doors.contains(&n) || passed.contains(&n)) && reached(at) {
                 let until = now + DOOR_OPEN;
                 let open = self.doors_open.entry(n).or_insert(until);
                 if *open < until {
@@ -1988,6 +2042,18 @@ impl World {
                 }
             }
         }
+    }
+
+    /// The keys the character holds: stat 195 of every item of the inventory and of the bags whose contents are known
+    /// (FUN_1004777e goes through the inventory and into the chests in it), each item's template's.
+    fn keys_held(&mut self) -> Vec<u32> {
+        let items = || self.worn.iter().chain(self.bags.values().flat_map(|b| b.entries.iter()));
+        let print = items().fold(items().count() as u64, |sum, e| sum.wrapping_mul(31).wrapping_add(u64::from(e.low_id) << 8 | u64::from(e.slot & 0xff)));
+        if self.held_keys.0 != print {
+            let keys: Vec<u32> = items().filter_map(|e| item_template_stat(e.low_id, 195)).collect();
+            self.held_keys = (print, keys);
+        }
+        self.held_keys.1.clone()
     }
 
     /// A door's animation time: from 0 shut to its length open, run on from its last change.
@@ -2094,6 +2160,8 @@ impl World {
         }
         if let Some(arrival) = m.arrival() {
             eprintln!("playfield message: identity ({:x},{:x}) -> playfield {} at {:?}", m.identity.0, m.identity.1, arrival.0, arrival.1);
+            // (inside an owned building every locked door lets through: `door_may_pass`)
+            self.owned_inside = m.owned_building().is_some();
             // (an owned building's inside, an organisation city's house: the whole message goes to the log, of which the
             // first one seen was kept in part only)
             if m.data.get(18..22) == Some(&[0, 0, 0xc7, 0x9d]) {
@@ -3666,8 +3734,21 @@ impl World {
             && let Some(open) = door_open(&m.data)
         {
             // (logged: a door that keeps opening and closing is this message or our own uses; see `door_used`)
-            eprintln!("door {:#x} ({:?}) {} by the server", m.identity.1, self.door_number(m.identity.1), if open { "opened" } else { "closed" });
+            let lock = door_lock(&m.data);
+            eprintln!("door {:#x} ({:?}) {} by the server{}", m.identity.1, self.door_number(m.identity.1), if open { "opened" } else { "closed" }, match lock {
+                Some((true, key)) => format!(", locked, key {key:#x}"),
+                _ => String::new(),
+            });
             self.door_status(m.identity.1, open);
+            // (and whether it is locked from now on, with its key: FUN_100a015a)
+            if let (Some((locked, key)), Some(n)) = (lock, self.door_number(m.identity.1)) {
+                if locked {
+                    self.approach_doors.remove(&n);
+                } else {
+                    self.approach_doors.insert(n);
+                }
+                self.door_stats.entry(n).or_default().key = key;
+            }
         }
         // `DoorFullUpdate` (`365a5071`): a door the playfield's table does not have (a generated mission's), announced with its
         // place. Its `DoorFullUpdateIIR_t` (read by FUN_1009ff81 after the `SimpleItemFullUpdateIIR_t` part, made a dynel by
@@ -3693,6 +3774,8 @@ impl World {
                 if stat(259).is_some_and(|flags| flags & 0x80 != 0) {
                     self.doors_open.insert(n, Instant::now() + SERVER_OPEN);
                 }
+                // (what the locked door's question reads of it)
+                self.door_stats.insert(n, crate::DoorStats { flags: stat(259).unwrap_or(0), exit: stat(189).unwrap_or(0), key: stat(195).unwrap_or(0), building: stat(188).unwrap_or(0) });
                 // (and whether it opens at a touch: not when its flags say it is locked, `approach_doors`)
                 match stat(259) {
                     Some(flags) if crate::door_locked(flags) => {
@@ -6730,6 +6813,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     state.prop_textures.extend(crate::static_prop_textures(&db, playfield));
     state.prop_anim.extend(crate::static_prop_anims(&db, playfield).into_iter().map(|(k, (play, pos))| (k, (play, pos, Instant::now()))));
     state.approach_doors = crate::approach_doors(&db, playfield);
+    state.door_stats = crate::door_stats(&db, playfield);
     state.door_sounds = table_door_sounds(&db, playfield);
     state.table = crate::table_dynels(&db, playfield);
     state.table_sizes = crate::table_pick_sizes(&db, playfield);
@@ -7949,6 +8033,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             state.prop_textures.extend(crate::static_prop_textures(&thread_db, playfield));
                             state.prop_anim.extend(crate::static_prop_anims(&thread_db, playfield).into_iter().map(|(k, (play, pos))| (k, (play, pos, Instant::now()))));
                             state.approach_doors = crate::approach_doors(&thread_db, playfield);
+                            state.door_stats = crate::door_stats(&thread_db, playfield);
                             state.door_sounds = table_door_sounds(&thread_db, playfield);
                             state.animated_statels = Arc::new(area.animated);
                             state.table = crate::table_dynels(&thread_db, playfield);
@@ -13656,6 +13741,53 @@ mod door_tests {
         assert!(world.doors_open.get(&4).is_some_and(|until| *until > Instant::now() + Duration::from_secs(3600)));
         world.door_status(0x10c1a5a9, false);
         assert!(!world.doors_open.contains_key(&4));
+        // (the word's locked flag and key: every captured one is unlocked with no key)
+        assert_eq!(door_lock(&closed), Some((false, 0)));
+        let mut locked = closed;
+        (locked[5], locked[10]) = (1, 0x2a);
+        assert_eq!(door_lock(&locked), Some((true, 0x2a)));
+        assert_eq!(door_lock(&[0; 16]), None);
+    }
+
+    /// The locked door's question, in the original's order.
+    #[test]
+    fn a_locked_door_lets_through_who_may_pass() {
+        let door = |flags, exit, key| crate::DoorStats { flags, exit, key, building: 0 };
+        let none = |_: u32| false;
+        let holds = |key: u32| key == 0x77;
+        // (not locked, or with an exit: everybody, whatever the flags say)
+        assert!(door_may_pass(door(0x10, 0, 0), false, &none, false));
+        assert!(door_may_pass(door(0x50, 5, 0), true, &none, false));
+        // (locked: nobody past 0x10, not even with its key or in an owned building)
+        assert!(!door_may_pass(door(0x70, 0, 0x77), true, &holds, true));
+        // (a key door: who holds an item with its key; the key alone is nothing without the flag)
+        assert!(door_may_pass(door(0x68, 0, 0x77), true, &holds, false));
+        assert!(!door_may_pass(door(0x68, 0, 0x78), true, &holds, false));
+        assert!(!door_may_pass(door(0x48, 0, 0x77), true, &holds, false));
+        // (inside an owned building: every locked door that is not shut to all)
+        assert!(door_may_pass(door(0x40, 0, 0), true, &none, true));
+        assert!(!door_may_pass(door(0x40, 0, 0), true, &none, false));
+    }
+
+    /// A locked door in reach opens for the one who may pass, and the server's word locks and unlocks a door.
+    #[test]
+    fn a_locked_door_opens_at_the_touch_of_one_who_may_pass() {
+        let mut w = World { own: 7, ..World::default() };
+        w.door_slots.insert(3, (0x10c80003, [10.0, 0.0, 20.0]));
+        w.door_stats.insert(3, crate::DoorStats { flags: 0x40, exit: 0, key: 0, building: 0 });
+        // (locked: it stays shut)
+        w.tick_doors([10.0, 0.0, 21.0]);
+        assert!(!w.doors_open.contains_key(&3));
+        // (inside an owned building it opens)
+        w.owned_inside = true;
+        w.tick_doors([10.0, 0.0, 21.0]);
+        assert!(w.doors_open.contains_key(&3));
+        // (unlocked by the server, it opens for anybody; locked again, it does not)
+        let mut w = World { own: 7, ..World::default() };
+        w.door_slots.insert(3, (0x10c80003, [10.0, 0.0, 20.0]));
+        w.approach_doors.insert(3);
+        w.tick_doors([10.0, 0.0, 21.0]);
+        assert!(w.doors_open.contains_key(&3));
     }
 }
 

@@ -17,6 +17,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   were drawn somewhere far off.
 - Corpses that were already lying when you arrived (or that you walked away from and back to) are drawn. They
   were only a name floating over empty ground.
+- A locked door opens for a character who may pass it, as in the original: a door that needs a key item when you
+  carry the item, and the locked doors inside your own apartment or organization building. A door the server
+  unlocks also opens when you walk up to it now.
 
 ### Windows
 

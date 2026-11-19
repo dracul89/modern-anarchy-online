@@ -932,6 +932,10 @@ These were written before this list; some may have been seen working since witho
   item jumps elsewhere or two end up on one cell.
 - [ ] The frame's menu button (2026-11-18): the small "i" at the left of a window's title: the menu under it, Close
   Window closes the window. Tell me of any window whose title is cut or overlapped by it.
+- [ ] Locked doors (2026-11-18): the key doors of Will To Fight or The Crypt of Home with the key item on you, a
+  mission's locked door with its key, and the doors inside an apartment: they should open as you walk up. Tell me
+  of a door that opens here and the server then pulls you back from, or one the original opens and this does not;
+  the log says "door ... locked, key ..." when the server locks one.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

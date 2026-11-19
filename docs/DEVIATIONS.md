@@ -3183,7 +3183,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not done; closing time is five seconds; locked doors stay shut until the server says they are open; keypad side not compared
 - A player notices: doors silent, close after a fixed 5 s, a player the original lets through finds a locked door shut, no feedback
 - Where: `crates/mao-client/src/main.rs:553`; `docs/CLIENT_UI.md:831`; `docs/ORIGINAL_AUDIT.md:40`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): Done as far as the client keeps the question's inputs: the server's word locks and unlocks a door and gives its key (DoorStatusUpdate's locked byte and stat 195), and a locked door in reach asks the original's question (FUN_1007fad8) and opens for one who may pass: a door with an exit, a key door for who holds an item with its key, any door inside an owned building. Not asked: the door's own access (its requirements and its list of identities and access cards, which are not kept), so the full-backpack line is not said either. Only 13 of the game's 5,082 table doors are locked and no captured door is: not seen against a server.
 - Done in part (2026-11-18, overnight): the doors' opening and closing sounds are played (from the template's sound set: classes 0x83/0x64 and 0x84/0x66; the entry's 'stat 131' is wrong). The entry's closing time is a misreading: the original has no timer (a door closes when no character touches it; stat 335 is a count of seconds before it lets through), so the client's five seconds are kept. The locked door's question is not done.
 
 #### `ZON-018` City signals not checked against the city id
