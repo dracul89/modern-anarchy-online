@@ -485,6 +485,44 @@ fn a_cast_effect_has_its_emitters() {
     assert!(flares.iter().all(|f| f.rate == 16.0 && f.material == 15));
 }
 
+/// What `_GfxControlSpell1_t` shows beyond its hand flares and beam, in the data the original reads. The hand cords (words 29–30,
+/// kind 1003) are made at a point (`CreateGfxControl(id, Vector3)` FUN_100cea4b → FUN_100d6420), whose locator takes word 0's
+/// bit 2 as its "lays links" byte (FUN_101067af's last argument); every cord a cast names has flags 5, so its set-position
+/// (FUN_100d69d8) moves the locator and lays no link, and its run (FUN_100d5f5a) lays none either: they draw nothing in the
+/// original too. Phases 3 and 4 (the projectile and the impact, FUN_100f3f30) run only when word 33 is 0: the two templates
+/// short of word 33 (9000 and 9002, which read it as 0, FUN_10106dc8), which no other template and no program or item names.
+#[test]
+fn a_cast_effect_lays_no_cords_and_throws_nothing() {
+    use mao_formats::item::{Item, NANO_TEMPLATE, TEMPLATE};
+    let Some(game) = std::env::var_os("MAO_GAME").map(PathBuf::from) else { return };
+    let gfx = mao_formats::gfx::Gfx::parse(&std::fs::read(game.join("Setupf").join("gfxtweak.bin")).unwrap()).unwrap();
+    let casts: Vec<_> = gfx.records.iter().filter(|r| r.kind == 1010).collect();
+    assert_eq!(casts.len(), 180);
+    for cast in &casts {
+        for word in [29, 30] {
+            let cord = gfx.get(cast.int(word)).unwrap();
+            assert_eq!(cord.kind, 1003);
+            assert_eq!(cord.int(0) & 2, 0, "cast {} cord {}", cast.id, cord.id);
+        }
+    }
+    let mut thrown: Vec<i32> = casts.iter().filter(|r| gfx.cast(r.id).unwrap().released).map(|r| r.id).collect();
+    thrown.sort_unstable();
+    assert_eq!(thrown, [9000, 9002]);
+    assert!(gfx.records.iter().all(|r| thrown.contains(&r.id) || !gfx.references(r.id).iter().any(|c| thrown.contains(c))));
+    // (the programs' and items' effects: cast, hit, running, tracer, gather and impact)
+    let db = ResourceDatabase::open_game(&game).unwrap();
+    let mut named = 0;
+    for id in db.ids().unwrap().filter_map(Result::ok).filter(|i| i.kind == NANO_TEMPLATE || i.kind == TEMPLATE) {
+        let Some(item) = db.get(id).ok().flatten().as_deref().and_then(Item::parse) else { continue };
+        for stat in [428u32, 361, 413, 419, 366, 414] {
+            let Some(effect) = item.stat(stat).filter(|&e| e > 0) else { continue };
+            named += 1;
+            assert!(!gfx.tree(effect as i32).iter().any(|r| thrown.contains(&r.id)), "{id:?} stat {stat} names {effect}");
+        }
+    }
+    assert!(named > 10_000);
+}
+
 /// The veins the meshes' `eff_universal` connectors name (12200 the Shadowlands' vein meshes, 96003 the Whom-Pah pillar's)
 /// are kind 3014, `_GfxControlVein_t`, each with the fire 12205 made at its foot.
 #[test]
