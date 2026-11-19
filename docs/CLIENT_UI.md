@@ -7149,3 +7149,7 @@ The team window colours the leader the server named (interface message 0x17, Tea
 ### Team level until the server tells it (CHT-044)
 
 The team window's header shows GetTeamLevel (GUI.dll 0x1007a5d3), the level interface message 0x10 last gave, 0 before. The client showed the highest member's level until then; it now shows 0, as the original.
+
+### Every mail in the inbox list (CHT-046)
+
+The inbox list reads every entry the server's count gives; the client used to stop at 64.

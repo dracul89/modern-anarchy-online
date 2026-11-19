@@ -4153,7 +4153,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: parse_list reads at most 64 inbox entries
 - A player notices: a mailbox of more than 64 mails shows only the first 64
 - Where: `crates/mao-net/src/mail.rs:119`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The 64-entry cap was the client's own; mail::parse_list now reads every entry the count gives (a count past the data still makes no list, so no panic). Test: mail::tests::the_inbox_list (65 entries read).
 
 #### `CHT-047` Script names with a backslash, colon or dots are refused
 

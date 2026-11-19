@@ -116,7 +116,8 @@ pub fn parse_list(data: &[u8]) -> Option<Vec<Entry>> {
     }
     let count = usize::try_from(i32::from_be_bytes(c.take(4)?.try_into().ok()?) / 0x3f1 - 1).ok()?;
     let mut entries = Vec::new();
-    for _ in 0..count.min(64) {
+    // (every entry the count gives, with no cap of the client's; a count past the data gives no list)
+    for _ in 0..count {
         let (id, sender_id, sender, subject, sent, expires, flags) = entry_fields(&mut c)?;
         let express = c.take(1)?[0] != 0;
         entries.push(Entry { id, sender_id, sender, subject, sent, expires, flags, express });
@@ -215,6 +216,9 @@ mod tests {
         assert_eq!((e.id, e.sender_id, e.sender.as_str(), e.subject.as_str()), (0x0156_0006, 0x4bc80, "Conjecture", "hello there"));
         assert_eq!((e.sent, e.expires, e.flags, e.express), (0x6adadeb6, 0x6aed53b6, 0x28, true));
         assert_eq!(parse_list(&hex("000000000003f1")).unwrap(), vec![]);
+        // (no cap of the client's: 65 entries are 65)
+        let many = format!("000000{:08x}{}", 66 * 0x3f1, LIST[14..].repeat(65));
+        assert_eq!(parse_list(&hex(&many)).unwrap().len(), 65);
     }
 
     /// A returned mail is the take's message with the number 7; a mail's credits are signed.
