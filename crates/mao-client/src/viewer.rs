@@ -1406,7 +1406,9 @@ impl ApplicationHandler for App {
                     for action in self.settings.keymap.actions_for_key(code) {
                         self.held.remove(&action);
                     }
-                } else if let Some(action) = self.settings.keymap.action(code, self.modifiers) {
+                } else {
+                    // (every action the key is bound to acts, as the original's providers do: `Keymap::actions`)
+                    for action in self.settings.keymap.actions(code, self.modifiers) {
                     match action {
                         Action::AutoRun if !event.repeat => {
                             self.autorun = !self.autorun;
@@ -1633,6 +1635,7 @@ impl ApplicationHandler for App {
                         }
                         Action::CameraReset if !event.repeat => self.cam_reset = true,
                         _ => {}
+                    }
                     }
                 }
                 let held = |a: Action| self.held.contains(&a);

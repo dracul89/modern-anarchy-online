@@ -29,9 +29,8 @@
 //! the `*_GLOBAL_V2` ones); providers without an action here (the pets', the team members', the per-bar shortcut keys, the
 //! team, raid, research and other windows' keys, the next/previous camera views, copying to the clipboard) are not
 //! listed. Mouse buttons (the box binds a button pressed on it, FUN_100bcc26) are not taken: this client's keys are
-//! keyboard keys. Add with no key pressed binds the original's "no key" to a provider that has keys, which this
-//! client's store cannot hold: nothing is done then. A key bound to two actions does the first of them here (the
-//! original does both).
+//! keyboard keys. Add with no key pressed binds the original's "no key" (kept in mao.ini as `Inactive`, a row of
+//! its own). A key bound to two of the providers' actions does them all, as the original's (`Keymap::actions`).
 
 use crate::settings::{Action, Binding, Keymap};
 
@@ -232,17 +231,43 @@ pub struct Row {
     pub key: Option<Binding>,
 }
 
-/// The rows (FUN_100bc713): a row for each key of each provider, one without a key for a provider with none.
+/// An action's binds as the original's provider has them: its keys, and its "no key" (input 0) when it has that
+/// bound (shown as none, "Inactive").
+fn binds_of(keymap: &Keymap, action: Action) -> Vec<Option<Binding>> {
+    let mut binds: Vec<Option<Binding>> = keymap.bindings_of(action).into_iter().map(Some).collect();
+    if keymap.has_inactive(action) {
+        binds.push(None);
+    }
+    binds
+}
+
+/// The rows (FUN_100bc713): a row for each bind of each provider, one without a key for a provider with none.
 pub fn fill(entries: &[Entry], keymap: &Keymap) -> Vec<Row> {
     let mut rows = Vec::new();
     for (k, e) in entries.iter().enumerate() {
-        let keys = keymap.bindings_of(e.action);
-        if keys.is_empty() {
+        let binds = binds_of(keymap, e.action);
+        if binds.is_empty() {
             rows.push(Row { entry: k, key: None });
         }
-        rows.extend(keys.into_iter().map(|key| Row { entry: k, key: Some(key) }));
+        rows.extend(binds.into_iter().map(|key| Row { entry: k, key }));
     }
     rows
+}
+
+/// FUN_10018db2 for a row's bind: a key, or the "no key".
+fn unbind(keymap: &mut Keymap, action: Action, key: Option<Binding>) -> bool {
+    match key {
+        Some(key) => keymap.unbind(action, key),
+        None => keymap.unbind_inactive(action),
+    }
+}
+
+/// FUN_10018d71: a key, or the "no key"; false when the action has it already.
+fn bind(keymap: &mut Keymap, action: Action, key: Option<Binding>) -> bool {
+    match key {
+        Some(key) => keymap.bind(action, key),
+        None => keymap.bind_inactive(action),
+    }
 }
 
 /// Clear on a row (0x100bc68e): its key unbound; then the row goes when its provider has keys left, else shows none.
@@ -250,10 +275,10 @@ pub fn fill(entries: &[Entry], keymap: &Keymap) -> Vec<Row> {
 pub fn clear(rows: &mut Vec<Row>, at: usize, entries: &[Entry], keymap: &mut Keymap) -> bool {
     let Some(row) = rows.get(at).copied() else { return false };
     let action = entries[row.entry].action;
-    if !row.key.is_some_and(|key| keymap.unbind(action, key)) {
+    if !unbind(keymap, action, row.key) {
         return false;
     }
-    if keymap.bindings_of(action).is_empty() {
+    if binds_of(keymap, action).is_empty() {
         rows[at].key = None;
     } else {
         rows.remove(at);
@@ -266,25 +291,18 @@ pub fn clear(rows: &mut Vec<Row>, at: usize, entries: &[Entry], keymap: &mut Key
 pub fn bound(rows: &mut Vec<Row>, at: usize, change: bool, key: Option<Binding>, entries: &[Entry], keymap: &mut Keymap) -> bool {
     let Some(row) = rows.get(at).copied() else { return false };
     let action = entries[row.entry].action;
-    if !change && !keymap.bindings_of(action).is_empty() {
-        // (the original binds its "no key" here: this client's store cannot hold it)
-        let Some(key) = key else { return false };
-        if keymap.bind(action, key) {
-            rows.push(Row { entry: row.entry, key: Some(key) });
+    if !change && !binds_of(keymap, action).is_empty() {
+        // (no key pressed: the "no key" is bound, a row of its own)
+        if bind(keymap, action, key) {
+            rows.push(Row { entry: row.entry, key });
             return true;
         }
         return false;
     }
-    let mut changed = row.key.is_some_and(|old| keymap.unbind(action, old));
-    match key {
-        Some(key) => {
-            if keymap.bind(action, key) {
-                rows[at].key = Some(key);
-                changed = true;
-            }
-        }
-        // (the original binds "no key", which takes: the row shows none)
-        None => rows[at].key = None,
+    let mut changed = unbind(keymap, action, row.key);
+    if bind(keymap, action, key) {
+        rows[at].key = key;
+        changed = true;
     }
     changed
 }
@@ -530,7 +548,8 @@ mod tests {
 
     /// Add and Change: Add on an action with keys binds one more (a new row; the same key again does nothing);
     /// Change replaces the row's key; Add on an action without keys does the same as Change; OK without a key
-    /// pressed leaves a Change'd row without its key and an Add does nothing. The key stays on other actions.
+    /// pressed binds the original's "no key" (a row of its own, kept in the settings file as `Inactive`, once
+    /// only). The key stays on other actions.
     #[test]
     fn the_bind_box_adds_and_changes() {
         let e = listed();
@@ -541,12 +560,20 @@ mod tests {
         assert!(bound(&mut rows, attack, false, Some(key("F")), &e, &mut keymap));
         assert_eq!((rows.len(), keymap.keys(Action::Attack)), (n + 1, "Q, F".to_string()));
         assert!(!bound(&mut rows, attack, false, Some(key("F")), &e, &mut keymap));
+        assert!(bound(&mut rows, attack, false, None, &e, &mut keymap));
+        assert_eq!((rows.len(), rows[n + 1].key, keymap.saved_keys(Action::Attack)), (n + 2, None, "Q, F, Inactive".to_string()));
         assert!(!bound(&mut rows, attack, false, None, &e, &mut keymap));
         assert!(bound(&mut rows, attack, true, Some(key("E")), &e, &mut keymap));
         assert_eq!((rows[attack].key, keymap.keys(Action::Attack)), (Some(key("E")), "F, E".to_string()));
         assert_eq!(keymap.keys(Action::Use), "E");
+        // (the "no key" row cleared, then Change to no key binds it in the row's key's place)
+        assert!(clear(&mut rows, n + 1, &e, &mut keymap));
         assert!(bound(&mut rows, attack, true, None, &e, &mut keymap));
-        assert_eq!((rows[attack].key, keymap.keys(Action::Attack)), (None, "F".to_string()));
+        assert_eq!((rows[attack].key, keymap.saved_keys(Action::Attack)), (None, "F, Inactive".to_string()));
+        // (the settings file keeps it)
+        let mut again = Keymap::default();
+        again.set(Action::Attack, &keymap.saved_keys(Action::Attack));
+        assert!(again.has_inactive(Action::Attack) && again.keys(Action::Attack) == "F");
         keymap.set(Action::Jump, "");
         let mut rows = fill(&e, &keymap);
         let jump = rows.iter().position(|r| e[r.entry].action == Action::Jump).unwrap();

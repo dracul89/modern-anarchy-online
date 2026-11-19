@@ -475,6 +475,10 @@ pub fn binding_name(binding: &Binding) -> String {
     parts.join("+")
 }
 
+/// The original's name of its "no key" (input 0, `InputConfig_t`'s table's first entry), as the settings file
+/// keeps a bind of it.
+pub const INACTIVE: &str = "Inactive";
+
 /// Which keys do what.
 #[derive(Clone, Debug)]
 pub struct Keymap {
@@ -482,6 +486,10 @@ pub struct Keymap {
     /// The keys the character playing rebound in the original client (`keybindings.rs`), which stand for the
     /// session in place of this client's own keys of those actions. Not part of the settings file.
     character: HashMap<Action, Vec<Binding>>,
+    /// The actions with the original's "no key" (`Inactive`, input 0) bound to them besides their keys: the key
+    /// editor's Add with no key pressed (GUI.dll FUN_100bc8c1 → FUN_10018d71). It does nothing but stands among the
+    /// action's keys; kept in the settings file as `Inactive`.
+    inactive: std::collections::HashSet<Action>,
 }
 
 impl Default for Keymap {
@@ -490,7 +498,7 @@ impl Default for Keymap {
         for &(action, _, keys) in ACTIONS {
             bindings.insert(action, keys.split(',').filter_map(parse_binding).collect());
         }
-        Keymap { bindings, character: HashMap::new() }
+        Keymap { bindings, character: HashMap::new(), inactive: Default::default() }
     }
 }
 
@@ -504,9 +512,19 @@ impl Keymap {
     /// character's own from the original comes before the others: there the rebindable keys are asked before the
     /// fixed ones (`InputConfig_t::ProcessInput` 0x1001a759).
     pub fn action(&self, key: KeyCode, modifiers: ModifiersState) -> Option<Action> {
+        self.actions(key, modifiers).first().copied()
+    }
+
+    /// Every action a key press does. The original's rebindable keys (`InputConfig_t`'s providers: the actions of
+    /// `keybindings::PROVIDERS`) are asked first and every provider the key is bound to acts (FUN_10018376); only when
+    /// none is does a fixed key act (`InputConfig_t::ProcessInput` 0x1001a759), the first one here. Within each, the
+    /// actions with keys of the character's own from the original come first.
+    pub fn actions(&self, key: KeyCode, modifiers: ModifiersState) -> Vec<Action> {
         let hit = |a: &Action| self.of(a).is_some_and(|list| list.iter().any(|b| b.matches(key, modifiers)));
         let actions = || ACTIONS.iter().map(|&(a, _, _)| a);
-        actions().filter(|a| self.character.contains_key(a)).find(hit).or_else(|| actions().find(hit))
+        let ordered: Vec<Action> = actions().filter(|a| self.character.contains_key(a)).chain(actions().filter(|a| !self.character.contains_key(a))).filter(hit).collect();
+        let provided: Vec<Action> = ordered.iter().copied().filter(|a| crate::keybindings::PROVIDERS.iter().any(|p| p.1 == *a)).collect();
+        if provided.is_empty() { ordered.into_iter().take(1).collect() } else { provided }
     }
 
     /// Lays the keys a character rebound in the original over this client's, for the actions whose key was not
@@ -521,7 +539,11 @@ impl Keymap {
     /// An action's keys as the settings file keeps them: this client's own, without the character's from the
     /// original.
     pub fn saved_keys(&self, action: Action) -> String {
-        self.bindings.get(&action).map(|list| list.iter().map(binding_name).collect::<Vec<_>>().join(", ")).unwrap_or_default()
+        let mut keys: Vec<String> = self.bindings.get(&action).map(|list| list.iter().map(binding_name).collect()).unwrap_or_default();
+        if self.inactive.contains(&action) {
+            keys.push(INACTIVE.to_string());
+        }
+        keys.join(", ")
     }
 
     /// [`Keymap::action`] for a physical key (none for keys without a code).
@@ -544,12 +566,34 @@ impl Keymap {
             list.retain(|b| *b != binding);
         }
         self.character.remove(&action);
+        self.inactive.remove(&action);
         self.bindings.insert(action, vec![binding]);
     }
 
     pub fn set(&mut self, action: Action, keys: &str) {
         self.character.remove(&action);
+        if keys.split(',').any(|k| k.trim().eq_ignore_ascii_case(INACTIVE)) {
+            self.inactive.insert(action);
+        } else {
+            self.inactive.remove(&action);
+        }
         self.bindings.insert(action, keys.split(',').filter_map(parse_binding).collect());
+    }
+
+    /// Whether the action has the original's "no key" bound to it.
+    pub fn has_inactive(&self, action: Action) -> bool {
+        self.inactive.contains(&action)
+    }
+
+    /// The original's bind of its "no key" (input 0) to an action (FUN_10018d71): false when the action has it
+    /// already.
+    pub fn bind_inactive(&mut self, action: Action) -> bool {
+        self.inactive.insert(action)
+    }
+
+    /// The original's unbind of its "no key" (FUN_10018db2): false when the action does not have it.
+    pub fn unbind_inactive(&mut self, action: Action) -> bool {
+        self.inactive.remove(&action)
     }
 
     /// The original's bind of a key to an action (GUI.dll FUN_10018d71): the key is added to the action's keys unless
@@ -881,7 +925,7 @@ impl Settings {
             for (n, name, value) in key_lines {
                 match ACTIONS.iter().find(|(_, n, _)| *n == name) {
                     Some(&(action, _, _)) => {
-                        let bad: Vec<&str> = value.split(',').map(str::trim).filter(|k| !k.is_empty() && parse_binding(k).is_none()).collect();
+                        let bad: Vec<&str> = value.split(',').map(str::trim).filter(|k| !k.is_empty() && !k.eq_ignore_ascii_case(INACTIVE) && parse_binding(k).is_none()).collect();
                         if !bad.is_empty() {
                             eprintln!("settings line {}: unknown keys {bad:?}", n + 1);
                         }
@@ -1103,6 +1147,21 @@ log_messages = on
         assert_eq!(custom.keymap.action(KeyCode::KeyW, ModifiersState::empty()), None);
         assert_eq!(custom.keymap.action(KeyCode::ArrowUp, ModifiersState::empty()), Some(Action::Forward));
         assert_eq!(custom.keymap.action(KeyCode::Space, ModifiersState::CONTROL), Some(Action::Jump));
+    }
+
+    /// A key bound to several of the original's providers does them all (FUN_10018376); then no fixed key acts; a
+    /// fixed key alone does its first action.
+    #[test]
+    fn a_key_on_two_actions_does_both() {
+        let none = ModifiersState::empty();
+        let mut keymap = Keymap::default();
+        assert!(keymap.bind(Action::Attack, parse_binding("F").unwrap()));
+        assert!(keymap.bind(Action::Use, parse_binding("F").unwrap()));
+        assert_eq!(keymap.actions(KeyCode::KeyF, none), [Action::Attack, Action::Use]);
+        assert!(keymap.bind(Action::CloseWindows, parse_binding("F").unwrap()));
+        assert_eq!(keymap.actions(KeyCode::KeyF, none), [Action::Attack, Action::Use]);
+        assert_eq!(keymap.actions(KeyCode::Escape, none), [Action::CloseWindows]);
+        assert_eq!(keymap.action(KeyCode::KeyF, none), Some(Action::Attack));
     }
 
     #[test]

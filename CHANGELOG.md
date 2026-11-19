@@ -271,6 +271,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Popup menus too long for the screen show a scroll bar, as in the original.
 - A selected row in the game's lists (friends, mission, list-mode programs and the like) is filled with the original's solid light blue, no longer a pale tint.
 - /viewdist takes the original's percentage (/viewdist 60 = 600 m) and /chardist the original's value, with no limits of the client's own; the option window follows them.
+- The original's window keys for the team (Ctrl+5), raid (Ctrl+Shift+R), looking-for-team (Shift+F), research (Shift+O) and knowledge (Ctrl+3) windows work and can be rebound, as can keys for the daily login and item shop.
+- A key bound to two actions in the key editor does both, as in the original; OK with no key pressed adds an "Inactive" bind.
 
 ### Chat
 

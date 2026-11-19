@@ -7890,3 +7890,7 @@ The original's `HandleVicinityMessage` and `HandleGroupMessage` drop a message f
 ### How many pieces each command's line is cut into (CHT-068)
 
 Every command GUI.dll registers for a player now has its piece count in the client's table (FUN_100bb3e0, FUN_100b2ac9, FUN_100b4001, FUN_100b348c). `/org` and `/team` are not registered there: their lines go whole to Gamecode's text commands (N3Msg_TextCommand → FUN_1003fe10), which read the words at blanks, as the client does.
+
+### The key editor's last parts (SET-032)
+
+A key bound to several of the original's actions now does them all, as GUI.dll's input (FUN_10018376) does, and only when none takes it does a fixed key act. OK in the Bind Key box with no key pressed binds the original's "no key", a row of its own kept in mao.ini as `Inactive`. The original's team, raid, LFT, research, knowledge, daily login and item shop window keys are actions with the shipped keys (Ctrl+5, Ctrl+Shift+R, Shift+F, Shift+O, Ctrl+3). Mouse buttons as keys and the team, pet, camera-view, reference, switch-target, copy and per-slot shortcut keys are not done yet.
