@@ -978,6 +978,10 @@ These were written before this list; some may have been seen working since witho
   character: the box offers to delete it; Cancel leaves it; far away the box says it cannot be dropped there.
   On a character: send me the log line of the use (action 0x20). A piece of furniture, if one is at hand, is
   asked about and dropped: **send me the log whatever happens**, the drop's message was never captured.
+- [ ] The mouse in the world (2026-11-18): a terminal is clicked on its screen and not beside it; an NPC behind a wall
+  cannot be clicked; a click through one's own body selects oneself, the next what stands behind. Right click on an
+  NPC talks to it and leaves the target. Double click on a terminal uses it. Shift + click shows the page. **Ctrl +
+  click on a second mob in a fight: send me the log** (the attack's flag 2 was never captured).
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

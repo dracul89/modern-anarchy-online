@@ -112,7 +112,7 @@ pub struct Hud {
     /// What can be clicked in the world: ids and Z-up positions.
     /// What the mouse can pick: (kind, id, feet (Z up), radius, height, picked only when nothing else is (the
     /// character itself)).
-    pub pickables: Vec<(u32, u32, [f32; 3], f32, f32, bool)>,
+    pub pickables: Vec<crate::picking::Pickable>,
     pub log: VecDeque<(Instant, String)>,
     /// The current target, for the target frame.
     pub target: Option<String>,

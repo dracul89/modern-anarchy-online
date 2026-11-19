@@ -550,9 +550,8 @@ struct World {
     /// The playfield's built-in terminals, booths and signs (`crate::table_dynels`): picked with the mouse, used and
     /// described like the others.
     table: Vec<(u32, u32, [f32; 3], u32, String)>,
-    /// How large each of them stands, for the mouse (`crate::table_pick_sizes`: a radius and a height by kind and
-    /// instance).
-    table_sizes: std::collections::HashMap<(u32, u32), (f32, f32)>,
+    /// Their meshes, for the mouse (`crate::table_pick_meshes`), by kind and instance.
+    table_meshes: std::collections::HashMap<(u32, u32), (Arc<crate::picking::PickMesh>, mao_formats::model::Matrix)>,
     /// The kind of mission each of the playfield's mission terminals gives, by its table number (`mission_terminals`).
     mission_kinds: std::collections::HashMap<u32, u8>,
     /// Pages for the info view (a target's description), until taken.
@@ -6981,7 +6980,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     state.door_stats = crate::door_stats(&db, playfield);
     state.door_sounds = table_door_sounds(&db, playfield);
     state.table = crate::table_dynels(&db, playfield);
-    state.table_sizes = crate::table_pick_sizes(&db, playfield);
+    state.table_meshes = crate::table_pick_meshes(&db, playfield);
     state.mission_kinds = crate::mission_terminals(&db, playfield);
     profile!("[profile] static_props {:?}", started_props.elapsed());
     // (the collision is shared with the viewer, for the camera's lines of sight where the playfield has no surfaces)
@@ -8200,7 +8199,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             state.door_sounds = table_door_sounds(&thread_db, playfield);
                             state.animated_statels = Arc::new(area.animated);
                             state.table = crate::table_dynels(&thread_db, playfield);
-                            state.table_sizes = crate::table_pick_sizes(&thread_db, playfield);
+                            state.table_meshes = crate::table_pick_meshes(&thread_db, playfield);
                             state.mission_kinds = crate::mission_terminals(&thread_db, playfield);
                             let mut scene = area.scene;
                             if terrain.is_none() && crate::load_rooms(&thread_db, playfield).is_none() {
@@ -9406,21 +9405,24 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // A click on something in the world selects it; a double click uses it.
             if keys.pick.0 != pick_seen {
                 pick_seen = keys.pick.0;
-                let (_, kind, id, double) = keys.pick;
-                target = Some(id);
+                let (_, kind, id, deed) = keys.pick;
+                // (a right click, a double click and a Shift + click leave the target as it is: `picking::Deed`)
+                if deed.selects() {
+                    target = Some(id);
+                }
                 // (a table dynel's instance can be another's too: the kind picked is the one meant)
                 state.types.insert(id, kind);
                 if let Some(d) = state.table.iter().find(|d| d.0 == kind && d.1 == id) {
                     let name = if d.4.is_empty() { format!("Terminal {:x}", id & 0xffff) } else { d.4.clone() };
                     state.names.insert(id, (name, false));
                 }
-                if kind == n3::CHARACTER {
+                if deed.selects() && kind == n3::CHARACTER {
                     let _ = connection.send(&n3::select_target(own, id));
                     let _ = connection.send(&n3::set_target(own, id));
                     let _ = connection.send(&n3::info_request(own, id));
                 }
                 // (the tips of selecting: a player, a creature or NPC by its name, anything else by its name)
-                if id != own {
+                if deed.selects() && id != own {
                     let name = state.names.get(&id).map(|n| n.0.clone()).unwrap_or_default();
                     match kind {
                         n3::CHARACTER if state.infos.get(&id).is_some_and(|i| i.is_player()) => crate::tips::trigger("OnSelectingPlayer", &name),
@@ -9428,7 +9430,47 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         _ => crate::tips::trigger("OnSelecting", &name),
                     }
                 }
-                if double {
+                // (Shift + click, FUN_1002cfac: the page of what was clicked, `charid://` for a character and `itemid://` for
+                // anything else; a built-in object's by its template, as `/inspect` shows one)
+                if deed == crate::picking::Deed::Info {
+                    match state.table.iter().find(|d| d.0 == kind && d.1 == id) {
+                        Some(d) => state.info_urls.push(format!("itemref://{0}/{0}/1", d.3)),
+                        None if kind == n3::CHARACTER => {
+                            state.inspecting = Some(id);
+                            let _ = connection.send(&n3::info_request(own, id));
+                        }
+                        None => {
+                            let name = state.names.get(&id).map_or_else(|| "Object".to_string(), |n| n.0.clone());
+                            state.info_urls.push(format!("text://<font color=#ffffff>{name}</font>"));
+                        }
+                    }
+                }
+                // (Ctrl + click on a character: `N3Msg_SwitchTarget`)
+                if deed == crate::picking::Deed::Switch {
+                    let aim = if id == own {
+                        crate::combat::Target::Yourself
+                    } else if state.infos.contains_key(&id) {
+                        crate::combat::Target::Character { dead: state.dead.contains_key(&id) }
+                    } else {
+                        crate::combat::Target::Other
+                    };
+                    let pending = attack_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
+                    let (stop, attack, flag) = crate::combat::switch_attack(state.fighting.get(&own).copied(), state.fighting.contains_key(&own), false, pending, id, aim);
+                    if stop {
+                        let _ = connection.send(&n3::stop_fight(own));
+                    }
+                    match attack {
+                        Some(crate::combat::Attack::Start(t)) => {
+                            crate::tips::trigger("OnStartingAttack", "");
+                            let _ = connection.send(&n3::attack_flagged(own, t, flag));
+                            attack_sent = Some(Instant::now());
+                        }
+                        Some(crate::combat::Attack::Refuse(name)) => pending_messages.push(crate::feedback::plain(name)),
+                        _ => {}
+                    }
+                }
+                let can = state.table.iter().find(|d| d.0 == kind && d.1 == id).and_then(|d| template_stat(d.3, 30));
+                if crate::picking::uses(deed, kind == n3::CHARACTER, id == own, can) {
                     uses += 1;
                     // (the original reports where it stands with every use, a heading update: the server checks a
                     // terminal's reach against it)
@@ -10679,6 +10721,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 casters.extend(own_casters);
                 // (each body's size as it stands, for its name tag and the mouse: `blobshadow::Size`)
                 let sizes: std::collections::HashMap<u32, crate::blobshadow::Size> = casters.iter().filter(|c| c.id != 0).map(|c| (c.id, c.size)).collect();
+                let bodies: std::collections::HashMap<u32, crate::blobshadow::Body> = casters.iter().filter(|c| c.id != 0 && c.body.lo != c.body.hi).map(|c| (c.id, c.body)).collect();
                 tag_heights.retain(|id, _| *id == own || state.entities.contains_key(id));
                 for (id, size) in &sizes {
                     crate::nametag::steady_height(&mut tag_heights, *id, Some(size.height));
@@ -11032,38 +11075,41 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     daylight: Some(state.game_clock.day_intensity()),
                     location: pending_location.take(),
                     labels: pending_labels.take(),
-                    // (what the mouse can pick, as cylinders standing on their feet: the original casts the camera's line
-                    // through the mouse against the dynels' collision, `n3Camera_t::SetMousePos` / `GetObjectUnderColLine`)
-                    // (the character itself last: picked only where nothing else is on the line)
+                    // (what the mouse can point at: `picking`. A built-in object by its mesh, a character by the box its
+                    // posed body fills; what has neither here is an upright post of its kind's size)
                     pickables: Some({
+                        use crate::picking::{Pickable, Shape};
                         let size = |kind: u32| match kind {
                             0xc75b => (1.0, 2.6),
                             DOOR_TYPE => (1.0, 3.0),
                             _ => (0.8, 2.2),
                         };
                         let kind_of = |id: &u32| state.types.get(id).copied().unwrap_or(n3::CHARACTER);
+                        let thing = |kind: u32, id: u32, p: &[f32; 3]| {
+                            let at = [p[0], p[2], p[1]];
+                            let (radius, height) = size(kind);
+                            let shape = state.table_meshes.get(&(kind, id)).map_or(Shape::Post { feet: at, radius, height }, |(mesh, to_mesh)| Shape::Mesh { mesh: mesh.clone(), to_mesh: *to_mesh });
+                            Pickable { kind, id, at, shape, own: false }
+                        };
+                        let body = |id: &u32, at: [f32; 3]| match bodies.get(id) {
+                            Some(b) => Shape::Body { to_mesh: crate::picking::invert(&b.place), lo: b.lo, hi: b.hi },
+                            None => {
+                                let (radius, height) = sizes.get(id).map_or((0.5, 1.9), |s| s.pick());
+                                Shape::Post { feet: at, radius, height }
+                            }
+                        };
                         state
                             .objects
                             .iter()
-                            .map(|(id, p)| {
-                                let (r, h) = size(kind_of(id));
-                                (kind_of(id), *id, [p[0], p[2], p[1]], r, h, false)
-                            })
-                            .chain(state.table.iter().map(|&(kind, id, p, _, _)| {
-                                // (no smaller than before, and as large as its mesh stands: a city's controller)
-                                let (r, h): (f32, f32) = size(kind);
-                                let (wide, top) = state.table_sizes.get(&(kind, id)).copied().unwrap_or((0.0, 0.0));
-                                (kind, id, [p[0], p[2], p[1]], r.max(wide), h.max(top), false)
-                            }))
+                            .map(|(id, p)| thing(kind_of(id), *id, p))
+                            .chain(state.table.iter().map(|&(kind, id, p, _, _)| thing(kind, id, &p)))
                             .chain(state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| {
-                                // (as large as its mesh stands: a cylinder of a person's size missed the large and overlapped
-                                // the small)
-                                let (r, h) = sizes.get(id).map_or((0.5, 1.9), |s| s.pick());
-                                (kind_of(id), *id, [p[0], p[2], p[1]], r, h, false)
+                                let at = [p[0], p[2], p[1]];
+                                Pickable { kind: kind_of(id), id: *id, at, shape: body(id, at), own: false }
                             }))
                             .chain(std::iter::once({
-                                let (r, h) = sizes.get(&own).map_or((0.5, 1.9), |s| s.pick());
-                                (n3::CHARACTER, own, [position[0], position[2], position[1]], r, h, true)
+                                let at = [position[0], position[2], position[1]];
+                                Pickable { kind: n3::CHARACTER, id: own, at, shape: body(&own, at), own: true }
                             }))
                             .collect()
                     }),

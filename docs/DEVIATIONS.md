@@ -1003,7 +1003,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the player's own character is put last on the line, behind whatever else the line meets (camera looks over its shoulder); it was left out before 2026-11-17
 - A player notices: clicking at the character with something behind it takes the thing behind first; the character is taken only when what stands behind is already selected
 - Where: `crates/mao-client/src/viewer.rs:1005`; `docs/CLIENT_UI.md:4850`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): one's own character is on the click line by its distance like anything else, and left out only in the first person (N3.dll FUN_10020a3c). The client's rule of putting it last is gone. `CLIENT_UI.md` "What the mouse points at".
 
 #### `TGT-002` Mouse steering counts up/down movement differently
 
@@ -1023,7 +1024,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a cylinder per object standing on its feet (fixed size by kind, 1.0x2.6, 1.0x3.0, 0.8x2.2; characters from the posed points, not under 0.3/0.6, no wider than 3; built-in objects and a city controller sized from their mesh, half the greater width by the height); the player's own character is put last on the line
 - A player notices: clicking near the edge of a model or through gaps may pick differently from the original
 - Where: `crates/mao-client/src/net.rs:9790`; `crates/mao-client/src/main.rs:600`; `crates/mao-client/src/main.rs:2584`; `crates/mao-client/src/blobshadow.rs:55`; `crates/mao-client/src/viewer.rs:1275`; `docs/CLIENT_UI.md:4010` and 2 more
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the cylinders are gone: a character is met by the box of its posed vertices in the mesh's own axes (`BoundingBoxTargeting`, on by default), a built-in object by its mesh's triangles that face the line, and the line is cut at the first ground or surface (`picking.rs`; N3.dll `FineCollisionCheck`, `SetMousePos`). Not ported: the option's triangles for bodies, `IsVisible`, door leaves as they swing, and objects the server announces outside the playfield's table (they keep a post).
 
 #### `TGT-004` Attack key: can-attack check is partial
 
@@ -1157,7 +1159,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a second left click within half a second is a double click and uses what the first took, without stepping on (client's own); the Shift info page and Ctrl/Alt SwitchTarget clicks are not done
 - A player notices: double-clicking a creature or object uses it where the original would step to the next thing behind it; modifier clicks do nothing
 - Where: `crates/mao-client/src/viewer.rs:1290`; `docs/CLIENT_UI.md:4006`; `docs/ORIGINAL_AUDIT.md:71`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-18): the client's own double click is removed. A double click is the original's now (`N3Msg_DefaultActionOnDynel` at the second press, option `DoubleclickAction`), Shift + click opens the info page, Ctrl + click on a character is `N3Msg_SwitchTarget` (its attack flag 2 was never captured), and a right click no longer selects. `CLIENT_UI.md` "The clicks in the world".
 
 ## Death and revival
 

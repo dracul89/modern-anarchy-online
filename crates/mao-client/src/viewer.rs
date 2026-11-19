@@ -58,9 +58,8 @@ pub struct Input {
     pub goto: (u8, [f32; 2]),
     /// A mission window command: a counter that steps with each, and the command.
     pub mission: (u8, crate::mission::Command),
-    /// Something clicked in the world: a counter that steps with each click, its kind and id, and whether to use it (a
-    /// right or double click).
-    pub pick: (u8, u32, u32, bool),
+    /// Something clicked in the world: a counter that steps with each click, its kind and id, and what the click asks.
+    pub pick: (u8, u32, u32, crate::picking::Deed),
     /// "Deposit to Market"'s Send: a counter that steps with each, and what to deposit.
     pub market: (u8, crate::marketsend::Deposit),
     /// A nano program to cast: a counter that steps with each, and the program's id.
@@ -215,7 +214,7 @@ pub struct Update {
     /// The labels over the world (Z-up positions), when they change.
     pub labels: Option<Vec<([f32; 3], String)>>,
     /// What can be clicked in the world: ids and Z-up positions.
-    pub pickables: Option<Vec<(u32, u32, [f32; 3], f32, f32, bool)>>,
+    pub pickables: Option<Vec<crate::picking::Pickable>>,
     /// Pages for the info view (what T says of the target).
     pub info_urls: Vec<String>,
     /// The shop trade's changes (the server's echoes).
@@ -791,7 +790,8 @@ struct App {
     /// The server ended the connection (the character logged out): back to the character screen.
     logged_out: bool,
     moved: f32,
-    last_click: Option<(u32, std::time::Instant)>,
+    /// What the mouse points at in the world.
+    pointer: crate::picking::Pointer,
 }
 
 
@@ -981,7 +981,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     }
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), weather_fx: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, last_click: None, screenshot: false, autorun: false, logged_out: false, own_alpha: 1.0, input_stopped: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), weather_fx: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, pointer: Default::default(), screenshot: false, autorun: false, logged_out: false, own_alpha: 1.0, input_stopped: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         // (started from the character list, whose window has had the screen up since Play was pressed: it goes on from
@@ -1067,47 +1067,6 @@ fn ground_on_line(from: mao_render::glam::Vec3, along: mao_render::glam::Vec3, h
     (1..1200).map(|k| from + along * (k as f32 * 0.25)).find(|p| p.z <= height(p.x, p.y)).map(|p| [p.x, height(p.x, p.y), p.y])
 }
 
-/// What is under a point of the window (physical pixels): the first pickable the line from the eye through it meets, as a
-/// click picks.
-fn pick(hud: &Hud, camera: mao_render::Camera, radius: f32, size: (u32, u32), at: (f32, f32)) -> Option<(u32, u32)> {
-    let aspect = size.0 as f32 / size.1.max(1) as f32;
-    let (from, dir) = camera.ray(at.0 / size.0.max(1) as f32, at.1 / size.1.max(1) as f32, aspect, radius);
-    hud.pickables
-        .iter()
-        .filter_map(|&(kind, id, feet, r, h, last)| ray_cylinder(from, dir, feet, r, h).map(|t| ((last, t), (kind, id))))
-        .min_by(|a, b| a.0 .0.cmp(&b.0 .0).then(a.0 .1.total_cmp(&b.0 .1)))
-        .map(|(_, k)| k)
-}
-
-/// Everything pickable the line from the eye meets, nearest first, as the original's camera keeps it for the mouse
-/// (`n3Camera_t` +0x244, filled and sorted when the mouse moves). The character itself is last on it, behind
-/// whatever else the line meets (this client's rule: the camera looks over its shoulder, so a click at something
-/// past the character takes that first). Until 2026-11-17 it was left out where anything else was met, and in a
-/// fight, with the one fought standing behind the character on every such line, it could not be clicked at all:
-/// no stim on oneself without the select-self key. Now a click on the character takes it when what stands behind
-/// is the selected target already, as the stepping goes.
-fn on_line(pickables: &[(u32, u32, [f32; 3], f32, f32, bool)], from: mao_render::glam::Vec3, dir: mao_render::glam::Vec3) -> Vec<(u32, u32)> {
-    let mut met: Vec<((bool, f32), (u32, u32))> = pickables.iter().filter_map(|&(kind, id, feet, r, h, last)| ray_cylinder(from, dir, feet, r, h).map(|t| ((last, t), (kind, id)))).collect();
-    met.sort_by(|a, b| a.0 .0.cmp(&b.0 .0).then(a.0 .1.total_cmp(&b.0 .1)));
-    met.into_iter().map(|m| m.1).collect()
-}
-
-/// What a left click selects (`n3Camera_t::GetNextTarget`, asked with the selected target by GUI.dll FUN_1002cfac): the
-/// one after the selected target on the line, round to the first again, or the first when the selected one is not on
-/// it. So a second click in the same place takes what stands behind the first.
-fn next_on_line(line: &[(u32, u32)], selected: Option<u32>) -> Option<(u32, u32)> {
-    match selected.and_then(|s| line.iter().position(|l| l.1 == s)) {
-        Some(at) => line.get((at + 1) % line.len()).copied(),
-        None => line.first().copied(),
-    }
-}
-
-/// What is under the mouse for a right click (`n3Camera_t::GetObjectUnderColLine`): the selected target when the
-/// line meets it, else the first on the line.
-fn under_line(line: &[(u32, u32)], selected: Option<u32>) -> Option<(u32, u32)> {
-    selected.and_then(|s| line.iter().copied().find(|l| l.1 == s)).or_else(|| line.first().copied())
-}
-
 fn heading_from_yaw(yaw: f32) -> f32 {
     (-yaw.cos()).atan2(-yaw.sin())
 }
@@ -1128,52 +1087,15 @@ fn camera_mode(name: &str) -> crate::camera::Mode {
 
 /// Where a line (from `from`, along the unit `dir`) first meets an upright cylinder standing at `feet` (Z up), as a
 /// distance along it; none when it misses or meets it behind the start.
-fn ray_cylinder(from: mao_render::glam::Vec3, dir: mao_render::glam::Vec3, feet: [f32; 3], r: f32, h: f32) -> Option<f32> {
-    let (ox, oy) = (from.x - feet[0], from.y - feet[1]);
-    let a = dir.x * dir.x + dir.y * dir.y;
-    let mut best: Option<f32> = None;
-    let mut take = |t: f32| {
-        if t > 0.0 && best.is_none_or(|b| t < b) {
-            best = Some(t);
-        }
-    };
-    // the side
-    if a > 1e-9 {
-        let b = 2.0 * (ox * dir.x + oy * dir.y);
-        let c = ox * ox + oy * oy - r * r;
-        let disc = b * b - 4.0 * a * c;
-        if disc >= 0.0 {
-            for t in [(-b - disc.sqrt()) / (2.0 * a), (-b + disc.sqrt()) / (2.0 * a)] {
-                let z = from.z + t * dir.z;
-                if z >= feet[2] && z <= feet[2] + h {
-                    take(t);
-                }
-            }
-        }
-    }
-    // the top and the bottom
-    if dir.z.abs() > 1e-9 {
-        for cap in [feet[2], feet[2] + h] {
-            let t = (cap - from.z) / dir.z;
-            let (x, y) = (ox + t * dir.x, oy + t * dir.y);
-            if x * x + y * y <= r * r {
-                take(t);
-            }
-        }
-    }
-    best
-}
-
 impl ApplicationHandler for App {
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
         let DeviceEvent::MouseMotion { delta: (dx, dy) } = event else { return };
         if self.live.is_none() || self.buttons == [false; 2] {
             return;
         }
-        // (how far the mouse went while held, in screen heights: past 0.02 it is a drag, not a click, as
+        // (how far the mouse went while held, in its counts over 1000: past 0.02 it is a drag, not a click, as
         // ActionViewMouseHandler_c's FUN_1002ccbe counts it against 0x101aeafc)
-        let height = self.state.as_ref().map_or(1080.0, |w| w.window.inner_size().height.max(1) as f32);
-        self.moved += (dx * dx + dy * dy).sqrt() as f32 / height;
+        self.moved += (dx * dx + dy * dy).sqrt() as f32 / 1000.0;
         if !self.buttons[1] && !crate::prefs::on("LMBMouseLook") {
             return;
         }
@@ -1185,13 +1107,14 @@ impl ApplicationHandler for App {
         // (flying, `N3Msg_MouseMovement` in fly mode: the right button's vertical movement pitches the vehicle, not the
         // camera, `MouseCameraControl(0, 0)`, and goes to the vehicle with the across movement, 0x2b; how far it may
         // pitch is `fly_pitch`)
-        if self.hud.flying && self.buttons[1] && !(self.modifiers.shift_key() || self.modifiers.control_key()) {
+        if self.hud.flying && self.buttons[1] && !self.modifiers.control_key() {
             self.keys.pitch = fly_pitch(self.keys.pitch, -invert * dy as f32 * MOUSE_TURN);
         } else {
             self.mouse_look.1 -= invert * dy as f32 * MOUSE_TURN;
         }
-        // (the right button turns the character, `N3Msg_MouseMovement`; with Shift or Ctrl only the camera, as the left does)
-        if self.buttons[1] && !(self.modifiers.shift_key() || self.modifiers.control_key()) {
+        // (the right button turns the character, `N3Msg_MouseMovement`; with Ctrl only the camera, as the left does: FUN_1002ccbe
+        // looks at the qualifiers 0xc alone)
+        if self.buttons[1] && !self.modifiers.control_key() {
             self.keys.face = Some(heading_from_yaw(w.camera.yaw));
             if let Some(live) = &self.live {
                 let _ = live.input.send(self.keys);
@@ -1365,10 +1288,23 @@ impl ApplicationHandler for App {
                 if state == ElementState::Pressed && !self.buttons[0] && !self.buttons[1] {
                     self.moved = 0.0;
                 }
-                let released = state == ElementState::Released && self.moved < 0.02;
-                let clicked = if released && button == MouseButton::Left && self.buttons[0] && !self.buttons[1] {
+                // (with an item in hand the buttons do nothing here: FUN_1002ce31 and FUN_1002cfac ask for no drag object)
+                let free = crate::gear::held().is_none();
+                // (the second press of a double click: `N3Msg_DefaultActionOnDynel` at once, FUN_1002ce31)
+                if state == ElementState::Pressed && button == MouseButton::Left && free && self.pointer.second_press(std::time::Instant::now(), self.last) {
+                    let own = self.hud.pickables.iter().find(|p| p.own).map(|p| p.id);
+                    if let Some(((kind, id), deed)) = crate::picking::double_click(self.pointer.under.get(), own, crate::prefs::on("DoubleclickAction")) {
+                        eprintln!("double click: {kind:x} {id:x}");
+                        self.keys.pick = (self.keys.pick.0.wrapping_add(1), kind, id, deed);
+                    }
+                }
+                // (a release is a click unless the mouse went on a look round: the left button only looks round with
+                // `LMBMouseLook`. Neither button asks about the other.)
+                let looked = self.moved >= crate::picking::CLICK_TRAVEL && (button == MouseButton::Right || crate::prefs::on("LMBMouseLook"));
+                let released = state == ElementState::Released && !looked && free;
+                let clicked = if released && button == MouseButton::Left && self.buttons[0] {
                     Some(false)
-                } else if released && button == MouseButton::Right && self.buttons[1] && !self.buttons[0] {
+                } else if released && button == MouseButton::Right && self.buttons[1] {
                     Some(true)
                 } else {
                     None
@@ -1378,26 +1314,18 @@ impl ApplicationHandler for App {
                 if log {
                     eprintln!("mouse {button:?} {state:?} at {:?}: moved {:.3}, click {:?}, {} pickables", self.last, self.moved, clicked, self.hud.pickables.len());
                 }
-                if let Some(use_it) = clicked {
-                    let size = w.window.inner_size();
-                    let (camera, radius) = (w.camera, w.scene.radius);
-                    let aspect = size.width as f32 / size.height.max(1) as f32;
-                    let (cx, cy) = (self.last.0 as f32, self.last.1 as f32);
-                    // (what the line from the eye through the pointer meets, each a cylinder standing on its feet. The
-                    // original, GUI.dll FUN_1002cfac: a left click selects the one after the selected target on the
-                    // line, so clicking again takes what stands behind; a right click uses the selected target when the
-                    // line meets it, else the first. This client's own: a second left click within half a second is a
-                    // double click and uses what the first one took, without stepping on.)
-                    let (from, dir) = camera.ray(cx / size.width.max(1) as f32, cy / size.height.max(1) as f32, aspect, radius);
-                    let line = on_line(&self.hud.pickables, from, dir);
-                    let again = self.last_click.filter(|(_, at)| at.elapsed() < std::time::Duration::from_millis(500)).and_then(|(id, _)| line.iter().copied().find(|l| l.1 == id));
-                    let picked = if use_it { under_line(&line, self.hud.selected) } else { again.or_else(|| next_on_line(&line, self.hud.selected)) };
+                // (GUI.dll FUN_1002cfac: `picking`'s clicks, on what the pointer is on)
+                if let Some(right) = clicked {
+                    let under = self.pointer.under.get();
+                    let picked = if right {
+                        crate::picking::right_click(under)
+                    } else {
+                        crate::picking::left_click(&self.pointer.line, self.hud.selected, under, self.modifiers.control_key(), self.modifiers.shift_key())
+                    };
                     // (for the log: what a click met and took, by id)
-                    eprintln!("click ({}): on the line {:x?}, selected {:x?}, took {:x?}", if use_it { "right" } else { "left" }, line.iter().map(|l| l.1).collect::<Vec<_>>(), self.hud.selected, picked.map(|p| p.1));
-                    if let Some((kind, id)) = picked {
-                        let double = use_it || again.is_some();
-                        self.last_click = Some((id, std::time::Instant::now()));
-                        self.keys.pick = (self.keys.pick.0.wrapping_add(1), kind, id, double);
+                    eprintln!("click ({}): on the line {:x?}, under the pointer {:x?}, selected {:x?}, took {:x?}", if right { "right" } else { "left" }, self.pointer.line.iter().map(|l| l.1).collect::<Vec<_>>(), under.map(|u| u.1), self.hud.selected, picked);
+                    if let Some(((kind, id), deed)) = picked {
+                        self.keys.pick = (self.keys.pick.0.wrapping_add(1), kind, id, deed);
                     }
                 }
                 // (the left button looks round only with `LMBMouseLook`)
@@ -1410,7 +1338,7 @@ impl ApplicationHandler for App {
                 } else {
                     let _ = w.window.set_cursor_grab(CursorGrabMode::None);
                 }
-                self.keys.face = (self.buttons[1] && !(self.modifiers.shift_key() || self.modifiers.control_key())).then(|| heading_from_yaw(w.camera.yaw));
+                self.keys.face = (self.buttons[1] && !self.modifiers.control_key()).then(|| heading_from_yaw(w.camera.yaw));
                 self.keys.forward = self.held.contains(&Action::Forward) || self.autorun;
                 if let Some(live) = &self.live {
                     let _ = live.input.send(self.keys);
@@ -3163,7 +3091,7 @@ impl ApplicationHandler for App {
                         self.keys.select_id = (self.keys.select_id.0.wrapping_add(1), id);
                     }
                     if let Some((kind, id)) = requests.use_object.take() {
-                        self.keys.pick = (self.keys.pick.0.wrapping_add(1), kind, id, true);
+                        self.keys.pick = (self.keys.pick.0.wrapping_add(1), kind, id, crate::picking::Deed::SelectAndUse);
                     }
                     if let Some(nano) = requests.cast_id.take() {
                         self.keys.cast = (self.keys.cast.0.wrapping_add(1), nano);
@@ -3192,10 +3120,33 @@ impl ApplicationHandler for App {
                             ui.info.show_page(&url, &page);
                         }
                     }
+                    // The mouse's line, cut short where it meets the ground or a surface of the playfield, and what it meets
+                    // now and then (`picking`; `n3Camera_t::SetMousePos`, FUN_1001fe47). What is under the pointer is looked
+                    // at every frame (`InputConfig_t::CheckObjectUnderMouse`).
+                    if self.live.is_some() {
+                        if self.pointer.due(std::time::Instant::now()) {
+                            let size = w.window.inner_size();
+                            let aspect = size.width as f32 / size.height.max(1) as f32;
+                            let (from, along) = camera.ray(self.last.0 as f32 / size.width.max(1) as f32, self.last.1 as f32 / size.height.max(1) as f32, aspect, radius);
+                            let mut to = from + along * crate::picking::LENGTH;
+                            if let Some((hit, _)) = self.zones.as_ref().and_then(|z| z.line([from.x, from.z, from.y], [to.x, to.z, to.y])) {
+                                to = mao_render::glam::Vec3::new(hit[0], hit[2], hit[1]);
+                            }
+                            if let Some(p) = self.ground.as_ref().and_then(|(terrain, offset)| ground_on_line(from, along, &|x, y| terrain.height_at(x, y, terrain.height_scale) + offset)) {
+                                let p = mao_render::glam::Vec3::new(p[0], p[2], p[1]);
+                                if (p - from).length() < (to - from).length() {
+                                    to = p;
+                                }
+                            }
+                            self.pointer.line = crate::picking::on_line(&self.hud.pickables, from.into(), to.into(), self.steering.is_first_person());
+                        }
+                        let under = crate::picking::under_line(&self.pointer.line, self.hud.selected);
+                        self.pointer.under.set(under, std::time::Instant::now());
+                    }
                     // (an item let go over something in the world is used on it: `N3Msg_UseItemOnItem`)
                     if let Some((item, at)) = requests.use_on.take() {
                         let size = w.window.inner_size();
-                        match pick(&self.hud, camera, radius, (size.width, size.height), at) {
+                        match self.pointer.under.get() {
                             // (the identity type 0x9c52 takes nothing: GUI.dll's FUN_100cbcb5)
                             Some((0x9c52, _)) => crate::dropitem::forget(),
                             Some((kind, id)) => {
@@ -3374,50 +3325,6 @@ mod camera_tests {
         assert_eq!(window_at(" 12 , 7 "), Some((12, 7)));
         assert_eq!(window_at("12"), None);
         assert_eq!(window_at("a,b"), None);
-    }
-
-    #[test]
-    fn a_line_meets_the_near_side_of_a_cylinder() {
-        use mao_render::glam::Vec3;
-        // from 10 m west at chest height, looking east at a 0.5 m cylinder 2 m tall
-        let t = ray_cylinder(Vec3::new(-10.0, 0.0, 1.0), Vec3::X, [0.0, 0.0, 0.0], 0.5, 2.0).unwrap();
-        assert!((t - 9.5).abs() < 1e-4);
-        // over its top, or behind the start: missed
-        assert!(ray_cylinder(Vec3::new(-10.0, 0.0, 3.0), Vec3::X, [0.0, 0.0, 0.0], 0.5, 2.0).is_none());
-        assert!(ray_cylinder(Vec3::new(10.0, 0.0, 1.0), Vec3::X, [0.0, 0.0, 0.0], 0.5, 2.0).is_none());
-        // looking down on it: its top
-        let t = ray_cylinder(Vec3::new(0.1, 0.0, 10.0), -Vec3::Z, [0.0, 0.0, 0.0], 0.5, 2.0).unwrap();
-        assert!((t - 8.0).abs() < 1e-4);
-    }
-
-    /// A click steps along what the mouse's line meets, as the original's `GetNextTarget`: an NPC in front of a pad
-    /// (the user's of 2026-11-15, a shuttle's ring behind an NPC in Tir County), one's own character behind both.
-    #[test]
-    fn a_second_click_takes_what_stands_behind() {
-        use mao_render::glam::Vec3;
-        let (npc, pad, own) = ((0xc350, 0x7b23d5c0), (0xc73d, 0xc0070287), (0xc350, 7));
-        let pickables = [(pad.0, pad.1, [20.0, 0.0, 0.0], 2.0, 2.2, false), (own.0, own.1, [2.0, 0.0, 0.0], 0.5, 1.9, true), (npc.0, npc.1, [15.0, 0.0, 0.0], 0.5, 1.9, false), (0xc350, 9, [15.0, 9.0, 0.0], 0.5, 1.9, false)];
-        let line = on_line(&pickables, Vec3::new(0.0, 0.0, 1.0), Vec3::X);
-        // (nearest first; one's own character last, though it stands nearest)
-        assert_eq!(line, [npc, pad, own]);
-        assert_eq!(next_on_line(&line, None), Some(npc));
-        assert_eq!(next_on_line(&line, Some(npc.1)), Some(pad));
-        assert_eq!(next_on_line(&line, Some(pad.1)), Some(own));
-        assert_eq!(next_on_line(&line, Some(own.1)), Some(npc));
-        // (in a fight: the one fought is selected and stands behind the character; a click on the character takes it,
-        // and the next takes the one fought again)
-        let fight = on_line(&[pickables[1], pickables[2]], Vec3::new(0.0, 0.0, 1.0), Vec3::X);
-        assert_eq!(fight, [npc, own]);
-        assert_eq!((next_on_line(&fight, Some(npc.1)), next_on_line(&fight, Some(own.1))), (Some(own), Some(npc)));
-        assert_eq!(next_on_line(&line, Some(0x1234)), Some(npc));
-        // (a right click uses the selected one when the line meets it, else the first)
-        assert_eq!(under_line(&line, Some(pad.1)), Some(pad));
-        assert_eq!(under_line(&line, Some(0x1234)), Some(npc));
-        assert_eq!(under_line(&line, None), Some(npc));
-        // (alone on the line, a thing is taken again and again; with nothing else, one's own character)
-        assert_eq!(next_on_line(&[pad], Some(pad.1)), Some(pad));
-        assert_eq!(on_line(&pickables[1..2], Vec3::new(0.0, 0.0, 1.0), Vec3::X), [own]);
-        assert_eq!((next_on_line(&[], Some(7)), under_line(&[], None)), (None, None));
     }
 
     #[test]

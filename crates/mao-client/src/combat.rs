@@ -99,6 +99,17 @@ pub fn default_attack(fighting: bool, swimming: bool, pending: bool, target: Opt
     }
 }
 
+/// `N3Msg_SwitchTarget` (Gamecode 0x10028422), `N3Msg_DefaultAttack(selection, true)` (0x10028147): a fight goes on to
+/// another target: whoever fights stops first; the one already fought is only stopped; anyone else is checked as for
+/// the attack key and attacked, the message's flag 2 saying that a fight was left for it. Not fighting, it is a plain
+/// attack. `fought` is who the character fights now.
+pub fn switch_attack(fought: Option<u32>, fighting: bool, swimming: bool, pending: bool, target: u32, kind: Target) -> (bool, Option<Attack>, u8) {
+    if fighting && fought == Some(target) {
+        return (true, None, 0);
+    }
+    (fighting, Some(default_attack(false, swimming, pending, Some(target), kind)), if fighting { 2 } else { 0 })
+}
+
 /// FUN_1004e925: the nano cost modifier in percent: stat 318, for a player at least its breed's (Solitus and Opifex 50,
 /// Nanomage 45, Atrox 55).
 pub fn nano_cost_modifier(stat_318: i64, breed: i64, player: bool) -> i64 {
@@ -189,5 +200,11 @@ mod tests {
         assert_eq!(default_attack(false, false, false, Some(1), Target::Yourself), Attack::Refuse("Feedback_YouCantAttackYourself"));
         assert_eq!(default_attack(false, false, false, None, Target::Nothing), Attack::Refuse("Feedback_UnableToAttackTarget"));
         assert_eq!(default_attack(false, false, true, Some(9), Target::Character { dead: false }), Attack::Refuse("Feedback_PleaseWaitUntilPreviousAction"));
+        // (Ctrl + click: not fighting, an attack; fighting another, a stop and an attack with the flag; the one fought, a stop)
+        let alive = Target::Character { dead: false };
+        assert_eq!(switch_attack(None, false, false, false, 9, alive), (false, Some(Attack::Start(9)), 0));
+        assert_eq!(switch_attack(Some(5), true, false, false, 9, alive), (true, Some(Attack::Start(9)), 2));
+        assert_eq!(switch_attack(Some(9), true, false, false, 9, alive), (true, None, 0));
+        assert_eq!(switch_attack(Some(5), true, false, false, 1, Target::Yourself), (true, Some(Attack::Refuse("Feedback_YouCantAttackYourself")), 2));
     }
 }

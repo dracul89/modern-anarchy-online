@@ -96,6 +96,15 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   breathing and fidgeting instead of frozen. A short or tall character is shown at the original's size, and the
   heads offered are the original's list (more of them with Shadowlands, a few odd ones gone).
 
+### Targeting and clicks
+
+- **The mouse now works in the world as in the original.** Characters are clicked by the box of their posed body and
+  terminals, doors and booths by their actual mesh; walls and the ground block the click. Your own character is on
+  the click line by its distance, so a click through it takes it first and the next click what stands behind.
+- **Right click no longer changes your target.** Double click uses the thing clicked; Shift + click shows its info
+  page; Ctrl + click on a character switches your attack to it. Shift + right drag turns the character as a plain
+  right drag does (only Ctrl keeps it to the camera).
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher

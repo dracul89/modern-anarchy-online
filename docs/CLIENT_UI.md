@@ -4005,7 +4005,7 @@ behind windcaller Karrec was hard to target and use", "missions aren't working i
   one after it on the line, round to the first again, or the first when the selected one is not on the line. So a
   second click in the same place takes what stands behind. A right click uses what `GetObjectUnderColLine` gives: the
   selected target when the line meets it, else the first. Ported so (`viewer.rs`: `on_line`, `next_on_line`,
-  `under_line`; the selected target's id now goes to the window, `Hud::selected`). This client's own and kept: a second
+  `under_line`; the selected target's id now goes to the window, `Hud::selected`). (All of this paragraph's own rules went on 2026-11-18: "What the mouse points at".) This client's own and kept: a second
   left click within half a second is a double click and uses what the first took, without stepping on. The original's
   other two left clicks are not ported: with Shift it opens the info page, with Ctrl or Alt on a character it switches
   the fight to it. Every click now writes a line to the log ("click (left): on the line [...], selected ..., took
@@ -4856,7 +4856,7 @@ client fails to send. A fault after an arrival wants the log's count of moves se
 the line from the eye through the pointer meets, and this client's own rule left the character out of it wherever
 anything else was met ("the camera looks over its shoulder"). In a fight the one fought stands behind the character
 on every such line, so the character could not be clicked at all, and a stim went at the docker: "Item must be
-applied on a friendly target." Now the character is last on the line, not off it. The stepping does the rest
+applied on a friendly target." Now the character is last on the line, not off it (since 2026-11-18 on it by its distance, as the original has it). The stepping does the rest
 (`GetNextTarget`: a click takes the one after the selected target): with the one fought selected, a click on the
 character takes the character, and the next takes the one fought again. A click at something past the character
 still takes that first. The select-self key and `/selectself` are as before; the fight goes on with the one fought
@@ -6473,3 +6473,68 @@ The ground under the pointer is found by walking the line from the eye until it 
 
 Looked at offscreen: `MAO_DROP_BOX=fixture` and `=drop` put the two boxes up. Tests: `dropitem`'s three (one
 counts the game's items), `mao_net::n3`'s two.
+
+## What the mouse points at, and what its clicks do in the world (2026-11-18)
+
+The user: "Targeting three" (TGT-001, TGT-003, TGT-017). Two readers on a smaller model read N3.dll and GUI.dll;
+what the port rests on was checked here in the decompile and the disassembly. All three entries are one change
+(`picking.rs`). None of it was seen in the live game.
+
+### The line, the list and the shapes (TGT-001, TGT-003)
+
+`picking.rs` is N3.dll's way, in its order:
+
+1. **The line** (`n3Camera_t::SetMousePos` 0x10020571, FUN_1001fe47): from the eye through the mouse, **cut short at
+   the first ground or surface it meets**. Outdoors that is the terrain and the playfield's collision surfaces, so
+   a building's wall hides what stands behind it (the tile-map surface asks its cell surfaces first); indoors the
+   rooms' surfaces. `Zones::line` and the terrain are used for it.
+2. **The list** (`n3Playfield_t::RunCameraSelectionCollChecks` 0x1000d8d1, at most ten times a second): everything
+   within 200 m of the eye that the line meets, nearest first.
+3. **One's own character is on the list like anything else, by its distance** (FUN_10020a3c), and only in the first
+   person is it left out. The client's rule of 2026-11-17 (the character last on the line) is gone: a click whose
+   line passes through one's own body now takes the body first, and the next click what stands behind.
+4. **The shapes** (`n3VisualDynel_t::FineCollisionCheck` 0x10019452). There were no cylinders in the original:
+   - a character is met by **the box its posed vertices fill in the mesh's own axes** (the option
+     `BoundingBoxTargeting`, on by default; randy31's `RCATMesh` line test): the box turns with the body and follows
+     its animation (`Caster::body`, `picking::ray_box`);
+   - a built-in object (a terminal, a door, a booth, a city's controller) is met by **the triangles of its mesh that
+     face the line**, part after part, the first one crossed (`PickMesh::hit`, `VisualMesh_t::IsLineIntersecting` and
+     randy31's `IsRayIntersecting`). A test on the game's data holds a city's controller and its key machine to it.
+
+Not ported, plainly: the option's other setting (the body's triangles); a held weapon as a mesh of its own (here it
+makes the body's box larger); a dynel's `IsVisible` (hidden characters, a statel's owner and team rules); door leaves
+as they swing (met where they hang closed); and an object the server announces that is not in the playfield's table,
+which keeps the old upright post of its kind's size.
+
+### The clicks in the world (TGT-017)
+
+`ActionViewMouseHandler_c` (GUI.dll FUN_1002cfac on a release, FUN_1002ce31 on a press), all on **what is under the
+pointer**: the selected target when the line meets it, else the nearest, and what was last there for half a second
+after the pointer has left it (`InputConfig_t::SetCurrentReference` 0x1001a191).
+
+| Gesture | Original, and now here | Was |
+|---|---|---|
+| left click | the next on the line after the selected target | the same |
+| second left click soon after | the same again, stepping on | used what the first took |
+| **double click** | at the second press `N3Msg_DefaultActionOnDynel` (not on oneself; the option `DoubleclickAction`), and its release steps on as any click | as above |
+| **Shift + left click** | the info page of what is under the pointer | nothing |
+| **Ctrl + left click on a character** | it becomes the target and the fight goes to it (`N3Msg_SwitchTarget`) | a plain click |
+| **right click** | uses what is under the pointer: **the target stays** | also made it the target |
+| right button dragged with Shift | the character turns: only Ctrl keeps it to the camera (FUN_1002ccbe) | camera only |
+| a release after the mouse travelled | no click from 0.02 of the mouse's counts over 1000 on (about 20 counts) | the same in screen heights |
+| either button with the other held | a click all the same | no click |
+| with an item in hand | no click | a click |
+
+`N3Msg_SwitchTarget` (`combat::switch_attack`, `N3Msg_DefaultAttack(id, true)` 0x10028147): whoever fights stops; the
+one already fought is only stopped; anyone else is checked as for the attack key and attacked, with `AttackIIR_t`'s
+last byte 2. **No capture has that byte other than 0**: its place is the writer's (FUN_1007cb09), its effect untried.
+
+Guesses and gaps: what counts as a double click comes from the window system in the original and was not found; here
+it is Windows' default, half a second and four pixels. `N3Msg_DefaultActionOnDynel` on anything but a character takes
+what its `Can` stat says can be got (bit 0) or used (bit 3), and a thing that can only be got is used here
+(`N3Msg_GetItem`'s message is not ported); on a character it is the client's earlier approximation (an NPC's chat, a
+player's trade, else a use). Shift + click on a thing with no template in the table shows its name only. The pointer's
+shape over what it points at is not ported.
+
+Tests: `picking`'s nine, `combat`'s attack key, `blobshadow`'s `a_body_keeps_its_box_in_its_own_axes`, the city's
+controller in `main.rs`.

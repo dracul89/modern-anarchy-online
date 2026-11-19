@@ -1392,9 +1392,16 @@ pub fn set_target(character: u32, target: u32) -> Frame {
 
 /// `28494070`: attack the target (the server's auto-attack then runs).
 pub fn attack(character: u32, target: u32) -> Frame {
+    attack_flagged(character, target, 0)
+}
+
+/// [`attack`] with `AttackIIR_t`'s last byte (its writer FUN_1007cb09: the target, then that byte): 2 for an attack that
+/// takes the fight from another target (`N3Msg_DefaultAttack` 0x10028147). Every attack in the captures has 0.
+pub fn attack_flagged(character: u32, target: u32, flag: u8) -> Frame {
     let mut data = vec![0u8; 10];
     data[1..5].copy_from_slice(&CHARACTER.to_be_bytes());
     data[5..9].copy_from_slice(&target.to_be_bytes());
+    data[9] = flag;
     Message { kind: 0x28494070, identity: (CHARACTER, character), data }.frame(character)
 }
 

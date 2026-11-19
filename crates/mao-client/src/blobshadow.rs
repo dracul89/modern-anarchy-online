@@ -44,6 +44,17 @@ pub struct Caster {
     /// The body's attractors by name and their frames on the posed body, row-vector matrices in the server's frame (Y up), for
     /// the effects attached to them (`effects::Locator::attractor`).
     pub attractors: Vec<(String, Matrix)>,
+    /// The box the posed vertices fill in the mesh's own axes, and what places that in the world: what the mouse meets
+    /// (`picking::Shape::Body`).
+    pub body: Body,
+}
+
+/// See [`Caster::body`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Body {
+    pub place: Matrix,
+    pub lo: [f32; 3],
+    pub hi: [f32; 3],
 }
 
 /// How large a character's mesh is as it stands, from its posed points:
@@ -109,7 +120,14 @@ impl Caster {
     pub fn new(parts: &[Part], place: &Matrix, own: bool) -> Caster {
         let (mut points, mut normals) = (Vec::new(), Vec::new());
         let mut surface = Surface::default();
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
         for part in parts {
+            for v in &part.vertices {
+                let p = transform(&part.world, v.position);
+                for c in 0..3 {
+                    (lo[c], hi[c]) = (lo[c].min(p[c]), hi[c].max(p[c]));
+                }
+            }
             let m = multiply(&part.world, place);
             let mut turn = m;
             turn[12] = 0.0;
@@ -133,7 +151,8 @@ impl Caster {
         }
         let translation = transform(place, [0.0; 3]);
         let size = Size::of(&points, translation);
-        Caster { translation, points, normals, surface, own, id: 0, size, attractors: Vec::new() }
+        let body = if lo[0] <= hi[0] { Body { place: *place, lo, hi } } else { Body { place: *place, ..Body::default() } };
+        Caster { translation, points, normals, surface, own, id: 0, size, attractors: Vec::new(), body }
     }
 
     pub fn shifted(&self, by: [f32; 3]) -> Caster {
@@ -149,7 +168,9 @@ impl Caster {
                 (name.clone(), m)
             })
             .collect();
-        Caster { translation: add(&self.translation), points: self.points.iter().map(add).collect(), normals: self.normals.clone(), surface, own: self.own, id: self.id, size: self.size, attractors }
+        let mut body = self.body;
+        (body.place[12], body.place[13], body.place[14]) = (body.place[12] + by[0], body.place[13] + by[1], body.place[14] + by[2]);
+        Caster { translation: add(&self.translation), points: self.points.iter().map(add).collect(), normals: self.normals.clone(), surface, own: self.own, id: self.id, size: self.size, attractors, body }
     }
 }
 
@@ -278,6 +299,20 @@ pub fn blob(caster: &Caster, light: [f32; 3], eye: [f32; 3], ground: &Ground, al
 mod tests {
     use super::*;
 
+    /// The box the mouse meets a body by stands in the mesh's own axes, whatever way the body is turned, and goes with it.
+    #[test]
+    fn a_body_keeps_its_box_in_its_own_axes() {
+        let vertex = |position: [f32; 3]| mao_formats::model::Vertex { position, ..Default::default() };
+        let part = Part { name: "body".into(), world: mao_formats::model::IDENTITY, vertices: vec![vertex([-1.0, 0.0, -0.25]), vertex([1.0, 2.0, 0.25])], indices: Vec::new(), material: Default::default() };
+        // (turned a quarter and stood at (10, 20, 5))
+        let place: Matrix = [0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 10.0, 20.0, 5.0, 1.0];
+        let caster = Caster::new(&[part], &place, false);
+        assert_eq!((caster.body.lo, caster.body.hi), ([-1.0, 0.0, -0.25], [1.0, 2.0, 0.25]));
+        let moved = caster.shifted([1.0, 2.0, 3.0]);
+        assert_eq!((moved.body.place[12], moved.body.place[13], moved.body.place[14]), (11.0, 22.0, 8.0));
+        assert_eq!(moved.body.lo, caster.body.lo);
+    }
+
     fn standing() -> Caster {
         // a box 0.6 wide, 1.8 tall, standing at (10, 20, 5)
         let mut points = Vec::new();
@@ -286,7 +321,7 @@ mod tests {
                 points.push([10.0 + x, 20.0 + y, 5.0 + z]);
             }
         }
-        Caster { translation: [10.0, 20.0, 5.0], points, normals: Vec::new(), surface: Surface::default(), own: false, id: 0, size: Size::default(), attractors: Vec::new() }
+        Caster { translation: [10.0, 20.0, 5.0], points, normals: Vec::new(), surface: Surface::default(), own: false, id: 0, size: Size::default(), attractors: Vec::new(), body: Body::default() }
     }
 
     #[test]

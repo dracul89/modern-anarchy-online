@@ -53,6 +53,7 @@ mod shotnotes;
 mod hall;
 mod dimensions;
 mod dropitem;
+mod picking;
 mod loading;
 mod whiteout;
 mod missionlog;
@@ -632,35 +633,21 @@ pub(crate) fn table_dynels(db: &ResourceDatabase, playfield: u32) -> Vec<(u32, u
         .collect()
 }
 
-/// How large each of the playfield's built-in objects stands, for the mouse (the original casts the mouse's line
-/// against the dynel itself; here it is a cylinder on the object's place): the half of its mesh's greater width and the
-/// mesh's height, by the object's kind and instance. A city's controller is 19 units wide and 27 high, and with a
-/// terminal's cylinder (0.8 by 2.2) only its foot could be clicked.
-pub(crate) fn table_pick_sizes(db: &ResourceDatabase, playfield: u32) -> std::collections::HashMap<(u32, u32), (f32, f32)> {
+/// The meshes of the playfield's built-in objects for the mouse, by the object's kind and instance: the mesh and what
+/// takes the world (Z up) into the mesh's own space (`picking::Shape::Mesh`; the original casts the mouse's line against
+/// the dynel's mesh, `VisualMesh_t::IsLineIntersecting`). Each mesh is read once.
+pub(crate) fn table_pick_meshes(db: &ResourceDatabase, playfield: u32) -> std::collections::HashMap<(u32, u32), (std::sync::Arc<picking::PickMesh>, mao_formats::model::Matrix)> {
     let Some(object) = db.get(Id { kind: mao_formats::dynels::KIND, instance: playfield }).ok().flatten() else { return Default::default() };
     let records = mao_formats::dynels::parse(&object);
-    let mut measured: std::collections::HashMap<u32, Option<(f32, f32)>> = std::collections::HashMap::new();
+    let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    let mut read: std::collections::HashMap<u32, Option<std::sync::Arc<picking::PickMesh>>> = std::collections::HashMap::new();
     static_props(db, playfield)
         .into_iter()
-        .filter_map(|(key, (mesh, ..), _)| {
+        .filter_map(|(key, (mesh, position, rotation), _)| {
             let d = records.get((key & 0x00ff_ffff) as usize)?;
-            let size = (*measured.entry(mesh).or_insert_with(|| {
-                let model = load_model_dynel(db, Id { kind: 0xf6951, instance: mesh }).ok()?;
-                let (mut wide, mut top) = (0.0f32, 0.0f32);
-                for part in &model.parts {
-                    let m = &part.world;
-                    for v in &part.vertices {
-                        let p = v.position;
-                        let x = p[0] * m[0] + p[1] * m[4] + p[2] * m[8] + m[12];
-                        let y = p[0] * m[1] + p[1] * m[5] + p[2] * m[9] + m[13];
-                        let z = p[0] * m[2] + p[1] * m[6] + p[2] * m[10] + m[14];
-                        wide = wide.max(x.abs()).max(z.abs());
-                        top = top.max(y);
-                    }
-                }
-                Some((wide, top))
-            }))?;
-            Some(((d.kind, d.instance), size))
+            let shape = read.entry(mesh).or_insert_with(|| Some(std::sync::Arc::new(picking::PickMesh::of(&load_model_dynel(db, Id { kind: 0xf6951, instance: mesh }).ok()?)))).clone()?;
+            let place = mao_formats::model::multiply(&mao_formats::model::trs_matrix(position, rotation, [1.0; 3]), &swap);
+            Some(((d.kind, d.instance), (shape, picking::invert(&place))))
         })
         .collect()
 }
@@ -2671,17 +2658,23 @@ mod warp_stone_tests {
         assert!(stone.is_some());
     }
 
-    /// `MAO_GAME`: a city's controller (`(0xc418, 0xc000177a)` of playfield 6010's table) is picked by its mesh's size, 19
-    /// units wide and 27 high, and its guest key machine by its own.
+    /// `MAO_GAME`: a city's controller (`(0xc418, 0xc000177a)` of playfield 6010's table), 19 units wide and 27 high, and
+    /// its guest key machine are met by the mouse's line on their near sides (the triangles' fronts face outwards as the
+    /// original's test wants them), and not over the machine's top.
     #[test]
-    fn a_citys_controller_is_as_large_as_its_mesh_for_the_mouse() {
+    fn a_citys_controller_is_met_by_its_mesh() {
         let Some(game) = std::env::var_os("MAO_GAME") else { return };
         let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
-        let sizes = crate::table_pick_sizes(&db, 6010);
-        let (wide, top) = sizes[&(0xc418, 0xc000_177a)];
-        assert!((9.0..10.5).contains(&wide) && (26.0..28.0).contains(&top), "{wide} {top}");
-        let (wide, top) = sizes[&(0xc73d, 0xc001_177a)];
-        assert!(wide < 1.0 && (4.0..5.0).contains(&top), "{wide} {top}");
+        let meshes = crate::table_pick_meshes(&db, 6010);
+        let (controller, _) = &meshes[&(0xc418, 0xc000_177a)];
+        for (x, z) in [(40.0, 0.5), (-40.0, 0.5), (0.5, 40.0), (0.5, -40.0)] {
+            let near = (1..26).filter_map(|y| controller.hit([x, y as f32, z], [-x, y as f32, -z])).fold(f32::MAX, f32::min);
+            assert!((29.0..39.9).contains(&near), "from ({x}, {z}): {near}");
+        }
+        let (machine, _) = &meshes[&(0xc73d, 0xc001_177a)];
+        let near = (1..8).filter_map(|y| machine.hit([5.0, y as f32 * 0.5, 0.1], [-5.0, y as f32 * 0.5, 0.1])).fold(f32::MAX, f32::min);
+        assert!((3.9..5.0).contains(&near), "{near}");
+        assert!(machine.hit([5.0, 6.0, 0.1], [-5.0, 6.0, 0.1]).is_none());
     }
 
     /// `MAO_GAME`: the Shadowlands' portal statues (the garden's "Passage to ..." items, the Wailing Wastes' Shining Ancient
