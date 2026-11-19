@@ -302,6 +302,9 @@ struct World {
     worn_sets: BTreeMap<u32, i64>,
     /// Health and maximum from the info packets (the server answers an info request with them).
     health: BTreeMap<u32, (i64, i64)>,
+    /// Other characters' stats as the server's `Stat` messages set them (FUN_100a2006 sets each on the dynel, which its
+    /// full update did not: stat 224 `Features`, 215, 449 and 451 are what the attack check reads of a target, FUN_10069a9f).
+    others_stats: BTreeMap<u32, BTreeMap<u32, i64>>,
     /// The character's pets by their place in the pet window (`PetWindowModule_c`'s map: `AddPet` 0x1007f0f9 puts a new pet
     /// in the first free place from 1, `GetFreePetSlot` 0x1007ee0d), from the server's `AddPet` and `RemovePet`; a new
     /// playfield starts the list again, as the original's new client character does (its pets come again after it).
@@ -2734,6 +2737,7 @@ impl World {
                 self.spell_effects.remove(&id);
                 self.spell_queue.forget((crate::requirements::CHARACTER, id));
                 self.state_flags.remove(&id);
+                self.others_stats.remove(&id);
                 self.flying.remove(&id);
                 self.crafts.remove(&id);
                 self.others_nanos.remove(&id);
@@ -4540,6 +4544,12 @@ impl World {
         if m.kind == 0x2b333d6e && m.identity.1 != self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 if let Some(mao_net::schema::Value::List(items)) = p.value.get("Stats") {
+                    let held = self.others_stats.entry(m.identity.1).or_default();
+                    for i in items {
+                        if let (Some(stat), Some(value)) = (i.get("Item1").and_then(mao_net::schema::Value::as_int), i.get("Item2").and_then(mao_net::schema::Value::as_int)) {
+                            held.insert(stat as u32, value);
+                        }
+                    }
                     // (a thing's `AnimPlay` or `AnimPos` told: its model plays from now, `prop_anim_time`)
                     if self.props.contains_key(&m.identity.1) {
                         let told = |key: i64| items.iter().filter(|i| i.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(key)).filter_map(|i| i.get("Item2")?.as_int()).last().map(|v| v as u32);
@@ -4958,11 +4968,23 @@ impl World {
         match target {
             None => crate::combat::Target::Nothing,
             Some(t) if t == self.own => crate::combat::Target::Yourself,
-            Some(t) if self.infos.contains_key(&t) => crate::combat::Target::Character {
-                dead: self.dead.contains_key(&t),
-                fights_me: self.fighting.get(&t) == Some(&self.own),
-                mate: Self::team_mate(t),
-            },
+            Some(t) if self.infos.contains_key(&t) => {
+                let stat = |s: u32| self.others_stats.get(&t).and_then(|m| m.get(&s)).copied();
+                crate::combat::Target::Character {
+                    dead: self.dead.contains_key(&t),
+                    fights_me: self.fighting.get(&t) == Some(&self.own),
+                    mate: Self::team_mate(t),
+                    facts: crate::combat::Facts {
+                        flags: stat(224).unwrap_or(0),
+                        stat_215: stat(215).unwrap_or(0),
+                        // (its stat 27: the last the client heard of it, from a hit, a `Stat`, an info packet or its announcement)
+                        health: self.last_hp.get(&t).copied().or_else(|| self.health.get(&t).map(|h| h.0)).or_else(|| self.infos.get(&t)?.health.map(|h| h.0 as i64)).unwrap_or(0),
+                        npc: self.names.get(&t).is_some_and(|n| !n.1),
+                        surrendering: stat(449).unwrap_or(0),
+                        surrender_to_me: stat(451) == Some(self.own as i64),
+                    },
+                }
+            }
             Some(_) => crate::combat::Target::Other,
         }
     }
@@ -8681,6 +8703,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // stat 224, FUN_1004496c)
                     state.spell_queue = Default::default();
                     state.state_flags.clear();
+                    state.others_stats.clear();
                     // (and their movement starts in its plain mode: whether the server runs a flyer's list again in the new
                     // playfield was not seen; the running program or the worn item keeps one's own character flying)
                     state.flying.clear();

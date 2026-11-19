@@ -82,10 +82,25 @@ pub enum Target {
     Nothing,
     Yourself,
     /// A character: whether it is dead, whether it fights oneself (its fight target is the own character: always
-    /// attackable, 0x10069e86), and whether it is in the own team or raid (FUN_10065d65 / FUN_10065dab).
-    Character { dead: bool, fights_me: bool, mate: bool },
+    /// attackable, 0x10069e86), whether it is in the own team or raid (FUN_10065d65 / FUN_10065dab), and what the check
+    /// reads of its stats ([`Facts`]).
+    Character { dead: bool, fights_me: bool, mate: bool, facts: Facts },
     /// Anything else (an item, a terminal).
     Other,
+}
+
+/// What FUN_10069a9f reads of a target character's stats (the client holds another's stats from the server's `Stat`
+/// messages, as the original's dynel does; 0 for a stat never told): its state flags (stat 224, `Features`), stat 215
+/// (`GmLevel`), its health (stat 27), whether it is an NPC (+0x21c), its `NPCIsSurrendering` (449) and whether its
+/// `NPCSurrenderInstance` (451) is the own character's (FUN_10001ddc: `(0xc350, stat 451)` against the own identity).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Facts {
+    pub flags: i64,
+    pub stat_215: i64,
+    pub health: i64,
+    pub npc: bool,
+    pub surrendering: i64,
+    pub surrender_to_me: bool,
 }
 
 /// What FUN_10069a9f asks of the own character: its movement mode swimming (4) or flying (7), its state flags (stat
@@ -100,28 +115,55 @@ pub struct Own {
 
 /// FUN_10069a9f(target, with feedback), for a player's own character: whether the target may be attacked, and the line
 /// it says when it may not. In its order: nothing there, or not a character (a terminal: no dynel), is refused without a
-/// word; oneself `Feedback_YouCantAttackYourself`; one's own flag 0x80000000 with one's own stat 215 set may attack any
-/// character (0x10069c3a: the own character's +0x1ec, then its stat 0xd7), as may anyone at a target with the same of
-/// its own (0x10069c6f, the target's +0x1ec: not known to the client); swimming `Feedback_YouCantAttackWhileSwimming`;
-/// flag 0x400 or flying `Feedback_YoureUnableToAttack`; a dead target `Feedback_TargetIsAlreadyDead`; one that fights oneself may
-/// be attacked; a team or raid member is refused with the local `CharacterAction` 0x76 of parameter 5 (FUN_100692b4,
-/// which FUN_1005d61f's table 0x1005f62e says as `Feedback_NotAllowedToAttackTeamMembers`). Not checked (the client
-/// does not know them): the target's stat 224 bits 0x20000000 (`Feedback_CantbeAttacked`) and 0x80000000 with its stat
-/// 215, an item's attackable flag (`Feedback_YouCantAttackThisItem`), the surrender stats 449 and 451, the
-/// suppression gas line, the own stat 673 test at the start, and the team check's word at the character's +0x1f0
-/// (5 lets a team member be attacked).
+/// word; oneself `Feedback_YouCantAttackYourself`; a target with state flag 0x20000000 `Feedback_CantbeAttacked`; one's
+/// own flag 0x80000000 with one's own stat 215 set may attack any character (0x10069c3a: the own character's +0x1ec,
+/// then its stat 0xd7), as may anyone at a target with the same of its own (0x10069c6f, the target's +0x1ec and stat
+/// 0xd7); swimming `Feedback_YouCantAttackWhileSwimming`; flag 0x400 or flying `Feedback_YoureUnableToAttack`; a dead
+/// target is refused without a word while its health (stat 27) is not 0, else `Feedback_TargetIsAlreadyDead`; an NPC
+/// surrendering (stat 449 1 or 2, 0x10069d64): to oneself (stat 451) and done (2) `Feedback_YouAcceptedSurrender`, to
+/// another `Feedback_TargetIsSurrendering` (1) or `Feedback_TargetHasSurrendered` (2); one that fights oneself may be
+/// attacked; a team or raid member is refused with the local `CharacterAction` 0x76 of parameter 5 (FUN_100692b4, which
+/// FUN_1005d61f's table 0x1005f62e says as `Feedback_NotAllowedToAttackTeamMembers`). Not checked: an item's attackable
+/// flag (`Feedback_YouCantAttackThisItem`), the suppression gas line (the districts' fight modes, FUN_1003e3e2, which
+/// only tells and refuses nothing), the own stat 673 test at the start, and the team check's word at the character's
+/// +0x1f0 (5 lets a team member be attacked).
 pub fn can_attack(own: Own, kind: Target) -> Result<(), Option<&'static str>> {
-    match kind {
-        Target::Nothing | Target::Other => Err(None),
-        Target::Yourself => Err(Some("Feedback_YouCantAttackYourself")),
-        Target::Character { .. } if own.flags as u32 & 0x8000_0000 != 0 && own.stat_215 != 0 => Ok(()),
-        Target::Character { .. } if own.swimming => Err(Some("Feedback_YouCantAttackWhileSwimming")),
-        Target::Character { .. } if own.flags & 0x400 != 0 || own.flying => Err(Some("Feedback_YoureUnableToAttack")),
-        Target::Character { dead: true, .. } => Err(Some("Feedback_TargetIsAlreadyDead")),
-        Target::Character { fights_me: true, .. } => Ok(()),
-        Target::Character { mate: true, .. } => Err(Some("Feedback_NotAllowedToAttackTeamMembers")),
-        Target::Character { .. } => Ok(()),
+    let Target::Character { dead, fights_me, mate, facts } = kind else {
+        return Err(if kind == Target::Yourself { Some("Feedback_YouCantAttackYourself") } else { None });
+    };
+    if facts.flags as u32 & 0x2000_0000 != 0 {
+        return Err(Some("Feedback_CantbeAttacked"));
     }
+    if own.flags as u32 & 0x8000_0000 != 0 && own.stat_215 != 0 {
+        return Ok(());
+    }
+    if facts.flags as u32 & 0x8000_0000 != 0 && facts.stat_215 != 0 {
+        return Ok(());
+    }
+    if own.swimming {
+        return Err(Some("Feedback_YouCantAttackWhileSwimming"));
+    }
+    if own.flags & 0x400 != 0 || own.flying {
+        return Err(Some("Feedback_YoureUnableToAttack"));
+    }
+    if dead {
+        return Err(if facts.health != 0 { None } else { Some("Feedback_TargetIsAlreadyDead") });
+    }
+    if facts.npc && matches!(facts.surrendering, 1 | 2) {
+        match (facts.surrender_to_me, facts.surrendering) {
+            (true, 2) => return Err(Some("Feedback_YouAcceptedSurrender")),
+            (true, _) => {}
+            (false, 1) => return Err(Some("Feedback_TargetIsSurrendering")),
+            (false, _) => return Err(Some("Feedback_TargetHasSurrendered")),
+        }
+    }
+    if fights_me {
+        return Ok(());
+    }
+    if mate {
+        return Err(Some("Feedback_NotAllowedToAttackTeamMembers"));
+    }
+    Ok(())
 }
 
 /// `N3Msg_DefaultAttack(selection, switching)` (0x10028147; the attack key passes `false`, Interfaces.dll 0x10007cba;
@@ -274,14 +316,14 @@ mod tests {
 
     #[test]
     fn the_attack_key_toggles() {
-        let alive = Target::Character { dead: false, fights_me: false, mate: false };
+        let alive = Target::Character { dead: false, fights_me: false, mate: false, facts: Facts::default() };
         let me = Own::default();
         let start = |t: u32, flag: u8| Attack { start: Some((t, flag)), ..Attack::default() };
         let refuse = |lines: &[&'static str]| Attack { lines: lines.to_vec(), ..Attack::default() };
         assert_eq!(default_attack(Some(9), true, false, me, false, Some(9), alive), Attack { stop: true, ..Attack::default() });
         assert_eq!(default_attack(None, false, false, me, false, Some(9), alive), start(9, 0));
         assert_eq!(
-            default_attack(None, false, false, me, false, Some(9), Target::Character { dead: true, fights_me: false, mate: false }),
+            default_attack(None, false, false, me, false, Some(9), Target::Character { dead: true, fights_me: false, mate: false, facts: Facts::default() }),
             refuse(&["Feedback_TargetIsAlreadyDead", "Feedback_UnableToAttackTarget"])
         );
         assert_eq!(default_attack(None, false, false, me, false, Some(1), Target::Yourself), refuse(&["Feedback_YouCantAttackYourself", "Feedback_UnableToAttackTarget"]));
@@ -301,8 +343,8 @@ mod tests {
     /// TGT-004: FUN_10069a9f's refusals the client can tell, in their order.
     #[test]
     fn the_attack_check_refuses_as_the_original() {
-        let alive = Target::Character { dead: false, fights_me: false, mate: false };
-        let mate = Target::Character { dead: false, fights_me: false, mate: true };
+        let alive = Target::Character { dead: false, fights_me: false, mate: false, facts: Facts::default() };
+        let mate = Target::Character { dead: false, fights_me: false, mate: true, facts: Facts::default() };
         let me = Own::default();
         // swimming: the attack key's own line only, after the stop
         let swimming = Own { swimming: true, ..me };
@@ -310,17 +352,45 @@ mod tests {
         assert_eq!(can_attack(swimming, alive), Err(Some("Feedback_YouCantAttackWhileSwimming")));
         // flying, or stat 224's 0x400
         assert_eq!(can_attack(Own { flying: true, ..me }, alive), Err(Some("Feedback_YoureUnableToAttack")));
-        assert_eq!(can_attack(Own { flags: 0x400, ..me }, Target::Character { dead: true, fights_me: false, mate: false }), Err(Some("Feedback_YoureUnableToAttack")));
+        assert_eq!(can_attack(Own { flags: 0x400, ..me }, Target::Character { dead: true, fights_me: false, mate: false, facts: Facts::default() }), Err(Some("Feedback_YoureUnableToAttack")));
         assert_eq!(can_attack(Own { flags: 0x406, ..me }, alive), Err(Some("Feedback_YoureUnableToAttack")));
         // (CMB-003: one's own flag 0x80000000 with stat 215 lets one attack any character, even the dead and while
         // flying, but not oneself)
         let free = Own { flags: 0x8000_0006u32 as i64, stat_215: 1, flying: true, swimming: false };
-        assert_eq!(default_attack(None, false, false, free, false, Some(9), Target::Character { dead: true, fights_me: false, mate: true }), Attack { start: Some((9, 0)), ..Attack::default() });
+        assert_eq!(default_attack(None, false, false, free, false, Some(9), Target::Character { dead: true, fights_me: false, mate: true, facts: Facts::default() }), Attack { start: Some((9, 0)), ..Attack::default() });
         assert_eq!(can_attack(free, Target::Yourself), Err(Some("Feedback_YouCantAttackYourself")));
-        assert_eq!(can_attack(Own { flags: 0x8000_0000u32 as i64, ..me }, Target::Character { dead: true, fights_me: false, mate: false }), Err(Some("Feedback_TargetIsAlreadyDead")));
+        assert_eq!(can_attack(Own { flags: 0x8000_0000u32 as i64, ..me }, Target::Character { dead: true, fights_me: false, mate: false, facts: Facts::default() }), Err(Some("Feedback_TargetIsAlreadyDead")));
         // a team mate, unless it fights oneself
         assert_eq!(default_attack(None, false, false, me, false, Some(9), mate), Attack { lines: vec!["Feedback_NotAllowedToAttackTeamMembers", "Feedback_UnableToAttackTarget"], ..Attack::default() });
-        assert_eq!(can_attack(me, Target::Character { dead: false, fights_me: true, mate: true }), Ok(()));
+        assert_eq!(can_attack(me, Target::Character { dead: false, fights_me: true, mate: true, facts: Facts::default() }), Ok(()));
         assert_eq!(can_attack(me, Target::Yourself), Err(Some("Feedback_YouCantAttackYourself")));
+    }
+
+    /// CMB-003 / TGT-004: what FUN_10069a9f reads of the target's own stats: its flags 0x20000000 and 0x80000000 (with its
+    /// stat 215), its health while dead, and an NPC's surrender (stats 449 and 451).
+    #[test]
+    fn the_targets_own_stats_refuse_as_the_original() {
+        let me = Own::default();
+        let with = |facts: Facts| Target::Character { dead: false, fights_me: false, mate: false, facts };
+        // (Arete's newcomers carry 0x20000000: refused before anything else, even by one's own 0x80000000)
+        let newcomer = with(Facts { flags: 0x2020_8001, ..Facts::default() });
+        assert_eq!(can_attack(Own { flags: 0x8000_0000u32 as i64, stat_215: 1, ..me }, newcomer), Err(Some("Feedback_CantbeAttacked")));
+        assert_eq!(default_attack(None, false, false, me, false, Some(9), newcomer).lines, vec!["Feedback_CantbeAttacked", "Feedback_UnableToAttackTarget"]);
+        // (the target's own 0x80000000 with its stat 215: attackable even by a flyer)
+        assert_eq!(can_attack(Own { flying: true, ..me }, with(Facts { flags: 0x8000_0000u32 as i64, stat_215: 2, ..Facts::default() })), Ok(()));
+        assert_eq!(can_attack(Own { flying: true, ..me }, with(Facts { flags: 0x8000_0000u32 as i64, ..Facts::default() })), Err(Some("Feedback_YoureUnableToAttack")));
+        // (dead with health left: refused without a word)
+        let dead = |health: i64| Target::Character { dead: true, fights_me: false, mate: false, facts: Facts { health, ..Facts::default() } };
+        assert_eq!(can_attack(me, dead(40)), Err(None));
+        assert_eq!(default_attack(None, false, false, me, false, Some(9), dead(40)).lines, vec!["Feedback_UnableToAttackTarget"]);
+        assert_eq!(can_attack(me, dead(0)), Err(Some("Feedback_TargetIsAlreadyDead")));
+        // (an NPC's surrender: to another, surrendering or done; to oneself, done refuses and surrendering goes on)
+        let surrender = |surrendering: i64, surrender_to_me: bool, npc: bool| with(Facts { npc, surrendering, surrender_to_me, ..Facts::default() });
+        assert_eq!(can_attack(me, surrender(1, false, true)), Err(Some("Feedback_TargetIsSurrendering")));
+        assert_eq!(can_attack(me, surrender(2, false, true)), Err(Some("Feedback_TargetHasSurrendered")));
+        assert_eq!(can_attack(me, surrender(2, true, true)), Err(Some("Feedback_YouAcceptedSurrender")));
+        assert_eq!(can_attack(me, surrender(1, true, true)), Ok(()));
+        assert_eq!(can_attack(me, surrender(3, false, true)), Ok(()));
+        assert_eq!(can_attack(me, surrender(1, false, false)), Ok(()));
     }
 }
