@@ -859,6 +859,34 @@ const NO_MESH_SPHERE: (f32, f32) = (0.5, 1.0);
 /// A door the server opened, until it says closed.
 const SERVER_OPEN: Duration = Duration::from_secs(24 * 3600);
 
+/// Whether an item of class `class` (stat 76) with the placement mask `placement` (stat 298) may go to the wear place
+/// `to`, as Gamecode's FUN_100498ed and FUN_10080659 decide for `N3Msg_IsItemPossibleToWear`: the place's page (1 the
+/// weapons' places 0-15, 2 the clothes' 16-31, 3 the implants' 32-47, 6 the social ones 48-63) takes its own class, the
+/// implant page also class 5 (spirits) and the social page also classes 1 and 2; the place within the page (1 to 15)
+/// must be a bit of the mask, which on the social page loses bits 13 and 15, and for a weapon there is made of its
+/// bit 8 (to 15) and bit 6 (to 13).
+fn fits_wear_place(class: u32, to: u32, placement: u32) -> bool {
+    let page = match to / 16 {
+        0 => 1,
+        1 => 2,
+        2 => 3,
+        3 => 6,
+        _ => return false,
+    };
+    if class != page && !(page == 3 && class == 5) && !(page == 6 && matches!(class, 1 | 2)) {
+        return false;
+    }
+    let slot = to % 16;
+    let mut mask = placement;
+    if page == 6 {
+        mask &= !0xa000;
+        if class == 1 {
+            mask = if placement & 0x100 != 0 { 0x8000 } else { 0 } | if placement & 0x40 != 0 { 0x2000 } else { 0 };
+        }
+    }
+    slot != 0 && mask & (1 << slot) != 0
+}
+
 /// Why `N3Msg_DeleteItem` (Gamecode 0x1001c864) refuses to destroy the item at an inventory place, by the feedback's
 /// name: a worn item (a place below the backpack's: the wear inventories 0x65-0x67 and 0x73, FUN_100474a9), or a bag
 /// that still holds something. (An implant in the implant inventory asks for a surgery clinic, but a worn item is
@@ -1393,12 +1421,12 @@ impl World {
             return Some(vec![Say::Named("Feedback_WearingDisabledWhenItemsInOverflow")]);
         }
         let stat = |k: u32| template_stat(entry.low_id, k).unwrap_or(0) as u32;
-        let slot = to % 16;
         // (not by the `Can` flags' wear bit, 4: a garden key has only 1, carry, and is worn all the same; a move the server
         // will not have comes back as it was)
-        if !matches!(stat(76), 1 | 2 | 3 | 5) || slot == 0 || stat(298) & (1 << slot) == 0 {
+        if !fits_wear_place(stat(76), to, stat(298)) {
             return Some(Vec::new());
         }
+        let slot = to % 16;
         let wield = stat(76) == 1;
         let actions = crate::derived::actions(db, entry);
         let own = (crate::requirements::CHARACTER, self.own);
@@ -14508,6 +14536,21 @@ mod door_tests {
         assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x13), (54, 50, 2)], own, &w), Ok(false));
         assert_eq!(crate::requirements::evaluate(&[(0, 0, 0x6e), (54, 5, 2)], own, &w), Ok(false));
         assert!(crate::requirements::evaluate(&[(0, 0, 0x12), (54, 5, 2)], own, &w).is_err());
+    }
+
+    /// FUN_100498ed / FUN_10080659: the page takes its class (implants also spirits, social also weapons and clothes),
+    /// the place a bit of the mask, changed on the social page.
+    #[test]
+    fn a_wear_place_takes_its_page_s_classes() {
+        // (a chest piece, place 3 of the clothes: there, not on the implant page's place 3, not on the weapons')
+        assert!(fits_wear_place(2, 16 + 3, 1 << 3));
+        assert!(!fits_wear_place(2, 32 + 3, 1 << 3) && !fits_wear_place(2, 3, 1 << 3));
+        // (a spirit on the implant page; clothes on the social page; never place 0 of a page)
+        assert!(fits_wear_place(5, 32 + 2, 1 << 2) && fits_wear_place(2, 48 + 3, 1 << 3) && !fits_wear_place(2, 16, 1));
+        // (the social page drops bits 13 and 15; a weapon there takes 15 from bit 8 and 13 from bit 6)
+        assert!(!fits_wear_place(2, 48 + 13, 1 << 13));
+        assert!(fits_wear_place(1, 48 + 15, 0x100) && fits_wear_place(1, 48 + 13, 0x40) && !fits_wear_place(1, 48 + 8, 0x100));
+        assert!(!fits_wear_place(1, 64, 0xffff));
     }
 
     /// N3Msg_DeleteItem: not a worn item, not a bag with something in it.

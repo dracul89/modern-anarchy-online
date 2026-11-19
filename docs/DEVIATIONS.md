@@ -2380,7 +2380,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: wear_refusal tests the place's bit (stat 298, slot = place % 16) without the page.
 - A player notices: A drag onto a place of the wrong page is not refused locally.
 - Where: `docs/CLIENT_UI.md:3644`; `crates/mao-client/src/net.rs:1111`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Gamecode FUN_100498ed (the inventory branch of `N3Msg_IsItemPossibleToWear`) tests the wear page against the item's class (stat 76): the page (1 weapons 0-15, 2 clothes 16-31, 3 implants 32-47, 6 social 48-63) takes its own class, the implant page also 5 and the social page also 1 and 2; FUN_10080659 then tests the place's bit, the mask on the social page without bits 13 and 15, and for a weapon there made of its bit 8 (to 15) and bit 6 (to 13). `net::fits_wear_place` in `World::wear_refusal`; test `a_wear_place_takes_its_page_s_classes`. Before, any wearable class passed on any page if the bit was set.
 
 #### `INV-037` Worn items' wear lists run on the client
 

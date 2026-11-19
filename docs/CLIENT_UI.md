@@ -7277,3 +7277,7 @@ The original's `N3Msg_DeleteItem` (0x1001c864) asks the server and the item goes
 ### The tradeskill result's name (INV-035)
 
 The tradeskill window's "Result will be QL n ..." line names the item the chosen quality makes (GUI.dll FUN_100df105: a dummy item of the two templates at that quality, then its name), so a result whose higher qualities have another name reads so as the slider moves. The client now does the same.
+
+### Wear places take their own page's items (INV-036)
+
+The original's wear check (Gamecode FUN_100498ed, FUN_10080659) lets an item onto a wear place only when the place's page takes the item's class (weapons, clothes, implants and spirits, and on the social page clothes and weapons, a weapon only on the social hands) and the place is one of the item's placements. The client now does the same before it sends a move.
