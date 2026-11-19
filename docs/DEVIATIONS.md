@@ -2833,7 +2833,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A fixed hash of character, nano and try gives the 0 to 2 s wait.
 - A player notices: Pulse timing is deterministic rather than random.
 - Where: `crates/mao-client/src/pulses.rs:37`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): A buff that finds the pulse gate shut now waits rand() / 16384 seconds (0 to 2) from the CRT's rand() (msvcr100's LCG, seeded 1, one per Pulses), as the original's buff ring does; the client used a fixed hash of character, nano and try. Test: pulses::tests::one_buff_pulses_at_once_then_about_every_five_seconds (now allows a wait of a few milliseconds, which shows as exactly 5 s after rounding).
 
 #### `NAN-009` Buff ring anchors from a standing-body table, not the posed skeleton
 

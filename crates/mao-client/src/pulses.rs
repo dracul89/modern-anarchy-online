@@ -34,15 +34,13 @@ struct CharacterPulses {
 #[derive(Default)]
 pub struct Pulses {
     characters: HashMap<u32, CharacterPulses>,
+    /// The CRT `rand()` the retry waits are drawn from.
+    rand: crate::audio::Rand,
 }
 
-/// A deterministic stand-in for `rand() / 16384`: 0 to 2 seconds, different for each try.
-fn retry_wait(character: u32, nano: u32, tries: u32) -> f32 {
-    let mut x = character.wrapping_mul(0x9e37_79b1) ^ nano.wrapping_mul(0x85eb_ca6b) ^ tries.wrapping_mul(0x27d4_eb2f);
-    x ^= x >> 15;
-    x = x.wrapping_mul(0x2c1b_3c6d);
-    x ^= x >> 12;
-    (x & 0x7fff) as f32 / 16384.0
+/// The wait of a buff that found the gate shut: `rand() / 16384`, 0 to 2 seconds (the CRT's rand(), 0 to 0x7fff).
+fn retry_wait(rand: &mut crate::audio::Rand) -> f32 {
+    rand.next() as f32 / 16384.0
 }
 
 impl Pulses {
@@ -76,7 +74,7 @@ impl Pulses {
         if time - last <= GATE {
             // the gate is shut: another buff of this character pulsed lately
             buff.tries = buff.tries.wrapping_add(1);
-            buff.next_try = time + retry_wait(character, nano, buff.tries);
+            buff.next_try = time + retry_wait(&mut self.rand);
             return None;
         }
         buff.started = Some(time);
@@ -113,7 +111,8 @@ mod tests {
         assert_eq!(s[0], 0.0);
         // wants to again at 4 s, allowed once the 5 s gate opens (plus a retry wait under 2 s)
         for pair in s.windows(2) {
-            assert!(pair[1] - pair[0] > GATE && pair[1] - pair[0] < GATE + 2.2, "{s:?}");
+            // (the starts are rounded to tenths, so a wait of a few milliseconds shows as the gate's 5 s)
+            assert!(pair[1] - pair[0] >= GATE && pair[1] - pair[0] < GATE + 2.2, "{s:?}");
         }
         assert!(s.len() >= 4);
     }
