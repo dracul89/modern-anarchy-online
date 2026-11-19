@@ -7141,3 +7141,7 @@ The original's cast effect (the program's CastEffectType, a _GfxControlSpell1_t)
 ### Tells of other kinds are not shown (CHT-025)
 
 HandlePrivateMessage (GUI.dll 0x10087e59) shows a private message only when its blob begins with the kind 0 (a tell), 2 or 6 (an away reply); a message with no blob or of another kind is not shown. The client now drops the same ones; it showed every private message as a tell. Kind 2's script files are not written.
+
+### No team leader before the server names one (CHT-043)
+
+The team window colours the leader the server named (interface message 0x17, TeamViewModule_c +0xe0). The client used to colour the first member until then; now nobody is the leader before the server says who is.

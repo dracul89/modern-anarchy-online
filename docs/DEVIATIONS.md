@@ -4122,7 +4122,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: until it is heard, the first member is shown as the leader
 - A player notices: the leader colour and Recruit button may be on the wrong person for a moment
 - Where: `crates/mao-client/src/team.rs:91`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The leader is the one interface message 0x17 names (TeamViewModule_c +0xe0); until it is heard the original has none to colour. team::is_leader no longer takes the first member as a stand-in, so no name is in the leader's colour and Recruit is not offered to oneself as leader before the server says so. Test: team::tests::level_and_leader.
 
 #### `CHT-044` Team level before the server says it is the highest member's
 

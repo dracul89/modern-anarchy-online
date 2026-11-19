@@ -272,13 +272,10 @@ pub fn set_level(team: &mut Team, level: i64) -> Option<String> {
     (!team.members.is_empty()).then(|| mao_formats::ldb::format(text, &[mao_formats::ldb::Arg::Int(level)]))
 }
 
-/// Whether a member's name is the leader's colour: the leader 0x17 named, else (none heard yet) the first member, as the
-/// server lists the team from its leader.
+/// Whether a member's name is the leader's colour: the one interface message 0x17 named (`TeamViewModule_c` +0xe0);
+/// none before it is heard, as the original's field is empty until then.
 pub fn is_leader(team: &Team, k: usize) -> bool {
-    match team.leader {
-        Some(leader) => team.members.get(k).is_some_and(|m| m.id == leader),
-        None => k == 0,
-    }
+    team.leader.is_some_and(|leader| team.members.get(k).is_some_and(|m| m.id == leader))
 }
 
 /// The team window, GUI.dll's `TeamView_c` (FUN_10078c14, `team_view`, 1000 by 1000 at most): a header line (text.mdb
@@ -500,7 +497,7 @@ mod tests {
         assert_eq!((t.members[0].name.as_str(), t.members[0].level), ("A", 7));
     }
 
-    /// The level is kept, and told only in a team; the leader is the one 0x17 named, else the first member.
+    /// The level is kept, and told only in a team; the leader is the one 0x17 named, and none before it is heard.
     #[test]
     fn level_and_leader() {
         let mut t = Team::default();
