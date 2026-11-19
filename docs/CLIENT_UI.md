@@ -7421,3 +7421,7 @@ The client's own box "You must have the expansion pack..." at a Jobe booth is go
 ### Walk/run mode not announced on arrival (MOV-033)
 
 The client no longer tells the server its walk or run mode on entering each playfield; as the original, the mode goes out only when the player switches it (the walk/run key or tile). This replaces the note that the client tells the mode (0x19 run, or 0x18) on entering every playfield.
+
+### No backpack count heading (INV-082)
+
+The "Backpack 12/30" count described earlier is not in the client: the inventory window shows no such heading, as the original. (The old "Backpack count" bullet should be deleted.)

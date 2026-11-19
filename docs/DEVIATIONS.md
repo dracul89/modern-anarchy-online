@@ -2851,7 +2851,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: "Backpack 12/30" heading showing used places (not found in code).
 - A player notices: Extra count.
 - Where: `docs/CLIENT_UI.md:1957`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): Already gone from the code: no "Backpack n/30" heading or count exists in the client (grep for `/30`, `{}/{}` and "Backpack" in gear.rs, invwindows.rs, ui.rs, loot.rs finds only item-reference links and test data; the inventory window is GUI.dll's list without a heading). Only docs/CLIENT_UI.md's "Backpack count" bullet (line ~1957) still describes it: that bullet should be deleted by the coordinator.
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the "Backpack 12/30" heading is no longer in the client's code (no such text in the inventory window); only docs/CLIENT_UI.md:1957 still describes it, and that line should go.
 
 #### `INV-083` Item finder (/find) is the client's own tool
