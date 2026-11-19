@@ -31,7 +31,7 @@ pub struct NanoInfo {
     pub effects: Vec<(u32, i64)>,
     /// The NCU memory the nano takes ([`ncu_cost`]): the nano's own quality stat when its flags say it takes any (the sum over
     /// the running nanos was the original's current NCU for two characters, exactly); the free nano programs carry 999 there
-    /// and take none.
+    /// and, but for a few, lack the flags that count.
     pub cost: u32,
     /// What the list mode's other columns show (`InventoryListViewItem_c` FUN_1003dee6).
     pub columns: Columns,
@@ -161,10 +161,13 @@ pub fn describe(db: &ResourceDatabase, textures: &crate::Textures, running: &[(u
 }
 
 /// The NCU a running nano takes, as the original adds it to stat 180 when the nano starts (Gamecode FUN_100517f3,
-/// 0x100518a7..0x10051922): its stat 54 when its flags (stat 0) have 0x10000 and none of 0x4000, 0x8000 (hostile) and
-/// 0x100; nothing otherwise (heals and other instant nanos lack 0x10000). A cost of 999 (the free programs') is none.
+/// 0x100518a7..0x10051922) and takes it away again when the nano ends (FUN_10051041, 0x1005131b..0x1005138e, after the
+/// nano left the list; all three callers ask for the taking-away): its stat 54 when its flags (stat 0) have 0x10000 and
+/// none of 0x4000, 0x8000 (hostile) and 0x100; nothing otherwise (heals and other instant nanos lack 0x10000). Both use
+/// the same rule and the same stat, so the sum over the running list is the original's running total. A cost of 999
+/// counts as it is, as there (no free program has the flags that count, but the three "Destruction" ones).
 pub fn ncu_cost(flags: i64, ncu: u32) -> u32 {
-    if flags & 0x10000 != 0 && flags & (0x4000 | 0x8000 | 0x100) == 0 && ncu < 999 { ncu } else { 0 }
+    if flags & 0x10000 != 0 && flags & (0x4000 | 0x8000 | 0x100) == 0 { ncu } else { 0 }
 }
 
 /// Whether a nano is for oneself only (Gamecode FUN_100a49b1, kept at the nano's +0xbc and read by
@@ -494,13 +497,15 @@ impl TargetNcu {
 mod tests {
     use super::*;
 
-    /// NAN-004: the running nanos that count for the NCU in use (FUN_100517f3 at 0x100518a7): flag 0x10000 and none of
-    /// 0x4000, 0x8000, 0x100; their stat 54 (999: none). A heal (0x80000002) or a hostile nano (0x8000) counts nothing.
+    /// NAN-004: the running nanos that count for the NCU in use (FUN_100517f3 at 0x100518a7, FUN_10051041 at 0x1005131b):
+    /// flag 0x10000 and none of 0x4000, 0x8000, 0x100; their stat 54. A heal (0x80000002) or a hostile nano (0x8000) counts nothing.
     #[test]
     fn only_lasting_friendly_nanos_take_ncu() {
         assert_eq!(ncu_cost(0x10000, 18), 18);
         assert_eq!(ncu_cost(0x8001_0000u32 as i64, 7), 7);
-        assert_eq!([ncu_cost(0x80000002u32 as i64, 2), ncu_cost(0x18000, 6), ncu_cost(0x14000, 6), ncu_cost(0x10100, 6), ncu_cost(0x10000, 999)], [0; 5]);
+        assert_eq!([ncu_cost(0x80000002u32 as i64, 2), ncu_cost(0x18000, 6), ncu_cost(0x14000, 6), ncu_cost(0x10100, 6)], [0; 4]);
+        // (the original adds stat 54 whatever it is: a 999 counts)
+        assert_eq!(ncu_cost(0x90002, 999), 999);
     }
 
     #[test]

@@ -7562,3 +7562,7 @@ N3Msg_GetCloseTarget (0x1001c49a) counts a creature as a friend when its master 
 ### Creatures after a target stop 4 m short (NPC-017)
 
 When the server sets a creature after a target (FollowTarget), the original's vehicle aims for the target's place less 4 m along the way and stands once within 4 m, measured in three dimensions (FUN_100706ce, DAT_10161ad0 / DAT_10161ad8). The client now does the same; it stopped 1.5 m short before. A running creature's speed is the characters' rule (FUN_1006f9eb) over its RunSpeed as the server last told it, by its announcement or a later Stat. The speed the client used to learn from two paths in a row is gone.
+
+### NCU in use (NAN-004)
+
+The original keeps the NCU in use (stat 180) as a running total: a starting nano adds its stat 54 (Gamecode FUN_100517f3, 0x100518a7) and an ending one takes it away again (FUN_10051041, 0x1005131b), both only for nanos whose flags have 0x10000 and none of 0x4000, 0x8000 and 0x100. The client sums the same nanos' stat 54 over the running list, which is that total; a cost of 999 counts as it is, as there.
