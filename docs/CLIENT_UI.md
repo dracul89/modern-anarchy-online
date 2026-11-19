@@ -7073,3 +7073,7 @@ The original's profession scene (GUI.dll `ProfessionScene_t` 0x101216d1) gives i
 ### A character refused after Play (LCH-041)
 
 When the server refuses the chosen character instead of handing out its ticket (system messages 0x10 and 0x21), the original shows that error's page over the login form, as for a refused login (GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179 → `ShowError`). The launcher now does the same: the game's process passes the refusal's message and code back through `MAO_TICKET_UP`, and the launcher's progress window gives way to the login form with the error's page above it.
+
+### The error page stays until it is closed (LCH-005)
+
+The original keeps a failed login's page in its Browser window until that window is closed (`SlotBrowserQuitPressed` 0x10011c33), and shows it over the login form again each time the form comes back (`Show(0)` 0x1001175a). The client now does the same: a login that works no longer puts the page away, so it is there again after Back from the character list.

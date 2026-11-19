@@ -8255,7 +8255,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a login that works clears the page
 - A player notices: error page does not come back after Back
 - Where: `crates/mao-client/src/launcher.rs:355`; `docs/CLIENT_UI.md:1028`; `docs/ORIGINAL_AUDIT.md:37`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The client's own rule is gone: GUI.dll keeps the error's address until the Browser window is closed (`SlotBrowserQuitPressed` 0x10011c33 empties it), and `LoginModule_c::Show(0)` 0x1001175a shows that window over the login again whenever it has an address, so after a working login and Back the page stands over the login again. The launcher no longer clears `error_page` when the list comes (only closing the Browser window does, and the client's own empty-account case of LCH-043). No unit test (screen state); launcher tests pass.
 
 #### `LCH-006` Launcher window title reads "Modern Anarchy Online"
 

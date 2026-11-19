@@ -445,9 +445,9 @@ impl Launcher {
                         self.error_page = None;
                     }
                     Ok(list) => {
-                        // (the original keeps an error's page until its window is closed, so it stands over the login
-                        // again after Back; here a login that worked puts it away)
-                        self.error_page = None;
+                        // (the original keeps an error's page until its window is closed (`SlotBrowserQuitPressed`
+                        // 0x10011c33 empties the address; `Show(0)` 0x1001175a shows the Browser window again while it
+                        // has one), so it stands over the login again after Back)
                         self.selected = ordered(&list, &self.last).into_iter().find(|c| c.created && !c.banned).map(|c| c.name.clone());
                         // (`MAO_LAUNCHER_ENTER=<name>`: that character is entered with as soon as the list is there, for trying
                         // the way from the list into the game without a hand on the mouse)

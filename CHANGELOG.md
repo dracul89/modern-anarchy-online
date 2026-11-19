@@ -146,6 +146,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The loading screen's picture is shown in its own colours, as in the original (it was tinted blue).
 - Character creation leaves out spaces and signs typed in a name and fixes its capitals, as the original does, instead of refusing it.
 - A character the server refuses to enter now brings you back to the login with the game's error page, as in the original, instead of the launcher just closing.
+- A login error's page stays until you close it, and is there again when you go back from the character list, as in the original.
 
 ### Graphics
 
