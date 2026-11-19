@@ -7049,3 +7049,7 @@ The original's deletion confirmation (GUI.dll `CharDeleteWindow_c::SlotOkayButto
 ### A creation refusal the original does not know says nothing (LCH-021)
 
 The original's name scene (GUI.dll `NameScene_t::SetState` 0x1011fc0f) has a text for the refusal codes 1-10, 19-21, 28, 30 and 31 only; for any other code it shows nothing and lets the buttons be used again. The client does the same now instead of showing "ServerProblem".
+
+### A new character's windows start at their own places (SET-003)
+
+The original reads a character's window places from that character's own preference files (`ControlCenterModule_c::LoadUserConfig` 0x1006c3b1); a character it has never played has none, the shipped `CharPrefs.xml` holding no frames, so its windows open at their views' own places. The client no longer borrows the most recently played character's layout for such a character; a character the original has played still starts from its own frames.

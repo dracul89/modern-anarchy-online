@@ -8718,6 +8718,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: windows start near where the original had them; a new character gets another character's layout
 - Where: `crates/mao-client/src/layout.rs:96`; `crates/mao-client/src/aoprefs.rs:52`; `docs/ORIGINAL_UI_PLAN.md:31`; `docs/CLIENT_UI.md:2044`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The fallback to another character's layout is gone: the original reads a character's window frames from that character's own Prefs files (GUI.dll `ControlCenterModule_c::LoadUserConfig` 0x1006c3b1), and the shipped `CharPrefs.xml` has no frames, so a character it never played starts with every window at its view's own place. `aoprefs::prefs_dirs` now returns only the character's own `derived/Char<id>` folder (`prefs_dirs_in`, test `aoprefs::tests::a_characters_layout_is_its_own_or_none`); the chat panes follow it. The newest folder is kept only for the install's `scripts` folder (`newest_prefs_root`, used by scripts.rs when the character has no folder). Left: the client still takes the original's frames as starting places and keeps its own ini files (SET-005), and `AutoCloseWindows` is not done.
 
 #### `SET-004` Original chat font is a setting
 

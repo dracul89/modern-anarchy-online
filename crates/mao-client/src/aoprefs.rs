@@ -48,11 +48,10 @@ const NAMES: &[(&str, &str)] = &[
     ("MissionSelectionViewConfig", "Missions"),
 ];
 
-/// The Prefs folder and the character folder in it: `MAO_AO_PREFS`, else each `%LOCALAPPDATA%/Funcom/Anarchy
-/// Online/*/Anarchy Online/Prefs`; the character's own `derived/Char<id>` folder when the original has played it here, else
-/// the player's most recently written one (their layout from another character, which is what they are used to).
-pub fn prefs_dirs(character: u32) -> Option<(PathBuf, PathBuf)> {
-    let roots: Vec<PathBuf> = match std::env::var("MAO_AO_PREFS") {
+/// The `Prefs` folders of the original's installs: `MAO_AO_PREFS`, else each `%LOCALAPPDATA%/Funcom/Anarchy
+/// Online/*/Anarchy Online/Prefs`.
+fn prefs_roots() -> Option<Vec<PathBuf>> {
+    Some(match std::env::var("MAO_AO_PREFS") {
         Ok(dir) => vec![PathBuf::from(dir)],
         Err(_) => {
             let local = std::env::var("LOCALAPPDATA").ok()?;
@@ -61,13 +60,29 @@ pub fn prefs_dirs(character: u32) -> Option<(PathBuf, PathBuf)> {
             hashes.sort();
             hashes.into_iter().map(|h| h.join("Anarchy Online/Prefs")).collect()
         }
-    };
+    })
+}
+
+/// The Prefs folder and the character's own `derived/Char<id>` folder in it, when the original has played the
+/// character here; none otherwise. (The original reads a character's window places from that character's own
+/// files, `ControlCenterModule_c::LoadUserConfig` 0x1006c3b1, and a character it never played has none: the shipped
+/// `CharPrefs.xml` holds no frames, so its windows start at their views' own places. No other character's layout
+/// stands in.)
+pub fn prefs_dirs(character: u32) -> Option<(PathBuf, PathBuf)> {
+    prefs_dirs_in(&prefs_roots()?, character)
+}
+
+/// [`prefs_dirs`] under these `Prefs` folders.
+pub fn prefs_dirs_in(roots: &[PathBuf], character: u32) -> Option<(PathBuf, PathBuf)> {
     let own = format!("Char{character}");
-    if let Some(root) = roots.iter().find(|p| p.join("derived").join(&own).is_dir()) {
-        return Some((root.clone(), root.join("derived").join(&own)));
-    }
-    let mut newest: Option<(std::time::SystemTime, PathBuf, PathBuf)> = None;
-    for root in &roots {
+    roots.iter().find(|p| p.join("derived").join(&own).is_dir()).map(|root| (root.clone(), root.join("derived").join(&own)))
+}
+
+/// The Prefs folder the player's original client wrote last (the one holding the most recently written character
+/// file), for what is the install's and not a character's: its `scripts` folder beside it.
+pub fn newest_prefs_root() -> Option<PathBuf> {
+    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+    for root in prefs_roots()? {
         let Ok(entries) = std::fs::read_dir(root.join("derived")) else { continue };
         for e in entries.flatten() {
             let dir = e.path();
@@ -76,12 +91,12 @@ pub fn prefs_dirs(character: u32) -> Option<(PathBuf, PathBuf)> {
             }
             let Ok(meta) = std::fs::metadata(dir.join("Prefs.xml")) else { continue };
             let Ok(written) = meta.modified() else { continue };
-            if newest.as_ref().is_none_or(|(t, _, _)| written > *t) {
-                newest = Some((written, root.clone(), dir));
+            if newest.as_ref().is_none_or(|(t, _)| written > *t) {
+                newest = Some((written, root.clone()));
             }
         }
     }
-    newest.map(|(_, root, dir)| (root, dir))
+    newest.map(|(_, root)| root)
 }
 
 fn folders(dir: &Path) -> Vec<PathBuf> {
@@ -95,7 +110,7 @@ fn folders(dir: &Path) -> Vec<PathBuf> {
 /// what has to be this character's and no other's: its keys (`keybindings.rs`). Looked for under `MAO_AO_PREFS`,
 /// else under every `%LOCALAPPDATA%/Funcom/Anarchy Online/*/*/Prefs`; where more than one install has the
 /// character, the file written last. None when the original has not played the character on this machine: no
-/// other character's file stands in, unlike [`prefs_dirs`]'s windows.
+/// other character's file stands in.
 pub fn character_prefs(character: u32) -> Option<PathBuf> {
     let roots: Vec<PathBuf> = match std::env::var("MAO_AO_PREFS") {
         Ok(dir) => vec![PathBuf::from(dir)],
@@ -310,6 +325,20 @@ mod tests {
         assert_eq!(character_prefs_in(&roots[1..], 5), Some(files[1].clone()));
         assert_eq!(character_prefs_in(&roots, 6), Some(files[2].clone()));
         assert_eq!(character_prefs_in(&roots, 7), None);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A character's windows come from its own folder only; one the original never played has none, though another
+    /// character's folder is there.
+    #[test]
+    fn a_characters_layout_is_its_own_or_none() {
+        let base = std::env::temp_dir().join(format!("mao-prefs-dirs-{}", std::process::id()));
+        let root = base.join("Prefs");
+        std::fs::create_dir_all(root.join("derived/Char5")).unwrap();
+        std::fs::write(root.join("derived/Char5/Prefs.xml"), "<Root />").unwrap();
+        let roots = [root.clone()];
+        assert_eq!(prefs_dirs_in(&roots, 5), Some((root.clone(), root.join("derived/Char5"))));
+        assert_eq!(prefs_dirs_in(&roots, 6), None);
         let _ = std::fs::remove_dir_all(&base);
     }
 

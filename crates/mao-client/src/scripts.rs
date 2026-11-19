@@ -51,7 +51,7 @@ impl Problem {
 /// The folders scripts are looked for in: the client's own, then the original's.
 pub fn dirs() -> Vec<PathBuf> {
     let mut dirs = vec![crate::settings::Settings::path().with_file_name("scripts")];
-    if let Some((prefs, _)) = crate::layout::character().and_then(crate::aoprefs::prefs_dirs)
+    if let Some(prefs) = crate::layout::character().and_then(|c| crate::aoprefs::prefs_dirs(c).map(|d| d.0)).or_else(crate::aoprefs::newest_prefs_root)
         && let Some(root) = prefs.parent()
     {
         dirs.push(root.join("scripts"));
