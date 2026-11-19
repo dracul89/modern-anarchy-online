@@ -220,6 +220,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The asteroid that has its own way of being drawn (no fog) is drawn that way.
 - Four dungeon layouts (playfields 1186, 1187, 4221, 9070) no longer show stray or missing props: their statel zones are read the way the original reads them.
 - Cast sparkles now stream from the caster's moving hands, and hit and buff effects sit on the body part they are made at.
+- Effects made by some spell lists (such as the Shadowland Anvian's smoke and sparks) now take the spell's own colours.
 
 ### Interface
 

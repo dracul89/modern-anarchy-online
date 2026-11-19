@@ -819,6 +819,29 @@ impl Visual {
         }
         visual
     }
+
+    /// The control's `SetStartColor` and `SetStopColor` (vtable +0x2c and +0x30) handed `start` and `stop` (alpha, red, green,
+    /// blue), as each kind that has them does: the sparks (FUN_100f14a2 / FUN_100f1549), smoke (FUN_100f08be / FUN_100f0962),
+    /// fire (FUN_100dc186 / FUN_100dc22a), nano stream (FUN_100e66cf / FUN_100e66ee) and quad (FUN_100f5fa3 / FUN_100f60e3) put
+    /// them in place of their template's two colours; the stars (FUN_100f7191), suns (FUN_100fd036), global smoke (FUN_100e04f7),
+    /// electra (FUN_100d96a2) and plasma (FUN_100ec3ce) in place of the two ends of the range their colours are picked from
+    /// (FUN_10108663), which their templates fill the same way (FUN_101085de). The other kinds do nothing with them
+    /// (`_GfxControl_t`'s FUN_100a76fe).
+    pub fn set_colours(&mut self, start: [f32; 4], stop: [f32; 4]) {
+        match self {
+            Visual::Sparks(Sparks { colour_a, colour_b, .. })
+            | Visual::Smoke(Smoke { colour_a, colour_b, .. })
+            | Visual::GlobalSmoke(GlobalSmoke { colour_a, colour_b, .. })
+            | Visual::Sprite(Sprite { colour_a, colour_b, .. })
+            | Visual::Stars(Stars { colour_a, colour_b, .. })
+            | Visual::Suns(Suns { colour_a, colour_b, .. })
+            | Visual::Electra { colour_a, colour_b, .. }
+            | Visual::Plasma { colour_a, colour_b, .. }
+            | Visual::Fire(Fire { start: colour_a, end: colour_b, .. })
+            | Visual::Nano(Nano { start: colour_a, end: colour_b, .. }) => (*colour_a, *colour_b) = (start, stop),
+            _ => {}
+        }
+    }
 }
 
 impl Sprite {
@@ -2488,6 +2511,31 @@ pub enum Visual {
 }
 
 impl Gfx {
+    /// [`Gfx::visual`] with the colours a spell of type 0xcfd4 gives the effect it makes (Gamecode FUN_100a9159: after
+    /// `CreateEffect2`, `_EffectHandler_t::SetStartColor` and `SetStopColor` on its control, see [`Visual::set_colours`]). A
+    /// bundle (kind 2007, `_GfxControlMeta_t`) hands them on to each of its children with the last two swapped (FUN_100e5e4a
+    /// and FUN_100e5e92 push its third and fourth arguments the other way round: red, blue, green); a sequencer, toggle or
+    /// scatter keeps them (their slots are FUN_100a76fe), and so do the kinds that take none.
+    pub fn visual_coloured(&self, id: i32, start: [f32; 4], stop: [f32; 4]) -> Option<Visual> {
+        let r = self.get(id)?;
+        if r.kind == 2007 {
+            let swap = |c: [f32; 4]| [c[0], c[1], c[3], c[2]];
+            let mut looks: Vec<Visual> =
+                (0..10.min(r.payload.len())).map(|k| r.int(k)).filter(|&c| c != 0 && c != id).filter_map(|c| self.visual_coloured(c, swap(start), swap(stop))).collect();
+            return match looks.len() {
+                0 => None,
+                1 => looks.pop(),
+                _ => Some(Visual::Meta(looks)),
+            };
+        }
+        let mut look = self.visual(id)?;
+        // (by the template's own kind: the classes whose slots take the colours)
+        if matches!(r.kind, 1004 | 1007 | 1009 | 1012 | 1018 | 2002 | 2004 | 2005 | 2006 | 3017) {
+            look.set_colours(start, stop);
+        }
+        Some(look)
+    }
+
     /// The look of an effect id. A bundle (kind 2007: up to ten children in its first words) shows every child that has a look
     /// ([`Visual::Meta`]); a sequencer (kind 3004, `_GfxControlSequencer_t`: word 1 entries of child, start and end from word 2)
     /// every child that has one, each later than the first second delayed by its start ([`Visual::Delayed`]).
@@ -2782,6 +2830,27 @@ mod tests {
         assert_eq!(s.colour_a, [0.15, 0.7, 0.8, 0.9]);
         let gfx = Gfx { records: vec![r.clone()], by_id: [(12502, 0)].into_iter().collect() };
         assert!(matches!(gfx.visual(12502), Some(Visual::GlobalSmoke(_))));
+    }
+
+    /// A 0xcfd4 spell's colours (FUN_100a9159): taken by a global smoke made itself; through a bundle (2007) with green and
+    /// blue swapped (FUN_100e5e4a); not through a sequencer (3004, whose slot does nothing).
+    #[test]
+    fn a_spells_colours_reach_the_controls_that_take_them() {
+        let f = |x: f32| x.to_bits() as i32;
+        let mut payload = vec![7, 0, 0, 0, 0, 0, 0, 2002, f(-1.0), 49, 3, f(0.4), f(0.15), f(1.35), f(0.7), f(3.0), f(0.7), f(3.0)];
+        payload.extend([f(0.15), f(0.7), f(0.8), f(0.9), f(0.05), f(1.0), f(1.0), f(1.0), f(1.4), 0, f(1.0), f(1.0), 1, 0]);
+        let smoke = Record { id: 100, kind: 3017, payload };
+        let bundle = Record { id: 101, kind: 2007, payload: vec![100, 0, 0, 0, 0, 0, 0, 0, 0, 0] };
+        let sequencer = Record { id: 102, kind: 3004, payload: vec![0, 1, 100, 0, f(1.0)] };
+        let gfx = Gfx { records: vec![smoke, bundle, sequencer], by_id: [(100, 0), (101, 1), (102, 2)].into_iter().collect() };
+        let (start, stop) = ([0.5, 0.1, 0.2, 0.3], [0.25, 0.4, 0.6, 0.8]);
+        let colours = |id: i32| match gfx.visual_coloured(id, start, stop) {
+            Some(Visual::GlobalSmoke(s)) => (s.colour_a, s.colour_b),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(colours(100), (start, stop));
+        assert_eq!(colours(101), ([0.5, 0.1, 0.3, 0.2], [0.25, 0.4, 0.8, 0.6]));
+        assert_eq!(colours(102), ([0.15, 0.7, 0.8, 0.9], [0.05, 1.0, 1.0, 1.0]));
     }
 
     #[test]

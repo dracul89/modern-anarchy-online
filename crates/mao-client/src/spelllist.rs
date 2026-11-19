@@ -20,7 +20,9 @@
 //!   +0x50 1 and +0x54 0x20), its duration stat 49 in hundredths when set (`SetDuration`, DAT_10159670 = 100); ending, the
 //!   effect whose handle the spell keeps in stat 0x42 is deleted. Ported: [`Outcome::Effect`].
 //! * 0xcfd4 (FUN_100a9159): the same effect, also with repetitions (stat 0xa1), start and stop colours (0x99-0xa0 over 255)
-//!   and a scale (stat 0x32 / 100 + 1). Ported as the effect only (no colours or scale).
+//!   and a scale (stat 0x32 / 100 + 1). Ported with the colours ([`colours`]); the scale and the repetitions go to slots no
+//!   control has (`_GfxControl_t`'s empty FUN_10079931), so they change nothing. (The first try at a dynel with the hit
+//!   location stat 0x56, and the last at a hit location from the caster, `NewHitLocation` 0xbb9 → 0x3ee: not ported.)
 //! * 0xcf3b "Cast nano" (FUN_100a7814, and 0xcfd6/0xcfdf/0xcfe0 through it): an empty function. The most common lists ("Event
 //!   Loop ...", "Arete Landing", "Effect of Inferno Environment", the AI lists) are only these: the client draws nothing for
 //!   them, the server casts the nano itself and tells it with its own messages.
@@ -99,11 +101,20 @@ impl SpellList {
     }
 }
 
+/// The start and stop colours a 0xcfd4 spell gives its effect (FUN_100a9159), each alpha, red, green, blue over 255: the
+/// start alpha is stat 0x9c and its red, green and blue stats 0x99 to 0x9b, the stop alpha stat 0xa0 and its colour 0x9d to
+/// 0x9f (the order the original pushes them in for `_EffectHandler_t::SetStartColor` and `SetStopColor`).
+pub fn colours(spell: &Spell) -> ([f32; 4], [f32; 4]) {
+    let c = |a: i32, r: i32, g: i32, b: i32| [a, r, g, b].map(|s| (spell.stat(s) as f64 / 255.0) as f32);
+    (c(0x9c, 0x99, 0x9a, 0x9b), c(0xa0, 0x9d, 0x9e, 0x9f))
+}
+
 /// What a spell run shows on the client, on the dynel it ran on.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
-    /// An effect template (`gfxtweak.bin`) made on the character, for its duration in seconds when the spell sets one.
-    Effect { effect: i32, seconds: Option<f32> },
+    /// An effect template (`gfxtweak.bin`) made on the character, for its duration in seconds when the spell sets one; a 0xcfd4
+    /// also with its start and stop colours ([`colours`]).
+    Effect { effect: i32, seconds: Option<f32>, colours: Option<([f32; 4], [f32; 4])> },
     /// 0xcf82 "Stun" (FUN_100a879c) on a character: its state flags (stat 224, [`StateFlags`]) lose 6 and gain 0x400 (an NPC,
     /// +0x21c, also 0x100 and 0x4200) when it begins; the other way when the list ends it.
     Stun { begin: bool, npc: bool },
@@ -230,7 +241,8 @@ pub fn fire(run: &mut Run, scene: &dyn Scene, now: f64) -> Vec<Outcome> {
         // from the message never has, so nothing is made or seen to end)
         0xcf26 | 0xcfd4 if !run.ending => {
             let hundredths = spell.stat(49);
-            vec![Outcome::Effect { effect: spell.stat(39), seconds: (hundredths != 0).then(|| hundredths as f32 / 100.0) }]
+            let colours = (spell.kind == 0xcfd4).then(|| colours(spell));
+            vec![Outcome::Effect { effect: spell.stat(39), seconds: (hundredths != 0).then(|| hundredths as f32 / 100.0), colours }]
         }
         // (FUN_100a879c: on a character only; on anything else the caster, when it is the client's, is told
         // "Feedback_YouNeedToSelectATargetForProgram", not ported)
@@ -491,8 +503,8 @@ mod tests {
         let a = SpellList::parse(&hex("00000007e20000cf2644fb183e0000000400000000000000010000000000000000000000000000a8e300000000000000000000000000000000000000000000000000000000000000000000c3507b1a6629000000000000000000")).unwrap();
         let b = SpellList::parse(&hex("00000007e20000cf2644fb183f0000000400000000000000010000000000000000000000000000a87100000000000000000000000000000000000000000000000000000000000000000000c3507b1a6629000000000000000000")).unwrap();
         assert_eq!(a.target, (0xc350, 0x7b1a6629));
-        assert_eq!(shown(&a), vec![Outcome::Effect { effect: 0xa8e3, seconds: None }]);
-        assert_eq!(shown(&b), vec![Outcome::Effect { effect: 0xa871, seconds: None }]);
+        assert_eq!(shown(&a), vec![Outcome::Effect { effect: 0xa8e3, seconds: None, colours: None }]);
+        assert_eq!(shown(&b), vec![Outcome::Effect { effect: 0xa871, seconds: None, colours: None }]);
         // (ending: nothing)
         let mut c = a.clone();
         c.ending = true;
@@ -520,7 +532,9 @@ mod tests {
         let l = SpellList::parse(&hex("00000007e20000cfd4000394e600000004000000020000000000000000000000640000019a0000000000000002000000010000000000000002000000090000aaa9000001f400000064000000000000000000000000000000320000000000000000000000000000003200000001000007d30000c3507b15fc4e0000c3507b15fc4e000045416e7669616e20416e67727920536d6f6b6520616e6420537061726b7341494e616e6f536861646f776c616e6420416e7669616e204566666563745f706c635f20315f2032010000cf1b000394e60000000000")).unwrap();
         assert_eq!((l.spells[0].kind, l.spells[0].stat(39), l.spells[0].stat(49)), (0xcfd4, 0xaaa9, 500));
         assert_eq!(l.spells[0].criteria, vec![(0, 0, 100), (410, 0, 2)]);
-        assert_eq!(shown(&l), vec![Outcome::Effect { effect: 0xaaa9, seconds: Some(5.0) }]);
+        // (its colours: start alpha 0x32 and stop alpha 0x32 over 255, black)
+        let dark = [(50.0 / 255.0f64) as f32, 0.0, 0.0, 0.0];
+        assert_eq!(shown(&l), vec![Outcome::Effect { effect: 0xaaa9, seconds: Some(5.0), colours: Some((dark, dark)) }]);
         let away = World { absent: vec![l.target], ..Default::default() };
         assert!(run(&l, l.target, &away, &mut Queue::default(), 0.0).is_empty());
         // (on the client's own character the comparison is made: stat 410 at 0 is not above 0)
@@ -538,7 +552,7 @@ mod tests {
         let mut q = Queue::default();
         assert!(run(&l, l.target, &w, &mut q, 10.0).is_empty());
         assert_eq!(q.runs.len(), 1);
-        let effect = (l.target, Outcome::Effect { effect: 0xa8e3, seconds: None });
+        let effect = (l.target, Outcome::Effect { effect: 0xa8e3, seconds: None, colours: None });
         assert!(q.tick(&w, 10.0).is_empty());
         assert!(q.tick(&w, 10.25).is_empty());
         assert_eq!(q.tick(&w, 10.5), vec![effect.clone()]);
@@ -578,7 +592,7 @@ mod tests {
         let l = list(vec![s(3), s(0xe), s(1), s(0x17)], false);
         let w = World { fighting: Some((0xc350, 5)), ..Default::default() };
         let out = run(&l, l.target, &w, &mut Queue::default(), 0.0);
-        assert!(out.iter().all(|o| o.1 == Outcome::Effect { effect: 7, seconds: None }));
+        assert!(out.iter().all(|o| o.1 == Outcome::Effect { effect: 7, seconds: None, colours: None }));
         assert_eq!(out.iter().map(|o| o.0).collect::<Vec<_>>(), vec![(0xc350, 2), (0xc350, 5), (0xc350, 1)]);
         // (an ending list: 0xe is the caster; a stun's end shows it)
         let l = list(vec![spell(0xcf82, 1, 0, 0xe, &[])], true);

@@ -7694,3 +7694,7 @@ The original's cast time (Gamecode FUN_1005141d) is nothing, whatever the nano's
 ### The attack-check spell (NAN-047)
 
 The original's spell 0xcf7d (Gamecode FUN_100a83d8) checks whether the caster may attack whom the spell lands on: on anything that is not a character the caster is told it needs a target, on an NPC it may not attack (FUN_10069a9f, without that function's own lines) that it is not allowed to attack it; items and players say nothing. The client does the same for its own character as the caster.
+
+### A spell's colours on the effect it makes (RND-043)
+
+A spell of type 0xcfd4 (Gamecode FUN_100a9159) makes its effect and hands its start and stop colours (stats 0x99-0xa0 over 255) to the effect's controls. The sparks, smoke, fire, nano streams and quads take them as their two colours; the stars, suns, global smoke, electra and plasma as the ends of their random colour range; a bundle passes them on to its children with green and blue swapped (FUN_100e5e4a). Its scale and repetitions reach no control that uses them. The client now draws such effects with the spell's colours (`Gfx::visual_coloured`); spirals, trails and flares keep their own.

@@ -427,6 +427,9 @@ struct World {
     /// The spell lists' effects running on each character, drawn as its running programs' are: effect template → (when it began,
     /// its seconds). One without seconds runs until the character goes, as the original's stays until the list ends it.
     spell_effects: BTreeMap<u32, BTreeMap<i32, (Instant, Option<f32>)>>,
+    /// The start and stop colours a 0xcfd4 spell gave the effect it made on a character (`spelllist::colours`): (character,
+    /// effect template) → colours.
+    spell_colours: BTreeMap<(u32, i32), ([f32; 4], [f32; 4])>,
     /// The spell lists' runs waiting on a delay or more hits (`spelllist::Queue`, each character's FUN_10002595 queue), and the
     /// moment the spell runner's clock starts (its seconds stand in for `GameTime_t` +0x28).
     spell_queue: crate::spelllist::Queue,
@@ -1818,7 +1821,14 @@ impl World {
                         self.flying.remove(&on.1);
                     }
                 }
-                crate::spelllist::Outcome::Effect { effect, seconds } => self.spell_effects_made.push((on.1, effect, seconds)),
+                crate::spelllist::Outcome::Effect { effect, seconds, colours } => {
+                    self.spell_effects_made.push((on.1, effect, seconds));
+                    // (a 0xcfd4's colours go with the effect it makes; one made again without them has its own)
+                    match colours {
+                        Some(c) => self.spell_colours.insert((on.1, effect), c),
+                        None => self.spell_colours.remove(&(on.1, effect)),
+                    };
+                }
                 crate::spelllist::Outcome::Flags { mask, add } => {
                     let start = if on.1 == self.own { self.stats.get(&224).map_or(6, |&v| v as u32) } else { 0 };
                     let flags = self.state_flags.entry(on.1).or_insert_with(|| crate::spelllist::StateFlags::new(start));
@@ -2867,6 +2877,7 @@ impl World {
                 self.corpses.remove(&id);
                 self.grounded.remove(&id);
                 self.spell_effects.remove(&id);
+                self.spell_colours.retain(|k, _| k.0 != id);
                 self.spell_queue.forget((crate::requirements::CHARACTER, id));
                 self.state_flags.remove(&id);
                 self.others_stats.remove(&id);
@@ -11782,7 +11793,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         // (the spell lists' effects on each character, keyed apart from the programs by the top bit)
                         let spell_visuals = |id: u32| -> Vec<(u32, mao_formats::gfx::Visual)> {
                             let Some(effects) = state.spell_effects.get(&id) else { return Vec::new() };
-                            effects.keys().filter_map(|&e| Some((0x8000_0000 | e as u32, gfx.as_ref()?.visual(e)?))).collect()
+                            effects
+                                .keys()
+                                .filter_map(|&e| {
+                                    let g = gfx.as_ref()?;
+                                    let look = match state.spell_colours.get(&(id, e)) {
+                                        Some(&(start, stop)) => g.visual_coloured(e, start, stop)?,
+                                        None => g.visual(e)?,
+                                    };
+                                    Some((0x8000_0000 | e as u32, look))
+                                })
+                                .collect()
                         };
                         let mut add = |id: u32, own_character: bool, at: [f32; 3], nanos: Vec<u32>| {
                             let mut auras: Vec<(u32, mao_formats::gfx::Visual)> = nanos.into_iter().filter_map(|n| aura_of(n).map(|v| (n, v))).take(6).collect();
