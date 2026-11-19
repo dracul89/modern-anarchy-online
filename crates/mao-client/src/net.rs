@@ -663,6 +663,11 @@ impl Facing {
 /// The game's resources, for the item names and stats the fight lines need (set when play starts).
 static ITEM_DB: std::sync::OnceLock<Arc<ResourceDatabase>> = std::sync::OnceLock::new();
 
+/// The database for the item and nano lookups, once the game or a test has set it.
+pub(crate) fn item_db() -> Option<Arc<ResourceDatabase>> {
+    ITEM_DB.get().cloned()
+}
+
 /// The database for the item and nano lookups, where the game's own start has not set it (a test, a picture of the
 /// interface).
 pub(crate) fn set_item_db(db: Arc<ResourceDatabase>) {

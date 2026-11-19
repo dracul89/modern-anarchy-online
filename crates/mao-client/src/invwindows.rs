@@ -371,7 +371,6 @@ impl InspectWindow {
         }
         let mut menu_at = None;
         let skin = crate::skin::skin(ctx);
-        let accent = crate::chrome::rgb(palette.accent);
         let pointer = ctx.input(|i| i.pointer.hover_pos());
         let names: Vec<String> = WEAR_TABS.iter().map(|t| crate::gui::xml::ldb_text(t.name)).collect();
         let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
@@ -422,14 +421,14 @@ impl InspectWindow {
             }
             view.tree.signals.clear();
         }
-        if let Some((slot, label)) = hovered
+        if let Some((slot, _)) = hovered
             && let Some(item) = by_slot.get(&slot)
         {
             if ctx.input(|i| i.pointer.secondary_clicked()) {
                 infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality));
             }
             egui::Area::new(egui::Id::unique("inspect-tip")).order(egui::Order::Tooltip).fixed_pos(pointer.unwrap_or_default() + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| crate::gear::tooltip(ui, item, &label, stats, accent));
+                egui::Frame::popup(ui.style()).show(ui, |ui| crate::gear::tooltip(ui, item, stats, palette));
             });
         }
         infos
@@ -482,7 +481,6 @@ impl ItemWindows {
             self.build(ctx);
         }
         let skin = crate::skin::skin(ctx);
-        let accent = crate::chrome::rgb(palette.accent);
         let by_slot: HashMap<u32, &GearItem> = items.iter().map(|i| (i.slot, i)).collect();
         // (what is in hand let go: an item, or so many of a stack to be split off it, which only an empty cell of the
         // inventory takes)
@@ -846,13 +844,13 @@ impl ItemWindows {
             }
         }
         // (the item under the pointer: its tip)
-        if let Some((slot, label)) = hovered_item
+        if let Some((slot, _)) = hovered_item
             && self.menu.is_none()
             && dragged.is_none()
             && let Some(item) = by_slot.get(&slot)
         {
             egui::Area::new(egui::Id::unique("item-tip")).order(egui::Order::Tooltip).fixed_pos(pointer.unwrap_or_default() + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| crate::gear::tooltip(ui, item, &label, stats, accent));
+                egui::Frame::popup(ui.style()).show(ui, |ui| crate::gear::tooltip(ui, item, stats, palette));
             });
         }
         // (the item in hand can be set on a hotbar slot: the slots take a drag's load, which goes with every button let

@@ -114,6 +114,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Wear and use checks now judge requirements written "on self" instead of letting them through.
 - Breed and sex requirements in item tips and pages read as names instead of numbers.
 - A right click on a corpse's item no longer takes it, as in the original; click it instead.
+- Item tips show what the original's show: the name in its rarity colour and the item's info (damage, modifiers, locations ...) under it.
 
 ### The launcher
 

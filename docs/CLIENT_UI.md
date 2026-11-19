@@ -7265,3 +7265,7 @@ Gamecode's `ConvertCriteria` writes a breed or sex requirement by its name ("Sol
 ### No right click loot on corpses (INV-007)
 
 In the original a corpse's item list ignores a plain right click (GUI.dll FUN_100ce55d sets its feature flag 0x400, which FUN_1004141b tests): items are taken by a click or the item's menu. The client now does the same; a chest, the bank and the overflow still take an item on a right click.
+
+### Item tips (INV-005)
+
+The original's item tip (GUI.dll FUN_10042193) has the item's name in its rarity colour as its title, and under it the item's own info page as a tip shows it (FUN_10038f6b with its "tip" argument: no header and no description, and on the general and implant pages no requirements and no skills to use), while the `ItemDescriptionTooltips` preference is on, which it is by default. The client's tips are now that, drawn as markup; the client's own tip (slot, QL, stack, requirement lines in green and red, "When worn" effects) is gone.

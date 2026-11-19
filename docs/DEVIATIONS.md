@@ -2087,7 +2087,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Name in the theme accent colour, a small line with the slot label, QL and "(bag)", the stack count, the description, "To wear/wield/use" requirement lines in green/red and a "When worn" list of stat effects.
 - A player notices: Tips look and read differently, and show requirements and stat effects the original's tip does not.
 - Where: `crates/mao-client/src/gear.rs:199`; `docs/CLIENT_UI.md:1687`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The entry's reading was short: GUI.dll FUN_10042193 (the item lists' tip) gives a title, the name in its rarity colour (`<font color=` `N3Msg_GetRarityColor` `>` name `</font>`), and, while `ItemDescriptionTooltips` is on (true in the shipped `LoginPrefs.xml`; every item list has its +0x368 flag set by the list's constructor FUN_100423fc), a text: the item's info page itself, FUN_10038f6b called with its fourth argument 1, which drops the header and the description on every page (FUN_1003732c weapons, FUN_1003826b armour) and also the requirements and the skills to use on the general page (FUN_1003882b; an NF crystal keeps its description) and the implant page (FUN_10038586). Ported: `iteminfo::item_tip` (the pages now built by `Ctx::page(tip)`), and `gear::tooltip` draws the title and the text as markup in the inventory, wear and inspect windows. The client's own tip (slot label, QL, "(bag)", stack count, the 420-character description, the "To wear" lines in green and red and the "When worn" list) is gone. The preference itself is taken as on (no setting for it). `GearItem::effects` is now read by nothing (a dead-code warning). Test: `iteminfo::tests::builds_a_page_from_the_game` (a weapon's tip). Also settles INV-034 (the 420-character cut) in the low list.
 
 #### `INV-006` Moves by use go one at a time with a wait
 

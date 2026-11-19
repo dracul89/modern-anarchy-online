@@ -168,9 +168,14 @@ impl Ctx<'_> {
 
     /// FUN_10031d7c: the name in the rarity's colour.
     fn header(&self) -> String {
+        format!("<font color={}>{}</font><br>", self.rarity_colour(), self.it.name)
+    }
+
+    /// `N3Msg_GetRarityColor`: stat 688's colour name.
+    fn rarity_colour(&self) -> &'static str {
         const RARITY: [&str; 6] = ["CCItemUnknown", "CCItemTrash", "CCItemNormal", "CCItemExotic", "CCItemQuest", "CCItemSocial"];
         let rarity = self.stat(688).unwrap_or(0).max(0) as usize;
-        format!("<font color={}>{}</font><br>", RARITY.get(rarity).unwrap_or(&RARITY[0]), self.it.name)
+        RARITY.get(rarity).unwrap_or(&RARITY[0])
     }
 
     /// FUN_100335df: NODROP, UNIQUE, playshift requirements.
@@ -570,33 +575,64 @@ pub fn nano_page(db: &ResourceDatabase, id: u32, player: &BTreeMap<u32, i64>) ->
 /// The page of an item at a quality (FUN_10038f6b by item class, stat 76): a weapon's (1, FUN_1003732c), armour's (2,
 /// FUN_1003826b) and implants' (3 and 5, FUN_10038586), else the general one (FUN_1003882b).
 pub fn item_page(db: &ResourceDatabase, low: u32, high: u32, ql: u32, player: &BTreeMap<u32, i64>) -> Option<String> {
+    let c = item_ctx(db, low, high, ql, player)?;
+    // (`OnLookatItem`'s tips, by the item's name)
+    crate::tips::trigger("OnLookatItem", &c.it.name);
+    Some(c.page(false))
+}
+
+/// An item's tooltip (GUI.dll FUN_10042193, the item lists' tip): the title, the name in its rarity's colour
+/// (`N3Msg_GetRarityColor`), and, while `ItemDescriptionTooltips` is on (the shipped `LoginPrefs.xml` has it on; every
+/// item list has its +0x368 flag from FUN_100423fc), the text: the item's page as FUN_10038f6b builds it for a tip
+/// (its fourth argument 1), which leaves out the header and the description on every page, and on the general and the
+/// implant pages the requirements and the skills to use as well.
+pub fn item_tip(db: &ResourceDatabase, low: u32, high: u32, ql: u32, player: &BTreeMap<u32, i64>) -> Option<(String, String)> {
+    let c = item_ctx(db, low, high, ql, player)?;
+    let title = format!("<font color={}>{}</font>", c.rarity_colour(), c.it.name);
+    Some((title, c.page(true)))
+}
+
+fn item_ctx<'a>(db: &'a ResourceDatabase, low: u32, high: u32, ql: u32, player: &'a BTreeMap<u32, i64>) -> Option<Ctx<'a>> {
     let level = player.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1).max(1) as u32;
     let (data, it) = crate::derived::item_at(db, low, high, ql)?;
-    // (`OnLookatItem`'s tips, by the item's name)
-    crate::tips::trigger("OnLookatItem", &it.name);
     let entry = mao_net::inventory::Entry { slot: 0, flags: 0, count: 1, container: (0, 0), low_id: low, high_id: high, quality: ql, extra: 0 };
     let actions = crate::derived::actions(db, &entry);
-    let c = Ctx { db, it, data, actions, low, ql, level, nano: false, player };
-    let parts: Vec<String> = if c.stat(76) == Some(1) {
-        vec![
-            c.header(), c.flags(), c.temporary(), c.pvp(), c.ammo(), c.rarity(), c.requirements(), c.ammo_type(), c.damage(), c.dps(), c.speed(),
-            c.equip_delay(), c.initiative(), c.location(), c.range(), c.dual_wield(), c.specials(), c.max_beneficial(),
-            c.skills(12, "AtkSkills"), c.skills(13, "DefSkills"), c.modifiers(), c.skill_to_use(), c.damage_type(), c.description(),
-        ]
-    } else if matches!(c.stat(76), Some(2) | Some(3) | Some(5)) {
-        // (armour FUN_1003826b, implants FUN_10038586: no charges, the skills it is used with after the modifiers;
-        // armour's "Fabric" shows only in a debug input mode)
-        vec![c.header(), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.requirements(), c.location(), c.modifiers(), c.skill_to_use(), c.description()]
-    } else {
-        // (FUN_1003882b: after the modifiers the vicinity and personal modifier lists (24, 25, 26: FUN_10032f25,
-        // FUN_10032fc1, FUN_1003305d), the skills it is used with (FUN_100330f9), then the charges)
-        vec![
-            c.header(), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.requirements(), c.location(), c.modifiers(),
-            c.modifier_list(24, "VicinityFriendModifier"), c.modifier_list(25, "VicinityHostileModifier"), c.modifier_list(26, "PersonalModifier"),
-            c.skill_to_use(), c.charges(), c.description(),
-        ]
-    };
-    Some(parts.concat())
+    Some(Ctx { db, it, data, actions, low, ql, level, nano: false, player })
+}
+
+impl Ctx<'_> {
+    /// FUN_10038f6b's item pages; `tip` its fourth argument (FUN_10042193's 1), which drops the sections each page
+    /// tests it for.
+    fn page(&self, tip: bool) -> String {
+        let c = self;
+        let unless_tip = |s: String| if tip { String::new() } else { s };
+        let parts: Vec<String> = if c.stat(76) == Some(1) {
+            // (FUN_1003732c: the header and the description not in a tip)
+            vec![
+                unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.ammo(), c.rarity(), c.requirements(), c.ammo_type(), c.damage(), c.dps(), c.speed(),
+                c.equip_delay(), c.initiative(), c.location(), c.range(), c.dual_wield(), c.specials(), c.max_beneficial(),
+                c.skills(12, "AtkSkills"), c.skills(13, "DefSkills"), c.modifiers(), c.skill_to_use(), c.damage_type(), unless_tip(c.description()),
+            ]
+        } else if c.stat(76) == Some(2) {
+            // (armour FUN_1003826b: no charges, the skills it is used with after the modifiers; "Fabric" only in a
+            // debug input mode; the header and the description not in a tip)
+            vec![unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.requirements(), c.location(), c.modifiers(), c.skill_to_use(), unless_tip(c.description())]
+        } else if matches!(c.stat(76), Some(3) | Some(5)) {
+            // (implants FUN_10038586: as armour's, but in a tip without the header, the requirements and the skills to
+            // use; the description is there)
+            vec![unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), unless_tip(c.requirements()), c.location(), c.modifiers(), unless_tip(c.skill_to_use()), c.description()]
+        } else {
+            // (FUN_1003882b: after the modifiers the vicinity and personal modifier lists (24, 25, 26: FUN_10032f25,
+            // FUN_10032fc1, FUN_1003305d), the skills it is used with (FUN_100330f9), then the charges; in a tip
+            // without the header, the requirements, the skills to use and the description, which an NF crystal keeps)
+            vec![
+                unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), unless_tip(c.requirements()), c.location(), c.modifiers(),
+                c.modifier_list(24, "VicinityFriendModifier"), c.modifier_list(25, "VicinityHostileModifier"), c.modifier_list(26, "PersonalModifier"),
+                unless_tip(c.skill_to_use()), c.charges(), unless_tip(c.description()),
+            ]
+        };
+        parts.concat()
+    }
 }
 
 /// `itemid://<type>/<instance>`: the identity.
@@ -664,6 +700,10 @@ mod tests {
             let page = item_page(&db, w, w, 100, &level200).unwrap();
             println!("weapon {w}\n{page}");
             assert!(page.contains("Damage") && page.contains("Dps: "));
+            // (its tip, FUN_10042193: the name in its rarity's colour as the title; the page without the header)
+            let (title, tip) = item_tip(&db, w, w, 100, &level200).unwrap();
+            assert!(title.starts_with("<font color=CCItem") && title.ends_with("</font>"));
+            assert!(tip.contains("Damage") && !tip.contains(&title) && page.contains(&title));
         }
         // (and a nano program's)
         let nano = (95_000..96_000).find(|&id| db.get(Id { kind: item::NANO_TEMPLATE, instance: id }).ok().flatten().is_some()).unwrap();

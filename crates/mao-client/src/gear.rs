@@ -275,69 +275,23 @@ pub const TABS: &[(&str, &[(&str, Option<u32>)])] = &[
     ),
 ];
 
-/// An item's tip: its name, place, quality, stack, description, what it needs and what it adds.
-pub fn tooltip(ui: &mut egui::Ui, item: &GearItem, label: &str, stats: &std::collections::BTreeMap<u32, i64>, accent: egui::Color32) {
+/// An item's tip, as the original's item lists give it (GUI.dll FUN_10042193): the title, the name in its rarity's
+/// colour, and under it the item's page as a tip shows it (`iteminfo::item_tip`: the info view's sections without the
+/// header and the description, and on some pages without the requirements). The original's `ItemDescriptionTooltips`
+/// preference (on in the shipped `LoginPrefs.xml`) is taken as on. Without the game's database, the name alone.
+pub fn tooltip(ui: &mut egui::Ui, item: &GearItem, stats: &std::collections::BTreeMap<u32, i64>, palette: &crate::theme::Palette) {
     ui.set_max_width(320.0);
-    ui.label(egui::RichText::new(&item.name).strong().color(accent));
-    let mut line = String::new();
-    if !label.is_empty() {
-        line += label;
-    }
-    if item.quality > 1 {
-        if !line.is_empty() {
-            line += "  ";
+    let font = crate::gui::font::FontId::NORMAL;
+    let colour = crate::chrome::rgb(palette.text);
+    match crate::net::item_db().and_then(|db| crate::gui::iteminfo::item_tip(&db, item.item_id, item.high_id, item.quality, stats)) {
+        Some((title, text)) => {
+            crate::gui::controls::markup(ui, palette, &title, font, colour);
+            if !text.is_empty() {
+                crate::gui::controls::markup(ui, palette, &text, font, colour);
+            }
         }
-        line += &format!("QL {}", item.quality);
-    }
-    if item.bag {
-        line += "  (bag)";
-    }
-    if !line.is_empty() {
-        ui.label(egui::RichText::new(line).small());
-    }
-    if item.count > 1 {
-        ui.label(egui::RichText::new(format!("{} in the stack", item.count)).small());
-    }
-    if !item.description.is_empty() {
-        let text: String = item.description.chars().take(420).collect();
-        ui.label(text.replace("\r\n", "\n"));
-    }
-    for action in item.actions.iter().filter(|a| a.kind == 6 || a.kind == 8 || a.kind == 3) {
-        let lines = requirement_lines(&action.criteria, stats);
-        if lines.is_empty() {
-            continue;
-        }
-        ui.separator();
-        let what = match action.kind {
-            6 => "To wear",
-            8 => "To wield",
-            _ => "To use",
-        };
-        ui.label(egui::RichText::new(what).small().color(accent));
-        for (text, met) in lines {
-            let color = match met {
-                Some(true) => egui::Color32::from_rgb(120, 220, 120),
-                Some(false) => egui::Color32::from_rgb(230, 110, 110),
-                None => ui.visuals().text_color(),
-            };
-            ui.label(egui::RichText::new(text).color(color));
-        }
-    }
-    if !item.effects.is_empty() {
-        ui.separator();
-        ui.label(egui::RichText::new("When worn").small().color(accent));
-        for &(stat, amount) in item.effects.iter().filter(|e| e.1 != 0).take(10) {
-            ui.horizontal(|ui| {
-                ui.label(crate::skills::stat_name(stat));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let color = if amount > 0 { egui::Color32::from_rgb(120, 220, 120) } else { egui::Color32::from_rgb(230, 110, 110) };
-                    ui.label(egui::RichText::new(format!("{amount:+}")).color(color));
-                });
-            });
-        }
-        let more = item.effects.iter().filter(|e| e.1 != 0).count().saturating_sub(10);
-        if more > 0 {
-            ui.label(egui::RichText::new(format!("... and {more} more")).small().weak());
+        None => {
+            ui.label(egui::RichText::new(&item.name).strong());
         }
     }
 }
