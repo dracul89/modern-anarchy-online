@@ -217,6 +217,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Fight lines about your own pet go to the "Your pet hit by other" and "Your pet hit by nano" chat groups, as in the original.
 - /help opens the game's command help in the info window, and /help <topic> (org, pet, team, raid, ...) the page for that topic.
 - Using a target or a perk no longer adds a "Using ..." line, and the use key with nothing targeted no longer says so (the original says nothing).
+- /fxscript with only a script's name no longer runs it (type `/fxscript <name> #`, as in the original), and no longer reports in chat what the script did.
 
 ### Movement
 

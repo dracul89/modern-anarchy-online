@@ -4521,7 +4521,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: when the name stands alone, a lone "#" is added so the script runs; started scripts and reader complaints are reported in chat
 - A player notices: /fxscript <name> runs the script where the original would not; extra feedback lines
 - Where: `crates/mao-client/src/chat_commands.rs:434`; `docs/CLIENT_UI.md:1253`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): `/fxscript <name>` no longer gets a lone "#" added: the line goes to the scripts' signal exactly as typed (GUI.dll FUN_100b70be: fewer than two words gives its usage line, else `SignalFXSScript(line, 0)`), so a bare name runs nothing, as in the original. The chat lines the client added after each run ("Script X: running (environment effect N)", "nothing was started" and up to four of the reader's complaints) are removed with `fxs_report` and `fxs::Ran`; `fxs::command` now only signals, and the reader's complaints stay in the engine's list, which the client already writes to its log (`take_messages`, MAO_FXS), as the original writes them to its log. Test `chat_commands` (3 pass; the lone-name case now expects the line unchanged). No new warnings.
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original runs a script only when a parameters part follows the name; adding the mark runs scripts the original would not.
 
 #### `CHT-073` /setoption names the client's own settings

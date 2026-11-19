@@ -1102,23 +1102,6 @@ pub fn fxs_command(line: String) {
     FXS_COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push(line);
 }
 
-/// What a `/fxscript` line did, for the chat window: the effect it started, or why nothing came of it.
-fn fxs_report(line: &str, ran: &crate::fxs::Ran) -> Vec<String> {
-    let name = line.split_whitespace().nth(1).unwrap_or("");
-    let mut out = Vec::new();
-    match (ran.made, ran.fxid) {
-        (true, Some(fxid)) => out.push(format!("Script {name}: running (environment effect {fxid}).")),
-        (true, None) => out.push(format!("Script {name}: running.")),
-        (false, _) => out.push(format!("Script {name}: nothing was started.")),
-    }
-    // (the reader's own complaints, a few of them: a missing file, a line it could not read)
-    out.extend(ran.errors.iter().take(4).map(|e| format!("  {e}")));
-    if ran.errors.len() > 4 {
-        out.push(format!("  ... and {} more", ran.errors.len() - 4));
-    }
-    out
-}
-
 /// The claims asked of the server (`n3::claims`; true: the check for what is waiting), sent by the game loop.
 static CLAIM_REQUESTS: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
 
@@ -10646,13 +10629,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     crate::fxs::script_event(iir.kind, &text, iir.place, position, now, &mut script_rand);
                 }
             }
-            // (`/fxscript`: the typed lines, each through the scripts' signal as the original's command sends it)
+            // (`/fxscript`: the typed lines, each through the scripts' signal as the original's command sends it; nothing
+            // is said of what came of it)
             for line in std::mem::take(&mut *FXS_COMMANDS.lock().unwrap_or_else(|e| e.into_inner())) {
-                let ran = crate::fxs::command(line.as_bytes());
-                let mut lines = CHAT_LINES.lock().unwrap();
-                for text in fxs_report(&line, &ran) {
-                    lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, text));
-                }
+                crate::fxs::command(line.as_bytes());
             }
             crate::fxs::frame_process();
             let (system_time, system_second) = state.game_clock.server_clock();

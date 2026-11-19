@@ -7452,3 +7452,7 @@ The client's own numbers floating up over the fight (damage dealt, taken and hea
 ### Using things says nothing (CHT-070)
 
 The client's own "Using <name>" line (on every use of the target and every perk action) and its "Nothing targeted to use" notice were removed. As in the original (N3Msg_UseItem; a perk's FUN_100427d6), a use is sent without any line, and the use key with nothing targeted does nothing.
+
+### /fxscript runs the line as typed (CHT-072)
+
+The client's own help for `/fxscript` was removed: a bare script name is no longer given a parameters mark, and no chat line tells what the script started or what its reader complained of. As in the original (GUI.dll FUN_100b70be), the typed line goes to the scripts' engine as it is, a script runs only when a parameters part follows its name (`/fxscript <name> #`), and the reader's complaints go to the log only.
