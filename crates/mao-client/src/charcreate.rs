@@ -1093,7 +1093,7 @@ mod tests {
             .chain(&["SelectHeight", "SelectBuild", "SelectHead", "SelectAppearance", "SelectionHelpText", "ButtonSelectFace", "ButtonGoBack", "BackToBreed", "ButtonNext", "ProceedToProfession", "ButtonExit", "SelectionsWillBeSaved"])
             .chain(&["ProfBack", "ProfNext", "ProfButtonDefault", "ProfessionDefault"])
             .chain(&["Nickname:", "NameButtonSuggest", "NameSuggest", "NameButtonFinish", "Finish_AreteLanding", "NameBack", "ChooseNick", "NickHelp", "BreedProfession", "MustEnterName"])
-            .chain(&["MorningStar", "GeosynchronousOrbit", "BoardingShuttle"])
+            .chain(&["MorningStar", "GeosynchronousOrbit", "BoardingShuttle", "DockingCompleted", "ContinuingDNA"])
             .map(|n| n.to_string())
             .collect();
         for (name, _) in BREED_NAMES {

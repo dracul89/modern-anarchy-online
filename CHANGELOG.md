@@ -203,6 +203,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A character creation you leave keeps its choices for the next time, even after the launcher was closed, until a character is made.
 - A new account with no characters now opens the character screen (with New Character) instead of being sent back to the login form.
 - A character still in the world after a disconnection shows the limbo window with a countdown and Login, as the original, instead of an error.
+- Character creation: the opening lines fade in and out slowly as in the original, the two lines about docking and continuing the DNA show on the way down, and after making a character the "boarding shuttle" line and the fade to black follow the original's six seconds.
 
 ### Graphics
 

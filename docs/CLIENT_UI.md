@@ -7730,3 +7730,7 @@ The environment's frame (Gamecode FUN_100b05b4) keeps a phase moving 50 degrees 
 ### The Connection page's time-outs (LCH-008)
 
 The original launcher (Anarchy.exe) keeps its Connection page's two time-outs in the game's own preferences, GeneralNetworkTimeout and DimensionNetworkTimeout (written at 0x4050cb), so the game's login and entering bars run over the launcher's values. On OK it takes each field as a plain number (atoi, 0x40ecdc) without a check; at its next start it raises one below 5 to 5 (0x404bad, 0x404cc1); there is no upper limit. The client keeps the two in launcher.ini the same way: the login's bar and now also the entering bar use the page's values when saved, else the game's own (90 and 30), with 5 the least and no cap.
+
+### Character creation's lines and the walk to the shuttle (LCH-024)
+
+GUI.dll's TextWindowFade_t fades a line in over its first number of seconds, holds it for the second and fades it out over the first again. CharCreateModule_t makes the intro's two lines (5, 4: fourteen seconds), then, once the way down's picture has come back (state 0x44e's four-second PlainSpriteFade_t), "Docking completed" and "Continuing DNA" (StaticDoneTimerCallback 3; 6, 4), unless the camera already rests in a scene. After a character is made (state 0x4b1) the walk to the shuttle starts and a second later "Boarding shuttle" shows (1, 1); as it ends the picture goes to black in two seconds and the creation ends, the walk cut short. The camera's transition times (1.9, 3.4, 3.7, 0.3 s) are the original's. The client now does all of this.

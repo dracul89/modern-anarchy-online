@@ -1162,6 +1162,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Outdoors on Rubi-Ka at night (a character with the expansion): small single-pixel stars twinkle over the star dome; nothing changes by day beyond what the dome shows.
 - [ ] Look at the sun in daylight outdoors on Rubi-Ka: the ray fan's spokes fade in and out slowly, each at its own rhythm (a full cycle about 7 seconds); the centre stays steady.
 - [ ] Launcher, Options, Connection page: set the dimension time-out to 45 and OK; enter a character: the loading bar runs over 45 seconds. Set a time-out to 2 and restart the launcher: it shows 5.
+- [ ] Make a character from the start: the two opening lines take about five seconds to appear and stay some fourteen seconds; on the way down two new lines (docking completed, continuing DNA) appear about four seconds in; after Done the walk starts, a line shows after a second, and about six seconds after Done the picture is black and the game starts loading.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

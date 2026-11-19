@@ -280,11 +280,19 @@ pub struct Caption {
     pub alpha: f32,
 }
 
-/// `TextWindowFade_t`'s times as the module makes its lines: shown for five seconds (six after the creation), of
-/// which the first and last second fade. (The class takes the two numbers 5 and 4; the fade's own length was not
-/// read, a second is this port's.)
-fn caption_alpha(age: f32, shown: f32) -> f32 {
-    (age.min(shown - age)).clamp(0.0, 1.0)
+/// `TextWindowFade_t` (GUI.dll 0x1004ad8a, `Run` 0x1004ad1e): a line of `fade` and `hold` seconds lasts `fade + hold +
+/// fade`; its alpha rises over the first `fade`, holds, and falls over the last `fade`. The module's lines: the intro's
+/// two (5, 4), the way down's two (6, 4), the shuttle's one (1, 1).
+fn caption_alpha(age: f32, fade: f32, hold: f32) -> f32 {
+    if age < 0.0 || age >= fade + hold + fade {
+        0.0
+    } else if age < fade {
+        age / fade
+    } else if age < fade + hold {
+        1.0
+    } else {
+        1.0 - (age - fade - hold) / fade
+    }
 }
 
 /// The creation's state machine.
@@ -307,6 +315,9 @@ pub struct Director {
     clock: f32,
     total: f32,
     intro_text: Option<f32>,
+    /// When the way down began, until its picture has come back (then the way down's two lines, from `docking_text`).
+    down_at: Option<f32>,
+    docking_text: Option<f32>,
     /// The black over the picture, 0 to 1, and what it goes to and how fast (a second's share).
     pub black: f32,
     black_to: (f32, f32),
@@ -328,6 +339,8 @@ impl Director {
             clock: 0.0,
             total: 0.0,
             intro_text: None,
+            down_at: None,
+            docking_text: None,
             black: 1.0,
             // (`RunIntro`: `PlainSpriteFade_t(10, 1)`, the picture comes up out of black in ten seconds)
             black_to: (0.0, 1.0 / 10.0),
@@ -394,17 +407,25 @@ impl Director {
     pub fn captions(&self) -> Vec<Caption> {
         let mut out = Vec::new();
         if let (Phase::Intro | Phase::Entering(Scene::Breed), Some(since)) = (self.phase, self.intro_text) {
-            let alpha = caption_alpha(self.total - since, 5.0);
+            let alpha = caption_alpha(self.total - since, 5.0, 4.0);
             if alpha > 0.0 {
                 out.push(Caption { text: "MorningStar", at: [0.5, 0.9], alpha });
                 out.push(Caption { text: "GeosynchronousOrbit", at: [0.5, 0.925], alpha });
             }
         }
+        // (`StaticDoneTimerCallback` 3: once the way down's picture is back, two lines of 6 and 4 seconds)
+        if let Some(since) = self.docking_text {
+            let alpha = caption_alpha(self.total - since, 6.0, 4.0);
+            if alpha > 0.0 {
+                out.push(Caption { text: "DockingCompleted", at: [0.5, 0.9], alpha });
+                out.push(Caption { text: "ContinuingDNA", at: [0.5, 0.925], alpha });
+            }
+        }
         if self.phase == Phase::Leaving {
-            // (`StaticDoneTimerCallback`: three lines, the first alone, then two)
-            let first = caption_alpha(self.clock, 6.0);
-            if first > 0.0 {
-                out.push(Caption { text: "BoardingShuttle", at: [0.5, 0.9], alpha: first });
+            // (`StaticDoneTimerCallback` 4, a second after the walk began: one line of 1 and 1 seconds)
+            let alpha = caption_alpha(self.clock - 1.0, 1.0, 1.0);
+            if alpha > 0.0 {
+                out.push(Caption { text: "BoardingShuttle", at: [0.5, 0.9], alpha });
             }
         }
         out
@@ -438,6 +459,14 @@ impl Director {
                 self.settle(scene);
             }
         }
+        // (state 0x44e's `PlainSpriteFade_t(4, 1)` ends: `StaticDoneTimerCallback` 3 makes the way down's lines, unless a
+        // scene is set and the camera already rests there, Escape having cut the flight short)
+        if let Some(at) = self.down_at.filter(|at| self.total - at >= 4.0) {
+            self.down_at = None;
+            if !self.mover.at_rest() {
+                self.docking_text = Some(at + 4.0);
+            }
+        }
         match self.phase {
             Phase::Intro => {
                 if self.mover.at_rest() {
@@ -446,6 +475,7 @@ impl Director {
                         self.mover.play(keys, seconds);
                     }
                     self.black_to = (0.0, 1.0 / 4.0);
+                    self.down_at = Some(self.total);
                     self.enter(Scene::Breed);
                 } else {
                     let gone = self.mover.progress() * self.mover.seconds();
@@ -472,8 +502,13 @@ impl Director {
             }
             Phase::In(_) => {}
             Phase::Leaving => {
+                // (the shuttle's line ends four seconds in, `StaticDoneTimerCallback` 6: `PlainSpriteFade_t(2, 0)`, to black in
+                // two seconds; at its end 5, the module shuts down, whether the walk is over or not)
+                if self.clock >= 4.0 && self.black_to.0 < 1.0 {
+                    self.black_to = (1.0, 1.0 / 2.0);
+                }
                 self.mover.step(dt);
-                return self.mover.at_rest() && self.black >= 1.0;
+                return self.clock >= 4.0 && self.black >= 1.0;
             }
         }
         self.mover.step(dt);
@@ -533,8 +568,8 @@ impl Director {
         if order == Order::Made {
             self.phase = Phase::Leaving;
             self.clock = 0.0;
-            // (`StaticDoneTimerCallback`: the picture goes to black as the walk ends; two seconds for it)
-            self.black_to = (1.0, 1.0 / 8.0);
+            // (state 0x4b1: the walk `4 3` and a second's timer; the picture stays until the shuttle's line is over)
+            self.black_to = (self.black, 0.0);
         }
     }
 }
@@ -694,5 +729,33 @@ mod tests {
         assert_eq!(d.phase, Phase::Entering(Scene::Profession));
         d.go(Order::Made);
         assert_eq!(d.phase, Phase::Leaving);
+    }
+
+    /// `TextWindowFade_t`: in over the fade, held, out over the fade; the shuttle's line a second after the walk began,
+    /// then two seconds to black, and the creation ends six seconds in (`StaticDoneTimerCallback` 4, 6, 5).
+    #[test]
+    fn the_lines_fade_and_the_walk_ends_in_black() {
+        assert_eq!((caption_alpha(2.5, 5.0, 4.0), caption_alpha(7.0, 5.0, 4.0), caption_alpha(11.5, 5.0, 4.0), caption_alpha(14.0, 5.0, 4.0)), (0.5, 1.0, 0.5, 0.0));
+        assert_eq!((caption_alpha(-0.1, 1.0, 1.0), caption_alpha(0.5, 1.0, 1.0), caption_alpha(2.5, 1.0, 1.0)), (0.0, 0.5, 0.5));
+        let mut d = Director::new(file());
+        d.frame(0.02);
+        d.frame(0.02);
+        d.black = 0.0;
+        d.go(Order::Made);
+        let mut seen = Vec::new();
+        let mut ended = None;
+        for k in 1..=400 {
+            if d.frame(0.02) {
+                ended = Some(k as f32 * 0.02);
+                break;
+            }
+            if let Some(c) = d.captions().into_iter().find(|c| c.text == "BoardingShuttle") {
+                seen.push((k as f32 * 0.02, c.alpha));
+            }
+        }
+        let (first, last) = (seen.first().unwrap().0, seen.last().unwrap().0);
+        assert!((first - 1.0).abs() < 0.05 && (last - 4.0).abs() < 0.05, "{first} {last}");
+        let ended = ended.unwrap();
+        assert!((ended - 6.0).abs() < 0.05, "{ended}");
     }
 }
