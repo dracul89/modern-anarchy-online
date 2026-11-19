@@ -4793,7 +4793,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: tips.rs `matches` treats `*x` as "ends with x", the evident intent
 - A player notices: eleven tips fire on items/playfields ending with the text, where the original fires only on data starting with it
 - Where: `docs/ORIGINAL_CODE_QUESTIONS.md:23`; `crates/mao-client/src/tips.rs:69`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): GUI.dll's tip matcher FUN_100539be compares a `*x` pattern from the start of the data (`CompareNoCase(data, x, len - 1)`), the same as `x*`; only `*x*` (three or more characters) searches inside. `tips::matches` now does the same (it took `*x` as "ends with x"). Test: `tips::tests::patterns`. The eleven tips with such patterns now fire as the original's do.
 
 #### `WIN-021` Windows can be dragged anywhere; pin/dock hints in the client's words
 

@@ -66,8 +66,9 @@ pub fn parse_header(text: &str) -> Vec<Tip> {
     out
 }
 
-/// FUN_100539be: whether an event's data matches a tip's pattern (empty: all; `*x*` holds x; `*x` ends in x; `x*`
-/// begins with it; else the same), without regard to case. An event without data matches every tip of the event.
+/// FUN_100539be: whether an event's data matches a tip's pattern (empty: all; `*x*` holds x; `*x` and `x*` both begin
+/// with x, as the original compares `*x` from the data's start (`CompareNoCase(data, x, len - 1)`); else the same),
+/// without regard to case. An event without data matches every tip of the event.
 pub fn matches(pattern: &str, data: &str) -> bool {
     if pattern.is_empty() || data.is_empty() {
         return true;
@@ -75,8 +76,7 @@ pub fn matches(pattern: &str, data: &str) -> bool {
     let (p, d) = (pattern.to_lowercase(), data.to_lowercase());
     match (p.strip_prefix('*'), p.strip_suffix('*')) {
         (Some(_), Some(_)) if p.len() >= 3 => d.contains(&p[1..p.len() - 1]),
-        (Some(end), _) => d.ends_with(end),
-        (None, Some(start)) => d.starts_with(start),
+        (Some(start), _) | (None, Some(start)) => d.starts_with(start),
         (None, None) => d == p,
     }
 }
@@ -401,8 +401,11 @@ mod tests {
         assert!(matches("guard", "Guard"));
         assert!(!matches("Guard", "Guardian"));
         assert!(matches("Remains*", "Remains of Leet"));
-        assert!(matches("*Training", "Arete Training"));
-        assert!(matches("*Startup Crystal - Quick Heal", "Doctor: Startup Crystal - Quick Heal"));
+        // (`*x` is the original's prefix match, not "ends with")
+        assert!(!matches("*Training", "Arete Training"));
+        assert!(matches("*Arete", "Arete Training"));
+        assert!(!matches("*Startup Crystal - Quick Heal", "Doctor: Startup Crystal - Quick Heal"));
+        assert!(matches("*", "anything"));
         assert!(matches("*Basic*", "a basic board"));
         assert!(!matches("*Basic*", "a board"));
     }

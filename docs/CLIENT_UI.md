@@ -7321,3 +7321,7 @@ The original keeps each shortcut bar's frame in the character's `Containers/Shor
 ### A text button is as big as its text (WIN-019)
 
 The original's text buttons (`TextButton_c::CalculatePreferredSize` 0x10004e3f) are as big as the text they show now: raised, pressed or under the pointer. The client used the widest of the three; it now uses the shown one.
+
+### Tip patterns as the original matches them (WIN-020)
+
+The original's tips (GUI.dll FUN_100539be) match a pattern `*x` against the start of an item's or playfield's name, as `x*`; only `*x*` looks inside the name. The client had taken `*x` as "ends with"; it matches as the original now, so those eleven tips fire where the original's do.
