@@ -2098,6 +2098,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Swapping a worn item by use takes about a second per step.
 - Where: `crates/mao-client/src/net.rs:8489`; `docs/CLIENT_UI.md:3661`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The client's one-move-at-a-time queue for a swap by use was added after the user's live log (a jetpack swapped for a key: the key's wearing, sent in the turn after the jetpack's taking off, was never answered and the key came back), and Gamecode's `N3Msg_UseItem` (0x10028883, FUN_10047732 / FUN_1004b3ee before the move) does send both at once. Whether the server takes both when the original's timing is copied cannot be tested without the live game, and removing the queue would bring back a failure seen live; needs a live test of a swap by use with both moves sent together.
 
 #### `INV-007` Right click takes an item out of a corpse
 
@@ -2117,6 +2118,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A different way of choosing how many to split off.
 - Where: `crates/mao-client/src/invwindows.rs:29`; `docs/CLIENT_UI.md:3633`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's split mode (GUI.dll FUN_10041926 on Ctrl+left press over a stack of more than one; FUN_10041ca4 on each move) captures the mouse: it keeps putting the pointer back at the press point (WindowController_c +0x48), adds the sideways movement (FUN_10173b80) to the count kept at +0x308, clamped to 1..count-1, and shows it in a small window of its own (`Window` with style 0xd3c and a `TextView_c`); the release raises the pick-up with that count. Doing that here needs pointer warping and a borderless count window, which egui does not give without platform calls; the client's number box ends in the same split. Left as it is.
 
 #### `INV-009` Ctrl+double left click puts an item into the trade, instead of Ctrl+right click
 
@@ -2125,7 +2127,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The second click of a Ctrl+double left click raises a trade add (documented as a shop sale only).
 - A player notices: A different gesture is needed to put an item into a trade.
 - Where: `crates/mao-client/src/invwindows.rs:20`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already done: the Ctrl+double left click trade add is gone (`invwindows::click` has no such case); Ctrl+right click puts the item into an open trade (`events.trade_adds`, FUN_100cae1b's qualifiers 0xc), as the original. No change.
 
 #### `INV-010` Delete confirmation uses the client's own wording
 
@@ -2144,7 +2147,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A press that moves out of a corpse or chest takes the item up, and it is taken when let go over the inventory window.
 - A player notices: Looting can be done by dragging as well as clicking.
 - Where: `crates/mao-client/src/loot.rs:485`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already done: a corpse's or chest's item is taken into the inventory by a click (`loot::container_click`'s `Take`, FUN_100cc6e8's `MoveItemToInventory`); a press that moves takes nothing (`multilist::click_only`, `MultiListView_c::MouseUp` 0x10133d04). Items are taken up only in one's own backpack and the bank. No change.
 
 #### `INV-012` Over-full container grows a row
 
@@ -2154,6 +2158,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: An over-full container shows extra rows.
 - Where: `crates/mao-client/src/places.rs:117`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Where the original puts an item when a container has no free cell left is `MultiListView_c::GetFirstFreePos` past `SetMaxItemCount` (FUN_100ce25d calls it), which was not read tonight; the client's extra row stands until it is.
 
 #### `INV-013` Shift+right-click inventory menu (Info, Use, Delete) is the client's own
 
@@ -2173,6 +2178,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Items the original refuses may be tried.
 - Where: `crates/mao-client/src/net.rs:1109`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Gamecode FUN_10081d5f does refuse silently an item without the wear bit (4) in its stat 30, read on the inventory's `DummyItemBase_t`. The client left it out because a garden key whose template's stat 30 reads 1 (carry) is worn in play; the item object's stat 30 may then not be the template's, or the client's template reading wrong. Porting the check could stop the player wearing that key; needs the key's stat 30 as the original's item object has it (a capture or the info view in the original).
 
 #### `INV-015` Wear to another allowed place
 
@@ -2253,7 +2259,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Every right click pushes events.uses; the window has no wear or take-off rule of its own.
 - A player notices: Right clicking armour, weapons or implants depends on what the server does with a Use.
 - Where: `crates/mao-client/src/invwindows.rs:583`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already done before tonight: a right click on an item in the inventory or wear window pushes a use (invwindows.rs), which ui.rs hands to the network thread as the hotbar's use (`keys.fire`), and there Gamecode's `N3Msg_UseItem` (0x10028883) rule is ported (net.rs, "A hotbar item"): an own item whose `Can` (stat 30) lacks the use bit 8 is worn (page from stat 76, place from stat 88 or another allowed by stat 298) or taken off into the first free backpack place, after `N3Msg_IsItemPossibleToWear` / `...ToUnWear`, else the Use is sent. As in the original the rule is not the window's but the use's. No change.
 
 #### `INV-023` Spell texts: only listed spell types written, some English words fixed
 
@@ -2273,6 +2280,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Moving a waiting building item may make its node vanish from the map.
 - Where: `crates/mao-client/src/citymap.rs:192`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): An item waiting on the city map is locked in the inventory in both clients (`InventoryItemLocker_c`; here `Map::locked` and `DroppedItemWasLocked`), so the player cannot move it; the only identity change FUN_100e46fc follows is one the server makes, and no message for an item's identity changing in place was identified in the client (it sees the backpack anew and matches by place and template). Needs a capture where the server re-numbers a pending building item.
 
 #### `INV-025` Deleted item leaves the window at once with a client line
 
@@ -2292,6 +2300,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some drops the original allows do nothing.
 - Where: `docs/GUI_DLL_PARITY.md:50`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes-only umbrella: `DragObject_c` carries items, nanos and actions to bars, windows and characters; the parts the client lacks are each a target's own drop handler (the chat line's, the knowledge window's, another character's), several already separate entries (INV-031, INV-063). Nothing small and certain to port under this entry alone.
 
 #### `INV-027` Inventory grid starts five columns wide
 
@@ -2301,6 +2310,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The inventory window opens with a different shape than the original.
 - Where: `crates/mao-client/src/invwindows.rs:319`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's inventory view is made with an empty `Rect` (FUN_100ccefe) and opens at the window system's frame for `inventory_window`; the shipped files (`gui/Default`) hold no default frame for it (only `CharPrefs.xml`'s open flag and the menu entry), so the original's first width was not found. The five columns stay until a reference shot of a fresh character's inventory is measured.
 
 #### `INV-028` Item action chunk read only when 2 to 9 actions fit whole
 
@@ -2310,6 +2320,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: An item with a larger action chunk shows no requirements.
 - Where: `crates/mao-formats/src/item.rs:404`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The action chunk is read by the client's own template reader (`mao_formats::item`), which INV-042 covers; the original reads templates through GameData.dll's reader (`exports_gamedata`), and porting its chunk reading is that larger job, not a change to the count limits alone.
 
 #### `INV-029` Item menu: Delete on wear pages, no Lock/Unlock, no Looter
 
@@ -2329,6 +2340,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: per-item changes (charges used, modifications) may not appear on the page.
 - Where: `crates/mao-client/src/gui/iteminfo.rs:2`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's pages read `N3Msg_GetSkill` on the item object (the inventory's `DummyItemBase_t` with the stats the server sent for that item); the client keeps no per-item stats, only each entry's template, quality and count, and the messages that would carry an item's own stats were not identified in the captures. Needs a capture with an item whose stats differ from its template's (a used charge, a modified item).
 
 #### `INV-031` Mail and market deposit: a click takes the item out, not a drag
 
@@ -2338,6 +2350,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Removing the attached item needs a click, not a drag.
 - Where: `crates/mao-client/src/mailmessage.rs:301`; `crates/mao-client/src/marketsend.rs:127`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The mail and market item places are drag sources in the original (a slot view's drag start); the client's slot control (`gui::itemslot`) has no drag source, and making one is a change to the shared drag system (`gear::held` / DragAndDrop) for a small gain; a click empties the place with the same result.
 
 #### `INV-032` Perk criteria: social-armour flag not tracked
 
@@ -2347,6 +2360,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Perks may show as trainable while social armour is on.
 - Where: `crates/mao-client/src/perks.rs:181`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): `CanWear`'s social-armour test reads the character's +0x138 bit 1, which a spell sets when social armour is worn; the client does not run that spell or keep the flag, so it cannot be judged without guessing it from the worn social items (FUN_10080aff's tests on stat 702 were not read for the flag's setting).
 
 #### `INV-033` Requirements: an unreported stat reads as 0
 
@@ -2356,6 +2370,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A requirement on an unsent stat may pass or fail by that default.
 - Where: `crates/mao-client/src/requirements.rs:183`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): `requirements::Own` reads a stat the server never sent as 0; the original's `GetStat` on a character falls back to the stat's own default from Gamecode's stat table (FUN_100368d0 fills the tables `fStatToString` reads; the defaults' table was not found tonight). The world's checks (`World`, `derived::judged_one`) already read the shown values. Needs the stat default table read.
 
 #### `INV-034` Tooltip description cut to 420 characters
 
@@ -2394,6 +2409,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Scale stats are set locally.
 - Where: `crates/mao-client/src/net.rs:1515`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes say the server sends no list for worn items' temporary sets, so the client runs them; whether the original runs them itself (its spell runner, FUN_100a5f4b, on the wear event) or takes them from the server was not settled tonight (see INV-053: the spell executor). No change.
 
 ### Inventory and items: the original was not read: inferred or measured (8)
 
@@ -2405,6 +2421,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a second use of an open backpack closes its window instead of re-sending the use
 - Where: `crates/mao-client/src/ui.rs:1392`; `crates/mao-client/src/ui.rs:1405`; `docs/CLIENT_UI.md:3332`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's GUI does not toggle a bag: a second use sends the use again (FUN_100cae1b), and the window goes only when the server answers with item action 0x66 (Gamecode 10087f63 -> `Chest_t` +0xb4 FUN_1007e6e2 -> `SlotContainerClosed` 0x100c757b); the window's own close also uses the bag again (FUN_100ca891). The client neither handles the server's 0x66 for a bag nor knows what bytes the use of `(0xc749, instance)` carries (docs/INVENTORY_ORIGINAL.md: not traced), and no capture has a second use or a 0x66: sending the use without that would leave the window up for good. Needs a capture of a backpack used twice in the original. (The bank's part of the window close is ported under INV-051.)
 
 #### `INV-039` Given backpack recognised by capture bytes
 
@@ -2414,6 +2431,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A new character's pack may be missed.
 - Where: `crates/mao-client/src/net.rs:731`; `docs/CLIENT_UI.md:4593`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The given backpack is recognised by two bytes seen in captures; the original reads that message with its own class reader, which was not identified, so the rule cannot be replaced without finding the message's class first.
 
 #### `INV-040` Hotbar item use picks the first stack, backpack before worn
 
@@ -2423,6 +2441,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Which stack is used and the message wording may differ.
 - Where: `crates/mao-client/src/viewer.rs:951`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Which stack a hotbar item fires was not found in GUI.dll's shortcut code tonight (the bar keeps the item's template, and the lookup of a place for it was not traced); the message wording is the client's because the original's was not found either.
 
 #### `INV-041` Inventory list end found by a heuristic
 
@@ -2432,6 +2451,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: An item with unusual flags would cut the inventory short.
 - Where: `crates/mao-net/src/inventory.rs:58`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The inventory list's end is found by a heuristic because the world-entry message's tables are not fully read (mao-net `inventory.rs`); the original's reader of that message (its class reader in Gamecode) would have to be ported as a whole.
 
 #### `INV-042` Item template parsed by heuristics, not the original's reader
 
@@ -2441,6 +2461,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: An item with an unusual record may show no name or no actions.
 - Where: `crates/mao-formats/src/item.rs:442`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The item template reader is the client's own (`mao_formats::item`); the original's is GameData.dll's class reader (`exports_gamedata`), a port of its own size (it also settles INV-028).
 
 #### `INV-043` Place of an item moved or looted into a container is a guess
 
@@ -2450,6 +2471,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Item may sit in a different slot than on the server until refreshed.
 - Where: `crates/mao-client/src/net.rs:3021`; `crates/mao-client/src/net.rs:3048`; `docs/CLIENT_UI.md:1774`; `docs/CLIENT_UI.md:1776`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Where the server puts a moved or looted item is the server's choice; the client's guess stands until the next inventory update. Needs captures of the server's answer for each container kind.
 
 #### `INV-044` Slot names 1, 2, 8, 29, 46+ are guesses
 
@@ -2459,6 +2481,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some slot names may be wrong.
 - Where: `docs/GAME_WINDOWS.md:31`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Slot names guessed from one capture; no other source in the client's reach tonight.
 
 #### `INV-045` Worn places rule and place 15 are inferred
 
@@ -2468,6 +2491,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Bonuses from place 15 items may be wrong.
 - Where: `crates/mao-client/src/derived.rs:15`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Which places count as worn (and place 15) is inferred; the original's rule would be in the stat engine's item walk, not found tonight.
 
 ### Inventory and items: a guard or fallback the original lacks (2)
 
@@ -2489,6 +2513,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: only without game files.
 - Where: `crates/mao-client/src/gui/criteria.rs:44`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Kept as is: the fallback to the client's own stat names is used only without the game's text database (tests and pictures); in play the names are always text category 2003's, as the original's, so nothing a player sees changes.
 
 ### Inventory and items: the original does it, the client does not (31)
 
@@ -2539,7 +2564,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: none done; the client only hides the bag window. (Ground drop and use-on-a-character were not found in the code; several other parts are separate entries here.)
 - A player notices: several inventory behaviours differ
 - Where: `docs/CLIENT_UI.md:3640`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The entry's list is out of date; each part is done or is its own entry: ground drop and use on a character (`dropitem.rs`, GUI.dll FUN_100cbcb5 with `N3Msg_IsDropPossible`, `N3Msg_UseItemOnCharacter`), Ctrl+right click adds to a trade (invwindows.rs `trade_adds`, FUN_100cae1b's qualifiers 0xc), the windows' own menus (List Mode, Auto Arrange, Labels On Top, Unlock All Items: FUN_100cbace, FUN_100e20d6, invwindows.rs and loot.rs), corpse right click and Take all (INV-007, INV-080). Left under other entries: a bag window's close sending the use again (INV-038; the bank's part done in INV-051) and an unfit wear place leaving the item in hand (INV-020).
 
 #### `INV-053` Item effects with requirements other than level are left out
 
@@ -2549,6 +2575,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Effects that depend on another stat never count.
 - Where: `crates/mao-formats/src/item.rs:61`; `docs/STAT_ENGINE.md:76`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The client's modifier sums (`item::modifiers_at`, `derived.rs`) are computed afresh from the worn list each time; the original runs an item's spells through its spell engine when the item's event (wear) fires, and a spell's requirements are judged then, on the character as it is at that moment (the criteria evaluator is FUN_100065d8; the spell executor is not named in the decompile and was not found tonight). Judging other requirements in the stateless sum would make the sum depend on itself (a requirement on a stat the same items raise) and on the order items were put on, which the client does not keep. Needs the spell executor read first; the notes (docs/STAT_ENGINE.md) found the computed stats matching the original in three characters with only level requirements read.
 
 #### `INV-054` Item pages: shop price, nano radius, armour/implant/nano sections, fixtures, towers, buildings missing
 
@@ -2607,7 +2634,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Join is sent only for inventory items (0x68); an inventory item put into a bag takes the first free cell.
 - A player notices: Stacking inside bags unsupported.
 - Where: `docs/CLIENT_UI.md:3625`; `crates/mao-client/src/net.rs:8412`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already done before tonight: stacks join and split inside one's own backpack as in the inventory (loot.rs `Take::Join` and `Take::Split` through FUN_100cc855's rules, `places::joins`; net.rs `join_entries` on the bag's entries for the server's 0x35, `split_entry` for a bag); the entry quoted an older note.
 
 #### `INV-060` Bank item dropped on a bag window: only the inventory rectangle is tested
 
@@ -2657,6 +2685,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: None for normal play.
 - Where: `crates/mao-client/src/gui/iteminfo.rs:573`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The "Fabric" line (FUN_10033805) is written only while `InputConfig_t`'s check mode is on (a debug input mode, `CheckMode()`), which players never have; nothing a player sees is missing.
 
 #### `INV-065` Item pages: stats not interpolated between the low and high templates
 
@@ -2677,6 +2706,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some locked states not shown.
 - Where: `docs/CLIENT_UI.md:4882`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes-only umbrella of lock states (an item's own wait, nano points, locked-special lines); each needs its own reading of the shortcut bar's and the lists' fading code, not done tonight.
 
 #### `INV-067` Mail: total cost not shown
 
@@ -2686,6 +2716,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No total cost shown when sending mail.
 - Where: `docs/CLIENT_UI.md:141`; `crates/mao-client/src/mailbox.rs:3`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): No total cost was found in GUI.dll's mail views (FUN_10107fc8, FUN_10109a11); its strings "totalcost" and "unitcost" (0x101c1d30) were not traced to the mail window and may be the city terminal's buy dialog. Needs the mail window's own source of a total read first.
 
 #### `INV-068` Organization contract items cannot be taken or put in
 
@@ -2695,6 +2726,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Nothing can be moved in or out of an organization contract window.
 - Where: `crates/mao-client/src/loot.rs:460`; `docs/LIVE_TEST_LIST.md:511`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The contract (0xdeaa) goes through the generic handlers (FUN_100cc6e8 for a click, FUN_100cc855 for a drop) whose branches for it were not read tonight, and `N3Msg_UseItem`'s own 0xdeaa branch sends a raid-style command (FUN_101266b4); no capture of a take from a contract exists. Left looked-at only.
 
 #### `INV-069` Overflow window: unique-item refusal, title from game text, list mode
 
@@ -2704,6 +2736,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: minor differences in the overflow window
 - Where: `docs/CLIENT_UI.md:3700`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes-only: the overflow's unique-item refusal, a title from the game's text and list mode each need their own reading (the title's text id was not found); the refusal is the server's in the meantime.
 
 #### `INV-070` Points shops: cost unlabelled
 
@@ -2743,6 +2776,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Shop lists not in the saved layout.
 - Where: `docs/GUI_DLL_PARITY.md:88`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The shop lists' saved column layout (`shop_listview_config`) is a window-layout matter of small worth; no change.
 
 #### `INV-074` Some wear refusals left to the server
 
@@ -2772,6 +2806,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: off-hand and social-slot weapons are not drawn as in the original
 - Where: `crates/mao-client/src/net.rs:5403`; `docs/ORIGINAL_AUDIT.md:24`; `docs/CLIENT_UI.md:714`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Drawing a left-hand weapon mirrored (can flag 0x800000) and weapons on the social hands (places 0x3d, 0x3f) is Gamecode FUN_1009cda2's mesh attaching; it needs the renderer's attach code changed and a look in the game to check, not testable tonight.
 
 #### `INV-077` Worn items' temporary stat sets with criteria are left out
 
@@ -2781,6 +2816,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: such worn stat changes never apply
 - Where: `crates/mao-formats/src/item.rs:216`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Same ground as INV-053: a worn item's temporary set with criteria is judged by the original when the spell runs (the wear event), on the character as it is then; the client's stateless sum cannot judge it without the spell executor's rule.
 
 #### `INV-078` Worn meshes: hiding modes and loading stand-in not ported
 
@@ -2790,6 +2826,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some worn items hide/show differently; no stand-in while loading.
 - Where: `docs/ORIGINAL_AUDIT.md:39`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Notes-only: FUN_10073517's hiding modes (+0x74) and the stand-in mesh while loading are renderer work that needs a look in the game.
 
 ### Inventory and items: the client has it, the original does not (6)
 
@@ -2801,6 +2838,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Corpses loot themselves when the option is on.
 - Where: `crates/mao-client/src/net.rs:8436`; `crates/mao-client/src/settings.rs:548`; `docs/CLIENT_UI.md:1906`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: an option, off by default (`auto_loot`), that changes nothing of the original's look or rules until the player turns it on; no auto loot was found in GUI.dll or Gamecode (no handler takes a container's items without a click).
 
 #### `INV-080` Container and overflow windows have a "Take all" button
 
@@ -2810,6 +2848,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: All items can be looted with one click.
 - Where: `crates/mao-client/src/loot.rs:276`; `docs/CLIENT_UI.md:3701`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: GUI.dll's container window has no "Take all" button or handler (docs/INVENTORY_ORIGINAL.md section 4, confirmed in `InventoryView_c` FUN_100ccefe / `ItemContainerView_c` FUN_100ce55d, which build only the list), so the button is a visible departure in a window that is to match the original; the corpse case is covered by the `auto_loot` option (INV-079). (If the user wants it kept, it could move behind an option like `auto_loot`.)
 
 #### `INV-081` Tradeskill guide made from item descriptions
 
@@ -2819,6 +2858,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A tradeskill guide window the original lacks, complete only as far as descriptions say.
 - Where: `crates/mao-formats/src/crafting.rs:29`; `crates/mao-client/src/craftguide.rs:1`; `docs/CLIENT_UI.md:895`; `docs/CLIENT_UI.md:908`; `docs/LIVE_TEST_LIST.md:554`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: a window of the client's own among its other own tools (damage meter, item finder, mission helper), opened only when asked for; it changes no original window or rule. No such guide exists in the original (which combinations work is the server's answer to a pair).
 
 #### `INV-082` Backpack count heading
 
@@ -2828,6 +2868,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Extra count.
 - Where: `docs/CLIENT_UI.md:1957`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the "Backpack 12/30" heading is no longer in the client's code (no such text in the inventory window); only docs/CLIENT_UI.md:1957 still describes it, and that line should go.
 
 #### `INV-083` Item finder (/find) is the client's own tool
 
@@ -2837,6 +2878,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A player can look up where an item is, even on a character not logged in; bags are opened silently on request.
 - Where: `crates/mao-client/src/itemindex.rs:2`; `crates/mao-client/src/itemindex.rs:14`; `crates/mao-client/src/net.rs:8010`; `docs/CLIENT_UI.md:949`; `docs/CLIENT_UI.md:962`; `docs/LIVE_TEST_LIST.md:586`
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: one of the client's own tools the user asked for (2026-11-12 batch: damage meter, item finder, mission helper), opened only by `/find`; it changes no original window or rule (its silent bag look-in happens only when the player asks).
 
 #### `INV-084` A swap by right click is judged without the item that comes off
 
@@ -2846,6 +2888,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: A swap that would strand the old item is refused at the click; a swap the original would have tried (and the server refused) is not tried.
 - Where: `crates/mao-client/src/net.rs` (`World::wear_refusal`, the use of an item that is worn instead); `crates/mao-client/src/derived.rs` (`modifiers_without`); `docs/CLIENT_UI.md` ("An item is judged before anything is taken off")
 - Decision: [ ] keep  [ ] remove
+- Recommendation (2026-11-19, overnight): Addition: recommend KEEP: added on 2026-11-18 at the user's own wish ("we should be checking requirements before starting equipment swaps that could cause problems later"), after a mission belt was stranded; the original asks `N3Msg_IsItemPossibleToWear` with the old item still on (Gamecode 0x10028883) and was confirmed to have no such check.
 
 ## Nano programs
 
