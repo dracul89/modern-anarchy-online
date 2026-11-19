@@ -7129,3 +7129,7 @@ After the server's teleport the playfield is stopped (StopPlayfield) and the cha
 ### How long a cast's effect shows (NAN-002)
 
 The original's cast effect (the program's CastEffectType, a _GfxControlSpell1_t) is deleted by the casting state when the cast ends. The client shows it for the cast's own time: one's own by the cast time with initiative and the aggression setting taken off, another's by the nano's attack time; an instant cast shows none. It used to last the casting animation (1.2 s or 1.95 s).
+
+### /tell alone (CHT-007)
+
+`/tell` with no name does nothing in the original (FUN_100ba8d5 wants two pieces). The client used to open a tell window for the target; it now does nothing too.

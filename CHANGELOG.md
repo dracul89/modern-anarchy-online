@@ -168,6 +168,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Chat
 
 - /ignore follows the original: /ignore alone ignores your target, /ignore list shows who is ignored, and the messages are the game's own.
+- /tell with no name does nothing, as in the original (it no longer opens a window for the target).
 
 ### Movement
 

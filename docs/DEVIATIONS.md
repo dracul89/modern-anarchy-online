@@ -3791,7 +3791,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: /tell alone opens a tell window with the current target; with no target it prints a usage line of the client's own
 - A player notices: typing /tell alone gives a window or a usage line; the original does nothing
 - Where: `crates/mao-client/src/chat_commands.rs:94`; `crates/mao-client/src/chat_commands.rs:348`; `crates/mao-client/src/chatwindow.rs:1123`; `docs/CLIENT_UI.md:1150`; `docs/ORIGINAL_AUDIT.md:31`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): GUI.dll's /tell (FUN_100ba8d5) acts only with at least two pieces, so /tell alone does nothing. The client opened a tell window for the target or printed its own usage line; Parsed::TellTarget is gone and /tell alone parses to Nothing (/tell <name> still opens the tell window). Tests: chat_commands::tests::lines_become_commands, chatwindow::tests::the_target_is_told_and_its_tell_window_asked_for.
 
 #### `CHT-008` Chat filter rules take the next free number
 

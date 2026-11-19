@@ -92,9 +92,6 @@ pub enum Parsed {
     /// A private message to a character; with no text, the window for talking with the character (FUN_100ba8d5 sends
     /// the empty text on, and FUN_10089940 opens the tell window for it).
     Tell { name: String, text: String },
-    /// `/tell` alone: the window for talking with the target. This client's own: the original does nothing without a
-    /// name.
-    TellTarget,
     /// An answer to the last tell.
     Reply { text: String },
     /// `/ch <group name>`: the window's output group. `word` is the command as typed.
@@ -408,7 +405,8 @@ pub fn parse(line: &str) -> Parsed {
                 Some((n, m)) => (n, m.trim()),
                 None => (text, ""),
             };
-            if name.is_empty() { Parsed::TellTarget } else { Parsed::Tell { name: name.to_string(), text: message.to_string() } }
+            // (FUN_100ba8d5 does nothing with fewer than two pieces: `/tell` alone)
+            if name.is_empty() { Parsed::Nothing } else { Parsed::Tell { name: name.to_string(), text: message.to_string() } }
         }
         "reply" | "r" => {
             if text.is_empty() {
@@ -720,7 +718,8 @@ mod tests {
         assert_eq!(parse("/tell Abc hello there"), Parsed::Tell { name: "Abc".into(), text: "hello there".into() });
         assert_eq!(parse("/TELL Abc hi"), Parsed::Tell { name: "Abc".into(), text: "hi".into() });
         assert_eq!(parse("/tell Abc"), Parsed::Tell { name: "Abc".into(), text: String::new() });
-        assert_eq!(parse("/tell"), Parsed::TellTarget);
+        // (FUN_100ba8d5: alone, nothing)
+        assert_eq!(parse("/tell"), Parsed::Nothing);
         assert_eq!(parse("/r thanks"), Parsed::Reply { text: "thanks".into() });
         assert_eq!(parse("/ignore Abc"), Parsed::Ignore { name: "Abc".into() });
         assert_eq!(parse("/ignore"), Parsed::Ignore { name: String::new() });

@@ -1199,16 +1199,6 @@ impl ChatWindow {
                     self.send_tell(name, text)
                 }
             }
-            Parsed::TellTarget => match self.names.target.clone() {
-                Some(name) => {
-                    self.ask_tell(&name);
-                    None
-                }
-                None => {
-                    self.push(Line::new(Kind::System, "Usage: /tell <name> <text> (without the text: a window for talking with them; alone: with your target)"));
-                    None
-                }
-            },
             Parsed::Reply { text } => match self.last_tell.clone() {
                 Some(name) => {
                     let text = self.expand(&text);
@@ -2025,16 +2015,17 @@ mod tests {
         // (`%t` is the target, in the name and in the text)
         assert_eq!(w.run("/tell %t hello %t"), Some(Out::Tell { name: "Abc".into(), text: "hello Abc".into() }));
         assert_eq!(w.run("look at %t"), Some(Out::Vicinity { kind: 0, text: "look at Abc".into() }));
-        // (a name without a text, and the command alone with a target: the tell window, once the server knows the name)
+        // (a name without a text: the tell window, once the server knows the name; the command alone does nothing,
+        // FUN_100ba8d5, target or not)
         assert_eq!((w.run("/tell %t"), w.run("/tell"), w.run("/tell Zed")), (None, None, None));
-        assert_eq!(w.outs, vec![Out::TellWindow { name: "Abc".into() }, Out::TellWindow { name: "Abc".into() }, Out::TellWindow { name: "Zed".into() }]);
-        // (none to oneself, and no window without a target)
+        assert_eq!(w.outs, vec![Out::TellWindow { name: "Abc".into() }, Out::TellWindow { name: "Zed".into() }]);
+        // (none to oneself)
         w.outs.clear();
         w.names.target = None;
         let before = w.lines.len();
         assert_eq!((w.run("/tell me hi"), w.run("/tell %m"), w.run("/tell")), (None, None, None));
         assert!(w.outs.is_empty());
-        assert_eq!(w.lines.len(), before + 3);
+        assert_eq!(w.lines.len(), before + 2);
     }
 
     #[test]
