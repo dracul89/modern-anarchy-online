@@ -208,6 +208,77 @@ fn character(s: &mut Stream) -> Result<Character, Error> {
     Ok(c)
 }
 
+/// A `CharacterInfo_c` as its `ReadStream` (MessageProtocol.dll) reads it, into a [`Character`] whose `id` is the info's
+/// instance: the version; version 2 is the breed, the sex and a 32-byte name; else the instance, the organization's
+/// (from version 5), the name (a length and its bytes; none for 0, which keeps `name unknown` of `InitDefault`; 255 and
+/// more read as `ERROR-CHANGE-NAME`, the bytes left), breed, sex, profession and level, the area likewise (`area
+/// unknown`, `ERROR-CHANGE-AREA`), banned, the ban reason (a length and its bytes), and from version 4 the head, the
+/// height and the width.
+fn character_info(s: &mut Stream) -> Result<Character, Error> {
+    let mut c = Character { name: "name unknown".into(), area: "area unknown".into(), ..Default::default() };
+    let short = |s: &mut Stream, keep: &mut String, instead: &str, what: &'static str| -> Result<(), Error> {
+        let length = s.i32(what)?;
+        if length == 0 {
+            return Ok(());
+        }
+        *keep = if (0..0xff).contains(&length) { String::from_utf8_lossy(s.take(length as usize, what)?).into_owned() } else { instead.to_string() };
+        Ok(())
+    };
+    let version = s.i32("the info version")?;
+    if version == 2 {
+        c.breed = s.i32("the breed")?;
+        c.sex = s.i32("the sex")?;
+        let name = s.take(0x20, "the name")?;
+        c.name = String::from_utf8_lossy(&name[..name[..0x1f].iter().position(|&b| b == 0).unwrap_or(0x1f)]).into_owned();
+        return Ok(c);
+    }
+    c.id = s.i32("the instance")? as u32;
+    if version > 4 {
+        s.i32("the org instance")?;
+    }
+    short(s, &mut c.name, "ERROR-CHANGE-NAME", "the name")?;
+    c.breed = s.i32("the breed")?;
+    c.sex = s.i32("the sex")?;
+    c.profession = s.i32("the profession")?;
+    c.level = s.i32("the level")?;
+    short(s, &mut c.area, "ERROR-CHANGE-AREA", "the area")?;
+    c.banned = s.i32("banned")? != 0;
+    let length = s.i32("the ban reason")?;
+    if length != 0 {
+        c.ban_reason = String::from_utf8_lossy(s.take(length as u32 as usize, "the ban reason")?).into_owned();
+    }
+    if version > 3 {
+        c.head = s.i32("the head")?;
+        c.height = s.i32("the height")?;
+        c.width = s.i32("the width")?;
+    }
+    Ok(c)
+}
+
+/// System message 0x4e: a character of the account is in limbo (still in the world). Interfaces.dll's
+/// `Client_t::ProcessMessage` (0x10003537) reads an `i32`, the seconds it may still be logged in again, and a
+/// `CharacterInfo_c` ([`character_info`]), and hands both to `LoginModule_c::SlotLoginLimbo` 0x10011c56, which shows the
+/// limbo window in place of the character list.
+pub const LIMBO: u32 = 0x4e;
+
+/// What a [`LIMBO`] message says.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Limbo {
+    pub timeout: i32,
+    pub character: Character,
+}
+
+/// The time-out and the character of a 0x4e message.
+pub fn limbo(frame: &Frame) -> Result<Limbo, Error> {
+    let (kind, payload) = split(frame)?;
+    if kind != LIMBO {
+        return Err(Error::Type { expected: LIMBO, got: kind });
+    }
+    let mut s = Stream::new(payload);
+    let timeout = s.i32("the time-out")?;
+    Ok(Limbo { timeout, character: character_info(&mut s)? })
+}
+
 /// The characters of a 0x0e message, and whatever follows them.
 pub fn character_list(frame: &Frame) -> Result<(Vec<Character>, Vec<u8>), Error> {
     let (kind, payload) = split(frame)?;
@@ -261,6 +332,63 @@ mod tests {
         assert_eq!(&bytes[6..8], &[0x01, 0xc2]);
         assert_eq!(&bytes[16..20], &[0, 0, 0, 0x25]);
         assert_eq!(&bytes[60..64], &[0, 0, 1, 0x82]);
+    }
+
+    /// A limbo message as Interfaces.dll's reader takes it (no capture has one: built from the reader, a made-up
+    /// character): the time-out, then the info in its version 5; an empty name and area keep the defaults, a name of
+    /// 255 bytes or more is not read; version 2's short form.
+    #[test]
+    fn a_limbo_message() {
+        let int = |p: &mut Vec<u8>, v: i32| p.extend_from_slice(&v.to_be_bytes());
+        let mut p = LIMBO.to_be_bytes().to_vec();
+        int(&mut p, 30); // the time-out
+        int(&mut p, 5); // the info's version
+        int(&mut p, 0x1234);
+        int(&mut p, 0x99); // the organization
+        int(&mut p, 4);
+        p.extend_from_slice(b"Test");
+        for v in [3, 3, 11, 120] {
+            int(&mut p, v);
+        }
+        int(&mut p, 9);
+        p.extend_from_slice(b"Somewhere");
+        int(&mut p, 0); // not banned
+        int(&mut p, 0);
+        for v in [2, 1, 0] {
+            int(&mut p, v);
+        }
+        let frame = Frame { kind: SYSTEM, source: 1, destination: 2, body: p.clone() };
+        let l = limbo(&frame).unwrap();
+        assert_eq!(l.timeout, 30);
+        let c = &l.character;
+        assert_eq!((c.id, c.name.as_str(), c.breed, c.sex, c.profession, c.level, c.area.as_str(), c.head, c.height, c.width), (0x1234, "Test", 3, 3, 11, 120, "Somewhere", 2, 1, 0));
+        // (cut short: an error, not a character; another system message is not one)
+        assert!(limbo(&Frame { kind: SYSTEM, source: 1, destination: 2, body: p[..20].to_vec() }).is_err());
+        assert!(limbo(&Frame { kind: SYSTEM, source: 1, destination: 2, body: CHARACTER_LIST.to_be_bytes().to_vec() }).is_err());
+        // (version 4: no organization; empty name and area keep InitDefault's)
+        let mut s = Vec::new();
+        for v in [4, 7, 0, 1, 2, 6, 10, 0, 0, 0, 0, 0, 0] {
+            int(&mut s, v);
+        }
+        let c = character_info(&mut Stream::new(&s)).unwrap();
+        assert_eq!((c.id, c.name.as_str(), c.area.as_str(), c.profession, c.level), (7, "name unknown", "area unknown", 6, 10));
+        // (version 3: a name of 255 bytes or more is the error name, its bytes not taken; no head, height, width)
+        let mut s = Vec::new();
+        for v in [3, 7, 0x100, 1, 2, 6, 10, 0, 0, 0] {
+            int(&mut s, v);
+        }
+        let c = character_info(&mut Stream::new(&s)).unwrap();
+        assert_eq!((c.name.as_str(), c.breed, c.level), ("ERROR-CHANGE-NAME", 1, 10));
+        // (version 2: breed, sex and a name of 32 bytes)
+        let mut s = Vec::new();
+        for v in [2, 4, 1] {
+            int(&mut s, v);
+        }
+        let mut name = b"Short".to_vec();
+        name.resize(0x20, 0);
+        s.extend(name);
+        let c = character_info(&mut Stream::new(&s)).unwrap();
+        assert_eq!((c.breed, c.sex, c.name.as_str()), (4, 1, "Short"));
     }
 
     /// One character as the capture has it (made-up name and ids).

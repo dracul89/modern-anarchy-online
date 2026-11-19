@@ -40,7 +40,16 @@ fn login(game: &str) -> Result<(Connection, Vec<Character>), String> {
     let (user, password) = credentials()?;
     let server = std::env::var("MAO_SERVER").unwrap_or_else(|_| session::RUBI_KA.to_string());
     let mut connection = Connection::connect(server.as_str()).map_err(|e| e.to_string())?;
-    let (list, account) = session::login_account(&mut connection, &user, &password, &version(game)?).map_err(|e| e.to_string())?;
+    let (list, account) = match session::login_account(&mut connection, &user, &password, &version(game)?) {
+        // (a character of the account in limbo, system message 0x4e: the original's limbo window offers that one
+        // character alone, and its Login sends the 0x16 for it on this connection (`LimboWindow_c::SlotLoginPressed` →
+        // `LoginModule_c::SlotSelectCharacter`): it is the only one here)
+        Err(session::Error::Limbo(limbo)) => {
+            eprintln!("{:?} is in limbo for {} seconds: only it can be entered", limbo.character.name, limbo.timeout);
+            (vec![limbo.character], None)
+        }
+        other => other.map_err(|e| e.to_string())?,
+    };
     if let Some((slots, flags, _)) = account {
         eprintln!("account: {slots} character slots, expansion flags {flags:#x}");
     }

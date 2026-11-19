@@ -184,6 +184,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A login error's page stays until you close it, and is there again when you go back from the character list, as in the original.
 - A character creation you leave keeps its choices for the next time, even after the launcher was closed, until a character is made.
 - A new account with no characters now opens the character screen (with New Character) instead of being sent back to the login form.
+- A character still in the world after a disconnection shows the limbo window with a countdown and Login, as the original, instead of an error.
 
 ### Graphics
 

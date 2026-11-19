@@ -1098,6 +1098,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] A borderless chat window: faint when not typing, solid while typing; a framed chat window fades when the pointer leaves it, not when pinned.
 - [ ] A thin and a fat character (own and another player) look so in the world; a robed one wears the robed body.
 - [ ] Jumping on a hoverboard plays a trick, then the board's run on landing.
+- [ ] Log in again soon after a character was cut off in the world: the limbo window shows that character and counts down; Login enters it; letting it run out returns to the login form.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

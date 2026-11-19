@@ -114,6 +114,9 @@ struct Failure {
     /// The message that refused and its code (`LoginModule_c::SlotLoginReply` 0x10012179: 0xd, 0x10 and 0x21 go to
     /// `ShowError` with theirs), or 1 and 0 for a login server that is not reached (`SlotLoginAccount` 0x100120f6).
     page: Option<(u32, u32)>,
+    /// The login was answered with system message 0x4e: a character of the account in limbo, for the limbo window
+    /// (`LoginModule_c::SlotLoginLimbo` 0x10011c56).
+    limbo: Option<Box<mao_net::system::Limbo>>,
 }
 
 /// The game started for the chosen character.
@@ -167,6 +170,8 @@ enum Stage {
     Characters(Vec<Character>),
     /// Making a character (`charcreate`), the list to come back to.
     Create(Box<crate::charcreate::Creating>, Vec<Character>),
+    /// The limbo window (`LoginModule_c::Show(2)`): a character of the account is still in the world.
+    Limbo,
 }
 
 struct Gfx {
@@ -271,6 +276,8 @@ struct Launcher {
     char_view: crate::loginviews::CharSelectScreen,
     /// The progress window while logging in.
     progress: crate::loginviews::ProgressWindow,
+    /// The limbo window (`LimboWindow_c`), up while the stage is `Limbo`.
+    limbo_view: crate::loginviews::LimboWindow,
     /// A deletion waiting on the login server.
     deleting: Option<Receiver<Result<u32, String>>>,
 }
@@ -296,12 +303,16 @@ impl Launcher {
         self.message.clear();
         std::thread::spawn(move || {
             let result = (|| -> Result<Vec<Character>, Failure> {
-                let version = version.map_err(|e| Failure { text: format!("version.id: {e}"), page: None })?;
+                let version = version.map_err(|e| Failure { text: format!("version.id: {e}"), page: None, limbo: None })?;
                 // (`SlotLoginAccount`: `ConnectToLH` failing is error 1, the login handler not found)
-                let mut connection = Connection::connect(server.as_str()).map_err(|e| Failure { text: e.to_string(), page: Some((1, 0)) })?;
+                let mut connection = Connection::connect(server.as_str()).map_err(|e| Failure { text: e.to_string(), page: Some((1, 0)), limbo: None })?;
                 let (list, account) = session::login_account(&mut connection, &user, &password, &version).map_err(|e| Failure {
                     page: match &e {
                         session::Error::Refused { kind, code, .. } => Some((*kind, code.unwrap_or(0))),
+                        _ => None,
+                    },
+                    limbo: match &e {
+                        session::Error::Limbo(limbo) => Some(limbo.clone()),
                         _ => None,
                     },
                     text: e.to_string(),
@@ -454,6 +465,12 @@ impl Launcher {
                         }
                         self.stage = Stage::Characters(list);
                     }
+                    // (a character in limbo: `SlotLoginLimbo` 0x10011c56, the limbo window in the list's place, `Show(2)`)
+                    Err(Failure { limbo: Some(limbo), .. }) => {
+                        eprintln!("login: {:?} is in limbo for {} seconds", limbo.character.name, limbo.timeout);
+                        self.limbo_view.start(limbo.timeout, limbo.character);
+                        self.stage = Stage::Limbo;
+                    }
                     Err(failure) => {
                         // (`LoginModule_c::ShowError`: the error's page in the Browser window, and the login again)
                         eprintln!("login failed: {} (page {:?})", failure.text, failure.page);
@@ -494,6 +511,21 @@ impl Launcher {
                 Some(crate::loginviews::CharAction::Back) => back = true,
                 Some(crate::loginviews::CharAction::New) => new_character = true,
                 Some(crate::loginviews::CharAction::Delete(id)) => self.delete(id),
+                None => {}
+            }
+        }
+        // (the limbo window: Login enters the character as Play does (`SlotSelectCharacter`, `Show(4)`: the progress
+        // window until its ticket has come; the game's process logs in, is told of the limbo again and sends the 0x16
+        // for that character on its connection, `net::login`); the time run out or the window closed is the login
+        // form again, `SlotLimboTimeout` 0x10011c4e → `Show(0)`)
+        if matches!(self.stage, Stage::Limbo) {
+            let palette = self.palette.clone();
+            match self.limbo_view.show(ctx, &palette) {
+                Some(crate::loginviews::LimboAction::Login(c)) => {
+                    self.selected = Some(c.name.clone());
+                    play = Some(c.name);
+                }
+                Some(crate::loginviews::LimboAction::Leave) => self.stage = Stage::Form,
                 None => {}
             }
         }
@@ -546,7 +578,7 @@ impl Launcher {
                 self.answer = None;
                 self.stage = Stage::Form;
             }
-        } else if !matches!(self.stage, Stage::Characters(_) | Stage::Create(..)) {
+        } else if !matches!(self.stage, Stage::Characters(_) | Stage::Create(..) | Stage::Limbo) {
             // The login dialog (`Views/LoginWindow.xml`, `loginviews.rs`).
             let palette = self.palette.clone();
             let busy = matches!(self.stage, Stage::Busy);
@@ -1117,6 +1149,7 @@ pub fn run(game: &str) -> Result<(), String> {
         login_view: Default::default(),
         char_view: Default::default(),
         progress: Default::default(),
+        limbo_view: Default::default(),
         deleting: None,
     };
     // MAO_LAUNCHER_DEMO=error (MAO_LAUNCHER_ERROR=<message>[-<code>], 13 without): the login with an error's page over it.

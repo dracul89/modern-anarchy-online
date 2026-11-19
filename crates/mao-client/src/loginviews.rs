@@ -552,9 +552,141 @@ pub fn delete_name_matches(typed: &str, name: &str) -> bool {
     typed == name
 }
 
+/// The limbo window's seconds (`LoginModule_c::SlotLoginLimbo` 0x10011c56: the message's time-out, at least 10).
+pub fn limbo_seconds(timeout: i32) -> f32 {
+    timeout.max(10) as f32
+}
+
+/// The countdown bar after `elapsed` of `timeout` seconds, and whether the time is up (`LimboWindow_c::SlotFrameProcess`
+/// 0x1001035b: the bar at one less the time gone over the time-out, held at 0; up once the time gone reaches it).
+pub fn limbo_bar(elapsed: f32, timeout: f32) -> (f32, bool) {
+    let gone = (elapsed / timeout).min(1.0);
+    (1.0 - gone, elapsed >= timeout)
+}
+
+/// The profession line of the limbo window (`LimboWindow_c::SetCharacterInfo` 0x10010979): the profession's name
+/// (text.mdb category 2004), or `NotChosenYet` (category 506) for one of 255 or below 1.
+pub fn limbo_profession(profession: i32) -> String {
+    let texts = crate::feedback::texts();
+    if profession == 0xff || profession < 1 {
+        return texts.and_then(|t| t.named(506, "NotChosenYet")).unwrap_or("Not chosen yet").to_string();
+    }
+    texts.and_then(|t| t.get(2004, profession)).map(str::to_string).unwrap_or_else(|| crate::launcher::profession(profession).to_string())
+}
+
+/// What the limbo window asks for.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LimboAction {
+    /// Login: the character is entered (`LimboWindow_c::SlotLoginPressed` 0x100102ca → `LoginModule_c::SlotSelectCharacter`).
+    Login(Character),
+    /// The time ran out or the window was closed (`SlotFrameProcess`, `SlotQuitPressed` 0x1001025d →
+    /// `LoginModule_c::SlotLimboTimeout` 0x10011c4e: `Show(0)`, the login form again).
+    Leave,
+}
+
+/// `LimboWindow_c` on `Views/LimboWindow.xml` (constructor 0x10010502), shown by `LoginModule_c::Show(2)` in the place of
+/// the character list when the login is answered with system message 0x4e: the two texts `LimboMessage1` and
+/// `LimboMessage2`, the character's name, level, gender, breed and profession (`SetCharacterInfo` 0x10010979; the
+/// location's lines are commented out in the view), a countdown bar going from full to empty over the time-out
+/// (`SetTimeout` 0x100101f0, `SlotFrameProcess`) and Login. Centred (`MoveToCenter`).
+#[derive(Default)]
+pub struct LimboWindow {
+    window: Option<XmlWindow>,
+    character: Option<Character>,
+    timeout: f32,
+    started: Option<std::time::Instant>,
+}
+
+impl LimboWindow {
+    /// `SlotLoginLimbo`: the character and the time-out (at least 10 seconds), the countdown from now.
+    pub fn start(&mut self, timeout: i32, character: Character) {
+        self.window = None;
+        self.character = Some(character);
+        self.timeout = limbo_seconds(timeout);
+        self.started = Some(std::time::Instant::now());
+    }
+
+    pub fn stop(&mut self) {
+        self.started = None;
+        self.window = None;
+        self.character = None;
+    }
+
+    /// Shows the window; what was asked for, if anything.
+    pub fn show(&mut self, ctx: &egui::Context, palette: &Palette) -> Option<LimboAction> {
+        let started = self.started?;
+        let character = self.character.clone()?;
+        let (bar, up) = limbo_bar(started.elapsed().as_secs_f32(), self.timeout);
+        // (without the view the window is empty in the original, and still times out: `SlotFrameProcess` counts with or
+        // without its bar)
+        let view = if self.window.is_none() { crate::gui::load_view(&dirs(ctx), "LimboWindow.xml", "") } else { None };
+        if let Some((mut tree, root)) = view {
+            tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+            set_text(&mut tree, root, "name", &character.name);
+            set_text(&mut tree, root, "level", &character.level.to_string());
+            let gender = match crate::launcher::sex(character.sex) {
+                "" if character.sex == 1 => "neuter",
+                "" => "none",
+                sex => sex,
+            };
+            set_text(&mut tree, root, "gender", gender);
+            let breed = crate::launcher::breed(character.breed);
+            set_text(&mut tree, root, "breed", if breed.is_empty() { "unknown" } else { breed });
+            set_text(&mut tree, root, "profession", &limbo_profession(character.profession));
+            self.window = Some(XmlWindow { name: "Limbo".into(), title: String::new(), tree, root, open: true, default_size: egui::vec2(240.0, 0.0) });
+        }
+        ctx.request_repaint();
+        let Some(w) = self.window.as_mut() else {
+            if up {
+                self.stop();
+                return Some(LimboAction::Leave);
+            }
+            return None;
+        };
+        let root = w.root;
+        if let Some(id) = w.tree.find(root, "countdown_bar") {
+            crate::gui::powerbar::set_value(&mut w.tree, id, bar);
+        }
+        let skin = crate::skin::skin(ctx);
+        let min = crate::gui::host::preferred_pixels(&w.tree, root, false);
+        let tree = &mut w.tree;
+        let mut open = true;
+        crate::chrome::window(ctx, palette, "Limbo", "", &mut open, |w| w.resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).default_size(min.max(egui::vec2(240.0, 0.0))), |ui| {
+            crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+        });
+        let login = std::mem::take(&mut w.tree.signals).into_iter().any(|(id, s)| s == crate::gui::host::Signal::Clicked && w.tree.get(id).name == "login_btn");
+        if login {
+            self.stop();
+            return Some(LimboAction::Login(character));
+        }
+        if up || !open {
+            self.stop();
+            return Some(LimboAction::Leave);
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The limbo window: at least 10 seconds (`SlotLoginLimbo`), the bar from full to empty and the time up when the
+    /// time gone reaches the time-out (`SlotFrameProcess`), the profession's line (`SetCharacterInfo`).
+    #[test]
+    fn the_limbo_window_counts_down() {
+        assert_eq!(limbo_seconds(3), 10.0);
+        assert_eq!(limbo_seconds(-1), 10.0);
+        assert_eq!(limbo_seconds(45), 45.0);
+        assert_eq!(limbo_bar(0.0, 10.0), (1.0, false));
+        assert_eq!(limbo_bar(2.5, 10.0), (0.75, false));
+        assert_eq!(limbo_bar(10.0, 10.0), (0.0, true));
+        assert_eq!(limbo_bar(12.0, 10.0), (0.0, true));
+        // (a profession of 255 or below 1 is not chosen yet; others by name)
+        assert_eq!(limbo_profession(0xff), limbo_profession(0));
+        assert_ne!(limbo_profession(1), limbo_profession(0));
+        assert!(!limbo_profession(11).is_empty());
+    }
 
     /// The deletion asks for the name exactly as it is.
     #[test]

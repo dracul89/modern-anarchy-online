@@ -23,6 +23,11 @@ pub enum Error {
     /// carries (`Client_t::ProcessMessage` 0x10002a9e reads one number
     /// of message 0xd, the login refused, and hands both on).
     Refused { kind: u32, code: Option<u32>, text: String },
+    /// The server answered the login with system message 0x4e ([`system::LIMBO`]): a character of the account is still
+    /// in the world, and may be logged in again for the time it says (the original's limbo window,
+    /// `LoginModule_c::SlotLoginLimbo` 0x10011c56). The connection stays logged in: a 0x16 for that character on it
+    /// enters it.
+    Limbo(Box<system::Limbo>),
     Closed,
 }
 
@@ -34,6 +39,7 @@ impl fmt::Display for Error {
             Error::Message(e) => write!(f, "message: {e}"),
             Error::Random(e) => write!(f, "random numbers: {e}"),
             Error::Refused { kind, code, text } => write!(f, "the server answered with system message {kind:#x} (code {code:?}, {text:?}) instead of the character list"),
+            Error::Limbo(l) => write!(f, "the character {:?} is still in the world (limbo, {} seconds)", l.character.name, l.timeout),
             Error::Closed => write!(f, "the server closed the connection"),
         }
     }
@@ -160,6 +166,10 @@ pub fn login_account(connection: &mut Connection, user: &str, password: &str, ve
         Ok((list, rest)) => Ok((list, account_trailer(&rest).map(|(slots, flags)| (slots, flags, sl_professions_enabled(&rest))))),
         Err(_) => {
             let (kind, payload) = system::split(&reply)?;
+            // (Interfaces.dll's `Client_t::ProcessMessage` reads 0x4e for the limbo window, not as a refusal)
+            if kind == system::LIMBO {
+                return Err(Error::Limbo(Box::new(system::limbo(&reply)?)));
+            }
             Err(Error::Refused { kind, code: refusal_code(payload), text: String::from_utf8_lossy(payload).chars().filter(|c| !c.is_control()).collect() })
         }
     }
