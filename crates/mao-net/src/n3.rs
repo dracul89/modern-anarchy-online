@@ -381,8 +381,8 @@ pub const PET_DUEL_CHALLENGED: u32 = 0xf8;
 /// with FUN_10072a88 as the others here: the action, then the number of the chat window the command was typed in
 /// where most actions have nothing, nobody as the target, and nobody or a number as the second identity):
 /// `/played` is [`TEXT_PLAYED`], `/born` [`TEXT_BORN`], `/team loot` [`TEXT_TEAM_LOOT`], `/team loot <order>` from the
-/// team's leader [`TEXT_TEAM_LOOT_SET`] with the order's number, `/bank info` [`TEXT_BANK_INFO`]. Built from the
-/// disassembly: no capture has one.
+/// team's leader [`TEXT_TEAM_LOOT_SET`] with the order's number, `/bank info` [`TEXT_BANK_INFO`], `/version`
+/// [`TEXT_VERSION`]. Built from the disassembly: no capture has one.
 pub fn text_command(character: u32, action: u8, window: u32, value: u32) -> Frame {
     let mut data = vec![0u8; 5];
     data[4] = action;
@@ -397,6 +397,8 @@ pub fn text_command(character: u32, action: u8, window: u32, value: u32) -> Fram
 pub const TEXT_ITEMS_LIST: u8 = 0xf4;
 pub const TEXT_PLAYED: u8 = 0x85;
 pub const TEXT_BORN: u8 = 0x86;
+/// `/version` (FUN_1003fe10 at 0x1003fec0: the command named "version", then the action with an empty text).
+pub const TEXT_VERSION: u8 = 0x9d;
 pub const TEXT_TEAM_LOOT: u8 = 0x91;
 pub const TEXT_TEAM_LOOT_SET: u8 = 0x7f;
 pub const TEXT_BANK_INFO: u8 = 0x5c;

@@ -7574,3 +7574,7 @@ The original's nano grids are not arranged to start with (GUI.dll FUN_100423fc c
 ### NCU window's Auto Arrange (NAN-040)
 
 The NCU window's menu (GUI.dll FUN_100d758a) has "List Mode" and "Auto Arrange", whose sub-menu (FUN_10041637(0)) offers "By <column>" for each column but the icon's and "Sort Ascending", dead in list mode. The client shows the same; the grid's sort chosen is kept (the original's grid_sort_column/order), the time left to start with. The radius column's "---" is the original's (N3Msg_GetFormularRadius reads a field that is always 0).
+
+### /version (CHT-002)
+
+The original has no /version of its own in GUI.dll: the line goes to Gamecode's text commands (N3Msg_TextCommand, FUN_1003fe10 at 0x1003fec0), which ask the server with CharacterAction 0x9d and say nothing themselves. The client does the same; the client's own version line is gone.

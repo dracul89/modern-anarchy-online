@@ -80,7 +80,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("crafting [text]", "the tradeskill guide: what the game's items and books say about making things"),
     ("find <part of a name>", "where a thing is, on any of your characters this client has played"),
     ("help", "this list"),
-    ("version", "the client's version"),
+    ("version", "asks the server for its version"),
 ];
 
 /// The help topics `/help <topic>` knows and their pages (GUI.dll's command interpreter FUN_100a4d15 fills its topic map

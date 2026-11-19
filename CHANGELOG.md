@@ -237,6 +237,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Inspecting a character no longer adds a level and health line to chat; the info page opens as before.
 - /macro, /waypoint, /befriend, /viewdist, /chardist, /char&viewdist and /bug no longer add a confirmation line in chat.
 - The NPC chat window no longer says how many items were given back, and its answers disappear once one is clicked, as in the original.
+- /version asks the server for its version, as the original client does, instead of printing this client's version.
 
 ### Movement
 

@@ -1452,10 +1452,9 @@ impl ChatWindow {
                 }
                 None
             }
-            Parsed::Version => {
-                self.push(Line::new(Kind::System, format!("Modern Anarchy Online client {}", env!("CARGO_PKG_VERSION"))));
-                None
-            }
+            // (GUI.dll has no command of the name: the line goes to Gamecode's text commands (FUN_100b285d ->
+            // `N3Msg_TextCommand`), whose FUN_1003fe10 asks the server with `CharacterAction` 0x9d and says nothing itself)
+            Parsed::Version => Some(Out::TextCommand { action: mao_net::n3::TEXT_VERSION, value: 0 }),
             Parsed::Unsupported(name) => {
                 self.push(Line::new(Kind::System, format!("/{name} is not carried out by this client yet.")));
                 None
@@ -2077,6 +2076,8 @@ mod tests {
         let time = &w.lines.last().unwrap().text;
         assert!(time.starts_with("Time: ") && time.contains("Date: "), "{time}");
         assert_eq!(w.run("/born"), Some(Out::TextCommand { action: 0x86, value: 0 }));
+        // (CHT-002: `/version` asks the server, FUN_1003fe10 at 0x1003fec0)
+        assert_eq!(w.run("/version"), Some(Out::TextCommand { action: 0x9d, value: 0 }));
         assert_eq!(w.run("/items"), Some(Out::TextCommand { action: 0xf4, value: 0 }));
         assert_eq!(w.run("/org info"), Some(Out::OrgCommand { command: 5, targeted: true, text: String::new() }));
         assert_eq!(w.run("/org kick Somebody"), Some(Out::OrgCommand { command: 0xd, targeted: true, text: "Somebody".into() }));
