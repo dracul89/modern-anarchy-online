@@ -103,9 +103,65 @@ pub fn effect_of(name: &str) -> Option<Effect> {
     plain(UNKNOWN)
 }
 
+/// How a visual mesh itself is drawn: DisplaySystem's `VisualMesh_t::SetRenderingEffect` (the drop-in's `visualmesh.rs`
+/// `set_rendering_effect`, `apply_effect` FUN_1006c61d and the rendering event FUN_1006c005). The set-up FUN_1006d49a
+/// gives effect 1, 2 or 3 to a mesh with a connector named `eff_hologram...`, `eff_space...` or `eff_clear...`; the
+/// others (4 to 7: the transparent ones and the advertisements' z-bias) are set by the game, not by a name.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RenderingEffect {
+    /// Drawn as its materials say.
+    #[default]
+    None,
+    /// Effect 1, `HoloDeltaState`: the mesh's own draw replaced by one in the blended list (5) without lighting, depth
+    /// writes or culling, colour = texture 0x28022 at (0, the point's height in the world plus a phase that runs 0.2 a
+    /// second) plus texture 0x28023 at the mesh's own coordinates shifted across by a phase that runs 0.15 a second,
+    /// added to what is behind (`ONE`, `INVSRCCOLOR`).
+    Hologram,
+    /// Effect 2, `SpaceDeltaState`: the mesh's own draw replaced by one lit, writing depth, without fog, each simple
+    /// mesh's material texture times the diffuse colour; the materials' own states are not applied.
+    Space,
+    /// Effect 3: the depth buffer cleared (`RViewPort_t::Clear(0, true, false, 0)`: the z-buffer, not the picture) before
+    /// the mesh is drawn as its materials say.
+    Clear,
+}
+
+/// The rendering effect a mesh's connectors give it (FUN_1006d49a): each connector whose name is `eff_` and then
+/// `hologram`, `space` or `clear` (at its head) sets its effect in turn, so the last one counts.
+pub fn rendering_effect<'a>(names: impl IntoIterator<Item = &'a str>) -> RenderingEffect {
+    let mut effect = RenderingEffect::None;
+    for name in names {
+        let Some(rest) = name.strip_prefix("eff_") else { continue };
+        // (the universal effects are asked about first; their names cannot start with these words anyway)
+        if rest.starts_with("universal") {
+            continue;
+        }
+        if rest.starts_with("hologram") {
+            effect = RenderingEffect::Hologram;
+        } else if rest.starts_with("space") {
+            effect = RenderingEffect::Space;
+        } else if rest.starts_with("clear") {
+            effect = RenderingEffect::Clear;
+        }
+    }
+    effect
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connector_names_give_the_rendering_effects() {
+        assert_eq!(rendering_effect(["eff_space"]), RenderingEffect::Space);
+        assert_eq!(rendering_effect(["eff_hologram01"]), RenderingEffect::Hologram);
+        assert_eq!(rendering_effect(["eff_clearz"]), RenderingEffect::Clear);
+        // (other names, effects of the other kind and names without the prefix leave the mesh as it is)
+        assert_eq!(rendering_effect(["eff_fire1", "eff_universal_12200", "space", "Eff_space", "attractor01"]), RenderingEffect::None);
+        assert_eq!(rendering_effect([]), RenderingEffect::None);
+        // (each name sets its effect in turn: the last one counts)
+        assert_eq!(rendering_effect(["eff_hologram", "eff_fire1", "eff_space"]), RenderingEffect::Space);
+        assert_eq!(rendering_effect(["eff_space", "eff_clear"]), RenderingEffect::Clear);
+    }
 
     #[test]
     fn names_pick_their_effects() {

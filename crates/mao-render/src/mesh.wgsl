@@ -5,7 +5,7 @@ struct Part {
     model: mat4x4<f32>,
     colour: vec4<f32>,
     // x: 1 when the part has a texture (alpha-tested); y: 1 to ignore the
-    // texture's alpha; z, w: not used.
+    // texture's alpha; z: 1 to draw it without the area's fog (a mesh under the space effect); w: not used.
     flags: vec4<f32>,
     // Where the part was the last frame (its model matrix then), and x: 1 when it animates in ways the matrices don't show.
     previous_model: mat4x4<f32>,
@@ -207,7 +207,7 @@ fn shade(in: VertexOut) -> vec4<f32> {
     let far = globals.horizon.w;
     let near = globals.eye.w;
     let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
-    let amount = fog * globals.fog.w;
+    let amount = fog * globals.fog.w * (1.0 - flags.z);
     colour = mix(colour, fog_colour(), amount);
     return vec4<f32>(colour, alpha);
 }

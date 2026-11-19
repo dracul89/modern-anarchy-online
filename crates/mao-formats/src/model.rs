@@ -97,6 +97,9 @@ pub struct Material {
     /// Without it the device's own state holds, 3: the faces whose corners run counter-clockwise on the screen, the ones
     /// turned away, are not drawn (`randy.rs`'s defaults).
     pub two_sided: bool,
+    /// The mesh's rendering effect, given by its connectors' names ([`crate::attractors::rendering_effect`]): the same
+    /// for every part of the mesh.
+    pub effect: crate::attractors::RenderingEffect,
 }
 
 /// Whether a mesh's file name is a plant. The name is split into words at
@@ -385,6 +388,7 @@ fn material(a: &Archive, index: i32) -> Material {
         no_z_write,
         alpha_ref,
         two_sided,
+        effect: crate::attractors::RenderingEffect::None,
     }
 }
 
@@ -819,12 +823,34 @@ fn build_with(mesh: &MeshObject, root: Root) -> Result<Model, Error> {
 /// The parts and, for each, its animation (when a frame on its way from the root has one).
 fn build_animated(mesh: &MeshObject, root: Root) -> Result<(Model, Vec<Option<Animated>>), Error> {
     let a = &mesh.archive;
-    let (mut parts, mut anims, mut chain) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut parts, mut anims, mut chain, mut connectors) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for root_frame in refs(&a.root, "obj") {
-        walk(a, root_frame, &IDENTITY, 0, root, &mut parts, &mut chain, &mut anims, &mut Vec::new())?;
+        walk(a, root_frame, &IDENTITY, 0, root, &mut parts, &mut chain, &mut anims, &mut connectors)?;
+    }
+    let effect = crate::attractors::rendering_effect(connectors.iter().map(|(name, _)| name.as_str()));
+    for part in &mut parts {
+        with_effect(&mut part.material, effect);
     }
     let _ = kind::OBJECT;
     Ok((Model { parts, instances: Vec::new(), water: None, lod_groups: Vec::new() }, anims))
+}
+
+/// A material of a mesh under a rendering effect. The space effect's draw (DisplaySystem FUN_1006c005, effect 2) does not
+/// apply the materials' own states: only its `SpaceDeltaState` (FUN_1006c61d: lighting on, depth writes on, fog off;
+/// stage 0 the texture times the diffuse colour) over the device's, which draws opaque, whole and one-sided; the
+/// texture is the material's own (`RMaterial_t::GetTexture(0)`). The hologram's and the clear's are not drawn by this
+/// client: no mesh of the game's names either, and the hologram's textures (0x28022, 0x28023) are not in its database.
+fn with_effect(material: &mut Material, effect: crate::attractors::RenderingEffect) {
+    material.effect = effect;
+    if effect == crate::attractors::RenderingEffect::Space {
+        material.blend = Blend::None;
+        material.blend_by_texture = false;
+        material.alpha_lights = false;
+        material.ignore_alpha = true;
+        material.alpha_ref = None;
+        material.no_z_write = false;
+        material.two_sided = false;
+    }
 }
 
 /// The connectors of a mesh placed in the world (a statel): each one's name and the matrix of the frame it is on, in the

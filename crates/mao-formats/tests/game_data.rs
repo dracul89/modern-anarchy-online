@@ -24,6 +24,26 @@ fn known_objects() {
     assert!(db.get(Id { kind: 0xf6954, instance: 0x1727 }).unwrap().is_none());
 }
 
+/// The one mesh of the game whose connector names a rendering effect: `EP03_RUBIKA_asteroidbig2` (0x403b7, a statel of
+/// playfield 109) has `eff_space`; every part of it is drawn under the space effect, opaque, writing depth.
+#[test]
+fn the_asteroid_is_drawn_under_the_space_effect() {
+    let Some(db) = database() else { return };
+    let object = db.get(Id { kind: 0xf6951, instance: 0x403b7 }).unwrap().unwrap();
+    let mesh = mao_formats::mesh::parse(&object).unwrap();
+    let model = mao_formats::model::build_placed(&mesh).unwrap();
+    assert!(!model.parts.is_empty());
+    for part in &model.parts {
+        assert_eq!(part.material.effect, mao_formats::attractors::RenderingEffect::Space);
+        assert_eq!(part.material.blend, mao_formats::model::Blend::None);
+        assert!(!part.material.no_z_write && part.material.ignore_alpha);
+    }
+    // (a mesh without such a connector keeps its materials' own drawing)
+    let object = db.get(Id { kind: 0xf6951, instance: 214235 }).unwrap().unwrap();
+    let model = mao_formats::model::build_placed(&mao_formats::mesh::parse(&object).unwrap()).unwrap();
+    assert!(model.parts.iter().all(|p| p.material.effect == mao_formats::attractors::RenderingEffect::None));
+}
+
 /// The occluder's bodies (`[OCC]8x8`, `[OCC]16x16`, `[OCC]32x32`: 83 of them stand in Jobe Research) have nothing to draw.
 #[test]
 fn occluder_bodies_have_no_parts() {

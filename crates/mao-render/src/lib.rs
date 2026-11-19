@@ -268,6 +268,12 @@ fn blend_of(material: &mao_formats::model::Material) -> [f32; 4] {
     [mode, cut, material.opacity, material.no_z_write as u32 as f32]
 }
 
+/// 1 for a part drawn without the area's fog: a mesh under DisplaySystem's space effect (its `SpaceDeltaState` sets
+/// `FOGENABLE` off, FUN_1006c61d), else 0 (the shader's `flags.z`).
+fn no_fog(material: &mao_formats::model::Material) -> f32 {
+    (material.effect == mao_formats::attractors::RenderingEffect::Space) as u32 as f32
+}
+
 /// The pipeline a blended part is drawn with: by its uniform's blend (alpha or added) and whether it writes depth.
 /// A number for each of the blended pipelines ([`blend_pipeline`]).
 fn blend_number(blend: [f32; 4]) -> u32 {
@@ -1872,7 +1878,7 @@ impl Renderer {
             let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
             let d = part.material.diffuse;
             let material = &part.material;
-            let mut uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, 0.0, 0.0], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
+            let mut uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, no_fog(material), 0.0], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
             blend_by_texture(&mut uniform, material, see_through);
             let bind = texture_bind(&gpu.device, &self.part_layout, &self.sampler, &self.white, &self.binds, key, view.as_ref());
             parts.push(GpuPart {
@@ -2039,7 +2045,7 @@ impl Renderer {
                     let (center, radius) = ((wlo + whi) * 0.5, (whi - wlo).length() * 0.5);
                     let d = model.parts[index].material.diffuse;
                     let material = &model.parts[index].material;
-                    let mut uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, 0.0, 0.0], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
+                    let mut uniform = PartUniform { model: world, colour: [d[0], d[1], d[2], 1.0], flags: [view.is_some() as u32 as f32, (material.ignore_alpha as u32 + material.alpha_lights as u32) as f32, no_fog(material), 0.0], previous_model: world, motion: [0.0; 4], tint: NO_TINT, blend: blend_of(material) };
                     blend_by_texture(&mut uniform, material, see_through);
                     Some(GpuPart { vertices: vb.clone(), vertex_id: *vertex_id, base_vertex: packed.base_vertex, indices: ib.clone(), index_id: *index_id, first_index: packed.first_index, index_count: packed.count, geometry: packed.id, characters: false, bind: packed.bind.clone(), center, radius, uniform, shift: Vec3::ZERO, source: index, texture: model.parts[index].material.textures.first().copied(), low_only: low_parts.contains(&index), faces: faces_of(material.two_sided, &m), lod: None, drawn: Default::default(), before: Default::default() })
                 })
@@ -3032,6 +3038,20 @@ mod tests {
         static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
         Gpu::headless().ok().map(|gpu| (turn, gpu))
+    }
+
+    /// Only the space effect leaves the fog out.
+    #[test]
+    fn the_space_effect_draws_without_fog() {
+        use mao_formats::attractors::RenderingEffect;
+        let mut material = mao_formats::model::Material::default();
+        assert_eq!(no_fog(&material), 0.0);
+        material.effect = RenderingEffect::Space;
+        assert_eq!(no_fog(&material), 1.0);
+        for effect in [RenderingEffect::Hologram, RenderingEffect::Clear] {
+            material.effect = effect;
+            assert_eq!(no_fog(&material), 0.0);
+        }
     }
 
     /// The mip bias: none at the window's size, a level at a half, FSR 1's figures for its steps between.
