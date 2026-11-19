@@ -1462,12 +1462,12 @@ impl ChatWindow {
                 self.push(Line::new(Kind::System, format!("Error: No emote named '{name}'")));
                 None
             }
-            Parsed::Help => {
-                self.push(Line::new(Kind::System, "Commands this client carries out:"));
-                for (usage, what) in chat_commands::IMPLEMENTED {
-                    self.push(Line::new(Kind::System, format!("  /{usage}: {what}")));
+            // (`/help`, FUN_100b7345: the page in the info view; a topic it does not know is an error line)
+            Parsed::Help { topic } => {
+                match chat_commands::help_file(topic.as_deref()) {
+                    Some(file) => self.links.push(format!("file://{file}")),
+                    None => self.push(Line::new(Kind::System, format!("Error: no help topic named '{}'.", topic.unwrap_or_default()))),
                 }
-                self.push(Line::new(Kind::System, "The other commands of the original are listed when you type a / but are not carried out yet."));
                 None
             }
             Parsed::Version => {

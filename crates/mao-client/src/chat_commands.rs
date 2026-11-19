@@ -84,6 +84,40 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("version", "the client's version"),
 ];
 
+/// The help topics `/help <topic>` knows and their pages (GUI.dll's command interpreter FUN_100a4d15 fills its topic map
+/// with them, in this order).
+const HELP_TOPICS: &[(&str, &str)] = &[
+    ("org", "OrganisationCommands.html"),
+    ("petition", "Petition Commands.html"),
+    ("pet", "Pet Commands.html"),
+    ("emote", "Social Moves Commands.html"),
+    ("macro", "Macrocommands.html"),
+    ("script", "Script Commands.html"),
+    ("chat", "chatcommands.html"),
+    ("team", "Team Commands.html"),
+    ("misc", "MiscellaneousCommands.html"),
+    ("list", "listcommand.html"),
+    ("camera", "CameraHelp.html"),
+    ("actionbar", "actionbarhelp.html"),
+    ("towers", "TowerHelp.html"),
+    ("voices", "Voicecommands.html"),
+    ("perks", "Perks.html"),
+    ("perk", "Perks.html"),
+    ("factions", "FactionsHelp.html"),
+    ("shadowlevel", "ShadowLevel.html"),
+    ("raid", "RaidCommands.html"),
+];
+
+/// The help page `/help` shows in the info view (GUI.dll FUN_100b7345): with no topic `helpcommands.html`, else the
+/// topic's page (FUN_100bc42f's lookup in the interpreter's map; matched here without regard to case, a guess); none for
+/// a topic it does not know.
+pub fn help_file(topic: Option<&str>) -> Option<&'static str> {
+    match topic {
+        None => Some("helpcommands.html"),
+        Some(t) => HELP_TOPICS.iter().find(|h| h.0.eq_ignore_ascii_case(t)).map(|h| h.1),
+    }
+}
+
 /// What a typed line asks for.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Parsed {
@@ -207,8 +241,8 @@ pub enum Parsed {
     Org { text: String },
     /// Plain speech or /say, /shout, /whisper, /me: vicinity chat.
     Vicinity { command: &'static str, text: String },
-    /// `/help`.
-    Help,
+    /// `/help [topic]` (GUI.dll FUN_100b7345): the topic word, if one was typed.
+    Help { topic: Option<String> },
     /// `/version`.
     Version,
     /// A command of the original's list this client does not carry out yet.
@@ -610,7 +644,7 @@ pub fn parse(line: &str) -> Parsed {
                 Parsed::Vicinity { command: name, text: text.to_string() }
             }
         }
-        "help" => Parsed::Help,
+        "help" => Parsed::Help { topic: text.split_whitespace().next().map(str::to_string) },
         "version" => Parsed::Version,
         // `/text <text>` (GUI.dll FUN_100b5f02): the text as a line of one's own chat, sent nowhere.
         "text" => {
@@ -841,7 +875,9 @@ mod tests {
         assert_eq!(parse("/voice"), Parsed::Usage("/voice <sound name>"));
         assert_eq!(parse("hello world"), Parsed::Vicinity { command: "say", text: "hello world".into() });
         assert_eq!(parse("/s HEY"), Parsed::Vicinity { command: "shout", text: "HEY".into() });
-        assert_eq!(parse("/help"), Parsed::Help);
+        assert_eq!(parse("/help"), Parsed::Help { topic: None });
+        assert_eq!(parse("/help pet now"), Parsed::Help { topic: Some("pet".into()) });
+        assert_eq!((help_file(None), help_file(Some("Perk")), help_file(Some("raid")), help_file(Some("nothing"))), (Some("helpcommands.html"), Some("Perks.html"), Some("RaidCommands.html"), None));
         assert_eq!((parse("/gfx disable 1017"), parse("/gfx enable 12x")), (Parsed::Gfx { on: false, number: 1017 }, Parsed::Gfx { on: true, number: 12 }));
         assert_eq!((parse("/gfx 1 on"), parse("/gfx Enable 3"), parse("/gfx enable")), (Parsed::Nothing, Parsed::Nothing, Parsed::Usage("/gfx enable|disable <number>")));
         assert_eq!((parse("/rp"), parse("/name Zed now"), parse("/name"), parse("/bug it broke")), (Parsed::RolePlay, Parsed::NameRequest { name: "Zed now".into() }, Parsed::Usage("/name <new name>"), Parsed::Bug));

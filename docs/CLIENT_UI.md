@@ -7373,3 +7373,7 @@ The original finds the district of the character's zone (`PlayfieldDistrictInfo_
 ### Talking to an NPC (NPC-001)
 
 The client asks an NPC to talk once, as the original does. The client's own retry (an NPC silent for two seconds was told its chat was closed and asked again, which opened the window two seconds late) is gone.
+
+### /help (CHT-002)
+
+`/help` shows the game's own help page of commands (`helpcommands.html`) in the info window, and `/help <topic>` the page of that topic (org, pet, emote, macro, chat, team, raid and the rest of GUI.dll's list, FUN_100a4d15); an unknown topic says so in the chat. The client's own list of the commands it carries out is in its help assistant.

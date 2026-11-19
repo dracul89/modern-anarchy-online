@@ -3847,6 +3847,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: different help text; no server version shown
 - Where: `crates/mao-client/src/chat_commands.rs:83`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): /help is now the original's: GUI.dll FUN_100b7345 shows, with no topic, the game's helpcommands.html in the info view; with a topic (the second word) the page the command interpreter's topic map gives it (FUN_100a4d15: org, petition, pet, emote, macro, script, chat, team, misc, list, camera, actionbar, towers, voices, perks, perk, factions, shadowlevel, raid), else the line "Error: no help topic named '<topic>'." (FUN_1009bad0, colour 0x51; told as a system line here). Matching the topic without regard to case is a guess (the map's compare was not read). Left: /version, which in the original goes to Gamecode's text interpreter (FUN_1003fe10, 0x1003fec0) and sends CharacterAction 0x9d to the server, whose first word is the interpreter's own first argument (not identified) and whose answer no capture has; the client still says its own version. The client's list of what it carries out stays in its own help assistant (help.rs). Test chat_commands::tests (the /help parse and help_file).
 
 #### `CHT-003` /bug sends no report
 
