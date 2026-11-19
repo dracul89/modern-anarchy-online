@@ -430,9 +430,13 @@ fn group_name(text: &str) -> Option<(&str, &str)> {
 /// piece, and `/tell`, with 3, the name and then the whole text. -1 is no limit (`/cc`). A piece that begins with a
 /// double quote runs to the next quote that a blank or the line's end follows, and keeps its quotes.
 ///
-/// Read on 2026-11-16, after a live `/name` showed the first word alone was being sent. Commands not listed were
-/// not read (the organization's and the team's are registered elsewhere).
+/// Read on 2026-11-16, after a live `/name` showed the first word alone was being sent; FUN_100b348c's and the
+/// rest of FUN_100b2ac9's and FUN_100b4001's on 2026-11-19 (`/anon`, `/terminate`, `/version`, `/rp`, `/reclaim`;
+/// FUN_100b348c gives `/<emote>` 1 and `/emote` 2). `/org` and `/team` are registered by none of them: the input line
+/// hands such a line whole to Gamecode's text commands (`N3Msg_TextCommand` 0x10017743 → FUN_1003fe10), which read
+/// its words from a `strstream` with `>>` (FUN_10043ec8, FUN_100441b7): cut at blanks, as `split_whitespace` does.
 pub const PIECES: &[(&str, i32)] = &[
+    ("anon", 2), ("terminate", 1), ("version", -1), ("rp", 1), ("reclaim", 1),
     ("fxscript", 3), ("help", 2), ("selectself", 1), ("bug", 2), ("showfile", 2), ("tipoftheday", 2), ("option", 3), ("setoption", 3),
     ("dvalue", 3), ("open", 2), ("toggle", 2), ("close", 2), ("assist", 2), ("text", 2), ("camp", 1), ("quit", 1), ("chardist", 2),
     ("viewdist", 2), ("char&viewdist", 3), ("cc", -1), ("afk", 2), ("tell", 3), ("reply", 2), ("r", 2), ("petition", 2), ("name", 2),

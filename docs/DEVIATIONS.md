@@ -4511,7 +4511,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only the commands read are in the table; the organization's and the team's were not read
 - A player notices: /org and /team lines may be cut differently from the original's
 - Where: `crates/mao-client/src/chat_commands.rs:317`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Every `FUN_100a3c6a` registration was read (its pushes: flags, the piece count, the name; EBX 0, EDI 1 in those functions): FUN_100bb3e0 (the table's), FUN_100b2ac9 (`/resetskill` 1, `/version` -1, `/chr` -1, `/clone` -1, `/inspect` 2, `/rp` 1, `/reclaim` 1), FUN_100b4001 (`/teleportdynel` 4, `/gfx` 3, `/tower` 2, `/terminate` 1, `/get` 2, `/getfull` 2, `/set` 3, `/reloadgfxtweak` 1, `/togglegroundlightingfix` 1, `/anon` 2, `/teleport` 2, `/dumphash` 2) and FUN_100b348c (`/anim` 2, `/emote` 2, each `/<emote>` 1). The player commands the table lacked are added (`/anon`, `/terminate`, `/version`, `/rp`, `/reclaim`; the others are GM/debug commands not in the player's list). `/org` and `/team` are registered in none of them: the input line hands the line whole to Gamecode's `N3Msg_TextCommand` (0x10017743 → FUN_1003fe10), which reads the words from a `strstream` with `>>` (FUN_10043ec8, FUN_100441b7), i.e. cut at blanks, which the client's `split_whitespace` for them already does. No behaviour change (the table is the reference the parse follows); test `chat_commands::tests` (every table command is known).
 - Looked at, left (2026-11-19, overnight): The organization's and the team's commands' piece counts need their registrations read in GUI.dll; over the time box. Left.
 
 ### Chat and commands: the client has it, the original does not (12)

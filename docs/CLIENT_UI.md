@@ -7886,3 +7886,7 @@ The original's menu on a private group's row in the chat settings (GUI.dll FUN_1
 ### Ignored players in vicinity and groups (CHT-067)
 
 The original's `HandleVicinityMessage` and `HandleGroupMessage` drop a message from an ignored character, text and voice, unless the message's records carry a flag with bit 0, which lets it through. The client now does the same; before, an ignored player's voice line still played.
+
+### How many pieces each command's line is cut into (CHT-068)
+
+Every command GUI.dll registers for a player now has its piece count in the client's table (FUN_100bb3e0, FUN_100b2ac9, FUN_100b4001, FUN_100b348c). `/org` and `/team` are not registered there: their lines go whole to Gamecode's text commands (N3Msg_TextCommand → FUN_1003fe10), which read the words at blanks, as the client does.
