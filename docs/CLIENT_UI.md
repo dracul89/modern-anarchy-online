@@ -7361,3 +7361,7 @@ A creature walking a path goes at 1.5 a second: the original's vehicle sets ever
 ### Fight lines of one's pet (CHT-016)
 
 The original queues a fight line of one's own pet as its own kind: a hit between others where the pet is hit or hits (Gamecode FUN_1009b6b7 0x21, a special FUN_1006af0e 0x33), and damage to the pet (FUN_100a0611 0x1c, even when oneself is the source), which the formatter FUN_10012c3e puts in the chat groups "Your pet hit by other" and "Your pet hit by nano". The client does the same for the pets the server gave it, so these lines follow those groups in the chat windows.
+
+### Camera keys follow the turn and zoom settings (CAM-006)
+
+N3.dll's camera turns by the rotate keys' 0.02 rad a frame times `MouseTurnSensitivity` (FUN_10022345 → FUN_1002118c) and moves along the view by the zoom keys' time times `ZoomSpeed`; the defaults (LoginPrefs.xml) are 10 and 20. The client now reads both settings for the keys, as it already did for the mouse and the wheel.

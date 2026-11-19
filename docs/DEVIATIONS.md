@@ -6515,7 +6515,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: sensitivity fixed at 1 and zoom 10 units a second ("feel like the original"), mouse look 0.005 rad per pixel (the client's), each wheel notch a quarter second of zoom, distance 0.8 to 25; no settings for them (MouseLookInverted is now supported)
 - A player notices: camera and flight turn and zoom speed cannot be changed and may not match the original's defaults
 - Where: `crates/mao-client/src/camera.rs:199-200`; `crates/mao-client/src/camera.rs:183`; `crates/mao-client/src/viewer.rs:972-973`; `docs/CLIENT_UI.md:2142`; `docs/ORIGINAL_AUDIT.md:208`; `docs/FLIGHT_ORIGINAL.md:249` and 2 more
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The mouse look and the wheel already took the preferences (viewer.rs, 2026-11-18); the camera's rotate and zoom keys now do too. N3.dll's camera frame (FUN_10022345, at 0x10022a2a) multiplies the rotate keys' ±0.02 rad (_DAT_1003e484 / _DAT_1003e480) by MouseTurnSensitivity before FUN_1002118c turns by them, and FUN_1002118c moves the camera along the view by the zoom it is given (the frame's time for the zoom keys) times ZoomSpeed; LoginPrefs.xml's defaults are 10 (1–20) and 20 (1–40). camera.rs had fixed 1 and 10 ("feel like the original"); it now reads both preferences each frame (turn_sensitivity, zoom_speed). With the defaults the rotate keys turn ten times faster than before and the zoom keys move twice as fast: that is the reading, worth a live look. Tests camera:: (21 passed).
 
 #### `CAM-007` Camera near and far planes computed from the scene
 

@@ -200,9 +200,18 @@ const MAX_DISTANCE: f32 = 25.0;
 const ARRIVE_RADIUS: f32 = 0.01;
 const MAX_STEP: f32 = 0.4;
 const TURN_PER_FRAME: f32 = 0.02;
-/// `MouseTurnSensitivity` and `ZoomSpeed` are interface values the client has no source for; 1 and 10 feel like the original.
-const TURN_SENSITIVITY: f32 = 1.0;
-const ZOOM_SPEED: f32 = 10.0;
+/// The player's `MouseTurnSensitivity` (LoginPrefs.xml: 1 to 20, 10 to start), by which N3.dll's camera frame
+/// (FUN_10022345, 0x10022a2a) multiplies the rotate keys' 0.02 rad (`_DAT_1003e484`) before turning by them
+/// (FUN_1002118c), read each frame as the original reads it.
+fn turn_sensitivity() -> f32 {
+    crate::prefs::get("MouseTurnSensitivity").unwrap_or(10.0) as f32
+}
+
+/// The player's `ZoomSpeed` (LoginPrefs.xml: 1 to 40, 20 to start): FUN_1002118c moves the camera along the view by the
+/// zoom it is given times this (the zoom keys give the frame's time, so `ZoomSpeed` units a second).
+fn zoom_speed() -> f32 {
+    crate::prefs::get("ZoomSpeed").unwrap_or(20.0) as f32
+}
 const PITCH_LIMIT: f32 = 1.55334;
 const UP: [f32; 3] = [0.0, 1.0, 0.0];
 /// The vehicle's radius (`SetRadius`, 0.7), by which the found position is kept clear of what blocked it.
@@ -481,7 +490,7 @@ impl SteeringCamera {
         if (dot(normalize(v), UP) + up).abs() <= 0.9999 && length(axis) > 0.0 {
             v = rotate_about(v, axis, up);
         }
-        v = add(v, scale(normalize(v), zoom * ZOOM_SPEED));
+        v = add(v, scale(normalize(v), zoom * zoom_speed()));
         let len = length(v);
         if len < MIN_DISTANCE && zoom < 0.0 {
             if !hold_third {
@@ -534,8 +543,8 @@ impl SteeringCamera {
             self.reset(look, heading);
         }
         if self.mode == Mode::First {
-            self.first_yaw += inputs.mouse.0 + (inputs.rotate_right as i32 - inputs.rotate_left as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * (dt * 60.0);
-            self.first_pitch = (self.first_pitch + inputs.mouse.1 + (inputs.rotate_up as i32 - inputs.rotate_down as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * (dt * 60.0)).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+            self.first_yaw += inputs.mouse.0 + (inputs.rotate_right as i32 - inputs.rotate_left as i32) as f32 * TURN_PER_FRAME * turn_sensitivity() * (dt * 60.0);
+            self.first_pitch = (self.first_pitch + inputs.mouse.1 + (inputs.rotate_up as i32 - inputs.rotate_down as i32) as f32 * TURN_PER_FRAME * turn_sensitivity() * (dt * 60.0)).clamp(-PITCH_LIMIT, PITCH_LIMIT);
             if !inputs.hold_third && (inputs.zoom_out || inputs.wheel > 0.0) {
                 // (`ZoomTo1stPerson`: zooming out leaves first person)
                 self.set_mode(self.preferred);
@@ -555,10 +564,10 @@ impl SteeringCamera {
         self.constrain(char_speed, look);
         // The keys and the mouse (FUN_10022345: 0.02 a frame; the client scales it to the original's frame rate).
         let frames = dt * ORIGINAL_FPS;
-        let across = inputs.mouse.0 + (inputs.rotate_right as i32 - inputs.rotate_left as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * frames;
-        let up = inputs.mouse.1 + (inputs.rotate_up as i32 - inputs.rotate_down as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * frames;
-        // (the wheel in units; the zoom here is in tenths of `ZOOM_SPEED`'s units a second)
-        let zoom = (inputs.zoom_out as i32 - inputs.zoom_in as i32) as f32 * dt + inputs.wheel / ZOOM_SPEED;
+        let across = inputs.mouse.0 + (inputs.rotate_right as i32 - inputs.rotate_left as i32) as f32 * TURN_PER_FRAME * turn_sensitivity() * frames;
+        let up = inputs.mouse.1 + (inputs.rotate_up as i32 - inputs.rotate_down as i32) as f32 * TURN_PER_FRAME * turn_sensitivity() * frames;
+        // (the wheel in units; the keys' zoom is the frame's time, made `ZoomSpeed` units a second by `turn_and_zoom`)
+        let zoom = (inputs.zoom_out as i32 - inputs.zoom_in as i32) as f32 * dt + inputs.wheel / zoom_speed();
         if across != 0.0 || up != 0.0 || zoom != 0.0 {
             if !self.turn_and_zoom(look, heading, across, up, zoom, inputs.hold_third) {
                 return self.update(0.0, look, heading, char_speed, Inputs::default(), surface);
