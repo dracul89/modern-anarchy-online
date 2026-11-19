@@ -133,8 +133,10 @@ pub enum Action {
     MapOverlay,
     /// Press slot n (0..10) of the shown hotbar.
     HotbarSlot(u8),
-    /// Show hotbar n (0..6).
+    /// Show hotbar n (0..6); with the original's shortcut bars, make bar n (0..10) the primary.
     HotbarBar(u8),
+    /// The original's shortcut bars: show page n (0..10) of the primary bar (`SHORTUCT_BAR_ROW_n`).
+    HotbarRow(u8),
     ChatInput,
     ChatCommand,
     ChatReply,
@@ -260,6 +262,21 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::HotbarBar(3), "hotbar_bar_4", "Alt+4"),
     (Action::HotbarBar(4), "hotbar_bar_5", "Alt+5"),
     (Action::HotbarBar(5), "hotbar_bar_6", "Alt+6"),
+    // (the original's ten bars and ten pages: `SHORTUCT_BAR_SELECT_n` on Alt+1 to 0, `SHORTUCT_BAR_ROW_n` on Shift+1 to 0)
+    (Action::HotbarBar(6), "hotbar_bar_7", "Alt+7"),
+    (Action::HotbarBar(7), "hotbar_bar_8", "Alt+8"),
+    (Action::HotbarBar(8), "hotbar_bar_9", "Alt+9"),
+    (Action::HotbarBar(9), "hotbar_bar_10", "Alt+0"),
+    (Action::HotbarRow(0), "hotbar_row_1", "Shift+1"),
+    (Action::HotbarRow(1), "hotbar_row_2", "Shift+2"),
+    (Action::HotbarRow(2), "hotbar_row_3", "Shift+3"),
+    (Action::HotbarRow(3), "hotbar_row_4", "Shift+4"),
+    (Action::HotbarRow(4), "hotbar_row_5", "Shift+5"),
+    (Action::HotbarRow(5), "hotbar_row_6", "Shift+6"),
+    (Action::HotbarRow(6), "hotbar_row_7", "Shift+7"),
+    (Action::HotbarRow(7), "hotbar_row_8", "Shift+8"),
+    (Action::HotbarRow(8), "hotbar_row_9", "Shift+9"),
+    (Action::HotbarRow(9), "hotbar_row_10", "Shift+0"),
     // The special and character actions.
     (Action::Quick(0), "action_brawl", "B"),
     (Action::Quick(1), "action_burst", "M"),
@@ -612,6 +629,11 @@ pub struct Settings {
     pub log_messages: bool,
     /// The chat lines in the original's own bitmap font.
     pub original_font: bool,
+    /// This client's own smart hotbars instead of the original's shortcut bars.
+    pub smart_hotbar: bool,
+    /// How many of the original's shortcut bars show (`NumHotbars`, 1 to 10) and whether they are locked (`LockHotbars`).
+    pub hotbars: u8,
+    pub lock_hotbars: bool,
     /// How the third-person camera follows a turning character: `lock` (stays behind), `rubber` (swings round) or `trail` (slowly).
     pub camera_mode: String,
     /// The planet maps (the original's `PlanetMapIndexFile` and `ShadowlandMapIndexFile`): an index file's path from a
@@ -634,7 +656,7 @@ pub const DEFAULT_SHADOWLANDS_MAP: &str = "SLmap/SLmap.txt";
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, texture_compression: true, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, log_messages: false, original_font: true, camera_mode: "trail".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, remember_pet_names: true, keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, texture_compression: true, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, log_messages: false, original_font: true, smart_hotbar: false, hotbars: 1, lock_hotbars: false, camera_mode: "trail".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, remember_pet_names: true, keymap: Keymap::default() }
     }
 }
 
@@ -730,7 +752,7 @@ impl Settings {
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
         out += &format!("mode = {}\nwidth = {}\nheight = {}\n; the graphics device (empty: the system's choice; the launcher's settings list them)\nadapter = {}\nvsync = {}\n; the most frames a second (0: no limit), and while the window is not in front (0: the same)\nfps_limit = {}\nbackground_fps = {}\n; off | low | medium | high\nshadows = {}\n; the textures block-compressed on the graphics card (a quarter of the video memory, a little longer to load)\ntexture_compression = {}\n; the monitor a borderless or full-screen window covers (0: the window's own)\nmonitor = {}\nrender_scale = {}\nsharpness = {}\nantialiasing = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, self.adapter, if self.vsync { "on" } else { "off" }, self.fps_limit, self.background_fps, self.shadows.name(), if self.texture_compression { "on" } else { "off" }, self.monitor, self.render_scale, self.sharpness, self.antialiasing.name(), self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
-        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the frame rate, processor, memory and graphics card over the game (/perf)\nperf_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n; the planet maps: an index file under a maps' folder (the client's PlanetMap folder, then the game's textures/PlanetMap)\nplanet_map = {}\nshadowlands_map = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.perf_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode, self.planet_map, self.shadowlands_map);
+        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the frame rate, processor, memory and graphics card over the game (/perf)\nperf_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n; the planet maps: an index file under a maps' folder (the client's PlanetMap folder, then the game's textures/PlanetMap)\nplanet_map = {}\nshadowlands_map = {}\n; the shortcut bars: the original's (smart_hotbar = off; how many show, 1 to 10, and whether they are locked) or this client's smart hotbars\nsmart_hotbar = {}\nhotbars = {}\nlock_hotbars = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.perf_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode, self.planet_map, self.shadowlands_map, if self.smart_hotbar { "on" } else { "off" }, self.hotbars, if self.lock_hotbars { "on" } else { "off" });
         out += &format!("; the pet window: the buttons beside each pet's bar, and the pets in fixed rows by their kind\npet_buttons = {}\nfixed_pet_buttons = {}\n; a pet that comes is given the name last kept for its kind\nremember_pet_names = {}\n\n", if self.pet_buttons { "on" } else { "off" }, if self.fixed_pet_buttons { "on" } else { "off" }, if self.remember_pet_names { "on" } else { "off" });
         out += &format!("[game]\n; the original game's folder (the one with cd_image in it); the launcher's settings set it\ndir = {}\n\n", self.game_dir);
         out += &crate::helpwindow::settings_text();
@@ -792,6 +814,9 @@ impl Settings {
                 ("interface", "gui_dir") => settings.gui_dir = value.to_string(),
                 ("interface", "camera_mode") if ["lock", "rubber", "trail"].contains(&value.to_ascii_lowercase().as_str()) => settings.camera_mode = value.to_ascii_lowercase(),
                 ("interface", "original_font") => settings.original_font = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
+                ("interface", "smart_hotbar") => settings.smart_hotbar = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
+                ("interface", "hotbars") => settings.hotbars = value.parse().unwrap_or(settings.hotbars).clamp(1, 10),
+                ("interface", "lock_hotbars") => settings.lock_hotbars = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("interface", "perf_overlay") => settings.perf_overlay = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("debug", "log_messages") => settings.log_messages = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
                 ("interface", "debug_overlay") => settings.debug_overlay = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),

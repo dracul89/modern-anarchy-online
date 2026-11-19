@@ -107,6 +107,20 @@ pub const PROVIDERS: &[(&str, Action)] = &[
     ("SHORTUCT_BAR_SELECT_3", Action::HotbarBar(3)),
     ("SHORTUCT_BAR_SELECT_4", Action::HotbarBar(4)),
     ("SHORTUCT_BAR_SELECT_5", Action::HotbarBar(5)),
+    ("SHORTUCT_BAR_SELECT_6", Action::HotbarBar(6)),
+    ("SHORTUCT_BAR_SELECT_7", Action::HotbarBar(7)),
+    ("SHORTUCT_BAR_SELECT_8", Action::HotbarBar(8)),
+    ("SHORTUCT_BAR_SELECT_9", Action::HotbarBar(9)),
+    ("SHORTUCT_BAR_ROW_0", Action::HotbarRow(0)),
+    ("SHORTUCT_BAR_ROW_1", Action::HotbarRow(1)),
+    ("SHORTUCT_BAR_ROW_2", Action::HotbarRow(2)),
+    ("SHORTUCT_BAR_ROW_3", Action::HotbarRow(3)),
+    ("SHORTUCT_BAR_ROW_4", Action::HotbarRow(4)),
+    ("SHORTUCT_BAR_ROW_5", Action::HotbarRow(5)),
+    ("SHORTUCT_BAR_ROW_6", Action::HotbarRow(6)),
+    ("SHORTUCT_BAR_ROW_7", Action::HotbarRow(7)),
+    ("SHORTUCT_BAR_ROW_8", Action::HotbarRow(8)),
+    ("SHORTUCT_BAR_ROW_9", Action::HotbarRow(9)),
 ];
 
 /// A `KeyBindings` archive: its version and its binds, each a key (`Input`) and an action (`Provider`).

@@ -1437,12 +1437,27 @@ impl ApplicationHandler for App {
                         }
                         Action::HotbarBar(n) if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
-                                ui.hotbars.current = (n as usize).min(crate::hotbar::BARS - 1);
+                                if self.settings.smart_hotbar {
+                                    ui.hotbars.current = (n as usize).min(crate::hotbar::BARS - 1);
+                                } else {
+                                    ui.shortcut_bars.select(n as usize, self.settings.hotbars as usize);
+                                    crate::shortcutbar::save(&ui.shortcut_bars);
+                                }
+                            }
+                        }
+                        Action::HotbarRow(n) if !event.repeat && !self.settings.smart_hotbar => {
+                            if let Some(ui) = w.ui.as_mut() {
+                                ui.shortcut_bars.row(n as usize);
+                                crate::shortcutbar::save(&ui.shortcut_bars);
                             }
                         }
                         Action::HotbarSlot(n) if !event.repeat => {
                             if let Some(ui) = w.ui.as_mut() {
-                                press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
+                                if self.settings.smart_hotbar {
+                                    press_slot(ui, n as usize, &mut self.keys, &mut self.hud);
+                                } else if let Some(action) = ui.shortcut_bars.press(n as usize) {
+                                    fire_action(&action, &mut self.keys, &mut self.hud);
+                                }
                             }
                         }
                         // (`COMMAND_TEXT_INPUT_START_TEXT_INPUT` on Enter, `COMMAND_START_CHAT_CMD_INPUT` on `/`: the line
@@ -3201,6 +3216,9 @@ impl ApplicationHandler for App {
                     }
                     if requests.hotbars_changed {
                         crate::hotbar::save(&ui.hotbars);
+                    }
+                    if requests.shortcuts_changed {
+                        crate::shortcutbar::save(&ui.shortcut_bars);
                     }
                     prof_t = crate::prof::lap("ui-requests", prof_t);
                     ui.paint(&w.gpu, &view, size, frame);

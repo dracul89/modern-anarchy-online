@@ -73,6 +73,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The Action window lists only what your character has, in the original's order. The Sit/Stand, Walk/Run, Sneak, combat and
   Suspended Animation tiles change with what you are doing, on the shortcut bars as well.
 - Each corpse, chest or other container opens in a window of its own, as in the original, instead of one shared window.
+- The shortcut bars are the original's now: up to ten bars (set in the client's settings) of ten slots and ten pages each.
+  1 to 0 press the primary bar's slots, Shift+1 to 0 pick its page and Alt+1 to 0 pick the primary bar. The smart hotbars
+  are still there as a setting.
 
 ### Items
 

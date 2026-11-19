@@ -2056,7 +2056,8 @@ The chat lines are now drawn in the original's own chat font (`GFX_FONT_CHAT9` +
 
 The interface font too: window titles (`chrome.rs`), the target frame's name and the on-screen log use `GFX_FONT_GAMESHELL12` / `FontGameShell12.fnt` (`font::shell`, `font::text`) and the chat font, when the original's fonts are on. Checked offscreen.
 
-**Shortcut bar in the original's slot art.** With the skin the ten slots are 38 px `GFX_GUI_MULTILISTVIEW_SLOT_32_CLOSED` frames (the `OPEN` one for an empty slot) and the bar is stepped through with the control center's big arrows (`CONTROLCENTER_BIGARROW_*`, hover and pressed pictures) around the bar's number; Alt+1-6 still pick a bar directly. Everything else of the smart hotbar (queued presses, cooldown sweeps, drag-and-drop, the menu) is unchanged; without the skin the old 46 px look stays.
+**Shortcut bar in the original's slot art.** (The smart hotbars'. Since 2026-11-18 the original's own shortcut bars are the
+default and these a setting: "The original's shortcut bars".) With the skin the ten slots are 38 px `GFX_GUI_MULTILISTVIEW_SLOT_32_CLOSED` frames (the `OPEN` one for an empty slot) and the bar is stepped through with the control center's big arrows (`CONTROLCENTER_BIGARROW_*`, hover and pressed pictures) around the bar's number; Alt+1-6 still pick a bar directly. Everything else of the smart hotbar (queued presses, cooldown sweeps, drag-and-drop, the menu) is unchanged; without the skin the old 46 px look stays.
 
 **Camera modes.** The Camera sub-menu offers the original's third-person modes besides 1st/3rd person: locked (the camera stays behind the character at all times), rubber (swings round behind it at 6/s while moving, the old behaviour) and trailing (1.5/s). `[interface] camera_mode = lock | rubber | trail` (default rubber); the mouse still steers in every mode. Not tried live.
 
@@ -6736,3 +6737,53 @@ Not ported:
 The "Take all" button is this client's own: GUI.dll has none.
 
 Test: `a_backpack_has_its_own_window_and_name`. The network tests now keep the containers as a list.
+
+### The original's shortcut bars (WIN-001)
+
+The hotbar was this client's own design. The original's shortcut bars are the default now (`shortcutbar.rs`, `ui::shortcut_layer`).
+The smart hotbars stay as a setting: "Smart hotbars" in the client's settings, `smart_hotbar = on`. From GUI.dll's
+`ShortcutBarWindow_c` (FUN_100d9e5f) and `ShortcutBarView_c` (FUN_100d9588):
+
+- **Up to ten bars** (`NumHotbars`, 1 to 10, one by default; `hotbars =` in the settings). Each is a row of ten slots over ten
+  pages: slot `s` of page `p` is cell `s + 10 p` (FUN_100d8665).
+- **One bar is the primary**, chosen by its round toggle (FUN_100d8622).
+  - **1 to 0** press the primary bar's slots (`SHORTUCT_BAR_ACTIVE_n`).
+  - **Shift+1 to 0** pick its page (`SHORTUCT_BAR_ROW_n`).
+  - **Alt+1 to 0** make bar n the primary (`SHORTUCT_BAR_SELECT_n`).
+  - These are the game's own defaults in `CharPrefs.xml`, matched here by the providers' hashes.
+- **The look:**
+  - the toggle (`GFX_GUI_RADIOBUTTON_CHECKED`/`_UNCHECKED`, 11 by 11);
+  - the control strip (`GFX_GUI_TOOLBAR_CONTROL_H`, 32 by 38; upright `_V`) with its page buttons
+    (`GFX_GUI_TOOLBAR_BUTTON_UP`/`_DOWN`, `_LEFT`/`_RIGHT`, lit when the pointer is on them) and the page number in yellow,
+    `(page + 1) % 10`;
+  - ten cells 31 wide, 36 apart and 2 in from the edge, on `GFX_GUI_MULTILISTVIEW_SLOT_32_CLOSED`. Ten of them come to the
+    402 px the original's saved bars are wide.
+- **Moving and turning:** the strip is dragged to move the bar and double-clicked to turn it upright (FUN_100dbc76,
+  FUN_100dbe17), neither while `LockHotbars` is set (`lock_hotbars`). The wheel over a bar turns its pages, up to the one
+  before (FUN_100dbef9).
+- **Putting a shortcut in:** a shortcut dropped on a cell takes it, and the one it held goes into the hand (FUN_100d89bd).
+  One dragged out leaves its cell and is gone unless it is let go over a cell (FUN_100d8045). A click does it (FUN_100d833f).
+  A right click does nothing, as in the original.
+- **A shortcut with time left** shows its icon full for the share gone and faded for the rest, with the time over it in
+  yellow: `%2ds` up to a minute, then `%2dm` (`IconTimers`, `IconTimerText`). A macro is `GFX_GUI_ICON_MACRO` with its name
+  in yellow.
+- **The first run fills bar 1** (FUN_100d9e5f, while `IsFirstTime`): Start Combat, Walk, Sit, a new macro "Follow" that says
+  `/follow`, and Suspended Animation in the last slot.
+- **The bars are kept in `shortcutbars.ini`** beside the settings.
+
+Guessed or this client's own:
+
+- which page button goes which way (their functions are not exported): the upper one goes back, as the wheel turned up does;
+- the bars' first places: stacked up from the bottom left, where the original's saved bars stand.
+
+Not ported:
+
+- **Reading the original's `ShortcutBar_<n>.xml`:** its items are kept by their place in the inventory, not their template.
+- **Shift+click's item information.**
+- **The red fade of a shortcut that cannot be used** (`GFX_GUI_ICONFADER32`).
+- **Stack counts.**
+- **A new nano program put on the primary bar** (`ShortcutNewNanos`).
+- **The bars' close**, which hides them all (`shortcutbar_window`).
+
+Tests: `the_keys_go_to_the_primary_bars_shown_page`, `the_bars_round_trip_through_text`, `the_timer_says_seconds_then_minutes`.
+The picture is `MAO_UI_PREVIEW=shortcutbar` (`MAO_HOTBARS=2`, `MAO_HOTBAR_UPRIGHT=1`).

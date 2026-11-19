@@ -279,6 +279,8 @@ pub struct Requests {
     pub goto: Option<[f32; 2]>,
     /// The hotbars were edited (to be saved).
     pub hotbars_changed: bool,
+    /// The original's shortcut bars were edited or moved (to be saved).
+    pub shortcuts_changed: bool,
 }
 
 /// One frame of interface, ready to paint.
@@ -384,6 +386,8 @@ pub struct Ui {
     gear: crate::gear::GearWindow,
     /// The hotbars, and the clock their cooldowns run on.
     pub hotbars: Hotbars,
+    /// The original's shortcut bars (`shortcutbar.rs`), shown unless the smart hotbars are chosen.
+    pub shortcut_bars: crate::shortcutbar::ShortcutBars,
     clock: Instant,
     /// The action the options window is waiting for a key for.
     pub rebinding: Option<Action>,
@@ -618,7 +622,7 @@ impl Ui {
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), Some(gpu.device.limits().max_texture_dimension_2d as usize));
         // (the widest picture the card takes, not egui's own 2048: on a screen of two pixels to the point a skin's long strip, GFX_GUI_CONTROLCENTER_WING_LEFT, is 6000 across, and egui stops the program over a wider one)
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), shortcut_bars: crate::shortcutbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -1098,6 +1102,7 @@ impl Ui {
         let option_panel = &mut self.option_panel;
         let mut cc_windows: Vec<(&'static str, bool)> = Vec::new();
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
+        let shortcut_bars = &mut self.shortcut_bars;
         crate::layout::remember(&self.ctx);
         crate::rollup::begin_frame();
         // (the options' slider: `zoom_factor` multiplies the window's own scale)
@@ -1185,7 +1190,11 @@ impl Ui {
             } else if let Some(w) = crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, palette, &|n| states.contains(&n), true) {
                 menu_click = Some(w);
             }
-            hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
+            if settings.smart_hotbar {
+                hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
+            } else {
+                shortcut_layer(&ctx, shortcut_bars, settings.hotbars as usize, settings.lock_hotbars, gear, &hud.gear, &*actions, &mut requests);
+            }
             if stats_window.open {
                 stats_window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, palette);
             }
@@ -1880,7 +1889,19 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                     crate::vitals::show(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &|_| false, true);
                 }
             }
-            hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, &crate::actions::ActionsWindow::default(), 1.5, &palette, &mut requests);
+            // (MAO_UI_PREVIEW=shortcutbar: the original's shortcut bar as a first run fills it, MAO_HOTBARS=<n> bars of it;
+            // MAO_HOTBAR_UPRIGHT=1 the second upright)
+            if std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("shortcutbar") {
+                let mut bars = crate::shortcutbar::ShortcutBars::first_run(Some(1));
+                bars.bars[1].vertical = std::env::var_os("MAO_HOTBAR_UPRIGHT").is_some();
+                bars.bars[1].page = 3;
+                let count = std::env::var("MAO_HOTBARS").ok().and_then(|n| n.parse().ok()).unwrap_or(1);
+                let actions = preview_actions.take().unwrap_or_default();
+                shortcut_layer(&ctx, &mut bars, count, false, &mut gear, &hud.gear, &actions, &mut requests);
+                preview_actions = Some(actions);
+            } else {
+                hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, &crate::actions::ActionsWindow::default(), 1.5, &palette, &mut requests);
+            }
             if hud.whompah_open {
                 whompah_window(&ctx, &mut true, hud, &palette, &mut requests);
             }
@@ -2115,6 +2136,175 @@ fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Pal
         }
     });
     *open = is_open;
+}
+
+/// The original's shortcut bars (`shortcutbar.rs`; GUI.dll `ShortcutBarView_c` FUN_100d9588, `ShortcutBarSpinner_c`
+/// FUN_100db807): each bar is its primary toggle (`GFX_GUI_RADIOBUTTON_*`, 11 by 11), its control strip
+/// (`GFX_GUI_TOOLBAR_CONTROL_H`, 32 by 38, upright `_V`) with the page buttons and the page number in yellow, `(page + 1) % 10`,
+/// and its ten cells, 31 wide and 36 apart, two in from the edge, on `GFX_GUI_MULTILISTVIEW_SLOT_32_CLOSED`. The strip is
+/// dragged to move the bar and double-clicked to turn it upright (neither while locked); the wheel over the bar turns its
+/// pages. A cell takes a shortcut dropped on it, the one it held going into the hand; one dragged out leaves it (not while
+/// locked); a click does it. Which page button goes which way is not known (their functions are not exported): here the
+/// upper one goes back, as the wheel turned up does.
+#[allow(clippy::too_many_arguments)]
+fn shortcut_layer(ctx: &egui::Context, bars: &mut crate::shortcutbar::ShortcutBars, count: usize, locked: bool, gear: &mut GearWindow, items: &[GearItem], actions: &crate::actions::ActionsWindow, requests: &mut Requests) {
+    use crate::shortcutbar::{BARS, SLOTS};
+    let skin = crate::skin::skin(ctx);
+    let screen = ctx.content_rect();
+    let yellow = egui::Color32::from_rgb(255, 255, 0);
+    for b in 0..count.clamp(1, BARS) {
+        let vertical = bars.bars[b].vertical;
+        // (the strip, the toggle and the grid laid along the bar: 11 + 32 + 2 + 10 cells 36 apart less the last's spacing + 2)
+        let length = 11.0 + 32.0 + 2.0 + SLOTS as f32 * 36.0 - 5.0 + 2.0;
+        let size = if vertical { egui::vec2(38.0, length) } else { egui::vec2(length, 38.0) };
+        // (no place kept: the bars stacked up from the bottom left, as the original's saved bars stand; its first place is not known)
+        let first = egui::pos2(screen.left(), screen.bottom() - 250.0 - b as f32 * 40.0);
+        let at = bars.bars[b].pos.map_or(first, |p| egui::pos2(p[0], p[1]));
+        let at = egui::pos2(at.x.clamp(screen.left(), (screen.right() - size.x).max(screen.left())), at.y.clamp(screen.top(), (screen.bottom() - size.y).max(screen.top())));
+        egui::Area::new(egui::Id::unique(("shortcutbar", b))).fixed_pos(at).order(egui::Order::Middle).show(ctx, |ui| {
+            let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+            let painter = ui.painter().clone();
+            let along = |d: f32, w: f32, h: f32, across: f32| if vertical { egui::Rect::from_min_size(rect.min + egui::vec2(across, d), egui::vec2(h, w)) } else { egui::Rect::from_min_size(rect.min + egui::vec2(d, across), egui::vec2(w, h)) };
+            // (the primary toggle)
+            let radio = along(0.0, 11.0, 11.0, 13.5);
+            let radio = egui::Rect::from_min_size(radio.min, egui::vec2(11.0, 11.0));
+            let primary = bars.primary == b;
+            let shown = skin.as_ref().is_some_and(|s| s.draw_in(&painter, if primary { "GFX_GUI_RADIOBUTTON_CHECKED" } else { "GFX_GUI_RADIOBUTTON_UNCHECKED" }, radio, egui::Color32::WHITE));
+            if !shown {
+                painter.circle(radio.center(), 5.0, egui::Color32::from_black_alpha(160), egui::Stroke::new(1.0, yellow));
+                if primary {
+                    painter.circle_filled(radio.center(), 2.5, yellow);
+                }
+            }
+            if ui.interact(radio, egui::Id::unique(("shortcutbar-primary", b)), egui::Sense::click()).on_hover_text("The primary bar: the keys 1 to 0 press its slots").clicked() {
+                bars.primary = b;
+                requests.shortcuts_changed = true;
+            }
+            // (the control strip, its page buttons and the page number)
+            let strip = if vertical { egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 11.0), egui::vec2(38.0, 32.0)) } else { egui::Rect::from_min_size(rect.min + egui::vec2(11.0, 0.0), egui::vec2(32.0, 38.0)) };
+            if !skin.as_ref().is_some_and(|s| s.draw_in(&painter, if vertical { "GFX_GUI_TOOLBAR_CONTROL_V" } else { "GFX_GUI_TOOLBAR_CONTROL_H" }, strip, egui::Color32::WHITE)) {
+                painter.rect_filled(strip, 3.0, egui::Color32::from_black_alpha(170));
+            }
+            let strip_response = ui.interact(strip, egui::Id::unique(("shortcutbar-strip", b)), egui::Sense::click_and_drag());
+            for (back, name) in [(true, if vertical { "LEFT" } else { "UP" }), (false, if vertical { "RIGHT" } else { "DOWN" })] {
+                let at = match (vertical, back) {
+                    (false, true) => egui::vec2(11.0, 1.0),
+                    (false, false) => egui::vec2(11.0, 38.0 - 10.0 - 1.0),
+                    (true, true) => egui::vec2(1.0, 11.0),
+                    (true, false) => egui::vec2(38.0 - 10.0 - 1.0, 11.0),
+                };
+                let button = egui::Rect::from_min_size(strip.min + at, if vertical { egui::vec2(10.0, 16.0) } else { egui::vec2(16.0, 10.0) });
+                let response = ui.interact(button, egui::Id::unique(("shortcutbar-page", b, back)), egui::Sense::click());
+                let sprite = format!("GFX_GUI_TOOLBAR_BUTTON_{name}{}", if response.hovered() { "_HILITE" } else { "" });
+                if !skin.as_ref().is_some_and(|s| s.draw_in(&painter, &sprite, button, egui::Color32::WHITE)) {
+                    painter.text(button.center(), egui::Align2::CENTER_CENTER, if back { "-" } else { "+" }, egui::FontId::proportional(10.0), yellow);
+                }
+                if response.clicked() {
+                    bars.wheel(b, back);
+                    requests.shortcuts_changed = true;
+                }
+            }
+            painter.text(strip.center(), egui::Align2::CENTER_CENTER, format!("{}", (bars.bars[b].page + 1) % 10), egui::FontId::proportional(11.0), yellow);
+            if !locked {
+                if strip_response.dragged() {
+                    let moved = at + strip_response.drag_delta();
+                    bars.bars[b].pos = Some([moved.x, moved.y]);
+                }
+                if strip_response.drag_stopped() {
+                    requests.shortcuts_changed = true;
+                }
+                if strip_response.double_clicked() {
+                    bars.bars[b].vertical = !vertical;
+                    requests.shortcuts_changed = true;
+                }
+            }
+            // (the wheel over the bar turns its pages)
+            if ui.rect_contains_pointer(rect) {
+                let wheel: f32 = ui.input(|i| i.events.iter().filter_map(|e| if let egui::Event::MouseWheel { delta, .. } = e { Some(delta.y) } else { None }).sum());
+                if wheel != 0.0 {
+                    bars.wheel(b, wheel > 0.0);
+                    requests.shortcuts_changed = true;
+                }
+            }
+            // (the cells)
+            for slot in 0..SLOTS {
+                let cell = along(11.0 + 32.0 + 2.0 + slot as f32 * 36.0, 31.0, 31.0, 3.5);
+                if let Some(s) = &skin {
+                    s.draw_in(&painter, "GFX_GUI_MULTILISTVIEW_SLOT_32_CLOSED", cell.expand(3.5), egui::Color32::WHITE);
+                } else {
+                    painter.rect_filled(cell, 2.0, egui::Color32::from_black_alpha(140));
+                }
+                let response = ui.interact(cell, egui::Id::unique(("shortcutbar-cell", b, slot)), egui::Sense::click_and_drag());
+                let held = bars.shown(b, slot).cloned();
+                if let Some(action) = held.as_ref().map(|a| actions.paired(a.clone())) {
+                    // (a time left: the icon full for the share gone, faded for the rest, and the time over it, `IconTimers`)
+                    let lock = match &action {
+                        hotbar::Action::Special { id, .. } => crate::actions::lock_left(*id),
+                        hotbar::Action::Item { id, .. } => crate::actions::item_lock_left(*id),
+                        hotbar::Action::Nano { id, .. } => crate::actions::nano_lock_left(*id),
+                        _ => None,
+                    };
+                    if lock.is_some() {
+                        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                    }
+                    let icon = match &action {
+                        hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
+                        hotbar::Action::Special { icon: Some(id), .. } => actions.icon_by_instance(*id).cloned(),
+                        _ => None,
+                    };
+                    match icon {
+                        Some(icon) => {
+                            let texture = gear.texture(ctx, &icon);
+                            let done = crate::actions::lock_share(lock).unwrap_or(1.0).clamp(0.0, 1.0);
+                            let split = cell.left() + cell.width() * done;
+                            let uv = |a: f32, b: f32| egui::Rect::from_min_max(egui::pos2(a, 0.0), egui::pos2(b, 1.0));
+                            painter.image(texture, egui::Rect::from_min_max(cell.min, egui::pos2(split, cell.bottom())), uv(0.0, done), egui::Color32::WHITE);
+                            painter.image(texture, egui::Rect::from_min_max(egui::pos2(split, cell.top()), cell.max), uv(done, 1.0), egui::Color32::from_gray(80));
+                        }
+                        // (a macro: `GFX_GUI_ICON_MACRO` with its name over it in yellow, FUN_100402e8)
+                        None if matches!(action, hotbar::Action::Macro { .. }) => {
+                            if let Some(s) = &skin {
+                                s.draw_in(&painter, "GFX_GUI_ICON_MACRO", cell, egui::Color32::WHITE);
+                            }
+                            let galley = painter.layout(action.name().to_string(), egui::FontId::proportional(9.0), yellow, cell.width() - 2.0);
+                            let top = cell.center() - galley.size() * 0.5;
+                            painter.with_clip_rect(cell).galley(egui::pos2(top.x.max(cell.left() + 1.0), top.y.max(cell.top() + 1.0)), galley, yellow);
+                        }
+                        None => {
+                            painter.text(cell.center(), egui::Align2::CENTER_CENTER, action.name().chars().next().unwrap_or('?'), egui::FontId::proportional(16.0), yellow);
+                        }
+                    }
+                    if let Some((left, _)) = lock.filter(|l| l.0 > 0.0) {
+                        painter.text(cell.center(), egui::Align2::CENTER_CENTER, crate::shortcutbar::timer_text(left), egui::FontId::proportional(11.0), yellow);
+                    }
+                    response.clone().on_hover_text(action.name());
+                }
+                if response.dnd_hover_payload::<hotbar::Action>().is_some() {
+                    painter.rect_stroke(cell, 2.0, egui::Stroke::new(1.5, yellow), egui::StrokeKind::Inside);
+                }
+                // (a shortcut dropped on the cell takes it; the one it held goes into the hand, FUN_100d89bd and FUN_100d8837)
+                if let Some(payload) = response.dnd_release_payload::<hotbar::Action>() {
+                    if let Some(place) = bars.shown_mut(b, slot) {
+                        let before = place.replace((*payload).clone());
+                        if let Some(before) = before.filter(|_| !locked) {
+                            egui::DragAndDrop::set_payload(ctx, before);
+                        }
+                        requests.shortcuts_changed = true;
+                    }
+                } else if response.drag_started() && !locked {
+                    // (taken up: it leaves the cell, and is gone unless it is let go over a cell, FUN_100d8045)
+                    if let Some(taken) = bars.shown_mut(b, slot).and_then(Option::take) {
+                        egui::DragAndDrop::set_payload(ctx, taken);
+                        requests.shortcuts_changed = true;
+                    }
+                } else if response.clicked() {
+                    if let Some(action) = held {
+                        requests.action = Some(action);
+                    }
+                }
+            }
+        });
+    }
 }
 
 /// The hotbar: tabs for the six bars and ten slots. A slot shows the action that would fire (its icon,
@@ -2680,6 +2870,14 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
         ui.heading("Interface");
         crate::chrome::checkbox(ui, palette, &mut settings.perf_overlay, "Show performance: frame rate, processor, memory and graphics card (/perf)");
         crate::chrome::checkbox(ui, palette, &mut settings.auto_loot, "Take everything from a corpse as soon as it opens");
+        crate::chrome::checkbox(ui, palette, &mut settings.smart_hotbar, "Smart hotbars (this client's own: priority lists, queued presses) instead of the original's shortcut bars");
+        if !settings.smart_hotbar {
+            ui.horizontal(|ui| {
+                ui.label("Shortcut bars shown");
+                ui.add(egui::DragValue::new(&mut settings.hotbars).range(1..=10));
+                crate::chrome::checkbox(ui, palette, &mut settings.lock_hotbars, "Locked (not moved, turned or emptied)");
+            });
+        }
         if crate::chrome::checkbox(ui, palette, &mut settings.original_font, "The original's chat font (its own 9 px bitmap font)").changed() {
             crate::font::set_enabled(settings.original_font);
         }

@@ -147,6 +147,7 @@ mod research;
 mod shop;
 mod mission;
 mod hotbar;
+mod shortcutbar;
 mod net;
 mod settings;
 mod theme;
@@ -2092,6 +2093,12 @@ fn run(args: &[String]) -> Result<(), String> {
                         hud.camera_yaw = 4.0;
                         hud.map_dots = vec![([cx + 20.0, cz + 10.0], automap::DotKind::Player), ([cx - 15.0, cz + 25.0], automap::DotKind::Hostile), ([cx + 5.0, cz - 30.0], automap::DotKind::Friendly)];
                         *hud.map_preview.lock().unwrap() = Some(map);
+                    }
+                    // (the shortcut bar's preview takes the action icons from here)
+                    if preview.as_deref() == Some("shortcutbar") {
+                        let mut window = actions::ActionsWindow::default();
+                        window.load_icons(&textures.clone_handle());
+                        *hud.actions_preview.lock().unwrap() = Some(window);
                     }
                     if preview.as_deref() == Some("actions") {
                         let mut window = actions::ActionsWindow::default();

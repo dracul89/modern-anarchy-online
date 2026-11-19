@@ -4050,7 +4050,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: hotbar.rs is the client's own smart hotbar: queued presses, cooldown sweeps, Alt+1-6 pick a bar and number keys press slots, the bar is dragged by a grip, turned vertical, edited by right click, items dropped onto it, with a 46 px look without a skin.
 - A player notices: Shortcut bars look and behave differently; key assignments may differ.
 - Where: `crates/mao-client/src/ui.rs:1922`; `crates/mao-client/src/ui.rs:1962`; `crates/mao-client/src/settings.rs:255`; `docs/GUI_DLL_PARITY.md:84`; `docs/CLIENT_UI.md:2060`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the original's shortcut bars are the default (`shortcutbar.rs`): up to ten bars of ten slots over ten pages, a primary bar, the game's keys (1-0, Shift for the page, Alt for the primary), its art, moving, turning upright, the wheel, dropping and dragging out, the timer text and the first run's shortcuts. The smart hotbars stay as a setting. Not ported: reading the original's ShortcutBar_<n>.xml, Shift+click info, the red unusable fade, stack counts, new nanos put on the bar, the bars' close.
 
 #### `WIN-002` Dark themes draw controls in the border colour instead of the skin's Default
 

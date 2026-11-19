@@ -991,6 +991,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Action window pairs (2026-11-18): sit, switch walk/run, sneak, fight, `/camp`: the tile shows the other half (also on a shortcut bar) and a click does it; before the server lists specials there are only nine tiles; a character without perks has no perk tiles
 - [ ] Special attack range (2026-11-18): Brawl at a monster 6 m away says it is out of range and sends nothing; at 4 m it goes; Dimach from 10 m goes
 - [ ] Container windows (2026-11-18): open two corpses: two windows, each taken from on its own; the bank's window keeps a place of its own; Escape closes the corpses' windows
+- [ ] Original shortcut bars (2026-11-18): the first start fills bar 1 (Start Combat, Walk, Sit, Follow, Suspended Animation); keys 1-0, Shift+n page, Alt+n primary; drag by the strip, double-click it upright; wheel pages; drop, swap and drag out; the settings' Smart hotbars switch back
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
