@@ -2079,13 +2079,6 @@ pub fn corpse_look(data: &[u8]) -> Option<CorpseLook> {
 pub const PATH_WALK: u8 = 0x18;
 pub const PATH_RUN: u8 = 0x19;
 
-/// Where the template id sits after the flags: a few bytes after the second
-/// flags word and always before a level (`00 level 00 1f`), at a position
-/// that moves by a byte with the fields in front.
-fn npc_template(post: &[u8]) -> Option<u32> {
-    npc_template_and_scale(post).map(|t| t.0)
-}
-
 /// A player's `MonsterData` and body scale, read on from after the word at `+0xa0` as the full update's reader does
 /// (Gamecode FUN_1007916d, the branch of a character that is no NPC): a word and seven shorts; two strings when
 /// `flags2` has `0x400000`; with the flags' bit 26 a word (versions after 0x39) and a string, the organization's
@@ -2145,46 +2138,29 @@ fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, fl
     Some((monster, scale, mode, kept))
 }
 
-/// A creature's template and, in the two bytes after it, its body's scale in percent (the original's capture of
-/// 2026-10-30: 75 to 200 for the ordinary creatures, 100 the commonest, and 600 for the bosses of Arete Landing, which
-/// are the ordinary creatures' templates six times the size). The template is found by what follows it: the scale, a
-/// zero and `0x1f`. A scale under 256 is looked for first, as this was read until 2026-11-11, when a boss was drawn as
-/// the placeholder box because its scale's high byte is not zero; then any scale up to 4095 after a template under
-/// 0x1000000.
-fn npc_template_and_scale(post: &[u8]) -> Option<(u32, u16)> {
-    let read = |p: usize| (u32::from_be_bytes(post[p..p + 4].try_into().unwrap()), u16::from_be_bytes([post[p + 4], post[p + 5]]));
-    npc_template_place(post).map(read)
+/// What a creature's entity message says of it after the second flags word and the `i32` after it, read in the order of
+/// Gamecode's reader (FUN_1007916d, the branch of a character with the flags' bit 0): three fields, each a byte with its
+/// flag bit (17, 19, 25) else a short (`+0xb2` the family, `+0xb4`, `+0xb6` the pet's type); a short (`+0x10e`) and a
+/// byte when it is above zero; the level (a short with bit 12, else a byte); the maximum health (`+0x98`: a short with
+/// bit 11, else an `i32`) and the health (`+0x9c`: with bit 14 a byte of damage taken from the maximum, else as wide as
+/// the maximum); the template, `MonsterData` (`+0xa4`, an `i32`); two shorts, the first the body's scale in percent; a
+/// byte (`+0x32e`); a counted block (FUN_10067b62: an `i32` and that many bytes, copied out whole); the head's mesh
+/// with flag 0x80 (`+0xac`, an `i32`); the run speed (`+0x10c`: a short with bit 13, else a byte).
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Creature {
+    family: u16,
+    pet_type: u16,
+    health: (u32, u32),
+    template: Option<u32>,
+    scale: Option<u16>,
+    /// The counted block's byte 12 (see [`EntityInfo::move_mode`]): the block is the vehicle's state as FUN_1006f587 reads it,
+    /// a velocity of three floats (FUN_1000404e) and then the status bytes (FUN_10070981), whose first goes to +4, the
+    /// movement mode FUN_10070a2f returns.
+    move_mode: Option<u8>,
+    run_speed: Option<u16>,
 }
 
-/// Where a creature's template is in what follows its name (see [`npc_template_and_scale`]).
-fn npc_template_place(post: &[u8]) -> Option<usize> {
-    let read = |p: usize| (u32::from_be_bytes(post[p..p + 4].try_into().unwrap()), u16::from_be_bytes([post[p + 4], post[p + 5]]));
-    let range = || 8..post.len().saturating_sub(7).min(72);
-    range()
-        .find(|&p| post[p + 4] == 0 && post[p + 6] == 0 && post[p + 7] == 0x1f)
-        .or_else(|| range().find(|&p| post[p] == 0 && post[p + 4] < 0x10 && post[p + 6] == 0 && post[p + 7] == 0x1f && read(p).0 != 0 && read(p).1 != 0))
-}
-
-/// A creature's movement mode ([`EntityInfo::move_mode`]): after the template (4 bytes), the scale (2), a word (2)
-/// and a byte comes the block's length, 28, and the mode is the block's byte 12.
-/// A creature's run speed ([`EntityInfo::run_speed`]): after the 28-byte block, and the head's mesh when there is one.
-fn npc_run_speed(post: &[u8], flags: u32) -> Option<u16> {
-    let p = npc_template_place(post)?;
-    if post.get(p + 9..p + 13)? != [0, 0, 0, 0x1c] {
-        return None;
-    }
-    let at = p + 41 + if flags & 0x80 != 0 { 4 } else { 0 };
-    if flags & 0x2000 != 0 { Some(u16::from_be_bytes(post.get(at..at + 2)?.try_into().ok()?)) } else { post.get(at).map(|b| *b as u16) }
-}
-
-fn npc_move_mode(post: &[u8]) -> Option<u8> {
-    let p = npc_template_place(post)?;
-    (post.get(p + 9..p + 13)? == [0, 0, 0, 0x1c]).then(|| post.get(p + 25).copied()).flatten()
-}
-
-/// A creature's family, and its health and maximum, from its entity message, `at` just past the second flags word and the
-/// `i32` after it (see [`EntityInfo::health`], Gamecode FUN_1007916d's creature branch).
-fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<(u16, u16, (u32, u32))> {
+fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<Creature> {
     let mut take = |n: usize| -> Option<u32> {
         let b = d.get(at..at + n)?;
         at += n;
@@ -2201,7 +2177,29 @@ fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<(u16, u16, (u3
     take(if flags & 0x1000 != 0 { 2 } else { 1 })?;
     let max = take(if flags & 0x800 != 0 { 2 } else { 4 })?;
     let health = if flags & 0x4000 != 0 { max.saturating_sub(take(1)?) } else { take(if flags & 0x800 != 0 { 2 } else { 4 })? };
-    Some((three[0], three[2], (health, max)))
+    let mut creature = Creature { family: three[0], pet_type: three[2], health: (health, max), ..Creature::default() };
+    // (the rest, as far as the message goes)
+    let mut rest = || -> Option<()> {
+        creature.template = Some(take(4)?);
+        creature.scale = Some(take(2)? as u16);
+        take(2)?;
+        take(1)?;
+        let length = take(4)? as usize;
+        // (the block, `length` bytes read one by one: its byte 12 kept)
+        for k in 0..length {
+            let byte = take(1)? as u8;
+            if k == 12 {
+                creature.move_mode = Some(byte);
+            }
+        }
+        if flags & 0x80 != 0 {
+            take(4)?;
+        }
+        creature.run_speed = Some(take(if flags & 0x2000 != 0 { 2 } else { 1 })? as u16);
+        Some(())
+    };
+    rest();
+    Some(creature)
 }
 
 /// Where a monster's entity message keeps what the server changes (see [`set_monster`]): the playfield, the position, the name
@@ -2650,21 +2648,17 @@ impl Message {
         let tail = &d[at.min(d.len())..];
         let textures = if flags & 0x10 != 0 { texture_overrides(tail) } else { Vec::new() };
         let (clothes, meshes) = cloth_and_meshes(tail);
-        let (template, scale) = match d.get(at - 8..).and_then(npc_template_and_scale).filter(|_| flags & 1 != 0) {
-            Some((template, scale)) => (Some(template), Some(scale)),
-            None => (None, None),
-        };
+        // (a creature's fields in the reader's order, FUN_1007916d)
+        let creature = creature_fields(d, at, flags).filter(|_| flags & 1 != 0);
+        let (template, scale) = creature.as_ref().map_or((None, None), |c| (c.template.filter(|&t| t != 0), c.scale));
         // (a player's: no template, which would have it drawn as a creature, but its scale and its monster body)
         let (monster, scale, player_mode, kept_scale) = match player_monster_and_scale(d, at, version, flags, flags2).filter(|_| flags & 1 == 0) {
             Some((monster, scale, mode, kept)) => (Some(monster), Some(scale), mode, kept),
             None => (None, scale, None, None),
         };
-        let move_mode = d.get(at - 8..).and_then(npc_move_mode).filter(|_| flags & 1 != 0).or(player_mode);
-        let run_speed = d.get(at - 8..).and_then(|post| npc_run_speed(post, flags)).filter(|_| flags & 1 != 0);
-        let (family, pet_type, health) = match creature_fields(d, at, flags) {
-            Some((family, pet_type, health)) if flags & 1 != 0 => (Some(family), Some(pet_type), Some(health)),
-            _ => (None, None, None),
-        };
+        let move_mode = creature.as_ref().and_then(|c| c.move_mode).or(player_mode);
+        let run_speed = creature.as_ref().and_then(|c| c.run_speed);
+        let (family, pet_type, health) = creature.as_ref().map_or((None, None, None), |c| (Some(c.family), Some(c.pet_type), Some(c.health)));
         Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, health, family, pet_type, move_mode, run_speed })
     }
 }
@@ -2775,19 +2769,6 @@ mod entity_tests {
         assert_eq!(((seconds as i32) / 3600, (seconds as i32) / 60 % 60), (2, 54));
     }
 
-    /// The template ids of creatures from the capture (the bytes after the name).
-    #[test]
-    fn creature_templates() {
-        let h = |s: &str| -> Vec<u8> { s.split_whitespace().map(|x| u8::from_str_radix(x, 16).unwrap()).collect() };
-        // Waste Collector, Draculeet, Female High Commander (the last is dressed by the tables)
-        assert_eq!(npc_template(&h("10 08 12 01 00 00 00 00 4b 00 00 00 00 05 00 a1 00 00 45 32 00 5d 00 1f 00 00 00 00 1c")), Some(0x4532));
-        assert_eq!(npc_template_and_scale(&h("10 08 12 01 00 00 00 00 4b 00 00 00 00 05 00 a1 00 00 45 32 00 5d 00 1f 00 00 00 00 1c")), Some((0x4532, 93)));
-        // (a boss of Arete Landing, live 2026-11-11: a cleaning robot's template at six times the size)
-        assert_eq!(npc_template_and_scale(&h("00 10 08 12 01 00 00 00 00 03 fb 00 00 00 00 02 00 b4 00 00 04 88 3f 02 58 00 1f 00 00 00 00 1c")), Some((0x4883f, 600)));
-        assert_eq!(npc_template(&h("10 0a 12 01 00 00 00 00 24 00 00 00 00 01 00 14 00 00 03 ea 06 00 b4 00 1f 00 00 00 00 1c")), Some(0x3ea06));
-        assert_eq!(npc_template(&h("10 08 12 01 00 00 00 00 01 00 00 00 00 c8 8e 52 00 00 00 65 ea 00 79 00 1f 00 00 00 00 1c")), Some(0x65ea));
-    }
-
     fn bytes(hex: &str) -> Vec<u8> {
         let hex: String = hex.split_whitespace().collect();
         (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect()
@@ -2810,6 +2791,9 @@ mod entity_tests {
         assert_eq!(back.position, [10.0, 2.0, -3.5]);
         assert_eq!(back.health, Some((40, 90)));
         assert_eq!(back.template, info.template, "the appearance is kept");
+        // (NPC-018: read in FUN_1007916d's order: the family a byte (flag 0x20000), two more bytes, a short of 0, the level
+        // 20 a byte, the maximum 559 a short (0x800), no damage (0x4000), then the template, the scale 99 and the block)
+        assert_eq!((info.family, info.health, info.template, info.scale, info.pet_type), (Some(0x89), Some((559, 559)), Some(0x65da), Some(99), Some(0)));
     }
 
     /// The start of a monster's entity message from a capture.
@@ -3041,21 +3025,6 @@ mod nano_tests {
         // (hundredths of a second in the message: three and a half hours left of each)
         assert_eq!(m.active_nano_times(), vec![(0x27cbd, 0x13ad21 * 10), (0x23fdd, 0x13a99d * 10)]);
         assert!(Message { kind: ENTITY_INFO, identity: (0xc350, 1), data: vec![0; 40] }.active_nanos().is_empty());
-    }
-}
-
-#[cfg(test)]
-mod npc_template_tests {
-    use super::*;
-
-    #[test]
-    fn the_template_is_found_after_a_long_name_too() {
-        // "Chimeran Canine" (a 15-character name) from the original client's capture: the template 0x33115 sits further on than a short name's
-        let tail = "001008120100000000cf000000007421ac00000331150064001f000000001c3fbffb";
-        let bytes: Vec<u8> = (0..tail.len() / 2).map(|i| u8::from_str_radix(&tail[2 * i..2 * i + 2], 16).unwrap()).collect();
-        let mut post = vec![0u8; 32];
-        post.extend_from_slice(&bytes);
-        assert_eq!(npc_template(&post), Some(0x33115));
     }
 }
 

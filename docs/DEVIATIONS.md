@@ -1828,7 +1828,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the mode is block byte 12 (8 on the ground, lying flat in the idle; 3 stands) and run speed a byte after it, measured over 5,600 captured announcements
 - A player notices: wounded creatures may lie or stand wrongly where the measurement misses a case
 - Where: `crates/mao-net/src/n3.rs:1686`; `crates/mao-client/src/net.rs:11544`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The bytes are now read by the original's field order (see NPC-018, same commit), and the block's meaning is confirmed: the 28-byte block that FUN_1007916d copies out whole (FUN_10067b62) is the vehicle state that FUN_1006f587 reads, a velocity of three floats (FUN_1000404e, bytes 0–11) and then FUN_10070981's status bytes, whose first, byte 12, goes to the status's +4, the movement mode that FUN_10070a2f returns (2 walk, 3 run, 4 swim, 6 sneak, 7 fly, 8 sitting on the ground, 1 rooted). The run speed is the reader's +0x10c after the block and the head mesh. Comment in n3.rs Creature::move_mode. Test n3::entity_tests::a_wounded_dockworker_is_announced_on_the_ground (mode 8 and 1, run speeds 30 and 52).
 
 #### `NPC-017` Creature run speed is the characters' rule, learnt or fallback, not read
 
@@ -1846,7 +1847,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the template is found by scanning for scale, a zero and 0x1f within 72 bytes after the name, with a looser second rule added after a boss drew as a box
 - A player notices: a creature with another update shape may be drawn as the placeholder box
 - Where: `crates/mao-net/src/n3.rs:1718`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): A creature's announcement is now read in the order of Gamecode's reader FUN_1007916d (its creature branch, flags bit 0) instead of scanning for the template: after the three byte-or-short fields (bits 17, 19, 25), the short +0x10e (and a byte when above 0), the level (bit 12), the maximum (bit 11) and the health (bit 14), come the template (MonsterData, +0xa4, an i32), two shorts (the first the scale), a byte (+0x32e), the counted block (FUN_10067b62), the head mesh with flag 0x80 (+0xac) and the run speed (+0x10c, a short with flag 0x2000 else a byte). mao_net::n3::creature_fields does all of it; the scanning functions npc_template_and_scale, npc_template_place, npc_move_mode and npc_run_speed and their byte-snippet tests are gone. The captured messages in the tests still read the same (the Wounded Dockworker: template 0x48448, scale 90, mode 8, run speed 30; Rex Larsson: mode 1, run speed 52) and a new assertion reads a captured creature whole (n3::entity_tests::a_monster_is_set_and_read_back: family 0x89, health 559/559, template 0x65da, scale 99). Test run: mao-net lib (109 passed), mao-client net:: (88 passed).
 
 #### `NPC-019` Creatures walk at a flat 1.5 m/s
 

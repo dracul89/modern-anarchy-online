@@ -7341,3 +7341,11 @@ When one's own death has played out, `CharDie_t` (Gamecode FUN_1007bad5) makes e
 ### A creature's animation for an action (NPC-007)
 
 The original takes a creature's animation for an action from its own set (FUN_1003cac9 → FUN_1003ca14 → FUN_10045976), going down FUN_10010b3c's fallbacks when the set has none (sneaking and flying fall to the walk; the walk, the run, the sidesteps, the backward moves and the standing have no fallback). Finding none, FUN_1006c370 starts nothing and the animation already playing goes on. The client does the same (`Template::animation_candidates`, `Characters::creature_last`): a creature with no run keeps whatever it played as it runs, one with no standing keeps its last movement going when it stops. Only a creature that has played nothing yet still starts in the client's own order (`Template::start_candidates`: the walk for the run, a standing on 127 or the walk's first frame).
+
+### A creature's announcement (NPC-018)
+
+The client reads a creature's full update in the order of the original's reader (Gamecode FUN_1007916d): the family and two more fields, the level, the health and its maximum, then the template (`MonsterData`), the body's scale, the movement block (the velocity and the status bytes, FUN_10067b62), the head's mesh and the run speed, each with the width its flag bit gives. It used to find the template by looking for the bytes that follow it (the scale, a zero and 0x1f), which drew an unusual creature as a box.
+
+### A creature's movement mode (NPC-016)
+
+The movement block in a creature's announcement is the original's vehicle state (Gamecode FUN_1006f587): three floats of velocity, then the status bytes (FUN_10070981), the first of them the movement mode (FUN_10070a2f): 8 is sitting on the ground, which the client draws lying or sitting as before; the run speed follows the block and the head's mesh. Now read field by field, no longer by measured offsets.
