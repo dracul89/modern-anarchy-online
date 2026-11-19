@@ -2588,6 +2588,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some item requirement lines read differently or oddly.
 - Where: `crates/mao-client/src/gui/criteria.rs:12`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): Ported the breed and sex names: Gamecode `ConvertCriteria` (0x1001e2cf) writes a criterion on stat 4 as the breed's name (FUN_10036b15) and on stat 0x3b as the sex's (FUN_10036a4a), with the "not" text in front for an unequal one (FUN_10024c32), as it does for a side (category 2005, which the client had). The original's names come from Gamecode's own tables (English literals); the client reads the text database's (category 1005, 600 + breed and 100 + sex), the same names the feedback lines already use (`feedback.rs` `Told::Breed` / `Told::Sex`): a guess that the two lists read alike. Test `criteria::tests::a_breed_or_sex_is_named`. Left: the special criteria (items, perks, pets, places, flag lists: some 50 branches of a 1224-line function, each with its own text ids hidden in the assembly) and `N3Msg_CriteriaListToString`'s reordering of apply-on criteria.
 
 #### `INV-059` Bag cell placement: no join or split inside a bag
 

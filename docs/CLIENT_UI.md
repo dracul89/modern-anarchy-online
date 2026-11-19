@@ -7257,3 +7257,7 @@ Gamecode's requirement evaluator changes whose stats it reads by the apply-on op
 ### Requirements comparing two stats (INV-057)
 
 Gamecode's requirement evaluator (FUN_100065d8) has four operators that compare one of the character's stats with another (equal, below, above, unequal: 0x82-0x85), judged only for the client's own character. The client now judges them; before, such a requirement was "unknown" (no colour in the tip, a perk counted as not met).
+
+### Requirement lines name the breed and sex (INV-058)
+
+Gamecode's `ConvertCriteria` writes a breed or sex requirement by its name ("Solitus", "Female"), with "not" before an unequal one. The client did "Breed exactly 1"; it now writes the name, taken from the game's text database. Special criteria (items, perks, places) are still written as plain stat lines.

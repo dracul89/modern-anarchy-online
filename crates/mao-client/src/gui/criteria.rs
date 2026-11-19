@@ -9,9 +9,9 @@
 //! `ConvertCriteria` (0x1001e2cf): a stat's name (category 2003) and " exactly ", " below ", " from " (the value plus one),
 //! " not " ... and the value; a profession its name (category 2004).
 //!
-//! Not ported: `ConvertCriteria`'s special criteria (items, perks, pets, places, flags lists and the like: they are
-//! written as a plain stat criterion here), the breed and gender names, and `N3Msg_CriteriaListToString`'s reordering of
-//! apply-on criteria.
+//! A breed, a sex and a side are written by their names. Not ported: `ConvertCriteria`'s special criteria (items,
+//! perks, pets, places, flags lists and the like: they are written as a plain stat criterion here) and
+//! `N3Msg_CriteriaListToString`'s reordering of apply-on criteria.
 
 /// A criterion: (stat, value, operator) as the item templates keep them.
 pub type Criterion = (u32, i32, u32);
@@ -73,9 +73,16 @@ pub fn convert(c: &Criterion) -> String {
         }
         return s;
     }
-    if stat == 33 {
-        // (a side: its name, category 2005; "Not " before an unequal one's)
-        let mut s = ldb(2005, value).unwrap_or_default();
+    if stat == 33 || stat == 4 || stat == 0x3b {
+        // (a side: its name, category 2005; a breed (stat 4) and a sex (0x3b) theirs, which Gamecode takes from its own
+        // name tables (FUN_10036b15, FUN_10036a4a) and here from the text database's (category 1005, 600 and 100 on,
+        // as the feedback lines name them); "Not " before an unequal one's)
+        let mut s = match stat {
+            4 => ldb(1005, 600 + value),
+            0x3b => ldb(1005, 100 + value),
+            _ => ldb(2005, value),
+        }
+        .unwrap_or_default();
         if op == 0x18 {
             s.insert_str(0, &ldb_named(1005, "OperatorNotOf"));
         }
@@ -230,6 +237,16 @@ mod tests {
         assert!(out.starts_with("  "));
         assert!(out.contains("49") || out.contains("50"));
         assert_eq!(out.matches('\n').count(), 1);
+    }
+
+    /// ConvertCriteria (0x1001e2cf): a breed or a sex is written by its name, not as a stat and a number.
+    #[test]
+    fn a_breed_or_sex_is_named() {
+        for c in [(4, 2, 0), (0x3b, 1, 0), (4, 3, 0x18)] {
+            let s = convert(&c);
+            assert!(!s.contains(&c.1.to_string()) && !s.contains("Op"), "{c:?}: {s}");
+        }
+        assert_eq!(convert(&(4, 2, 0x18)), ldb_named(1005, "OperatorNotOf") + &ldb(1005, 602).unwrap_or_default());
     }
 
     #[test]
