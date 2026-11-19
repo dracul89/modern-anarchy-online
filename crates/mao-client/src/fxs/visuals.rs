@@ -130,6 +130,8 @@ pub struct Visuals {
     rand: crate::audio::Rand,
     /// The single clouds' field (made when the effect starts).
     clouds: Option<super::clouds::Clouds>,
+    /// The environment's flicker phase in degrees (Gamecode FUN_100b05b4's, kept by the environment at +0xc).
+    flicker_phase: f32,
 }
 
 fn e(name: &str) -> u32 {
@@ -254,6 +256,10 @@ impl Visuals {
     /// The frame: each visual's draw (a visual whose object has ended, or whose `Use` is 1, let go), the lights.
     pub fn frame(&mut self, sky: &super::clouds::Sky) -> Frame {
         let mut frame = Frame::default();
+        // (FUN_100b05b4, each frame before the effects' frame: the phase moves 50 degrees a second, round 360)
+        let dt = super::with(|e| e.named.get(&super::id("GAME")).cloned()).and_then(|g| float(&g, "GameDeltaTime")).unwrap_or(0.0);
+        self.flicker_phase = flicker_step(self.flicker_phase, dt);
+        let flicker = flicker_table(self.flicker_phase);
         self.list.retain(|(_, o)| o.alive() && word(o, "Use") != Some(1));
         let list = self.list.clone();
         // (the environment light first: the others take its lights)
@@ -281,7 +287,7 @@ impl Visuals {
                     }
                 }
             }
-            if let Some(d) = self.draw(*kind, o, &frame.lights) {
+            if let Some(d) = self.draw(*kind, o, &frame.lights, &flicker) {
                 frame.draws.push(d);
             }
         }
@@ -290,7 +296,7 @@ impl Visuals {
         frame
     }
 
-    fn draw(&mut self, kind: u32, o: &Obj, lights: &Lights) -> Option<Draw> {
+    fn draw(&mut self, kind: u32, o: &Obj, lights: &Lights, flicker: &[i32; 16]) -> Option<Draw> {
         if float(o, "Visibility").is_some_and(|v| v <= 0.01) {
             return None;
         }
@@ -314,7 +320,7 @@ impl Visuals {
         let shape = match kind {
             4 => Shape::Mesh(o.variable_named("Mesh").and_then(|v| super::string_of(&v))?),
             5 => self.blueprint(&blob)?,
-            _ => Shape::Triangles(sun_rays(o)),
+            _ => Shape::Triangles(sun_rays(o, flicker)),
         };
         Some(Draw {
             kind,
@@ -466,8 +472,10 @@ fn strip(v: &[Vert]) -> Vec<Vert> {
 /// FUN_1005a7f6 and FUN_1005a3a9: the sun-ray fan: `Vertices` (33) points round the circle, `Size` (6) × 9 out, 100
 /// ahead (−z), their texture coordinates round the middle by `UVSize` (0.8), coloured `ColorR/G/B` (255, 155, 55),
 /// the centre last; the brightness by the horizon (its forward's height: black below, faded in over the first 0.01, or
-/// for `Horizon` 2 black above 0.17, faded out from 0.15) as every vertex's alpha (the flicker table is not kept).
-fn sun_rays(o: &Obj) -> Vec<Vert> {
+/// for `Horizon` 2 black above 0.17, faded out from 0.15) as the centre's alpha (by 255, truncated); each ray's
+/// `(255 − flicker[k & 7]) × alpha / 255` in whole numbers ([`flicker_table`]; the index's second half, by the visual's
+/// +0x32c, is never taken: nothing sets that word but the clearing).
+fn sun_rays(o: &Obj, flicker: &[i32; 16]) -> Vec<Vert> {
     let n = word(o, "Vertices").unwrap_or(0x21).max(3);
     let size = float(o, "Size").unwrap_or(6.0);
     let uv = float(o, "UVSize").unwrap_or(0.8);
@@ -497,13 +505,15 @@ fn sun_rays(o: &Obj) -> Vec<Vert> {
             }
         }
     };
-    let alpha = ((bright * 255.0) as i32) as f32 / 255.0;
+    let whole = (bright * 255.0) as i32;
+    let alpha = whole as f32 / 255.0;
     let ring = n - 1;
     let mut points: Vec<Vert> = (0..ring)
         .map(|i| {
             let a = (360.0 / ring as f64 * i as f64 * 3.140000104904175 / 180.0) as f32;
             let (hs, hc) = (a.sin() * 0.5, a.cos() * 0.5);
-            Vert { pos: [hs * 2.0 * size * 9.0, 2.0 * hc * size * 9.0, -100.0], uv: [uv * hs + 0.5, uv * hc + 0.5], colour: [colour[0], colour[1], colour[2], alpha] }
+            let ray = (255i32.wrapping_sub(flicker[(i & 7) as usize]).wrapping_mul(whole) / 0xff) as u8 as f32 / 255.0;
+            Vert { pos: [hs * 2.0 * size * 9.0, 2.0 * hc * size * 9.0, -100.0], uv: [uv * hs + 0.5, uv * hc + 0.5], colour: [colour[0], colour[1], colour[2], ray] }
         })
         .collect();
     let centre = Vert { pos: [0.0, 0.0, -100.0], uv: [0.5, 0.5], colour: [colour[0], colour[1], colour[2], alpha] };
@@ -513,6 +523,25 @@ fn sun_rays(o: &Obj) -> Vec<Vert> {
         out.extend([points[k], points[k + 1], centre]);
     }
     out
+}
+
+/// The flicker phase a frame of `dt` seconds on (FUN_100b05b4: `fmod(phase + dt × 50, 360)`, each step kept as a float).
+fn flicker_step(phase: f32, dt: f32) -> f32 {
+    let x = (phase as f64 + dt as f64 * 50.0) as f32;
+    x % 360.0
+}
+
+/// The environment's flicker table at a phase (FUN_100b05b4 fills the frame block's +0x90..+0xcc and +0x50..+0x8c each
+/// frame): sixteen waves `0.5 + 0.5 cos((phase + offset) × 3.14 / 180)`, each offset by its own number of degrees, as
+/// whole numbers of 255 (`_ftol` of `255 × wave`, truncated).
+fn flicker_table(phase: f32) -> [i32; 16] {
+    const OFFSETS: [f64; 16] = [90.0, 180.0, 0.0, 270.0, 45.0, 135.0, 350.0, 50.0, 100.0, 0.0, 45.0, 270.0, 36.0, 112.0, 350.0, 50.0];
+    OFFSETS.map(|off| {
+        let arg = ((phase as f64 + off) * 3.140000104904175 / 180.0) as f32;
+        let c = (arg as f64).cos() as f32;
+        let wave = (0.5 + c as f64 * 0.5) as f32;
+        (255.0 * wave as f64) as i32
+    })
 }
 
 /// A draw's world matrix (row vectors, the server's frame), as the visuals' draws place themselves: the scale (type 1
@@ -598,6 +627,22 @@ pub fn lit(d: &Draw, normal: V3, material: ([f32; 4], [f32; 3], [f32; 3])) -> [f
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The flicker table (FUN_100b05b4): sixteen waves of 255, each at its own offset; the phase moves 50 degrees a
+    /// second round 360; a sun ray's alpha is the brightness less its wave's share.
+    #[test]
+    fn the_sun_rays_flicker_by_the_environment_s_waves() {
+        let t = flicker_table(0.0);
+        // (offsets 90, 180, 0, 270: a quarter, the trough, the crest, three quarters)
+        assert_eq!(&t[..4], &[127, 0, 255, 127]);
+        assert!(t.iter().all(|v| (0..=255).contains(v)));
+        assert_ne!(flicker_table(30.0), t);
+        assert_eq!(flicker_step(0.0, 0.5), 25.0);
+        assert_eq!(flicker_step(350.0, 0.5), 15.0);
+        // a ray at the crest's index is gone, at the trough's at full
+        let ray = |f: i32, whole: i32| (255i32.wrapping_sub(f).wrapping_mul(whole) / 0xff) as u8;
+        assert_eq!((ray(t[2], 255), ray(t[1], 255), ray(t[0], 200)), (0, 255, 100));
+    }
 
     #[test]
     fn the_outdoor_sky_s_draws() {

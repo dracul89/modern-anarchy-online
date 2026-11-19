@@ -8440,7 +8440,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: brightness set only by the horizon
 - A player notices: sun rays steady
 - Where: `crates/mao-client/src/fxs/visuals.rs:459`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Read the table's maker: Gamecode FUN_100b05b4 (the environment's frame, before VisualEnvFX_t::FrameProcess) moves a phase by dt × 50 round 360 (fmod, kept as a float in the environment at +0xc) and fills the frame block's +0x90..+0xcc with 0.5 + 0.5 cos((phase + offset) × 3.14 / 180) at the offsets 90, 180, 0, 270, 45, 135, 350, 50, 100, 0, 45, 270, 36, 112, 350, 50 degrees, then +0x50..+0x8c with _ftol(255 × wave) (0x100b0a05..0x100b0b11, the 255 kept on the x87 stack). VisualSunRays_t's frame (DisplaySystem FUN_1005a3a9) gives ray i the alpha (255 − table[(i & 7) + (+0x32c & 1) × 8]) × alpha / 255 in whole numbers and the centre the plain alpha; +0x32c is only ever cleared (FUN_10059f44), so the first eight waves are used. The client's fxs/visuals.rs keeps the phase (advanced by the GAME object's GameDeltaTime each frame), builds the table (flicker_table) and sets each ray's alpha so. Test: fxs::visuals::tests::the_sun_rays_flicker_by_the_environment_s_waves.
 - Looked at, left (2026-11-19, overnight): VisualSunRays_t's flicker table (FUN_1005a3a9) changes only the rays' brightness frame by frame; porting the table is possible but the effect is seen only and the table's indexing by time was not read through tonight. Left.
 
 #### `RND-179` Suns effect: modes 1-3 not done

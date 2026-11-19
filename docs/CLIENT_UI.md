@@ -7722,3 +7722,7 @@ Whether a point is inside a room (n3Room_t::IsPosInside, N3 0x10011664) goes up 
 ### Scripted dot stars (RND-158)
 
 FXS's BlueprintRender draws a script's generated mesh as a point list (Visualization 0, e_Render_Dots) or a triangle strip (1). The client drew only the strip; it now draws the points too, one pixel each, as a sky backdrop: the Rubi-Ka outdoor sky's dot stars (Tweak_Rubi-Ka_DotStars.txt, 500 dots added over the sky, with the first expansion).
+
+### Sun rays flicker (RND-178)
+
+The environment's frame (Gamecode FUN_100b05b4) keeps a phase moving 50 degrees a second and makes sixteen slow waves from it, each at its own offset, as whole numbers of 255; the sun-ray fan (VisualSunRays_t, DisplaySystem FUN_1005a3a9) dims each ray by its wave (ray i by wave i & 7) under the horizon's brightness, the centre left at the brightness. The client now does the same, so the rays shimmer slowly instead of standing steady.
