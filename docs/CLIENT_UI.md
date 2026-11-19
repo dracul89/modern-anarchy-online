@@ -7476,3 +7476,7 @@ The client's own "Camera: third person ..." line was removed; choosing a camera 
 ### No "Nano programs available." line (NAN-058)
 
 The client's own line telling that the nano programs are free again after a long cast and recharge was removed; as in the original, nothing is said when the programs can be cast again.
+
+### NPC chat: no "given back" line; answers go after a click (NPC-040)
+
+The client's own "N item(s) given back." line in the NPC chat window was removed: the original's window (GUI.dll) has no handler for the items an NPC gives back, which only return to the inventory. A clicked answer is still told at once as the player's line, which is the original's own echo (FUN_10059504 → FUN_10058ee7 kind 2); as there, the answer list is now emptied until the NPC gives new answers.

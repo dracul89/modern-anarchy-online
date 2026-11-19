@@ -8205,7 +8205,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // The NPC chat (`npcchat.rs`): the window opened with the NPC's name, its lines and answers.
                     if let Some(event) = Message::parse(&frame).and_then(|m| crate::npcchat::event(m.kind, &m.data)) {
                         let npc = match &event {
-                            crate::npcchat::Event::Open(n, _) | crate::npcchat::Event::Text(n, ..) | crate::npcchat::Event::Answers(n, _) | crate::npcchat::Event::Close(n) | crate::npcchat::Event::StartTrade(n, ..) | crate::npcchat::Event::Rejected(n, _) => *n,
+                            crate::npcchat::Event::Open(n, _) | crate::npcchat::Event::Text(n, ..) | crate::npcchat::Event::Answers(n, _) | crate::npcchat::Event::Close(n) | crate::npcchat::Event::StartTrade(n, ..) => *n,
                         };
                         let name = state.names.get(&npc.1).map(|n| n.0.clone()).or_else(|| state.infos.get(&npc.1).map(|i| i.name.clone())).unwrap_or_default();
                         if std::env::var_os("MAO_COMBAT_LOG").is_some() {

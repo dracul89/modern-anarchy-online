@@ -2005,7 +2005,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a clicked answer is appended at once as the player's line before the server replies; rejected items add a system line "N item(s) given back."
 - A player notices: possible duplicate or extra lines in the conversation
 - Where: `crates/mao-client/src/npcchat.rs:291`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The "N item(s) given back." system line in the NPC chat window is removed with `npcchat::Event::Rejected` (npcchat.rs, net.rs): GUI.dll has no handler for `KnubotRejectedItems` (only Gamecode's KnubotRejectedItemsIIR_c, FUN_101285b3, reads it), so the window says nothing; the inventory still takes the given-back items back (net.rs, unchanged). The other half of the entry is NOT an addition: the original echoes a clicked answer itself. FUN_10059504 appends the answer as the player's line (FUN_10058ee7 with kind 2), sends `N3Msg_SendNPCChatAnswer`, clears the answer view and empties the answer list, so the echo stays; the client now also empties the answers after a click and ignores a number past the list, as FUN_10059504 does. Tests: `chat` and `npc` filters, 33 pass. No new warnings (69).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original writes NPC chat only from the server's KnubotAppendText, with no local echo of a clicked answer and no "N item(s) given back" line; both are lines a player of the original never sees.
 
 ## Inventory and items

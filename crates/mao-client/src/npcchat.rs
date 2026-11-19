@@ -9,7 +9,8 @@
 //! shop: the captures' Antonio Stacklund, Barry the Food Vendor and Marco Spida, each used a second or two after the
 //! chat was opened, and the shop's list came at once). The server opens
 //! the window (`KnubotOpenChatWindow`), appends lines (`KnubotAppendText`: the text and its kind) and gives the answers
-//! (`KnubotAnswerList`); a clicked answer is `KnubotAnswer` with its place in the list, and closing the window is
+//! (`KnubotAnswerList`); a clicked answer is told as the player's line and is `KnubotAnswer` with its place in the list
+//! (FUN_10059504, the list emptied till the next), and closing the window is
 //! `KnubotCloseChatWindow`. A conversation starts with the client's own `KnubotOpenChatWindow` to the NPC (as aosharp
 //! does against the live servers).
 //!
@@ -24,7 +25,7 @@
 //! "GIVE ITEM" / "GIVE ITEMS" over that many slots an inventory item is dropped on (`KnubotTrade` action 0, taken out
 //! again with 1), "GIVE CREDITS", and the V (`GFX_GUI_BUTTON_V_*`) and X (`GFX_GUI_BUTTON_X_*`) buttons: the trade
 //! finished (`KnubotFinishTrade` with the credits, accepted or declined: FUN_10058bf2). Items the NPC does not want come
-//! back (`KnubotRejectedItems`).
+//! back (`KnubotRejectedItems`: the inventory's, `net.rs`; the window says nothing of them, as GUI.dll has no handler).
 
 use crate::gui::host::Signal;
 use crate::gui::view::{Id, Tree};
@@ -39,8 +40,6 @@ pub enum Event {
     Close((u32, u32)),
     /// The NPC's trade: its slots and text.
     StartTrade((u32, u32), u32, String),
-    /// Items the NPC gave back: how many.
-    Rejected((u32, u32), usize),
 }
 
 /// What the window asks the network thread to send.
@@ -200,14 +199,6 @@ impl NpcChatWindow {
                 }
                 self.trade = Some(Trade { slots: slots.max(1), message, items: Vec::new(), credits: String::new() });
             }
-            Event::Rejected(_, n) => {
-                if n > 0 {
-                    let l = line(3, &format!("{n} item(s) given back."), &self.name, &self.own_name, self.last_kind, self.text.is_empty());
-                    self.text.push_str(&l);
-                    self.last_kind = Some(3);
-                    self.to_end = true;
-                }
-            }
         }
     }
 
@@ -288,15 +279,18 @@ impl NpcChatWindow {
         }
         for (id, signal) in std::mem::take(&mut tree.signals) {
             match (tree.get(id).name.as_str(), signal) {
+                // (FUN_10059504: an answer in the list is told as the player's line (FUN_10058ee7 kind 2), sent, and the
+                // answers taken away until the NPC gives new ones; a number past the list does nothing)
                 ("Answers", Signal::Link(href)) => {
-                    if let Ok(k) = href.trim().parse::<u32>() {
-                        if let Some(a) = self.answers.get(k as usize).cloned() {
-                            let l = line(2, &escape(&a), &self.name, &self.own_name, self.last_kind, self.text.is_empty());
-                            self.text.push_str(&l);
-                            self.last_kind = Some(2);
-                            self.to_end = true;
-                        }
+                    if let Ok(k) = href.trim().parse::<u32>()
+                        && let Some(a) = self.answers.get(k as usize).cloned()
+                    {
+                        let l = line(2, &escape(&a), &self.name, &self.own_name, self.last_kind, self.text.is_empty());
+                        self.text.push_str(&l);
+                        self.last_kind = Some(2);
+                        self.to_end = true;
                         commands.push(Command::Answer(self.npc, k));
+                        self.answers.clear();
                     }
                 }
                 ("Desc", Signal::Clicked) => commands.push(Command::Describe(self.npc)),
@@ -400,10 +394,6 @@ pub fn event(kind: u32, data: &[u8]) -> Option<Event> {
             Some(mao_net::schema::Value::Str(s)) => s.clone(),
             Some(mao_net::schema::Value::Bytes(b)) => String::from_utf8_lossy(b).into_owned(),
             _ => String::new(),
-        })),
-        0x2d212407 => Some(Event::Rejected(npc, match v.get("Items") {
-            Some(mao_net::schema::Value::List(l)) => l.len(),
-            _ => 0,
         })),
         _ => None,
     }
