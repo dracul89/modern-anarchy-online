@@ -7782,3 +7782,7 @@ The server's `FormatFeedback` lines (`FormatFeedbackIIR_t`) carry a kind in thei
 ### The rollup column's wheel and scroll (WIN-034)
 
 With the options' mouse wheel set to scroll the side bar (`MouseWheel` 1), the wheel over the world scrolls the rollup column 40 points a notch, as the original's `RollupController_c` does (FUN_10048822 connects its `WheelMoved`, FUN_100487aa, to the global wheel); 0 still zooms the camera and 2 does nothing. The column's scroll is kept between sessions, as the controller keeps its `scroll_offset` (FUN_10048e92, FUN_100489f9): a line of rollup.ini.
+
+### The wheel moves only vertical bars (WIN-078)
+
+The original's `ScrollView_c::WheelMoved` (GUI.dll 0x10142820) scrolls only along the vertical: a notch is the view's wheel step (`SetScrollWheelStep`), or with snapping the notches add up and the scroll goes to a whole multiple of the step; a view that cannot scroll (no vertical bar, no step, or its content fits) passes the wheel to its parent. A horizontal bar is never moved by the wheel in the original either, so the client's vertical-only wheel (`gui/scroll.rs`) is the original's, not a simplification.
