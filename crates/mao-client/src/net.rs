@@ -2325,6 +2325,28 @@ impl World {
                     Some(mao_net::schema::Value::Float(x)) => Some(*x as f32),
                     _ => None,
                 };
+                // (an item the character is given, a mission's: owned by the character and standing nowhere, it waits in the
+                // overflow, and the `ContainerAddItem` from `(0x6e, place)` that follows brings it into the inventory. The
+                // Arete capture's "Plant a Bug" (2026-10-30, lines 28144-28145): the recording device, template 0x48379, then
+                // the move from the overflow's place 0. Until 2026-11-18 such an item was dropped here and never came.)
+                let int = |n: &str| p.value.get(n).and_then(mao_net::schema::Value::as_int);
+                let owned = int("OwnerType") == Some(i64::from(n3::CHARACTER)) && int("OwnerInstance") == Some(i64::from(self.own));
+                if owned && f("X").is_none() {
+                    let stat = |key: i64| match p.value.get("Stats") {
+                        Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(key)).and_then(|s| s.get("Item2")?.as_int()),
+                        _ => None,
+                    };
+                    if let Some(template) = stat(23).map(|t| t as u32).filter(|&t| t != 0) {
+                        let known = self.overflow.iter().chain(self.worn.iter()).any(|e| e.container == m.identity);
+                        if !known {
+                            let slot = (0..).find(|s| !self.overflow.iter().any(|e| e.slot == *s)).unwrap_or(0);
+                            let quality = template_stat(template, 54).unwrap_or(1).max(1) as u32;
+                            eprintln!("items: the character is given {:x} (template {template}), into the overflow at {slot}", m.identity.1);
+                            self.overflow.push(inventory::Entry { slot, flags: 0, count: 1, container: m.identity, low_id: template, high_id: template, quality, extra: 0 });
+                            self.overflow_changed();
+                        }
+                    }
+                }
                 if let (Some(x), Some(y), Some(z)) = (f("X"), f("Y"), f("Z")) {
                     let template = match p.value.get("Stats") {
                         Some(mao_net::schema::Value::List(stats)) => stats.iter().find(|s| s.get("Item1").and_then(mao_net::schema::Value::as_int) == Some(23)).and_then(|s| s.get("Item2")?.as_int()),
@@ -13013,6 +13035,25 @@ mod door_tests {
 
     /// The raid's answers for one's own character are said in the chat: the raid made (type 0) and the lock list
     /// (type 1; none here); another character's, and a type the client does not act on, say nothing.
+    /// A mission's item (the Arete capture of 2026-10-30, lines 28144-28145, "Plant a Bug"): `SimpleItemFullUpdate` of a
+    /// `0xc73d` item owned by the character and standing nowhere (template 0x48379), then `ContainerAddItem` from the
+    /// overflow's place 0: the item is in the backpack. Until 2026-11-18 it never came.
+    #[test]
+    fn a_mission_item_given_comes_into_the_inventory() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let own = 0x7b1a0021;
+        let mut w = World { own, ..World::default() };
+        w.add(&Message { kind: 0x3b11256f, identity: (0xc73d, 0x58dd9b4a), data: hex("000000000b0000c3507b1a00210020da15000f424f00000000716f00001f88000000000c0000210000001700048379000002bd00000001000002be00048379000002bf000483790000019c00000001000001eb0000000100000000") }.frame(1));
+        assert_eq!(w.overflow.iter().map(|e| (e.slot, e.low_id)).collect::<Vec<_>>(), [(0, 0x48379)]);
+        w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006e000000000000006e7b1a00210000006f") }.frame(1));
+        assert!(w.overflow.is_empty());
+        assert!(w.worn.iter().any(|e| e.low_id == 0x48379 && e.slot >= inventory::BACKPACK_FIRST));
+        // (another's item, or one standing in the world, is not the character's)
+        let mut w = World { own: 5, ..World::default() };
+        w.add(&Message { kind: 0x3b11256f, identity: (0xc73d, 0x58dd9b4a), data: hex("000000000b0000c3507b1a00210020da15000f424f00000000716f00001f88000000000c0000210000001700048379000002bd00000001000002be00048379000002bf000483790000019c00000001000001eb0000000100000000") }.frame(1));
+        assert!(w.overflow.is_empty());
+    }
+
     #[test]
     fn the_raids_answers_are_said() {
         let mut w = World { own: 7, ..World::default() };

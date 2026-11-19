@@ -6937,3 +6937,16 @@ Not done:
 In the offline picture the ground is not made, so the window shows its markers on black.
 
 Test: `a_character_is_drawn_by_its_side`. Picture: `MAO_UI_PREVIEW=map MAO_PF_MAP=1`.
+
+## After the play test of 2026-11-18
+
+From the user's play test with the dev build and its game log.
+
+### A mission's item comes into the inventory
+
+The user's play test on Arete Landing: "Plant a Bug" gave no recording device. The log showed the server's
+`ContainerAddItem` from the overflow's place 0 into the inventory, with nothing at that place in the client. The Arete
+capture of the original (2026-10-30, lines 28144-28145) shows what comes before it: a `SimpleItemFullUpdate` of a
+`0xc73d` item owned by the character, with no place in the world, template 0x48379. The client took those messages only for
+terminals standing in the world. Now an item owned by the character and standing nowhere waits in the overflow at its
+first free place, and the move brings it in. Test: `a_mission_item_given_comes_into_the_inventory`, on the capture's bytes.
