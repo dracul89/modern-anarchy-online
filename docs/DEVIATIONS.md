@@ -3268,7 +3268,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Not ported; the radius column shows "---"; widths and sort are not kept.
 - A player notices: No Auto Arrange choice in the NCU window, radius never shown, columns reset each session.
 - Where: `crates/mao-client/src/ncu.rs:179`; `crates/mao-client/src/ncu.rs:181`; `docs/CLIENT_UI.md:412`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The NCU window's menu (GUI.dll FUN_100d758a) now has, after List Mode, "Auto Arrange" with FUN_10041637(0)'s sub-menu: "By <label>" for each column but the icon's (no "Don't Auto Arrange", no "Unsorted" without the flag), a separator and "Sort Ascending", the whole entry dead in list mode; a column not marked yet sorts the grid by it keeping the order (FUN_10041303 -> FUN_10041258), "Sort Ascending" turns it round (FUN_10041331); the grid's sort is kept (the original's grid_sort_column/order in listview_config, FUN_100411b8; here NCUWindowGridSort), starting by the time left (FUN_10041258(0xc)). The client's own "Cancel this nano" entry stays after them. The radius column's "---" is the original's: N3Msg_GetFormularRadius (Gamecode 0x1001655a) returns NanoItem_t +0xb8, which only FUN_10086142 writes, with 0. Widths and the list's sort were done before. Test: nanoprograms::tests::the_arrange_menu_marks_the_grids_order (the NCU form).
 - Done in part (2026-11-18, overnight): widths and the list's sort are kept in lists.ini for the NCU windows, the nano programs and the mission journal (layout::ListConfig, multilist::Keeper); the Auto Arrange sub-menu and the radius not done.
 
 #### `NAN-041` Cast refusal "NCUErrorNanoprogramCantReplaceOther" not ported

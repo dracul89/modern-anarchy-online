@@ -197,9 +197,12 @@ pub fn clock(ms: u32) -> String {
 /// The right button opens the window's menu (FUN_100d758a): "List Mode" turns the grid into the list (`SetLayoutMode`,
 /// kept as `listview_mode`): the eleven columns of [`COLUMNS`] under their header, a nano a row with its icon, sorted by
 /// the time left until a label is pressed, a hostile nano's row in red. Over a nano the menu also has this client's own
-/// entry that cancels it. Nanos whose flags have 0x1000000 are in neither (FUN_100458b0). Not ported: the menu's "Auto
-/// Arrange" sub-menu and the radius (`N3Msg_GetFormularRadius`, a field of Gamecode's nano object not traced to the
-/// record: `---`). The columns' widths and the list's sort are kept (`listview_config`: `multilist::Keeper`).
+/// entry that cancels it. The menu's second entry is "Auto Arrange" (dead in list mode), the sub-menu of FUN_10041637(0):
+/// "By <label>" for each column but the icon's and "Sort Ascending" ([`crate::nanoprograms::arrange_menu`]); the grid's
+/// sort chosen there is kept (`grid_sort_column`, `grid_sort_order`; here `NCUWindowGridSort`). Nanos whose flags have
+/// 0x1000000 are in neither (FUN_100458b0). The radius is the original's `---`: `N3Msg_GetFormularRadius` (Gamecode
+/// 0x1001655a) reads the nano item's `+0xb8`, which only FUN_10086142 sets, to 0. The columns' widths and the list's sort
+/// are kept (`listview_config`: `multilist::Keeper`).
 pub struct NcuWindow {
     pub open: bool,
     textures: HashMap<u32, egui::TextureHandle>,
@@ -207,11 +210,13 @@ pub struct NcuWindow {
     keeper: crate::gui::multilist::Keeper,
     /// The info page asked for (for the info view).
     pub info_url: Option<String>,
-    /// The program whose menu is up (none: the menu was opened beside the nanos), and the menu (`PopupMenu_c`'s look).
-    menu: Option<(Option<u32>, egui::Pos2)>,
+    /// The program whose menu is up (none: the menu was opened beside the nanos), the keys of its entries, and the menu
+    /// (`PopupMenu_c`'s look).
+    menu: Option<(Option<u32>, Vec<Vec<String>>)>,
     popup: Option<crate::gui::popup::PopupMenu>,
-    /// List mode (`listview_mode`); not set until the kept choice is read.
+    /// List mode (`listview_mode`) and the grid's sort (column and order); not set until the kept choices are read.
     pub list: Option<bool>,
+    pub grid_sort: Option<(i32, i32)>,
     /// A preview's: the two target windows to show with the same nanos.
     pub target_preview: Option<[TargetNcu; 2]>,
     /// Where the window starts and its size (the original's 160 by 160; a preview's are its own).
@@ -220,7 +225,7 @@ pub struct NcuWindow {
 
 impl Default for NcuWindow {
     fn default() -> NcuWindow {
-        NcuWindow { open: false, textures: HashMap::new(), views: None, keeper: Default::default(), info_url: None, menu: None, popup: None, list: None, target_preview: None, start: (egui::pos2(560.0, 90.0), egui::vec2(160.0, 160.0)) }
+        NcuWindow { open: false, textures: HashMap::new(), views: None, keeper: Default::default(), info_url: None, menu: None, popup: None, list: None, grid_sort: None, target_preview: None, start: (egui::pos2(560.0, 90.0), egui::vec2(160.0, 160.0)) }
     }
 }
 
@@ -252,11 +257,14 @@ impl NcuWindow {
         }
         let textures = &mut self.textures;
         let in_list = *self.list.get_or_insert_with(|| crate::layout::tab("NCUWindowConfig") == Some(1));
+        // (the grid by the time left to start with, `FUN_10041258(0xc)`; else as the "Auto Arrange" menu set it, kept as
+        // twice the column and the order)
+        let grid_sort = *self.grid_sort.get_or_insert_with(|| crate::layout::tab("NCUWindowGridSort").map_or((12, 0), |v| ((v / 2) as i32, (v % 2) as i32)));
         let (tree, root, list) = self.views.as_mut()?;
         let (root, list) = (*root, *list);
         crate::gui::multilist::set_list_mode(tree, list, in_list);
-        // (the kept widths and the list's kept sort; the grid by the time left, the original's `grid_sort_column` 0xc)
-        self.keeper.before("NCUWindowConfig", tree, list, (!in_list).then_some((12, 0)));
+        // (the kept widths and the list's kept sort; the grid by its own sort)
+        self.keeper.before("NCUWindowConfig", tree, list, (!in_list).then_some(grid_sort));
         // (the nanos by their time left, each icon faded past its share of time left; drawn again as the time runs)
         let mut order: Vec<&NanoInfo> = nanos.iter().filter(|n| !n.columns.hidden).collect();
         order.sort_by_key(|n| n.left(now));
@@ -291,17 +299,24 @@ impl NcuWindow {
         }
         self.keeper.after("NCUWindowConfig", tree, list, in_list);
         tree.signals.clear();
-        // (the window's menu, FUN_100d758a: "List Mode" with its mark; over a nano, this client's own entry too)
+        // (the window's menu, FUN_100d758a: "List Mode" with its mark and "Auto Arrange" with its sub-menu, dead in list
+        // mode; over a nano, this client's own entry too)
+        let labels: Vec<(i32, String)> = crate::gui::multilist::columns(tree, list).into_iter().map(|c| (c.id, c.label)).collect();
         if let Some(at) = over
             && ctx.input(|i| i.pointer.secondary_clicked())
         {
+            use crate::gui::popup::Entry;
             let nano = hovered.map(|h| h.0);
-            let mut entries = vec![(crate::gui::xml::ldb_named(10000, "ListMode", "As a list"), true, Some(in_list))];
+            let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
+            let (arrange_keys, arrange) = crate::nanoprograms::arrange_menu(&labels, Some(grid_sort), false);
+            let mut keys = vec![vec!["list".to_string()], arrange_keys];
+            let mut entries = vec![Entry::marked(text("ListMode", "As a list"), true, in_list), Entry::submenu(text("AutoArrange", "Order"), !in_list, arrange)];
             if nano.is_some() {
-                entries.push(("Cancel this nano".to_string(), true, None));
+                keys.push(vec!["cancel".to_string()]);
+                entries.push(Entry::text("Cancel this nano", true));
             }
-            self.menu = Some((nano, at));
-            self.popup = Some(crate::chrome::menu_marked(ctx, at, &entries));
+            self.menu = Some((nano, keys));
+            self.popup = Some(crate::chrome::menu_of(ctx, at, entries));
         }
         // (a nano's tip: its name, time left, description and what it changes)
         if let Some((id, at)) = hovered.filter(|_| self.menu.is_none())
@@ -328,13 +343,24 @@ impl NcuWindow {
                 });
             });
         }
-        match (crate::chrome::menu(ctx, palette, "nano-menu", &mut self.popup), self.menu) {
-            (Some(0), _) => {
-                self.list = Some(!in_list);
-                crate::layout::set_tab("NCUWindowConfig", usize::from(!in_list));
+        if let Some(crate::chrome::Picked::Entry(path)) = crate::chrome::menu_path(ctx, palette, "nano-menu", &mut self.popup)
+            && let Some((nano, keys)) = self.menu.take()
+            && let Some(key) = keys.get(path[0]).and_then(|k| k.get(path.get(1).copied().unwrap_or(0)))
+        {
+            match key.as_str() {
+                "list" => {
+                    self.list = Some(!in_list);
+                    crate::layout::set_tab("NCUWindowConfig", usize::from(!in_list));
+                }
+                "cancel" => cancel = nano.filter(|id| nanos.iter().any(|n| n.id == *id)),
+                // (FUN_10041303 / FUN_10041331: a column not marked yet, keeping the order; the order turned round)
+                _ => {
+                    if let Some(Some(sort)) = crate::loot::arrange_choice(key, Some(grid_sort)) {
+                        self.grid_sort = Some(sort);
+                        crate::layout::set_tab("NCUWindowGridSort", (sort.0 * 2 + sort.1) as usize);
+                    }
+                }
             }
-            (Some(1), Some((Some(id), _))) if nanos.iter().any(|n| n.id == id) => cancel = Some(id),
-            _ => {}
         }
         if self.popup.is_none() {
             self.menu = None;

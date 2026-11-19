@@ -7570,3 +7570,7 @@ The original keeps the NCU in use (stat 180) as a running total: a starting nano
 ### Nano programs placed by hand (NAN-039)
 
 The original's nano grids are not arranged to start with (GUI.dll FUN_100423fc clears the list's +0x318): each program stands in the cell kept for it (NanoView_c's item_position_map, FUN_100d4d44 / FUN_100d5328), a new one in the first free cell of its school's grid in the order of the program list (FUN_100d48a9). The client does the same, keeping the cells in places.ini under the nano identity and the school. A program dragged onto another cell of its grid moves there; onto another program the two change places and the other is then in hand (FUN_100d4514, MultiListView_c::MoveItem). "Don't Auto Arrange" in the Auto Arrange sub-menu (FUN_10041637(1)) is live; each school's grid keeps its own arranging. The radius column shows "---" as the original does: N3Msg_GetFormularRadius reads a field Gamecode only ever sets to 0.
+
+### NCU window's Auto Arrange (NAN-040)
+
+The NCU window's menu (GUI.dll FUN_100d758a) has "List Mode" and "Auto Arrange", whose sub-menu (FUN_10041637(0)) offers "By <column>" for each column but the icon's and "Sort Ascending", dead in list mode. The client shows the same; the grid's sort chosen is kept (the original's grid_sort_column/order), the time left to start with. The radius column's "---" is the original's (N3Msg_GetFormularRadius reads a field that is always 0).

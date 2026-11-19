@@ -256,6 +256,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Nano programs no longer draw the client's own coloured rings over their target; only the program's own effect shows, as in the original.
 - The "Nano programs available." chat line after a long recharge is gone (the original has no such line).
 - The nano programs window keeps programs where you put them: drag a program onto another cell, and "Don't Auto Arrange" works; each school keeps its own order.
+- The NCU window's menu has the original's Auto Arrange choices (sort the icons by any column, ascending or not), kept between sessions.
 
 ### Sound
 
