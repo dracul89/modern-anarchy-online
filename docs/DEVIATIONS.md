@@ -6237,7 +6237,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: keeps only statels in or near a room (within the room's larger side plus 10)
 - A player notices: props the data places outside rooms are not drawn
 - Where: `crates/mao-client/src/main.rs:838`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): n3StatelController_t::ReadGlobalData (N3.dll 0x100250ac) reads every one of the playfield's global statels (FUN_1002777a each) into its list with no test of where they stand. The client dropped a room playfield's statels that stood farther than a room's larger side plus 10 from every room (main.rs placed_statels); the filter is gone, so they are drawn where the file puts them. No unit test (it reads the game's files); built.
 
 #### `RND-017` Sun held above the horizon for the shadow map
 

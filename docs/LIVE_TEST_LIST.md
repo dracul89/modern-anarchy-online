@@ -1007,6 +1007,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Find a statel the old client drew level that should slope (a ramp or a tilted piece): it leans now and its ends meet what they should.
 - [ ] City terminal map: door (blue) and guard (red) dots still show as small dots of the right colour.
 - [ ] In a shop or a dungeon, what lies past the rooms is black and the fog fades into black.
+- [ ] In a shop or dungeon playfield, nothing new appears inside the rooms; any statel that now shows outside them stands where the file puts it.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

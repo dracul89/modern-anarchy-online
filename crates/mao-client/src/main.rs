@@ -856,15 +856,8 @@ fn placed_statels(game: &str, db: &ResourceDatabase, playfield: u32) -> Option<V
             statels.push(s);
         }
     }
-    // (a few statels of a room playfield are stray: keep the ones that stand in or near a room)
-    if let Some(rooms) = &rooms {
-        statels.retain(|s| {
-            rooms.rooms.iter().any(|r| {
-                let half = (r.rect[2].saturating_sub(r.rect[0]).max(r.rect[3].saturating_sub(r.rect[1])) as f32) + 10.0;
-                (s.position[0] - r.position[0]).abs() <= half && (s.position[2] - r.position[2]).abs() <= half
-            })
-        });
-    }
+    // (the playfield's own statels all stand, as n3StatelController_t::ReadGlobalData makes every one of them; those of a
+    // room playfield that stand away from its rooms are drawn there too)
     Some(statels)
 }
 

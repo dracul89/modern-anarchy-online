@@ -7021,3 +7021,7 @@ A toggle effect (kind 3036, GfxControlToggle_t, FUN_10112952) starts its child o
 ### Interiors against black (RND-009)
 
 A playfield with no ground (shops, dungeons built from rooms) is seen against black in the original, whose device clears to colour 0. The client's dark backdrop (`mao_render::DARK_SKY`), which its fog fades into, was a near-black blue; it is black now.
+
+### A room playfield's statels all kept (RND-016)
+
+N3's ReadGlobalData makes every global statel of a playfield, wherever it stands. The client used to drop the statels of a room playfield that stood away from all its rooms; it keeps them now.
