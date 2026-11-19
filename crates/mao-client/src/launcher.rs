@@ -278,10 +278,11 @@ impl Launcher {
                     text: e.to_string(),
                 })?;
                 // (the account's expansions: the character creation offers the Keeper and the Shade by them)
-                if let Some((slots, flags)) = account {
-                    eprintln!("account: {slots} character slots, expansion flags {flags:#x}");
+                if let Some((slots, flags, sl)) = account {
+                    eprintln!("account: {slots} character slots, expansion flags {flags:#x}, Shadowlands professions enabled {sl}");
                 }
                 crate::charcreate::set_expansions(account.map(|a| a.1));
+                crate::charcreate::set_sl_professions(account.is_some_and(|a| a.2));
                 crate::loginviews::set_slots(account.map(|a| a.0));
                 // (the login connection must be gone before the game's own login)
                 connection.close();

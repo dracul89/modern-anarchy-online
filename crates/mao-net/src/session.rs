@@ -141,15 +141,23 @@ pub fn account_trailer(rest: &[u8]) -> Option<(u32, u32)> {
     Some((word(0)?, word(4)?))
 }
 
-/// [`login`], with the account's slots and expansion flags when the list has them.
-pub fn login_account(connection: &mut Connection, user: &str, password: &str, version: &str) -> Result<(Vec<Character>, Option<(u32, u32)>), Error> {
+/// The list's third number after the characters, the one the captures have as zero: Interfaces.dll's
+/// `Client_t::ProcessMessage` 0x10002a9e (message 0xe, at 0x1000319b) sets `Client_t::s_nSLProfsEnabled` to whether
+/// it is not zero, which lets the Keeper and the Shade through whatever the expansion flags. False when the list has
+/// no such number.
+pub fn sl_professions_enabled(rest: &[u8]) -> bool {
+    rest.get(8..12).is_some_and(|w| w.iter().any(|&b| b != 0))
+}
+
+/// [`login`], with the account's slots, expansion flags and [`sl_professions_enabled`] when the list has them.
+pub fn login_account(connection: &mut Connection, user: &str, password: &str, version: &str) -> Result<(Vec<Character>, Option<(u32, u32, bool)>), Error> {
     connection.send(&system::init_auth(user, version))?;
     let challenge = system::challenge(&connection.receive()?)?;
     let response = crate::crypto::response(user, &challenge, password).map_err(Error::Random)?;
     connection.send(&system::auth_client(user, &response))?;
     let reply = connection.receive()?;
     match system::character_list(&reply) {
-        Ok((list, rest)) => Ok((list, account_trailer(&rest))),
+        Ok((list, rest)) => Ok((list, account_trailer(&rest).map(|(slots, flags)| (slots, flags, sl_professions_enabled(&rest))))),
         Err(_) => {
             let (kind, payload) = system::split(&reply)?;
             Err(Error::Refused { kind, code: refusal_code(payload), text: String::from_utf8_lossy(payload).chars().filter(|c| !c.is_control()).collect() })
@@ -214,6 +222,10 @@ mod tests {
         assert_eq!(account_trailer(&[0, 0, 0, 8, 0, 0, 0, 0x7f, 0, 0, 0, 0]), Some((8, 0x7f)));
         assert_eq!(account_trailer(&[0, 0, 0, 8]), None);
         assert_eq!(account_trailer(&[]), None);
+        // (the third number: `s_nSLProfsEnabled`)
+        assert!(!sl_professions_enabled(&[0, 0, 0, 8, 0, 0, 0, 0x7f, 0, 0, 0, 0]));
+        assert!(sl_professions_enabled(&[0, 0, 0, 8, 0, 0, 0, 0x7f, 0, 0, 0, 1]));
+        assert!(!sl_professions_enabled(&[0, 0, 0, 8, 0, 0, 0, 0x7f]));
     }
 
     #[test]

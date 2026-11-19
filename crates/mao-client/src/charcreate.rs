@@ -217,12 +217,26 @@ pub fn set_expansions(flags: Option<u32>) {
     EXPANSIONS.store(flags.map_or(-1, i64::from), std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Whether the account may make a Keeper or a Shade: the Shadowlands' bit of its expansion flags
-/// (`ProfessionScene_t` 0x101216d1 and its `SlotNextPressed` 0x10121035: `ExpansionFlags & 2`; the original also lets
-/// them through when the client's `nSLProfsEnabled` is set, which nothing here knows of). An account whose flags are
-/// not known is let through: the server decides then.
+/// Whether the account has the Shadowlands: the bit 2 of its expansion flags (the head counts, FUN_1011d692, go by it
+/// alone). An account whose flags are not known is let through: the server decides then.
 pub fn shadowlands_professions(flags: i64) -> bool {
     flags < 0 || flags & 2 != 0
+}
+
+/// The list's `s_nSLProfsEnabled` (Interfaces.dll `Client_t::ProcessMessage` 0x10002a9e, message 0xe:
+/// `mao_net::session::sl_professions_enabled`).
+static SL_PROFESSIONS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The login's `s_nSLProfsEnabled`.
+pub fn set_sl_professions(enabled: bool) {
+    SL_PROFESSIONS.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the Keeper and the Shade may be chosen: `ProfessionScene_t` 0x101216d1 switches their buttons on when
+/// `ExpansionFlags & 2` or `Client_t::s_nSLProfsEnabled`, and its `SlotNextPressed` 0x10121035 refuses them only when
+/// neither is set.
+pub fn keeper_and_shade(flags: i64, sl_professions_enabled: bool) -> bool {
+    sl_professions_enabled || shadowlands_professions(flags)
 }
 
 /// What the launcher tells the views of the world it draws: the box each breed figure fills (the renderer's frame),
@@ -665,7 +679,7 @@ impl Creating {
         let mut leave = false;
         let mut sounds: Vec<&'static str> = Vec::new();
         let heads = self.breed_and_sex().map(|(breed, sex)| heads_of(game, breed, sex)).unwrap_or_default();
-        let shadowlands = shadowlands_professions(EXPANSIONS.load(std::sync::atomic::Ordering::Relaxed));
+        let shadowlands = keeper_and_shade(EXPANSIONS.load(std::sync::atomic::Ordering::Relaxed), SL_PROFESSIONS.load(std::sync::atomic::Ordering::Relaxed));
         let busy = self.pending.is_some();
         egui::Area::new(egui::Id::new("character-creation")).fixed_pos(screen.min).order(egui::Order::Background).show(ctx, |ui| {
             ui.set_clip_rect(screen);
@@ -947,6 +961,15 @@ impl Creating {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Keeper and the Shade: the Shadowlands' flag or the list's `s_nSLProfsEnabled`.
+    #[test]
+    fn keeper_and_shade_by_the_flag_or_the_lists_switch() {
+        assert!(!keeper_and_shade(0, false));
+        assert!(keeper_and_shade(0, true));
+        assert!(keeper_and_shade(2, false));
+        assert!(keeper_and_shade(-1, false));
+    }
 
     /// A refusal's text is `NameScene_t::SetState`'s for its code; a code it has no case for says nothing.
     #[test]

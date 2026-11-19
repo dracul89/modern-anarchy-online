@@ -7053,3 +7053,7 @@ The original's name scene (GUI.dll `NameScene_t::SetState` 0x1011fc0f) has a tex
 ### A new character's windows start at their own places (SET-003)
 
 The original reads a character's window places from that character's own preference files (`ControlCenterModule_c::LoadUserConfig` 0x1006c3b1); a character it has never played has none, the shipped `CharPrefs.xml` holding no frames, so its windows open at their views' own places. The client no longer borrows the most recently played character's layout for such a character; a character the original has played still starts from its own frames.
+
+### The Keeper and the Shade: the expansion flag or the list's switch (LCH-040)
+
+The character list ends with three numbers: the slots, the expansion flags and a switch that Interfaces.dll (`Client_t::ProcessMessage` 0x10002a9e, at 0x1000319b) keeps as `s_nSLProfsEnabled`. The original's profession scene (GUI.dll `ProfessionScene_t` 0x101216d1, `SlotNextPressed` 0x10121035) lets the Keeper and the Shade be chosen when the account has the Shadowlands (`ExpansionFlags & 2`) or that switch is on. The client reads the switch too and uses the same rule; the head counts still follow the flag alone.

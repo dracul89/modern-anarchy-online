@@ -8585,7 +8585,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only the expansion flag bit 2 counts; an account with unknown flags is let through
 - A player notices: possible difference for accounts the original lets through by that setting
 - Where: `crates/mao-client/src/charcreate.rs:208`; `docs/CLIENT_UI.md:4553`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Found where `nSLProfsEnabled` is set: Interfaces.dll `Client_t::ProcessMessage` 0x10002a9e, the character list (message 0xe), reads three numbers after the characters and sets `Client_t::s_nSLProfsEnabled` to whether the third is not zero (0x1000319b; the setter `SetSLProfsEnabled` 0x100011a2 has no other caller in Interfaces.dll). GUI.dll `ProfessionScene_t` 0x101216d1 switches the Keeper and Shade buttons on with `ExpansionFlags & 2` or that switch, and `SlotNextPressed` 0x10121035 refuses them only when neither is set. Now `mao_net::session::sl_professions_enabled` reads the list's third number (test in `session::tests::the_account_trailer`), `login_account` returns it with the slots and flags, the launcher keeps it (`charcreate::set_sl_professions`) and the creation's gate is `charcreate::keeper_and_shade(flags, switch)` (test `charcreate::tests::keeper_and_shade_by_the_flag_or_the_lists_switch`). The head counts still go by the flag alone, as FUN_1011d692 does. The captures have the third number as zero, so nothing changes for the accounts seen so far.
 
 #### `LCH-041` Login error pages for 0x10 / 0x21 after the list and a lost connection not ported
 
