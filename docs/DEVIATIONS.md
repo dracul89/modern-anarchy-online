@@ -1422,6 +1422,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: right/middle presses on the map do nothing; scroll direction may be reversed
 - Where: `crates/mao-client/src/cityterminal.rs:415`; `crates/mao-client/src/cityterminal.rs:444`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): (Done before the low list's TGT entries went to another porter.) GUI.dll's BuildingMapView_c MouseDown never reads its button arguments, so any mouse button selects, drags a house or scrolls; the city map (cityterminal.rs) now starts these on any button (egui any_pressed / any_down) instead of the primary only. Left: the scroll's direction, ScrollBy's sign not traced. Build checked; no unit test (egui input).
 
 #### `TGT-007` Name tag height and picking size from the posed body, not the mesh at rest
 

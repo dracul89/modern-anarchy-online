@@ -7377,3 +7377,7 @@ The client asks an NPC to talk once, as the original does. The client's own retr
 ### /help (CHT-002)
 
 `/help` shows the game's own help page of commands (`helpcommands.html`) in the info window, and `/help <topic>` the page of that topic (org, pet, emote, macro, chat, team, raid and the rest of GUI.dll's list, FUN_100a4d15); an unknown topic says so in the chat. The client's own list of the commands it carries out is in its help assistant.
+
+### City map buttons (TGT-006)
+
+The original's city map (`BuildingMapView_c`) does not look at which mouse button was pressed: any button selects a house, drags a waiting one or scrolls. The client now does the same.

@@ -482,7 +482,8 @@ impl CityTerminalWindow {
                 }
                 return;
             }
-            let (pressed, down) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down()));
+            // (`BuildingMapView_c`'s MouseDown never reads its button: any button selects, drags a house or scrolls)
+            let (pressed, down) = ui.input(|i| (i.pointer.any_pressed(), i.pointer.any_down()));
             if pressed && let Some(p) = pointer {
                 let p = content(p);
                 *drag = Some(Drag::Scroll);
