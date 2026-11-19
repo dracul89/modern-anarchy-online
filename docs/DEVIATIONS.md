@@ -9343,7 +9343,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the real clock at the game's pace stands in until a GameTime message comes
 - A player notices: the hour on login before the server's word differs from the original's midnight
 - Where: `crates/mao-client/src/gametime.rs:5`; `docs/CLIENT_UI.md:2131`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Gamecode `GameTime_t::GameTime_t` 0x1000afdb zeroes the time of day (+0x40, +0x44, +0x48) and the day count (+0x4c); only the server's `GameTime` (`Update` 0x1000b590) sets them. `gametime::Clock::default` now starts at midnight of day 0 instead of the real clock at the game's pace (the server's time offset was already 0 until told). Test: `gametime::tests::the_clock_runs_at_the_games_pace` (asserts 00:00 of day 0 before the server's word).
 
 #### `OTH-002` Resource database read with full 64-bit positions
 

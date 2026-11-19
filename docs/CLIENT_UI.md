@@ -7077,3 +7077,7 @@ When the server refuses the chosen character instead of handing out its ticket (
 ### The error page stays until it is closed (LCH-005)
 
 The original keeps a failed login's page in its Browser window until that window is closed (`SlotBrowserQuitPressed` 0x10011c33), and shows it over the login form again each time the form comes back (`Show(0)` 0x1001175a). The client now does the same: a login that works no longer puts the page away, so it is there again after Back from the character list.
+
+### The game clock before the server's word (OTH-001)
+
+The original's game clock starts at midnight of day 0 (Gamecode `GameTime_t::GameTime_t` 0x1000afdb) and runs from there until the server's `GameTime` message sets it. The client does the same now, where it used to start from the real clock at the game's pace.

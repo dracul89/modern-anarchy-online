@@ -2,8 +2,8 @@
 //! 60 seconds (+0x80, +0x84, +0x88; an hour is 3600 s, +0x8c), dawn from hour 7 for 2 hours and dusk from 21 for 2
 //! (+0x98, +0x9c, +0x90, +0x94), the clock running 15 game seconds a real second (+0x5c, `RunFunction` 0x1000b27e adds
 //! `15 × dt` scaled by the day and night multipliers, both 1). The server's `GameTime` message sets it (`Update`,
-//! 0x1000b590: the seconds into the day); until one comes, the real clock stands in, so a login is not always at midnight
-//! (the original starts its clock at 0 and waits for the server).
+//! 0x1000b590: the seconds into the day); until one comes the clock runs from 0, midnight of day 0, as the constructor
+//! leaves it (+0x40 to +0x4c zero).
 //!
 //! `day_intensity` is `GameTime_t::GetDayIntensity` (0x1000af23): 0 at night, rising through dawn by the hour and
 //! minute, 1 by day, falling through dusk.
@@ -49,10 +49,8 @@ pub struct Clock {
 
 impl Default for Clock {
     fn default() -> Self {
-        // (the real clock, at the game's pace, until the server says)
-        let real = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
-        let game = real * PACE as f64;
-        Clock { seconds: (game % DAY as f64) as f32, set: Instant::now(), day: (game / DAY as f64) as i32, server_offset: 0 }
+        // (midnight of day 0 until the server says: `GameTime_t::GameTime_t` 0x1000afdb zeroes the time and the day)
+        Clock { seconds: 0.0, set: Instant::now(), day: 0, server_offset: 0 }
     }
 }
 
@@ -161,7 +159,9 @@ mod tests {
 
     #[test]
     fn the_clock_runs_at_the_games_pace() {
+        // (the server not heard yet: midnight of day 0, as the original's constructor leaves it)
         let mut c = Clock::default();
+        assert_eq!((c.time(), c.day), ((0, 0), 0));
         c.set(9.0 * 3600.0);
         assert_eq!(c.time(), (9, 0));
         c.set(-1.0);
