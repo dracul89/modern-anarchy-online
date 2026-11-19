@@ -43,22 +43,22 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | | all | done | part done | looked at, left | left by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 46 | 7 | 0 | 1 | 0 | **0** |
-| **medium** | 158 | 15 | 8 | 22 | 0 | 16 | **97** |
-| **low** | 725 | 41 | 13 | 216 | 0 | 26 | **429** |
-| **all** | 937 | 102 | 28 | 238 | 1 | 42 | **526** |
+| **medium** | 158 | 20 | 11 | 31 | 0 | 25 | **71** |
+| **low** | 725 | 53 | 14 | 311 | 0 | 35 | **312** |
+| **all** | 937 | 119 | 32 | 342 | 1 | 60 | **383** |
 
 ### By area
 
 | Area | all | done | part done | looked at, left | left by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Movement (`MOV`) | 33 | 4 | 1 | 0 | 0 | 0 | **28** |
-| Combat (`CMB`) | 38 | 1 | 2 | 1 | 0 | 0 | **34** |
+| Movement (`MOV`) | 33 | 8 | 1 | 18 | 0 | 6 | **0** |
+| Combat (`CMB`) | 38 | 8 | 5 | 23 | 0 | 2 | **0** |
 | Targeting and mouse (`TGT`) | 17 | 2 | 0 | 0 | 1 | 0 | **14** |
 | Death and revival (`DTH`) | 14 | 2 | 0 | 0 | 0 | 0 | **12** |
 | NPCs and creatures (`NPC`) | 40 | 5 | 4 | 1 | 0 | 0 | **30** |
 | Inventory and items (`INV`) | 84 | 12 | 3 | 4 | 0 | 0 | **65** |
-| Nano programs (`NAN`) | 60 | 2 | 2 | 0 | 0 | 0 | **56** |
-| Zoning and playfields (`ZON`) | 28 | 2 | 0 | 1 | 0 | 0 | **25** |
+| Nano programs (`NAN`) | 60 | 6 | 3 | 46 | 0 | 5 | **0** |
+| Zoning and playfields (`ZON`) | 28 | 4 | 0 | 19 | 0 | 5 | **0** |
 | Chat and commands (`CHT`) | 80 | 4 | 0 | 0 | 0 | 0 | **76** |
 | Windows and interface (`WIN`) | 180 | 16 | 5 | 1 | 0 | 0 | **158** |
 | Camera (`CAM`) | 13 | 1 | 0 | 0 | 0 | 0 | **12** |
@@ -81,25 +81,17 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 ### Medium weight not finished, by area
 
-**Movement** (7)
+**Movement** (3)
 
-- `MOV-001` Own flight also read from worn items and running programs (OWN-RULE)
-- `MOV-004` Own walking and collision where a playfield has no surfaces (and with noclip) (SIMPLIFIED)
-- `MOV-005` Walk or run of other characters told by speed (SIMPLIFIED)
-- `MOV-017` Client goes back to a place the server reports (SAFETY)
+- `MOV-001` Own flight also read from worn items and running programs (OWN-RULE) - looked at, left
+- `MOV-004` Own walking and collision where a playfield has no surfaces (and with noclip) (SIMPLIFIED) - looked at, left
 - `MOV-021` Flight: entering effect and the ways flight ends missing (MISSING) - part done
-- `MOV-027` /follow is the client's own walk-after-target (ADDITION)
-- `MOV-028` Walk-to-place with its own obstacle detours (ADDITION)
 
-**Combat** (7)
+**Combat** (3)
 
-- `CMB-003` Attack key checks only the first refusals (SIMPLIFIED)
-- `CMB-004` Health drops in Stat messages become "unknown damage" lines (SIMPLIFIED)
-- `CMB-005` Start Combat action attacks the target directly (SIMPLIFIED)
-- `CMB-016` Creature with weapon points but no weapon swings the unarmed swing (GUESS)
-- `CMB-023` Action tiles do not follow state; some tiles, CharacterAction 0xb2/0x14/0xfc, icon time text, special at attackable item undone (MISSING)
-- `CMB-037` Damage meter window (client's own) (ADDITION)
-- `CMB-038` Floating combat numbers (ADDITION)
+- `CMB-003` Attack key checks only the first refusals (SIMPLIFIED) - part done
+- `CMB-016` Creature with weapon points but no weapon swings the unarmed swing (GUESS) - looked at, left
+- `CMB-023` Action tiles do not follow state; some tiles, CharacterAction 0xb2/0x14/0xfc, icon time text, special at attackable item undone (MISSING) - part done
 
 **Targeting and mouse** (2)
 
@@ -148,26 +140,20 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `INV-081` Tradeskill guide made from item descriptions (ADDITION)
 - `INV-084` A swap by right click is judged without the item that comes off (ADDITION)
 
-**Nano programs** (9)
+**Nano programs** (6)
 
-- `NAN-001` Target NCU windows are turned on with /setoption (OWN-RULE)
-- `NAN-004` NCU memory in use is summed by the client (SIMPLIFIED)
-- `NAN-006` Spell criteria the client cannot decide count as failing (SIMPLIFIED)
-- `NAN-028` Cast, tracer, hit and spiral effects: partial decode with chosen sizes and timings (GUESS)
-- `NAN-038` Cast effect: hand cords draw nothing; phases 3-4 (projectile, impact) not played (MISSING)
+- `NAN-004` NCU memory in use is summed by the client (SIMPLIFIED) - part done
+- `NAN-006` Spell criteria the client cannot decide count as failing (SIMPLIFIED) - looked at, left
+- `NAN-028` Cast, tracer, hit and spiral effects: partial decode with chosen sizes and timings (GUESS) - looked at, left
+- `NAN-038` Cast effect: hand cords draw nothing; phases 3-4 (projectile, impact) not played (MISSING) - looked at, left
 - `NAN-039` Nano programs window: programs cannot be placed by hand; radius value, widths and sort not kept (MISSING) - part done
 - `NAN-040` NCU list: no Auto Arrange submenu, radius value or kept widths and sort (MISSING) - part done
-- `NAN-056` Nano landing glow: three widening rings, colour from stats or school (ADDITION)
-- `NAN-057` Programs fade while a cast or recharge runs; locks from the client's own timing (ADDITION)
 
-**Zoning and playfields** (6)
+**Zoning and playfields** (3)
 
-- `ZON-003` Door zoning by distance to the table door's place (SIMPLIFIED)
-- `ZON-004` Own door use opens the door for a fixed 5 seconds (SIMPLIFIED)
-- `ZON-006` Instanced playfield object ids read from live bytes (GUESS)
-- `ZON-024` Client says the Shadowlands expansion is missing at the Jobe booth (ADDITION)
-- `ZON-025` Whom-Pah destinations learned from play and remembered (ADDITION)
-- `ZON-026` Whom-Pah window with a Go button that walks to the booth (ADDITION)
+- `ZON-003` Door zoning by distance to the table door's place (SIMPLIFIED) - looked at, left
+- `ZON-004` Own door use opens the door for a fixed 5 seconds (SIMPLIFIED) - looked at, left
+- `ZON-006` Instanced playfield object ids read from live bytes (GUESS) - looked at, left
 
 **Chat and commands** (6)
 
@@ -263,6 +249,24 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 "Your call": a client addition read overnight; its entry recommends keeping or removing it.
 
+- `MOV-027` (medium) /follow is the client's own walk-after-target: Addition: recommend KEEP: the original does have /follow, but not this one: N3Msg_TextCommand's FUN_1003fe10 (0x10042221..0x100423ec) refuses in movement modes 
+- `MOV-028` (medium) Walk-to-place with its own obstacle detours: Addition: recommend KEEP: the original has no /waypoint command and no walk to a point for the player (its WaypointPathIIR_c paths are the server's, for creatur
+- `MOV-029` (low) /sit command is the client's own: Addition: recommend REMOVE: the original's command list has no /sit (GUI.dll's command table FUN_100b2ac9 and the text interpreter list none); the X key (N3Msg_
+- `MOV-031` (low) Own character glides between server updates: Addition: recommend KEEP: the original moves its character every frame in the vehicle; the client steps it in its network thread and draws between steps, so the
+- `MOV-032` (low) Walk-through-props toggle (noclip) and key layout: Addition: recommend KEEP as an unbound testing toggle (it is unbound by default and only reachable by binding it); the original has no such key and C is its sid
+- `MOV-033` (low) Walk/run mode announced on entering each playfield: Addition: recommend REMOVE: the original never sends the walk/run mode on entering a playfield: across all captures (several zonings) its own movement messages 
+- `CMB-037` (medium) Damage meter window (client's own): Addition: recommend KEEP: the original has no damage meter (no such window or text in GUI.dll or Gamecode); the user asked for it (the client's own tools of 202
+- `CMB-038` (medium) Floating combat numbers: Addition: recommend REMOVE (or put behind an option, off by default): the original draws no damage numbers over characters (no such view or setting in GUI.dll, 
+- `NAN-056` (medium) Nano landing glow: three widening rings, colour from stats or school: Addition: recommend REMOVE: the original draws only the gfxtweak.bin effect a nano names (no rings of its own; the EffectRed/Green/Blue stats feed those effects
+- `NAN-057` (medium) Programs fade while a cast or recharge runs; locks from the client's own timing: Addition: recommend KEEP for now: the original does lock casting while a cast and its recharge run (the server's 0xaa locks and FUN_1004fbe4's refusals), but ho
+- `NAN-058` (low) "Nano programs available." chat line: Addition: recommend REMOVE: no such line exists in the original (no text of that kind in GUI.dll's or Gamecode's strings, none sent by name from text.mdb); the 
+- `NAN-059` (low) Nano program and NCU tips are the client's own layout: Addition: recommend KEEP until the original's tooltip for nano programs is ported: the original shows its own tip from GUI.dll's item views, which was not read 
+- `NAN-060` (low) Right-click "Cancel this nano" entry is the client's own: Addition: recommend KEEP: Gamecode has N3Msg_DeleteNano, so the original can take a running nano off, but no GUI.dll code calls it (its caller is presumably Int
+- `ZON-024` (medium) Client says the Shadowlands expansion is missing at the Jobe booth: Addition: recommend REMOVE (replace with the original's path): the text is the original's, but it is a criterion's failure line, not an error box: FUN_1000556a 
+- `ZON-025` (medium) Whom-Pah destinations learned from play and remembered: Addition: recommend KEEP: the original shows no destinations (the server decides them, and the capture and live tests show no menu or message), so the learned l
+- `ZON-026` (medium) Whom-Pah window with a Go button that walks to the booth: Addition: recommend KEEP: the original has no such window (GUI_DLL_PARITY.md: "Whom-pah ... ours"); it only walks with ordinary movement messages and stops on a
+- `ZON-027` (low) Interior exit offered like a Whom-Pah booth: Addition: recommend KEEP with the Whom-Pah window (ZON-026): the original offers no such list; the exit entry only walks there with ordinary movement.
+- `ZON-028` (low) Whom-Pah booths labelled by their sign texture: Addition: recommend KEEP with the Whom-Pah window: the original never reads the sign statel as a destination; the label is the client's own help and sends nothi
 - `RND-183` (medium) Anti-aliasing, anisotropic filtering, mips and hemisphere light: Addition: recommend KEEP: anti-aliasing, anisotropic filtering and mips are display-quality settings with no rule of the original's to break (its DirectX 7 devi
 - `RND-184` (medium) Coloured boxes stand in for characters with no model: Addition: recommend KEEP: the original has a model for every character (its fallback is `unfinished-breed.cir`, see RND-028), so the boxes only show where this 
 - `RND-185` (medium) Distance haze when the area has no fog: Addition: recommend REMOVE: the original's only fog is the area's VisualFog_t; with none it draws clear to its far clip, so the haze is a look of the client's o
@@ -435,18 +439,18 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Movement**
 
-- [ ] `MOV-027` /follow is the client's own walk-after-target
-- [ ] `MOV-028` Walk-to-place with its own obstacle detours
-- [ ] `MOV-029` /sit command is the client's own
-- [ ] `MOV-030` Auto-run key
-- [ ] `MOV-031` Own character glides between server updates
-- [ ] `MOV-032` Walk-through-props toggle (noclip) and key layout
-- [ ] `MOV-033` Walk/run mode announced on entering each playfield
+- [ ] `MOV-027` /follow is the client's own walk-after-target **(your call)**
+- [ ] `MOV-028` Walk-to-place with its own obstacle detours **(your call)**
+- [ ] `MOV-029` /sit command is the client's own **(your call)**
+- [x] `MOV-030` Auto-run key **(done)**
+- [ ] `MOV-031` Own character glides between server updates **(your call)**
+- [ ] `MOV-032` Walk-through-props toggle (noclip) and key layout **(your call)**
+- [ ] `MOV-033` Walk/run mode announced on entering each playfield **(your call)**
 
 **Combat**
 
-- [ ] `CMB-037` Damage meter window (client's own)
-- [ ] `CMB-038` Floating combat numbers
+- [ ] `CMB-037` Damage meter window (client's own) **(your call)**
+- [ ] `CMB-038` Floating combat numbers **(your call)**
 
 **Targeting and mouse**
 
@@ -468,19 +472,19 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 **Nano programs**
 
-- [ ] `NAN-056` Nano landing glow: three widening rings, colour from stats or school
-- [ ] `NAN-057` Programs fade while a cast or recharge runs; locks from the client's own timing
-- [ ] `NAN-058` "Nano programs available." chat line
-- [ ] `NAN-059` Nano program and NCU tips are the client's own layout
-- [ ] `NAN-060` Right-click "Cancel this nano" entry is the client's own
+- [ ] `NAN-056` Nano landing glow: three widening rings, colour from stats or school **(your call)**
+- [ ] `NAN-057` Programs fade while a cast or recharge runs; locks from the client's own timing **(your call)**
+- [ ] `NAN-058` "Nano programs available." chat line **(your call)**
+- [ ] `NAN-059` Nano program and NCU tips are the client's own layout **(your call)**
+- [ ] `NAN-060` Right-click "Cancel this nano" entry is the client's own **(your call)**
 
 **Zoning and playfields**
 
-- [ ] `ZON-024` Client says the Shadowlands expansion is missing at the Jobe booth
-- [ ] `ZON-025` Whom-Pah destinations learned from play and remembered
-- [ ] `ZON-026` Whom-Pah window with a Go button that walks to the booth
-- [ ] `ZON-027` Interior exit offered like a Whom-Pah booth
-- [ ] `ZON-028` Whom-Pah booths labelled by their sign texture
+- [ ] `ZON-024` Client says the Shadowlands expansion is missing at the Jobe booth **(your call)**
+- [ ] `ZON-025` Whom-Pah destinations learned from play and remembered **(your call)**
+- [ ] `ZON-026` Whom-Pah window with a Go button that walks to the booth **(your call)**
+- [ ] `ZON-027` Interior exit offered like a Whom-Pah booth **(your call)**
+- [ ] `ZON-028` Whom-Pah booths labelled by their sign texture **(your call)**
 
 **Chat and commands**
 
@@ -958,7 +962,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a health loss is told only as far as it exceeds hits told in the last two seconds (World::recent_hits, untold_loss)
 - A player notices: damage lines may differ from the original's
 - Where: `crates/mao-client/src/net.rs:1166`; `crates/mao-client/src/net.rs:210`; `docs/CLIENT_UI.md:525`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Ported with CMB-004 tonight: the original lowers the victim's held health when it tells a hit (FUN_1009b6b7's FUN_1006288f, FUN_1006af0e), so the Stat after it finds no loss to tell; the client's 2-second window (recent_hits, untold_loss) is gone.
 
 ### Combat: an approximation or a stand-in (12)
 
