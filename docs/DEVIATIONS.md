@@ -3952,6 +3952,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: mail range is the client's
 - Where: `crates/mao-client/src/mailbox.rs:20`; `crates/mao-client/src/mailbox.rs:41`; `docs/CLIENT_UI.md:1872`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original looks up no mail terminal by range: the mail window is opened by GUI.dll's terminal-window handler (FUN_1002e2fe, window kind 8 sets the "mail_window" value; FUN_1002db89 closes it) when the game answers the use of the terminal the player clicked, and the mail requests (Gamecode N3Msg_RequestMailMessage 0x10023af1 and the others, through FUN_100a339f) go out on the client's own dynel with no terminal in them. The client's clicked-terminal path (net.rs, use of a 0xc773 dynel → inbox) already works that way. The 25-unit nearest-terminal lookup serves only the client's own `mail_window` key action, which the original's key table does not have (no mail entry in BindView_c's list); removing it would take away a keyboard path the user may rely on, so it stays for the user's decision: recommend KEEP the key action and its lookup as an addition, or REMOVE both to open mail only by clicking a terminal.
 - Looked at, left (2026-11-19, overnight): Original not stated: how the original finds the mail terminal the character uses was not read. Left.
 
 #### `CHT-015` Texts fall back to the client's own words
@@ -4109,6 +4110,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: /cc info may show nothing
 - Where: `crates/mao-net/src/chat.rs:290`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The packets are already built from GUI.dll FUN_100ba6f4, FUN_100baba6 and FUN_10089940 (mao-net chat.rs `info_request_packet`, re-checked: the `IM` packing and the two map entries match); what is not known is the chat server's answer to /cc info (packet 110), which no capture holds (CAPTURE_GAPS, CHT-054). Needs a capture of /cc info from the original client.
 - Looked at, left (2026-11-19, overnight): Built from the disassembly already; what the server answers to /cc info was never seen (see CHT-054), and nothing may be sent to the chat server tonight. Left.
 
 #### `CHT-030` /group and /ch say "There is no chat group named" in the client's words
@@ -4190,7 +4192,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: "Do you want to leave the organization? For six hours afterwards you cannot join another."
 - A player notices: wording may differ
 - Where: `crates/mao-client/src/orgboxes.rs:22`; `docs/CLIENT_UI.md:4228`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Read GUI.dll's `LeaveOrg` box (0x10052c90): its line is a literal of the program (not in text.mdb), asking whether one is sure to leave the organization and saying one cannot join a new one for 6 hours; the title is `Warning` from text category 10000. The client's line ("Do you want to leave the organization? For six hours afterwards you cannot join another.") says the same in its own words, as the user's rule wants for the program's literals; nothing to change.
 - Looked at, left (2026-11-19, overnight): The leave-organization box's line is a literal of the program (not a game text), which by the user's rule is written in the client's own words; finding its exact sense needs the box's function read, which was not done tonight. Left.
 
 #### `CHT-038` Mail return-to-sender built from the code only
@@ -4461,6 +4464,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no per-window logs and no in-game log viewer
 - Where: `crates/mao-client/src/chatconfig.rs:18`; `crates/mao-client/src/chatlog.rs:1`; `docs/CLIENT_UI.md:334`; `docs/CLIENT_UI.md:1816`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read how the original logs: GUI.dll's line writer FUN_1009bc20, for a chat window with logging on (+0x161), opens `<the window's own folder>/Log.txt` (FUN_10099f95: the window's prefs folder at +0x60) in "ab" once and writes each line as FUN_100af75f's `["<group>","<sender>","<escaped text>",<time>]<html>` record plus a newline (the texts `String::Escape`d for `\n"`, line breaks as `<br>`); "Show message log" (the row menu's `ShowLogWndow`, FUN_100a059a) opens a viewer of that file. Left because it replaces a client feature the user uses (the one dated chat log beside mao.ini, `chatlog.rs`) with files written into the original's preference folders under %LOCALAPPDATA%, and the viewer window is a GUI port of its own (its view XML and the record reader); the record format and the places are noted here for that port. Needs the user's word on giving up the client's own log.
 - Looked at, left (2026-11-19, overnight): Per-window logs and the message-log window are a feature port of the chat windows; over the time box. Left.
 
 #### `CHT-064` Other chat frames' places not taken from the original's files
@@ -9546,6 +9550,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: extra file beside the settings
 - Where: `crates/mao-client/src/launchwindow.rs:381`; `crates/mao-client/src/dimensions.rs:104`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: Anarchy.exe does hold dialog 161, but a spin box's range is not in a dialog template, it is set by code (no `UDM_SETRANGE`/`UDM_SETRANGE32` push in Anarchy.exe's bytes: it goes through MFC), and there is no decompile of Anarchy.exe here (the `exports/` folder's 0x004… functions are anarchyonline.exe's 470). Needs Anarchy.exe disassembled (its Connection page's `OnInitDialog`) to know the original's limits; launcher.ini itself is the client's own file (kept, like SET-001/002/005).
 - Looked at, left (2026-11-19, overnight): The time-outs are the original launcher's Connection page values; whether its spin boxes clamp at 5-600 and 2-300 was not read in Anarchy.exe's dialog template (resource 161). Left until the template is read.
 
 #### `SET-015` Macros saved beside the client's settings, one for all characters
@@ -9648,6 +9653,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: screenshot names in UTC on those systems
 - Where: `crates/mao-client/src/screenshot.rs:5`; `docs/PLATFORMS.md:20`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: on Windows, the original's only platform, the names use the local time as the original's do; off Windows the `time` crate will not read the local offset in a threaded program, so the UTC stamp stays. A platform matter outside the original (it would need libc `localtime_r`), not a departure on the original's platform.
 - Looked at, left (2026-11-19, overnight): The original is a Windows client whose names use the local time; on Windows the client does the same. Off Windows the `time` crate refuses to read the local offset in a program with threads (a soundness rule of the crate), so the UTC stamp is the fallback; a port would need another way to read the zone (libc `localtime_r`), a platform matter outside the original.
 
 #### `SET-025` Stats window bars kept in tabs.ini
@@ -9680,6 +9686,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: rules are not shared with the original client
 - Where: `crates/mao-client/src/chatfilter.rs:15`; `docs/GUI_DLL_PARITY.md:157`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read the matcher: Utils.dll's `RegExp` (the faithful port in dropin/utils/src/regexp.rs, Henry Spencer's regcomp/regexec) on a pattern that does not compile calls `regerror`, which is an `int3` breakpoint, and keeps no program; `Compare` without a program calls `regerror` again and answers false. So in the original a bad rule stops the program at a breakpoint (a crash without a debugger) each time a vicinity or group line is filtered; the client's "matches nothing" is what the original answers after the breakpoint. Copying the crash is not something to port; keeping the rules in chatfilter.ini instead of the `ChatFilterRules` value is SET-001's matter (the client's own ini files, kept by the user's decision).
 - Looked at, left (2026-11-19, overnight): The rules are the original's `ChatFilterRules` texts; how the original treats a pattern that does not compile was not found (its filter's matcher is not read), and keeping them in chatfilter.ini instead of the original's prefs is SET-001's matter. Left until the matcher is read.
 
 #### `SET-028` Ignore list kept in the client's own ignore.ini
@@ -9702,6 +9709,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/layout.rs:287`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the two-second spacing only spaces the client's own file writes (the original writes on close); what is written and read back is the same, and the 40–8000 size check keeps a broken file from making a window unusable (without it a zero-size window could not be grabbed again). No change a player can see or do; kept.
 - Looked at, left (2026-11-19, overnight): Kept: writing places at most every two seconds only spaces the client's own file writes (the original writes once on close); what a player sees and gets back is the same. The 40-8000 check only keeps a broken file from making a window unusable.
 
 ### Settings and files: the original does it, the client does not (8)
@@ -9766,7 +9774,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: LockEquipment is read from the settings store and acts (the wear move is refused with Feedback_EquipmentLocked); set with /setoption LockEquipment true; the wear window has no tab locks (EquipmentLocks)
 - A player notices: lock only by command; no per-tab locks
 - Where: `crates/mao-client/src/net.rs:1007`; `crates/mao-client/src/net.rs:1014`; `crates/mao-client/src/ui.rs:1232`; `docs/CLIENT_UI.md:4311`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already done before this night's list (commit ebab704 "Worn items locked to their place" and the INV/WIN ports after it): the worn item's menu (GUI.dll FUN_100caf07) has `LockItem` / `UnlockItem` for a wear place's item whose stat 8 is not above 0 (invwindows.rs `item_menu`, toggling FUN_100ca3ae's per-place lock), the wear window's menu has `UnlockAllItems` (FUN_100e1f9b, `gear::unlock_all_equipment`), the locks are kept per character (`EquipmentLocks<character>`), and the wear moves are refused for a locked place or while `LockEquipment` is on (net.rs `equipment_locked`, Gamecode FUN_100266c9, `Feedback_EquipmentLocked`). The catalog's "per tab" was the overnight reader's misreading: the locks are per place. "Only by /setoption" is the original's own way too: no view or code of GUI.dll names `LockEquipment` (only CharPrefs.xml declares it and Gamecode reads it), so the original sets it only through `/setoption` or `/dvalue` as well.
 - Looked at, left (2026-11-19, overnight): Read: the locks are per worn slot, not per tab. Gamecode FUN_100266c9 (asked by `N3Msg_IsItemPossibleToWear` / `ToUnWear`, `Feedback_EquipmentLocked`) says locked when `LockEquipment` is true, else when the slot's identity is among the `Locks` identities of the message value `EquipmentLocks`; GUI.dll FUN_100ca3ae toggles one slot's identity in that list (from a view's identity at +0x130; it is an action of the item context menu built by FUN_100caf07), and FUN_100e1f9b unlocks every slot of the four wear pages (types 0x65, 0x66, 0x67, 0x73, 16 slots each) and empties the list. Porting needs the item menu's lock entry (its label and which views offer it were not read), keeping `EquipmentLocks` per character, and the check in the wear moves: more than this night's 40 minutes, and the menu entry's text and conditions are still unread.
 
 #### `SET-036` List view column widths and sort not kept
@@ -10064,6 +10073,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a slow server is given up on after 20 s
 - Where: `crates/mao-net/src/socket.rs:37`; `crates/mao-net/src/chat.rs:480`; `docs/CLIENT_UI.md:2693`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: kept as a guard Rust needs. A blocking world-socket read with a time-out left the socket undefined on Windows (the client stopped reading the world), so it reads non-blocking and polls; the 20 s waits stop a login or chat reply that never comes from hanging the launcher for ever, where the original gives up through its progress window's own time-out (which the launcher shows too, LCH-038). Without them the client would hang where the original gives up.
 - Looked at, left (2026-11-19, overnight): Kept: the non-blocking world socket is there because blocking reads with time-outs left the socket undefined on Windows (the client would stop reading the world), and the 20 s waits stop the login from hanging the launcher forever where the original shows its progress window's own time-out (which the launcher now also shows, LCH-038). Removing them would make the client hang where the original gives up.
 
 #### `NET-009` Places that look like garbage are dropped
@@ -10084,6 +10094,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/net.rs:5984`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: kept. The 3 s only bounds how long the entry reads before opening the world when the server is slow to send the own character; the original waits for the same message before its world shows, and the loading screen covers both. Nothing a player sees or can do differs.
 - Looked at, left (2026-11-19, overnight): Kept: the wait only bounds how long the game's process reads before opening its window when the server is slow to send the own character; nothing a player can see or do differs (the original waits for the same message before its world shows, the client's loading screen covers both).
 
 ### Network and protocol: the original does it, the client does not (1)
@@ -10176,6 +10187,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: spell timing approximate
 - Where: `crates/mao-client/src/net.rs:411`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the spell runner only takes differences of its clock (`GameTime_t` +0x28 in the original, seconds since the runner's first use here), and both count seconds, so the timings are the same; nothing a player sees differs.
 - Looked at, left (2026-11-19, overnight): The spell runner's clock (`GameTime_t` +0x28) and the client's stopwatch both count seconds from a start; the runner only uses differences between them, so the timings are the same. Left.
 
 ### Other: the original was not read: inferred or measured (4)
