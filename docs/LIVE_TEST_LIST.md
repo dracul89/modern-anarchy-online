@@ -1168,6 +1168,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Open the Actions window (K): Reload has its own picture (not Aimed Shot's); a Reload shortcut put on a bar before this change still shows a picture; perk tiles look as in the original.
 - [ ] Open the planet map (P) in a Rubi-Ka playfield (Rubi-Ka map), in a Shadowlands one such as Nascense (Shadowlands map), and in a Shadowlands dungeon (Shadowlands map).
 - [ ] Select text in an info window and in an XML window's text field: the selection is light grey with the text readable over it.
+- [ ] In a Notum Wars playfield, turn the map's Info (land control) on, open Build and put a tower item in: a light grey circle shows just in front of the character and follows its turns; it goes when the menu closes.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

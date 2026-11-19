@@ -109,6 +109,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The rollup column down the right edge works as the original's: 192 wide, the original's page headers, a grip under each page to size it, double click to roll a page, right-click to pick a page up and put it elsewhere (or a window's tab onto the column to dock it), the fade level from the options.
 - Windows have the original's inner border and solid dark-teal body under the title.
 - The planet map shows the Shadowlands map in every Shadowlands playfield, dungeons included, as the original does.
+- With land control shown on the map, a light grey circle marks where a tower would stand while the tower build menu holds an item.
 
 ### Items
 

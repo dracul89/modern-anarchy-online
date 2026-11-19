@@ -7758,3 +7758,7 @@ The original's planet map window (`PlanetMapView_c`, FUN_1004d92d) shows one map
 ### Selected text (WIN-103)
 
 The original's text views draw selected text on a light grey ground: `TextRenderer_c::_RenderString` (GUI.dll 0x101602bb) clears each selected glyph's cell to 0xc0c0c0 and draws the glyph over it in its own colour. The client's interface text views (reading and editing) now use that grey instead of a translucent blue. The client's band still runs to the view's edge on the middle lines of a selection, where the original shades only the glyphs.
+
+### Where a tower would stand (WIN-118)
+
+While the tower build menu holds an item, the original's playfield map (with its land-control button on) marks where the tower would go: the map's circle in light grey (0xdcdcdc) three units in front of the character (`PFMapRenderer_c` FUN_100ea243; the flag is the map data's +0x75, set by the menu's item setter FUN_1005c605 through GlobalSignals +0x160 and cleared when the menu or its item goes). The client draws the same circle on its maps while the menu (Build or War) is open with an item in it (`TowerWindow::placing`, `automap::placement`).

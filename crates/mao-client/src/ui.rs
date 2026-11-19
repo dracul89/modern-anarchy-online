@@ -1106,6 +1106,7 @@ impl Ui {
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             let notum_wars = hud.stats.get(&389).is_some_and(|e| e & 1 != 0);
             automap.set_land_control(hud.land_map.as_ref(), hud.lc_district.as_ref());
+            automap.placing = tower_window.placing();
             // (the original's playfield map window; this client's own round corner map and overlay as a setting)
             if settings.own_map {
                 automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.towers, notum_wars, &hud.location, palette);

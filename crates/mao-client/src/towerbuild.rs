@@ -186,6 +186,13 @@ fn text(name: &str, own: &str) -> String {
 }
 
 impl TowerWindow {
+    /// Whether the map marks where the tower would stand: the menu took an item (FUN_1005c605 tells the map data its
+    /// identity through GlobalSignals +0x160, FUN_10042f87 sets +0x75), until the menu goes (its destructor FUN_1005aadb
+    /// tells (0, 0)) or the item does (+0x9c, FUN_10042fc6).
+    pub fn placing(&self) -> bool {
+        self.open && self.item.is_some()
+    }
+
     /// The map control's button: the menu that way with nothing in it, or closed when it is up that way already.
     pub fn toggle(&mut self, build: bool) {
         if self.open && self.war != build {

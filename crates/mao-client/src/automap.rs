@@ -305,6 +305,9 @@ pub struct AutoMap {
     controls: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
     /// The map control's "Build" (true) or "War" button was pressed: the tower build menu is asked for.
     pub tower_menu: Option<bool>,
+    /// The tower build menu holds an item (`towerbuild::TowerWindow::placing`): the map data's +0x75, which marks where the
+    /// tower would go.
+    pub placing: bool,
     land_source: Option<std::sync::Arc<mao_formats::landcontrolmap::LandControlMap>>,
 }
 
@@ -326,7 +329,7 @@ struct Planet {
 
 impl Default for AutoMap {
     fn default() -> Self {
-        AutoMap { pf_open: false, pf_pan: [0.0; 2], pf_buttons: false, pf_menu: None, grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), mini_size: load_size(), ground_image: None, ground: None, ground_extent: [0.0; 2], planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, tower_menu: None, land_source: None }
+        AutoMap { pf_open: false, pf_pan: [0.0; 2], pf_buttons: false, pf_menu: None, grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), mini_size: load_size(), ground_image: None, ground: None, ground_extent: [0.0; 2], planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, tower_menu: None, placing: false, land_source: None }
     }
 }
 
@@ -633,7 +636,7 @@ impl AutoMap {
     /// `SELECTARG1` of `TEXTURE`), colour the texture's times the vertex's, blended `ONE`, `INVSRCALPHA`. The skin's circle is
     /// white on the green key, so it draws opaque in the tint, as here.
     #[allow(clippy::too_many_arguments)]
-    fn towers(&self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, towers: &[Tower], circle: bool) {
+    fn towers(&self, painter: &egui::Painter, rect: egui::Rect, center: [f32; 2], px_per_unit: f32, yaw: Option<f32>, towers: &[Tower], circle: bool, me: Option<([f32; 2], f32)>) {
         let Some(skin) = crate::skin::skin(painter.ctx()) else { return };
         let inside = |p: egui::Pos2| if circle { (p - rect.center()).length() < rect.width().min(rect.height()) / 2.0 - 5.0 } else { rect.shrink(4.0).contains(p) };
         let places: Vec<(egui::Pos2, &Tower)> = towers.iter().map(|t| (Self::to_screen(rect, center, px_per_unit, yaw, [t.position[0], t.position[2]]), t)).filter(|(p, _)| inside(*p)).collect();
@@ -645,6 +648,12 @@ impl AutoMap {
             let painter = painter.with_clip_rect(rect);
             for (p, t) in &places {
                 skin.draw_in(&painter, "GFX_GUI_MAP_CIRCLE", egui::Rect::from_min_size(*p - egui::vec2(41.0, 41.0), egui::vec2(80.0, 80.0)), circle_tint(t.class));
+            }
+            // (then, while the tower build menu holds an item (+0x75), the same circle in 0xdcdcdc where the tower would
+            // stand: three units in front of the character)
+            if let Some(me) = me.filter(|_| self.placing) {
+                let p = Self::to_screen(rect, center, px_per_unit, yaw, placement(me));
+                skin.draw_in(&painter, "GFX_GUI_MAP_CIRCLE", egui::Rect::from_min_size(p - egui::vec2(41.0, 41.0), egui::vec2(80.0, 80.0)), egui::Color32::from_rgb(0xdc, 0xdc, 0xdc));
             }
         }
     }
@@ -663,8 +672,7 @@ impl AutoMap {
     /// MapControlView_c's land-control button (FUN_100ecdf7): a toggle `Button_c` labelled with text.mdb's 10000 `Info`, its
     /// tip `ShowLConMap` ("Show land control areas on the map"), set from the archived `RenderLandControlData`, disabled
     /// without Notum Wars (stat 389 bit 0); toggling it switches the renderer's land control (FUN_100ec034 -> FUN_100ebac9).
-    /// The control's `Build` and `War` buttons (the land control build and war menus) are not ported. Returns the bar's
-    /// bottom.
+    /// Beside it the `Build` and `War` buttons, which ask for the tower build menu (`tower_menu`). Returns the bar's bottom.
     fn control_bar(&mut self, ui: &mut egui::Ui, at: egui::Pos2, notum_wars: bool, palette: &crate::theme::Palette) -> f32 {
         use crate::gui::view::{Layout, Node, Plain, Tree};
         let (tree, root, button) = self.controls.get_or_insert_with(|| {
@@ -764,7 +772,7 @@ impl AutoMap {
                 self.paint(&painter, rect, center, PX, None, false);
             }
             self.land(&painter, rect, center, PX, None, false);
-            self.towers(&painter, rect, center, PX, None, towers, false);
+            self.towers(&painter, rect, center, PX, None, towers, false, me);
             // (the character's district at 5, 5 of the map, FUN_100eb04b)
             if let Some(text) = self.district_text() {
                 painter.text(rect.min + egui::vec2(5.0, 5.0), egui::Align2::LEFT_TOP, text, egui::FontId::proportional(12.0), egui::Color32::WHITE);
@@ -848,7 +856,7 @@ impl AutoMap {
                 let center = [pos[0] + self.pan[0], pos[1] + self.pan[1]];
                 self.paint(ui.painter(), rect, center, zoom, None, false);
                 self.land(ui.painter(), rect, center, zoom, None, false);
-                self.towers(ui.painter(), rect, center, zoom, None, towers, false);
+                self.towers(ui.painter(), rect, center, zoom, None, towers, false, me);
                 self.dots(ui.painter(), rect, center, zoom, None, (pos, heading), dots, booths, false);
                 ui.painter().text(rect.left_top() + egui::vec2(16.0, 14.0), egui::Align2::LEFT_TOP, place, egui::FontId::proportional(18.0), egui::Color32::from_rgb(255, 205, 70));
                 ui.painter().text(rect.left_top() + egui::vec2(16.0, 38.0), egui::Align2::LEFT_TOP, "Drag to pan, wheel to zoom, O to close, Space re-centres", egui::FontId::proportional(12.0), egui::Color32::from_white_alpha(150));
@@ -880,7 +888,7 @@ impl AutoMap {
                 let px = size / if planet { self.planet_span } else { self.mini_span };
                 self.paint(ui.painter(), rect, pos, px, Some(yaw), true);
                 self.land(ui.painter(), rect, pos, px, Some(yaw), true);
-                self.towers(ui.painter(), rect, pos, px, Some(yaw), towers, true);
+                self.towers(ui.painter(), rect, pos, px, Some(yaw), towers, true, me);
                 self.dots(ui.painter(), rect, pos, px, Some(yaw), (pos, heading), dots, booths, true);
                 ui.painter().circle_stroke(c, r, egui::Stroke::new(2.5, egui::Color32::from_rgb(120, 170, 210)));
                 ui.painter().circle_stroke(c, r + 1.5, egui::Stroke::new(1.0, egui::Color32::from_black_alpha(160)));
@@ -968,6 +976,13 @@ pub fn tower_sprite(side: i32, class: i32) -> &'static str {
     ][colour][kind]
 }
 
+/// Where the placement circle stands (FUN_100ea243): the character's place moved 3 along (sin, cos) of twice pi times the
+/// renderer's heading (+0x494, FUN_100ea88a: the turn of the character's forward, `atan2 / 2pi + 0.5`), which is its
+/// forward: three units in front of it. `me` is the place (x, z) and the heading whose forward is (sin, cos).
+pub fn placement(me: ([f32; 2], f32)) -> [f32; 2] {
+    [me.0[0] + 3.0 * me.1.sin(), me.0[1] + 3.0 * me.1.cos()]
+}
+
 /// The land-control circle's colour (FUN_100ea243, its second loop, on the tower's kind): a control tower or a turret (1, 2)
 /// `0xffff04`, anything else `0x00dcff`.
 pub fn circle_tint(class: i32) -> egui::Color32 {
@@ -977,6 +992,15 @@ pub fn circle_tint(class: i32) -> egui::Color32 {
 #[cfg(test)]
 mod tower_tests {
     use super::*;
+
+    /// FUN_100ea243: the placement circle three units in front of the character.
+    #[test]
+    fn the_placement_circle_is_three_units_ahead() {
+        let [x, z] = placement(([100.0, 200.0], 0.0));
+        assert!((x - 100.0).abs() < 1e-4 && (z - 203.0).abs() < 1e-4);
+        let [x, z] = placement(([100.0, 200.0], std::f32::consts::FRAC_PI_2));
+        assert!((x - 103.0).abs() < 1e-4 && (z - 200.0).abs() < 1e-4);
+    }
 
     #[test]
     fn tower_icons_follow_the_atlas_cells() {
