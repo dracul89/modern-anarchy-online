@@ -7409,3 +7409,7 @@ The client's own shop status text ("Trade complete.", "No open trade to buy in/s
 ### Skills window: no own confirmations (WIN-175)
 
 The skills window no longer writes "Changes sent." after Accept or "Reset asked for." after a reset; the original's skill view says nothing then. Its refusals stay: the disabled skill's line (GUI.dll FUN_100fe968), the IP line from text.mdb (`Skill_LackIP`, FUN_100fe550) and the cap's line (the original's `N3Msg_SkillMaxFeedback`, FUN_100fdf13; still the client's words here).
+
+### An empty account reaches the character screen (LCH-043)
+
+The client's own "This account has no characters." on the login form is gone. As the original (GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179, reply 0xe shows the character screen with no count checked), an account with no characters gets the character screen, where New Character makes the first.

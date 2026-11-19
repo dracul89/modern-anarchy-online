@@ -177,6 +177,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A character the server refuses to enter now brings you back to the login with the game's error page, as in the original, instead of the launcher just closing.
 - A login error's page stays until you close it, and is there again when you go back from the character list, as in the original.
 - A character creation you leave keeps its choices for the next time, even after the launcher was closed, until a character is made.
+- A new account with no characters now opens the character screen (with New Character) instead of being sent back to the login form.
 
 ### Graphics
 

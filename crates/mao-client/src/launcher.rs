@@ -439,11 +439,8 @@ impl Launcher {
                 self.answer = None;
                 self.progress.stop();
                 match result {
-                    Ok(list) if list.is_empty() => {
-                        self.stage = Stage::Form;
-                        self.message = "This account has no characters.".into();
-                        self.error_page = None;
-                    }
+                    // (every list goes to the character screen, an empty one too, where New Character makes the first:
+                    // `LoginModule_c::SlotLoginReply` 0x10012179, reply 0xe -> `Show(3)`, no count checked)
                     Ok(list) => {
                         // (the original keeps an error's page until its window is closed (`SlotBrowserQuitPressed`
                         // 0x10011c33 empties the address; `Show(0)` 0x1001175a shows the Browser window again while it

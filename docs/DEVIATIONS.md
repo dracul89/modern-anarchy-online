@@ -9182,7 +9182,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: sent back to the login form with "This account has no characters."
 - A player notices: a player with an empty account cannot reach character creation from the list
 - Where: `crates/mao-client/src/launcher.rs:351`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): An account with no characters now goes to the character screen like any other, where New Character makes the first; the client's "This account has no characters." on the login form is gone. As GUI.dll `LoginModule_c::SlotLoginReply` (0x10012179): reply 0xe -> `Show(3)`, no count checked. The character screen handles an empty list (slots line and New Character from the account's slots). launcher.rs. Tests: `launcher` (5 pass).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original goes to the character screen for every character list (GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179: reply 0xe -> `Show(3)`, no count checked), so an empty account reaches New Character there; the client's "This account has no characters." on the form blocks creation for a new account.
 
 #### `LCH-044` Character screen figure is dressed from a remembered look (looks.ini)
