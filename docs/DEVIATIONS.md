@@ -5706,7 +5706,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: left drag orbits, right drag turns camera and character, both buttons walk forward, camera swings behind the character while moving, cursor hidden and confined while a button is held
 - A player notices: camera behaves like WoW
 - Where: `docs/CLIENT_UI.md:83`; `crates/mao-client/src/viewer.rs:1095-1125`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): the WoW scheme had already given way to the original's ActionViewMouseHandler_c; now also its sensitivity (MouseTurnSensitivity / 1000 radians a count), the wheel's ZoomSpeed / 10 step, the look of the last button pressed ended by either release, and the turn keys strafing once any look moves. Not ported: the first-person head turn handed to the character at a look's end, the RMBMouseLook1st/3rd prefs, the default camera mode (Lock in the game, trail here). The middle-button reset is the client's own.
 
 #### `CAM-002` Camera mode comes from the client's setting; unknown names give rubber
 

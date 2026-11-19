@@ -179,7 +179,7 @@ pub struct Inputs {
     pub zoom_out: bool,
     /// Mouse look, in radians: across (positive turns the view right) and up.
     pub mouse: (f32, f32),
-    /// Mouse-wheel notches (positive zooms out), applied as that many quarter seconds of zoom.
+    /// The wheel's zoom in units (positive zooms out): `ZoomSpeed` / 10 a notch, as N3.dll's FUN_100200ef has it.
     pub wheel: f32,
     pub reset: bool,
     /// `ZoomTo1stPerson` is off: zooming in stops at the nearest distance instead of going into first person, and
@@ -557,7 +557,8 @@ impl SteeringCamera {
         let frames = dt * ORIGINAL_FPS;
         let across = inputs.mouse.0 + (inputs.rotate_right as i32 - inputs.rotate_left as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * frames;
         let up = inputs.mouse.1 + (inputs.rotate_up as i32 - inputs.rotate_down as i32) as f32 * TURN_PER_FRAME * TURN_SENSITIVITY * frames;
-        let zoom = (inputs.zoom_out as i32 - inputs.zoom_in as i32) as f32 * dt + inputs.wheel * 0.25;
+        // (the wheel in units; the zoom here is in tenths of `ZOOM_SPEED`'s units a second)
+        let zoom = (inputs.zoom_out as i32 - inputs.zoom_in as i32) as f32 * dt + inputs.wheel / ZOOM_SPEED;
         if across != 0.0 || up != 0.0 || zoom != 0.0 {
             if !self.turn_and_zoom(look, heading, across, up, zoom, inputs.hold_third) {
                 return self.update(0.0, look, heading, char_speed, Inputs::default(), surface);

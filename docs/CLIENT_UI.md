@@ -79,14 +79,13 @@ done: the star water of types 0xe/0xf (no playfield has any).
 * **Not possible:** DLSS (NVIDIA-only SDK; this machine has an AMD GPU). FSR 2/3 need motion vectors, depth and jitter (a larger renderer change; TAA is the first step).
 * **Next:** instancing the repeated props (about 3,000 placed from 156 meshes), cheaper shadow casters at a distance, TAA.
 
-## 4d. Camera (WoW style, live view)
-The camera follows the character. **Left button drag** orbits it (the character
-doesn't turn); **right button drag** turns the camera and the character with it
-(the character faces where the camera looks); **both buttons** walk forward;
-**scroll** zooms. While walking or turning with the keys the camera swings round
-behind the character (unless the mouse is steering). The cursor is hidden and
-confined while a button is held. Strafing is on `Z` / `C` (A/D turn, as the original's defaults do; see 4e). Not done:
-camera collision with the ground and walls, an option for inverted mouse.
+## 4d. Camera (live view)
+The mouse is the original's (GUI.dll's `ActionViewMouseHandler_c`; corrected 2026-11-18, "The mouse's camera as the
+original's"): **left button drag** looks round with the camera (`LMBMouseLook`), **right button drag** turns the
+character, with Ctrl only the camera; the last button pressed is the look's and letting go of either ends it; the turn
+keys strafe while a look moves; the **wheel** zooms `ZoomSpeed` / 10 a notch. The cursor is hidden while a button is
+held (the original moves it back to where the look began). The middle button resets the camera (this client's own; the
+original has Numpad 5). Strafing is on `Z` / `C` (A/D turn, as the original's defaults do; see 4e).
 
 ## 4e. Controls added for playing
 `Z` / `C` strafe left / right (the protocol's `StrafeLeftStart` 7 / `Stop` 8 and `StrafeRightStart` 5 / `Stop` 6 are
@@ -6843,3 +6842,25 @@ Not ported (found, no player is known to meet them): the percentage spells 0xcff
 criteria of nano, perk and benefit spells beyond the level; the stats made of two others (0x20d-0x274); mode 4.
 
 Test: `only_the_worn_places_count`.
+
+### The mouse's camera as the original's (CAM-001)
+
+The catalog's "WoW-style camera" was already gone: `viewer.rs` follows GUI.dll's `ActionViewMouseHandler_c` (0x1002d1ae),
+and section 4d is corrected. What still differed:
+
+- **How far the mouse turns.** It is `MouseTurnSensitivity` (1 to 20, 10 by default) over 1000 radians a count. GUI.dll's
+  FUN_1002ccbe takes the counts over 1000 (InputConfig_t's FrameProcess, 0x1001b253) times the preference, read at every
+  motion. The client turned a fixed 0.005, half the default.
+- **The wheel's step.** A notch moves the camera `ZoomSpeed` / 10 units, 2 at the default 20 (N3.dll FUN_100200ef). The
+  client moved 2.5.
+- **The look's button.** The look is the last button pressed (FUN_1002ce31 sets the kind at each press), and it ends when
+  either button is let go, the other still held or not (FUN_1002cc90). The client looked on while any button was down.
+- **The turn keys step sideways** once a look has moved, whichever button it is (`N3Msg_MovementChanged`'s mouse-look flag,
+  set by the first motion: `Input::looking`). The client did so only while the right button turned the character.
+
+Not ported:
+- the head's turn handed to the character when a first-person look ends (`N3Msg_EndCameraMouseLook`, 0x100195ff);
+- the right drag's up and down going to the camera only by `RMBMouseLook1st` / `RMBMouseLook3rd`;
+- the camera's default mode, which is `CAMERA_3RD_LOCK` in the game's `CharPrefs.xml` and `trail` here (the user's).
+
+The middle button's camera reset is this client's own; the original resets with Numpad 5 only.

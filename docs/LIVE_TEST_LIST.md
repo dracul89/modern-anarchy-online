@@ -994,6 +994,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Original shortcut bars (2026-11-18): the first start fills bar 1 (Start Combat, Walk, Sit, Follow, Suspended Animation); keys 1-0, Shift+n page, Alt+n primary; drag by the strip, double-click it upright; wheel pages; drop, swap and drag out; the settings' Smart hotbars switch back
 - [ ] `/pet` lines (2026-11-18): `/pet <name> follow` moves only that pet; `/pet attack` all; `/pet social wave`; with no pet the game's line
 - [ ] Run speed (2026-11-18): a character with high attributes runs without rubber-banding back; compare a run's length with the original
+- [ ] Mouse look (2026-11-18): turning speed as the original's at the same sensitivity; hold right, press left, let go of left: the look ends; A/D strafe while a left-button look moves
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

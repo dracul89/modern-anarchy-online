@@ -22,6 +22,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   unlocks also opens when you walk up to it now.
 - Your run speed is the original's: the attributes' share of your skills no longer makes you run faster than the
   original client lets you (it did since 0.1.5).
+- The mouse turns as fast as in the original (its sensitivity setting, 10 by default, now counts), the wheel zooms by the
+  original's step, and letting go of either button ends a mouse look.
 
 ### Windows
 

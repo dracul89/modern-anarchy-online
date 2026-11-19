@@ -8442,7 +8442,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             keys = raw;
             // (while the mouse steers, the turn keys step sideways: `N3Msg_MovementChanged` 0x10018bc4 makes 12 a 7, 9 a
             // 5 and their stops 8 and 6 while its mouse-look flag is up)
-            if keys.face.is_some() && keys.turn != 0 {
+            if keys.looking && keys.turn != 0 {
                 keys.strafe = (keys.strafe + keys.turn).clamp(-1, 1);
                 keys.turn = 0;
             }

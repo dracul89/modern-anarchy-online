@@ -40,6 +40,9 @@ pub struct Input {
     pub walk_toggle: u8,
     /// The heading the character should face (the camera's, while the right mouse button steers).
     pub face: Option<f32>,
+    /// A mouse look has moved since its button went down (`N3Msg_MovementChanged`'s mouse-look flag, set by the first
+    /// motion of either button's look): the turn keys step sideways.
+    pub looking: bool,
     /// An item used on something in the world: a counter that steps with each, the item's identity and the target's.
     pub use_on: (u8, (u32, u32), (u32, u32)),
     /// An item put on the ground: a counter that steps with each, the item's identity and the place (x, height, z).
@@ -662,6 +665,8 @@ struct App {
     last: (f64, f64),
     /// The left and right mouse buttons, in a live view (the camera is steered like a third-person game's).
     buttons: [bool; 2],
+    /// The look the mouse is on: the right button's (true) or the left's, the last one pressed; none once either is let go.
+    look_right: Option<bool>,
     /// The character's heading, and whether the camera has been put behind it yet.
     heading: f32,
     behind_set: bool,
@@ -981,7 +986,7 @@ pub fn window(model: Model, textures: Textures, live: Option<Live>) -> Result<()
     }
     crate::ui::set_debug_overlay(settings.debug_overlay);
     crate::font::set_enabled(settings.original_font);
-    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), weather_fx: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, pointer: Default::default(), screenshot: false, autorun: false, logged_out: false, own_alpha: 1.0, input_stopped: false };
+    let mut app = App { model, textures, live, state: None, dragging: false, last: (0.0, 0.0), buttons: [false; 2], look_right: None, heading: 0.0, behind_set: false, world_in: false, last_follow: std::time::Instant::now(), auras: Vec::new(), placed: Default::default(), pulses: Default::default(), fx_clock: std::time::Instant::now(), bursts: Vec::new(), shots: Vec::new(), flares: Vec::new(), falls: None, statel_effects: Vec::new(), area_fog_base: None, sky: Default::default(), tried_sprites: Default::default(), effect_meshes: Default::default(), mesh_sheets: Default::default(), fxs_frame: None, script_meshes: Default::default(), named_sheets: Default::default(), trails: Default::default(), motions: Default::default(), shake: (0.0, 0), own_base: [0.0; 3], own_velocity: [0.0; 3], own_at: std::time::Instant::now(), ground: None, zones: None, collision: None, camera_body: crate::vehicle::Body::without_gravity(), look_target: Default::default(), interior: None, rooms_shown: Vec::new(), room_hint: None, attractor_at: std::time::Instant::now(), casters: Vec::new(), character_parts: Vec::new(), highlight_runs: Default::default(), highlight_fades: Default::default(), follow_shift: [0.0; 3], environment: Default::default(), quake: Default::default(), quake_offset: [0.0; 3], wind: Default::default(), weather_fx: Default::default(), wind_at: std::time::Instant::now(), perf_memory_at: std::time::Instant::now() - std::time::Duration::from_secs(10), daylight: 1.0, steering: crate::camera::SteeringCamera::new(camera_mode(&settings.camera_mode)), mouse_look: (0.0, 0.0), wheel: 0.0, cam_reset: false, sight_kept: Vec::new(), sight_frame: 0, applied_shadows: settings.shadows, applied_vsync: settings.vsync, focused: true, frame_due: std::time::Instant::now(), keys: Input::default(), last_sent: Input::default(), settings, modifiers: Default::default(), held: Default::default(), script_moves: Default::default(), camera_script: std::env::var("MAO_CAMERA_SCRIPT").ok().map_or_else(Vec::new, |v| v.split(',').filter_map(|s| s.split_once(':').and_then(|(t, c)| Some((t.trim().parse().ok()?, c.trim().to_string())))).collect()), script_clock: std::time::Instant::now(), script_held: Vec::new(), home: None, preferred: None, hud: Hud::default(), moved: 0.0, pointer: Default::default(), screenshot: false, autorun: false, logged_out: false, own_alpha: 1.0, input_stopped: false };
     // (entering the game: the loading screen, `ServerLogin3DModule_t::InitialiseMessage`)
     if app.live.is_some() {
         // (started from the character list, whose window has had the screen up since Play was pressed: it goes on from
@@ -1037,9 +1042,15 @@ fn press_slot(ui: &mut Ui, slot: usize, keys: &mut Input, hud: &mut Hud) {
     }
 }
 
-/// How far the mouse turns the character and the camera, in radians a pixel (the original scales the movement by the
-/// interface's `MouseTurnSensitivity`, GUI.dll FUN_1002ccbe, a value this client has no setting for: `camera.rs`).
-const MOUSE_TURN: f32 = 0.005;
+/// How far the mouse turns the character and the camera, in radians a count, at the default `MouseTurnSensitivity` (10):
+/// GUI.dll FUN_1002ccbe takes the counts over 1000 (InputConfig_t's FrameProcess, 0x1001b253) times that preference,
+/// and N3.dll's `MouseCameraControl` turns by them in radians. Until 2026-11-18 a fixed 0.005, half the original's.
+const MOUSE_TURN: f32 = 0.01;
+
+/// [`MOUSE_TURN`] by the player's `MouseTurnSensitivity` (1 to 20), read at every motion as the original reads it.
+fn mouse_turn() -> f32 {
+    crate::prefs::get("MouseTurnSensitivity").unwrap_or(10.0) as f32 / 1000.0
+}
 
 /// A flying character's elevation after the mouse pitched it by `by` radians (N3.dll's `n3Dynel_t::VehicleForwardUpdate`,
 /// 0x10004ebd, which `N3Msg_MovementChanged` calls for the mouse's 0x2b): the body is turned about its own right axis, and
@@ -1096,25 +1107,35 @@ impl ApplicationHandler for App {
         // (how far the mouse went while held, in its counts over 1000: past 0.02 it is a drag, not a click, as
         // ActionViewMouseHandler_c's FUN_1002ccbe counts it against 0x101aeafc)
         self.moved += (dx * dx + dy * dy).sqrt() as f32 / 1000.0;
-        if !self.buttons[1] && !crate::prefs::on("LMBMouseLook") {
+        // (the look is the last pressed button's, and ends when either is let go: FUN_1002ce31 sets the kind at each press,
+        // FUN_1002cc90 ends it at any release)
+        let Some(right) = self.look_right else { return };
+        if !right && !crate::prefs::on("LMBMouseLook") {
             return;
         }
         let Some(w) = self.state.as_mut() else { return };
+        let turn = mouse_turn();
+        if !self.keys.looking {
+            self.keys.looking = true;
+            if let Some(live) = &self.live {
+                let _ = live.input.send(self.keys);
+            }
+        }
         // The mouse look goes to the game's camera at the next frame (across: right positive; up: mouse up positive).
-        self.mouse_look.0 += dx as f32 * MOUSE_TURN;
+        self.mouse_look.0 += dx as f32 * turn;
         // (`MouseLookInverted`: the option panel's Mouse page, Gamecode's `StaticMouseLookInvertCallback`)
         let invert = if crate::prefs::on("MouseLookInverted") { -1.0 } else { 1.0 };
         // (flying, `N3Msg_MouseMovement` in fly mode: the right button's vertical movement pitches the vehicle, not the
         // camera, `MouseCameraControl(0, 0)`, and goes to the vehicle with the across movement, 0x2b; how far it may
         // pitch is `fly_pitch`)
-        if self.hud.flying && self.buttons[1] && !self.modifiers.control_key() {
-            self.keys.pitch = fly_pitch(self.keys.pitch, -invert * dy as f32 * MOUSE_TURN);
+        if self.hud.flying && right && !self.modifiers.control_key() {
+            self.keys.pitch = fly_pitch(self.keys.pitch, -invert * dy as f32 * turn);
         } else {
-            self.mouse_look.1 -= invert * dy as f32 * MOUSE_TURN;
+            self.mouse_look.1 -= invert * dy as f32 * turn;
         }
         // (the right button turns the character, `N3Msg_MouseMovement`; with Ctrl only the camera, as the left does: FUN_1002ccbe
         // looks at the qualifiers 0xc alone)
-        if self.buttons[1] && !self.modifiers.control_key() {
+        if right && !self.modifiers.control_key() {
             self.keys.face = Some(heading_from_yaw(w.camera.yaw));
             if let Some(live) = &self.live {
                 let _ = live.input.send(self.keys);
@@ -1255,9 +1276,11 @@ impl ApplicationHandler for App {
                     self.dragging = false;
                     if self.buttons != [false; 2] {
                         self.buttons = [false; 2];
+                        self.look_right = None;
                         w.window.set_cursor_visible(true);
                         let _ = w.window.set_cursor_grab(CursorGrabMode::None);
                         self.keys.face = None;
+                        self.keys.looking = false;
                         if let Some(live) = &self.live {
                             let _ = live.input.send(self.keys);
                         }
@@ -1277,7 +1300,7 @@ impl ApplicationHandler for App {
             }
             // Playing: GUI.dll's `ActionViewMouseHandler_c`. Held and moved (FUN_1002ccbe), the left button looks
             // round with the camera (`LMBMouseLook`, on by default: `N3Msg_CameraMouseLookMovement`) and the right
-            // one turns the character (`N3Msg_MouseMovement`; with Shift or Ctrl the camera only). A click without
+            // one turns the character (`N3Msg_MouseMovement`; with Ctrl the camera only). A click without
             // moving the mouse (its mouse-up FUN_1002cfac): the left button selects what is under the pointer, the
             // right one uses it (a character's default action, `N3Msg_DefaultActionOnDynel`; anything else
             // `N3Msg_UseItem`). The middle button resets the camera, its wheel zooms.
@@ -1310,6 +1333,8 @@ impl ApplicationHandler for App {
                     None
                 };
                 self.buttons[(button == MouseButton::Right) as usize] = state == ElementState::Pressed;
+                // (the last button pressed is the look's; letting go of either ends it, the other held or not)
+                self.look_right = (state == ElementState::Pressed).then_some(button == MouseButton::Right);
                 let log = std::env::var_os("MAO_MOUSE_LOG").is_some();
                 if log {
                     eprintln!("mouse {button:?} {state:?} at {:?}: moved {:.3}, click {:?}, {} pickables", self.last, self.moved, clicked, self.hud.pickables.len());
@@ -1329,7 +1354,14 @@ impl ApplicationHandler for App {
                     }
                 }
                 // (the left button looks round only with `LMBMouseLook`)
-                let any = (self.buttons[0] && crate::prefs::on("LMBMouseLook")) || self.buttons[1];
+                let any = match self.look_right {
+                    Some(true) => true,
+                    Some(false) => crate::prefs::on("LMBMouseLook"),
+                    None => false,
+                };
+                if !any {
+                    self.keys.looking = false;
+                }
                 w.window.set_cursor_visible(!any);
                 if any {
                     if w.window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
@@ -1338,7 +1370,7 @@ impl ApplicationHandler for App {
                 } else {
                     let _ = w.window.set_cursor_grab(CursorGrabMode::None);
                 }
-                self.keys.face = (self.buttons[1] && !self.modifiers.control_key()).then(|| heading_from_yaw(w.camera.yaw));
+                self.keys.face = (self.look_right == Some(true) && !self.modifiers.control_key()).then(|| heading_from_yaw(w.camera.yaw));
                 self.keys.forward = self.held.contains(&Action::Forward) || self.autorun;
                 if let Some(live) = &self.live {
                     let _ = live.input.send(self.keys);
@@ -1652,8 +1684,9 @@ impl ApplicationHandler for App {
                     // (a notch up zooms the game's camera in, when the wheel over the world is set to zoom:
                     // `MouseWheel` 0, which N3.dll's camera connects its zoom by, 0x100215c8. 1 scrolls the control
                     // center's side bar in the original, 40 a step, which is not done here; 2 does nothing.)
+                    // (a notch moves the camera `ZoomSpeed` / 10 units, 2 at the default 20: N3.dll FUN_100200ef)
                     if crate::prefs::get("MouseWheel").unwrap_or(0.0) == 0.0 {
-                        self.wheel -= lines;
+                        self.wheel -= lines * crate::prefs::get("ZoomSpeed").unwrap_or(20.0) as f32 / 10.0;
                     }
                 } else {
                     let closest = w.scene.radius * 0.1;
