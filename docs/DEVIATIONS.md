@@ -569,6 +569,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: walk animation may linger or stop early
 - Where: `crates/mao-client/src/net.rs:5372`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original moves another character between the server's messages by its movement status (`CharMovementStatus_t`, vtable 0x101616f4: the transition table FUN_1006cb58 sets the forward/strafe/turn/jump states, 1/2 forward, 3/4 reverse, 5..8 strafes, 0x15 full stop) and its vehicle's speed for the mode (FUN_1006f9eb); its walk animation follows that status (FUN_1006c370). The client does not move others between reports at all (net.rs `apply`: `e.0 = p`, no dead reckoning; only path-walked creatures move, `walk_paths`), so taking "moving" from the start/stop types instead of the 700/900 ms since the place changed would play a walk on a body that stands still until the next report. The faithful port is the others' dead reckoning by that status (speed by mode, the stops, the server paths' creatures), which changes how every other character moves and can only be judged on screen; the captures hold no server-sent 0x54111123 lines to check the rate against (0 in the arete/door/events captures). Left for a port of the others' movement together with MOV-015.
 - Looked at, left (2026-11-19, overnight): The original keeps another character moving by its movement state machine (the start/stop types of FUN_1006cb58: 1/2, 3/4, 5/6, 7/8, 0x15 full stop), not by a time since its place changed; porting means a per-character state from those types for everyone, plus the server paths' creatures (which move without such messages, the 900 ms case). That is a change to the whole others' animation path, more than this low entry is worth tonight; noted for a later port together with MOV-015.
 
 #### `MOV-010` Sneak animation played forwards when moving backwards
@@ -1119,6 +1120,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: fewer animation variants
 - Where: `crates/mao-client/src/net.rs:4892`; `docs/ORIGINAL_AUDIT.md:250`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Five separate animation-stack ports, none of which is a small step. Read further tonight: the draw's start is FUN_1003cce2, slot 1 of a vtable at 0x1015e5bc (slot 2, 0x1003ce27, is likely the holster): when the body's idle is not yet the weapon's class-0x10 idle it plays the weapon's class 0x1a action (else action 0x78 `idle-stand`) once at priority 1 (FUN_1003be23(anim,1,1,0)) and starts the class-0x10 idle at the start's length less a constant (FUN_1003c6b2); its caller is virtual and was not found, so when it runs (fight start, wield, zoning in armed) is not known, and the client's swing path (`ensure_swing`) cannot carry it as is (it falls back to attack actions and speeds by the attack time). The file names (`%s_%s_01_01.ani`, FUN_10010cc2) are already the client's; the 0xfde97 variant picker, wield/op1h/op2h (actions 0x6b..0x75, 0x91..0x96 in FUN_100c0720's table, no literal sender found in Gamecode) and the camera attractor's smoothing were not located further. Each needs its own port in the animation stack and a look on screen.
 - Looked at, left (2026-11-19, overnight): Several animation-system parts (the 0xfde97 animation map's variants, draw start and holster stop, wield/op1h/op2h, the camera attractor smoothing) each need their own port in the animation stack; beyond a low entry's worth tonight.
 
 #### `CMB-029` Crawling variants of attack swings are not used
@@ -1302,6 +1304,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a long weapon may lift a player's tag and target indicator
 - Where: `crates/mao-client/src/blobshadow.rs:52`; `docs/CLIENT_UI.md:1187`; `crates/mao-client/src/nametag.rs:87`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the original's height is `VisualMesh_t::GetMeshHeight` (the drop-in's `visualmesh::get_mesh_height`: twice the largest bounding radius, mesh data +0x184 → +0x6c → +0x14, over the triangle meshes under the animation frame), a property of each mesh's data at rest. The client's character parts (`mao_formats::model::Part`) reach `blobshadow::Caster::new` already posed and skinned; no rest geometry or per-mesh bound survives the character builder, so the port means carrying each body mesh's rest bound from the CAT mesh loader through `creature_parts`/the humanoid builder to the tag. A renderer-path change whose effect (tags on long-weapon holders, seated and lying bodies) can only be judged by pictures; `nametag::steady_height` already keeps the first posed height, which for a standing body is nearly the same.
 - Looked at, left (2026-11-19, overnight): The client's sizes come from the posed, skinned parts (blobshadow::Caster::new, Size::of); the rest-pose meshes the original measures (VisualMesh_t::GetMeshHeight: the bounding sphere of the largest of the body's meshes at rest) are not kept past the character builder. Porting means carrying each body mesh's rest sphere from the mesh loader to the tag; a renderer change, visible mainly on seated or lying bodies, checkable by pictures.
 
 #### `TGT-008` Objects are targeted only on the client
@@ -1332,6 +1335,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: target display differs
 - Where: `crates/mao-client/src/ui.rs:2273`; `docs/GUI_DLL_PARITY.md:74`; `docs/CLIENT_UI.md:2042`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): `TargetingModule_t` (GUI.dll ctor 0x10026e7a, 358 lines) is a whole AFCM module (module 0x1e) with some twenty message processors (set/forced/remove target 0x126/0x127/0x112/0x113, attack range 0x13e/0x140, next/previous friendly and hostile 0xe8/0x105/0xe9/0x106, refresh 0x10d..0x10f, fighting target 0xb2, ...) behind the `TargetView` and its friendly/hostile health bars; the client's target frame already draws the original's skin pieces. Porting the view is a larger GUI port whose result can only be judged on screen (the frame was checked offscreen only); not attempted tonight.
 - Looked at, left (2026-11-19, overnight): TargetingModule_t's TargetView and the friendly/hostile health bars are GUI.dll view work not read tonight; the frame drawn is the original's skin picture, the rest is a larger GUI port.
 
 ### Targeting and mouse: the original was not read: inferred or measured (2)
@@ -1366,6 +1370,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no stale target after a session takeover
 - Where: `crates/mao-client/src/net.rs:8639`; `docs/CLIENT_UI.md:551`; `docs/LIVE_TEST_LIST.md:103`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read now. The original sends `LookAt` (0x2252445f, `LookAtIIR_t` built by FUN_100754b2) only from `N3Msg_SelectedTarget` (0x10017790 → FUN_1003fd9f → FUN_1003babc → FUN_1003b2ee / FUN_1003b951), when the selection changes (or always for a character's identity, type 50000). Losing the target is the original's too: `TargetingModule_t::RemoveTargetIDMessage` (GUI 0x100267d4, AFCM 0x113 with the gone identity, when it is the current target) → `RemoveTarget` 0x100264e3 → `SetTarget(none)` 0x10026308 → AFCM 0x13/0x126 → `N3Msg_SelectedTarget(none)`, which sends the empty `LookAt` since the selection changed; so the client's send on loss is faithful. On entering the original sends nothing (the module's `InitialiseMessage` 0x10026e12 sets no target; nothing else calls `N3Msg_SelectedTarget`), so the client's one empty `LookAt` on entering is its own. Not removed: it was added for a problem seen live (2026-11-10: a character taken over after a quick relog kept its server-side target, and a self-buff landed on it), which the original would have as well; removing it changes the messages sent and re-opens that. Recommend KEEP the entering send (the user's call); the loss send needs nothing.
 - Looked at, left (2026-11-19, overnight): Kept: removing the LookAt "none" on entering would change what is sent, and the original's behaviour on entering was not read; the client sends it because a character taken over (a quick relog) keeps its server-side target, which then catches targetless casts.
 
 ### Targeting and mouse: the original does it, the client does not (3)
@@ -1434,6 +1439,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a nameless corpse may be attached to the wrong body or none
 - Where: `crates/mao-client/src/net.rs:3362`; `docs/CLIENT_UI.md:4751`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original links a corpse to its dead character by the corpse announcement's own fields, read in order (`CorpseFullUpdateIIR_t`'s reader FUN_1009fa4c → the item full update FUN_1009f88a, then the dead one's identity, clothes and textures); it never guesses by distance. The client finds those fields by scanning for the stat 415/416 key (`n3::corpse_of`, DTH-009), which all 371 captured corpses carry; the 4 m nearness acts only when that scan fails, i.e. where the client's decode falls short of the original's, and dropping it then leaves the body lying beside its corpse, worse than the original (which always links). It goes when the full update is read at its place (FUN_1009f88a's order, the gap of DTH-009/NAN-030).
 - Looked at, left (2026-11-19, overnight): The fallback only acts when a corpse's announcement names nobody (stats 415/416 not found, DTH-009); with the names read at their place it would go. Until then dropping it leaves those dead bodies lying beside their corpse.
 
 #### `DTH-003` Own character never a corpse's body; own corpse is an object of its own
@@ -1518,6 +1524,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some corpses show a made-up name
 - Where: `crates/mao-client/src/net.rs:3383`; `crates/mao-client/src/net.rs:3389`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The original's corpse name is the corpse's announced name, read at its place by the item full update (FUN_1009f88a under FUN_1009fa4c); it invents none. The client finds it by scanning for the first length-prefixed capitalised string (`corpse_name`) and makes one up ("Remains of <name>", "the dead", "Object <hex>") only when that scan finds nothing, which is a gap in the client's decode, not a rule of the original. Replacing the invented names with an empty one would only make that failure case worse; the faithful fix is reading the full update in its order (DTH-009/NAN-030).
 - Looked at, left (2026-11-19, overnight): A corpse's name in the original is its own announced name; the client invents one only when its announcement's name is empty or not decoded. Where the original's comes from for those was not found; left.
 
 ### Death and revival: a guard or fallback the original lacks (2)
@@ -1530,6 +1537,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: bodies vanish from the client's bookkeeping after two minutes
 - Where: `crates/mao-client/src/net.rs:1933`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The `bodies` list exists only for DTH-002's nearness fallback (net.rs: filled at a death, read only at a corpse's announcement that names nobody, emptied when the corpse goes or the character revives); the original has no such list at all, a despawned dynel is simply gone. The 120 s bound is part of that fallback and changes nothing a player sees; it goes together with DTH-002 when the corpse announcement is read at its place.
 - Looked at, left (2026-11-19, overnight): The original keeps a dead body until the server despawns it (or its corpse comes); the 120 s bound only frees memory for bodies whose despawn never came, which the original would keep as long. It changes nothing visible in the normal case; kept as a memory bound.
 
 #### `DTH-012` Unseen death counts as played out after 6 seconds
@@ -2957,6 +2965,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Ring step timing is fixed.
 - Where: `crates/mao-client/src/effects.rs:119`; `docs/ORIGINAL_AUDIT.md:268`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the placeholders' children (`_GfxControlBuffPlaceHolder_t`, run FUN_100d52c3) are stepped by the frame's own time, so the original's ring steps follow the frame rate. The client evaluates its effects as functions of the time since they began (`effects::ring` and the other particle functions are stateless in time), so following the frame rate means turning this effect into a per-frame simulation kept between frames; its look (the ring's step spacing) can only be judged on screen.
 - Looked at, left (2026-11-19, overnight): The placeholders' frame step comes from the effect template's timing in gfxtweak.bin, which the client's decode does not read for this class yet; graphics, pictures only.
 
 #### `NAN-011` Buff ring: attach height guessed and shield stood in by a climbing ring
@@ -3008,6 +3017,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Cast pose is generic.
 - Where: `crates/mao-client/src/net.rs:2390`; `docs/CLIENT_UI.md:1971`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read now: `CharCastNano_t` (ctor FUN_1007b5cd) plays the nano's own animation stat through the character's `AnimHolder_t` (vtable 0x1015e5c0, slot 5 FUN_1003cc42 → FUN_1003cac9 → FUN_1003ca14: the character's animation map FUN_10045976, which picks at random among an action's entries, then the fallbacks FUN_10010b3c and the file names FUN_10010cc2): `CastSelfAbstractAnim` (378) when the target is the caster, `CastTargetAbstractAnim` (377) otherwise, and with no cast entry `GatherAbstractAnim` (376) plus effect 0x1ac and sound 0x10d. No nano template in the game data has any of these three stats (checked over all 0xfde85 records with the `nano-line` tool; the stat table's default is 1234567890, which names no action), so the values the original uses come from the nano object it holds at run time (`FUN_1004f3ac`: the cast entry's nano), i.e. from the server; which animations they name is unknown without a capture of those stats. The client's spell-self/spell-dir stays as the stand-in.
 - Looked at, left (2026-11-19, overnight): Which cast animation the original plays (spell-gen, spell-sys, spell-self_02, unarmed-spell1-3) is chosen by CharCastNano_t from the nano's and the weapon's animation sets, not read tonight.
 
 #### `NAN-016` Cast sound phases end at the nano's cast time, not the animation's end
@@ -3018,6 +3028,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Travel and hit sounds may be timed slightly differently from the animation.
 - Where: `crates/mao-client/src/sounds.rs:362`; `docs/ORIGINAL_AUDIT.md:96`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): The phases end when the cast's animation is done (`CharCastNano_t` keeps the animation handle it started, +0xc, and the character's `AnimHolder_t` asks `VisualCATMesh_t::IsAnimDone`, FUN_1003cc42); which animation that is depends on the nano's `Cast*AbstractAnim` stats, which no template carries (NAN-015: the server's values, unknown without a capture). Timing the sounds by the client's stand-in spell-self/spell-dir animation would replace one guess by another; the nano's cast time stays.
 - Looked at, left (2026-11-19, overnight): The phases' end is the cast animation's end in CharCastNano_t; the client's animation stack does not report an action's end to the sound code, so the nano's cast time stands in. Needs that hook.
 
 #### `NAN-017` Casting animation timed by the client itself
@@ -3089,6 +3100,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Environment effects (smoke, sparks) look plainer.
 - Where: `crates/mao-client/src/spelllist.rs:22`; `docs/CAPTURE_GAPS.md:66`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read further: FUN_100a9159 makes the effect (stat 0x27, at the dynel or at a hit location 0xbb9/0x3ee), sets its duration (0x31), then `_EffectHandler_t::SetNumRepetitions` (0x100ce257 → the control's vtable +0x24, stat 0xa1), `SetStartColor` / `SetStopColor` (0x100ce2b6 → +0x2c and its twin, stats 0x99..0xa0 over 255, the fourth first) and `SetScale` (0x100ce37f → +0x38, stat 0x32 / 100 + a constant). What each control class does with slots +0x24, +0x2c/+0x30 and +0x38 is its own (the client's `gfx::Visual::with_overrides` covers only the sprite's colours and the separate `SetSize`); those per-class implementations were not read, and the result (smoke, sparks) can only be judged on screen.
 - Looked at, left (2026-11-19, overnight): Spell 0xcfd4's colours, scale and repetitions are its spell stats fed to the effect; the effect class's use of them was not read; graphics.
 
 #### `NAN-024` Spell lists with an unreadable spell, or spells 0xcf17/0xcf20, are dropped whole
@@ -3099,6 +3111,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: All effects of a list are lost if one spell is unknown.
 - Where: `crates/mao-formats/src/spell.rs:151`; `crates/mao-formats/src/spell.rs:6`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Half of it is already in: 0xcf17 and 0xcf20 are read with their `SpellData_t::PostBinarySpellRead` (0x1000d3ba) extras, the second criteria list and the expression (`mao_formats::spell::read`, since commit fce9490 for INV-017). What stays is the whole-list drop: an item template's spell lists are found by scanning for the key `2, list, (n+1)×1009` (`spell::lists`), and a candidate whose spells do not all read is skipped because that is how a false match is told from a real list. The original reads the template's parts in order (Gamecode's item template reader; no drop-in of it exists, the gamedata drop-in has only the spell formats), where nothing needs dropping. Porting that reader is the fix; it replaces the scan for every template user (wear lists, modifiers, actions), more than this entry.
 - Looked at, left (2026-11-19, overnight): SpellFormats_c's extra values after the format for 0xcf17 and 0xcf20 are in a GameData/Gamecode reader not traced tonight; without them a list holding those types cannot be read in step, so it is dropped whole.
 
 #### `NAN-025` Stars effect: only some modes as the original
@@ -3211,7 +3224,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Reproduces the defaults and "here takes 10 as none".
 - A player notices: A nano page attack time of 10 is hidden.
 - Where: `crates/mao-client/src/gui/iteminfo.rs:31`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Nothing to change: the rule is the original's, now read. GUI.dll FUN_10032582 takes the attack and recharge times (`N3Msg_GetSkill` 0x126 and 0xd2), and when its last argument is set turns a 10 into "none" (1234567890) before turning 0 into none too; the nano page FUN_1003683d passes 1 (0x10036d9a `PUSH 0x1`), the weapon page FUN_1003732c passes 0 (EBX, zeroed at 0x1003733d), and the third caller FUN_10036fbb (the 0xdeb0 identity's page, which the client does not have) passes 1. The client's `Ctx::speed` (gui/iteminfo.rs) drops a 10 only on the nano page (`self.nano`), as the original does; the general page does not show the times, in both.
 - Looked at, left (2026-11-19, overnight): The nano page's defaults follow FUN_10086142; "attack time 10 as none" is FUN_10032582's own test as far as the notes go, not re-read tonight.
 
 #### `NAN-036` Which spell tail words count was found by checking live
@@ -3369,7 +3383,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Nothing on the client.
 - A player notices: Those spell effects are absent.
 - Where: `crates/mao-client/src/spelllist.rs:27`; `docs/CAPTURE_GAPS.md:75`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Nothing to port: the original does nothing with these six either, now read. FUN_100a57a0 (the client's `spelllist::client_runs`) does not list 0xcf0a, 0xcf56, 0xcf70 or 0xd003, so FUN_100a5f4b spends their run at once and returns; 0xcf4a and 0xcf1b pass that test and their hits are counted (criteria, delay), but the dispatch `switch` at 0x100a612d has no case for either and no default (its cases run 0xcf0b..0xcfff without 0xcf1b and 0xcf4a), so nothing happens. The client is the same: `client_runs` holds 0xcf4a and 0xcf1b and not the other four, and `run`'s match gives them no outcome.
 - Looked at, left (2026-11-19, overnight): The notes themselves say these types fall outside FUN_100a5f4b's table or to its default, i.e. the original may do nothing for them either; confirming means reading the table's range, not done tonight.
 
 #### `NAN-051` Spells aimed at the use target (0x17) never run
@@ -3400,6 +3415,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Target NCU windows cannot be made borderless and lack the tab strip.
 - Where: `crates/mao-client/src/ncu.rs:363`; `docs/CLIENT_UI.md:431`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read now: Alt and a double click on the window (FUN_100dd7ea, no drag under way) toggles it through FUN_100dd550: borderless is `Window::SetStyle(3, flags | 4)` with the list view's feature flags | 0x300, back is style 0 with flag 4 off and 0x300 cleared, the frame kept and the window moved inside the screen. The client's target NCU windows are drawn by `chrome::window` with the one framed style; a borderless window style (and the list view's 0x300 features, not read) would have to be added to the chrome for these windows, plus the tab strip and the places beside the target bars, all GUI work that can only be judged on screen.
 - Looked at, left (2026-11-19, overnight): The target NCU windows' borderless style, tab strip and places beside the target bars are GUI.dll view work (TargetNCUView_c, CreateTargetMenus 0x1006a9b8) not read through tonight.
 
 #### `NAN-054` Thrown billboard particles: spin, bounce, height and daylight fades, body turn not done
@@ -3533,6 +3549,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: doors outside the tolerance become exits
 - Where: `crates/mao-formats/src/rooms.rs:229`; `crates/mao-formats/src/rooms.rs:270`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read FUN_100c92b3 now: the client's tolerances are the original's (|dx|, |dz| < 0.1 at 0x1015ef38, |dy| < 0.3 at 0x1016ba08, read as doubles), and so is the facing rule (door facing plus the room's turn +0x40, & 3, matched against (f − 2) & 3) and the both-ways link. Differences found: the original collects only doors whose stored link is not the room's own index (a door naming its own room is skipped), requires the same floor (`n3Room_t::GetFloor`) besides the height, searches its candidates in its container's order (FUN_100c9768/FUN_100c971d), and leaves an unmatched door's link as it was, printing "ERROR: playfield %s has %d unresolved door%s" — where the client makes every unmatched door a way out (0xffff). Whether these differ in practice depends on the links the copier gives the generated rooms' doors before linking (FUN_100ca6f8's copy, not read to the door table) and on real generated buildings; changing the exits rule blind could close a mission's way out, so it needs a generated mission to walk and compare.
 - Looked at, left (2026-11-19, overnight): The building generator's own door linking (FUN_100c92b3) and room placing (FUN_100ca6f8 / FUN_100cacbc, where the turn of 0x5a/0xb4/0x10e moves the room's corner by its size) are what the client's per-turn offsets reproduce; replacing the client's pairing tolerances by the generator's own link table needs FUN_100c92b3 ported and a mission to walk; beyond tonight.
 
 ### Zoning and playfields: the original was not read: inferred or measured (7)
