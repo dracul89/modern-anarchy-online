@@ -1146,6 +1146,12 @@ These were written before this list; some may have been seen working since witho
 - [ ] Options (F10) > Key bindings: the list shows Category / Function / Key with the keys in aqua; select "Attack", Add, press F, OK: a second Attack row with F, and F attacks in the game; Change it to G; Clear it; Reset All brings Q back; the keys survive a restart (mao.ini).
 - [ ] While the Bind Key box is up, keys do not move the character or open windows (they go to the box); Cancel leaves the keys as they were.
 - [ ] Fixed keys tab: the camera and target keys in aqua (NUMPAD_4 ...), chat reply/history "No Key".
+- [ ] Rollup column: pages touch, 192 wide at the right edge; header shows i, title, roll and X; the wear/NCU/nano pages look right at their kept heights (rollup.ini) and the grip below each sizes it.
+- [ ] Double-click a page header rolls it; holding the left button on a header and moving scrolls the column when the pages are taller than the screen.
+- [ ] Right-press a page header, click on another page: it moves before that page; right-press, click in the world: it becomes a window there; right-release on a dock window's tab, click on the column: it becomes a page there.
+- [ ] The "i" button on the Wear page shows the wear window's menu; on a rolled-up page, "Close".
+- [ ] Option panel rollup fade level slider darkens the column.
+- [ ] Without rollup.ini, the first login of a character the original played takes its RollupArea.xml pages and heights.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

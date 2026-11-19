@@ -1315,6 +1315,7 @@ impl Ui {
             // (the equipment's lock, a value of the original's: the game loop asks it before a move,
             // `net::equipment_locked`)
             crate::net::LOCK_EQUIPMENT.store(control_center.as_ref().is_some_and(|cc| cc.store.get_bool("LockEquipment")), std::sync::atomic::Ordering::Relaxed);
+            crate::rollup::set_fade(control_center.as_ref().and_then(|cc| cc.store.get("cc_rollup_controller_fade_level")).map_or(0.0, |v| v.as_float()));
             // A duel challenge (GUI.dll `GuiSystem_c::DuelChallengeReceived` 0x100308ca and its neighbour for one's own,
             // 0x10030aae): the "Duel Challenge" box with the game's text, Accept and Reject for one received (closing it
             // rejects: `DuelChallengeReceivedResult` 0x10030330), Cancel for one sent, which is a refusal too

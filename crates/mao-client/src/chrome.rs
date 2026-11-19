@@ -199,6 +199,20 @@ pub fn frame_menu(name: &str) -> Option<egui::Pos2> {
     Some(at)
 }
 
+/// Asks the window `name` for its menu at `at` (a rollup page's menu button, `rollup.rs`): a window with a menu of
+/// its own takes it ([`frame_menu`]) while it is drawn.
+pub fn ask_frame_menu(name: &str, at: egui::Pos2, frame: u64) {
+    *FRAME_ASKED.lock().unwrap() = Some((name.to_string(), at, Some(frame)));
+}
+
+/// A press of [`ask_frame_menu`] from before frame `frame` that no window took: where its menu goes (the ask is gone).
+pub fn frame_menu_left(name: &str, frame: u64) -> Option<egui::Pos2> {
+    let mut asked = FRAME_ASKED.lock().unwrap();
+    let at = asked.as_ref().filter(|(n, _, f)| n == name && f.is_none_or(|f| f < frame)).map(|(_, at, _)| *at)?;
+    *asked = None;
+    Some(at)
+}
+
 /// The frame menu's last entry, "Close Window".
 pub fn close_entry() -> String {
     crate::gui::xml::ldb_named(10000, "CloseWindow", "Close")
@@ -630,8 +644,9 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         }
         // the title row (the title cut where the buttons begin: a narrow window's long title does not run under them)
         let mut x = outer.right() - RIGHT as f32 - 15.0;
-        // (a dockable window has a third button: into the rollup area down the right edge, `rollup.rs`)
-        let dockable = crate::rollup::DOCKABLE.contains(&name.as_str());
+        // (a dockable window that is no dock area's view has a third button, this client's: into the rollup area down the
+        // right edge, `rollup.rs`; a dock area's view goes there as the original's does, its tab carried to the column)
+        let dockable = crate::rollup::DOCKABLE.contains(&name.as_str()) && !crate::docks::dockable(&name);
         let help = HELP_PAGES.iter().find(|h| h.0 == name).map(|h| h.1);
         let buttons_left = x - 17.0 * (1.0 + dockable as u8 as f32 + help.is_some() as u8 as f32) - 3.0;
         let title_room = egui::Rect::from_min_max(outer.min, egui::pos2(buttons_left.max(outer.left()), outer.bottom()));

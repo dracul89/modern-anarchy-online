@@ -247,8 +247,9 @@ struct State {
     titles: BTreeMap<String, String>,
     drawn: BTreeMap<String, u64>,
     strips: Vec<Strip>,
-    /// The view whose tab is carried, and where it was taken hold of from the tab's corner.
-    carried: Option<(String, egui::Vec2)>,
+    /// The view whose tab is carried, where it was taken hold of from the tab's corner, and whether it is a page of
+    /// the rollup area taken up (`rollup.rs`) rather than a tab.
+    carried: Option<(String, egui::Vec2, bool)>,
 }
 
 static STATE: Mutex<State> = Mutex::new(State { areas: Vec::new(), loaded: false, seeded: false, frame: 1, shown: BTreeMap::new(), titles: BTreeMap::new(), drawn: BTreeMap::new(), strips: Vec::new(), carried: None });
@@ -353,7 +354,7 @@ pub fn after(area: &str, views: &[String], selected: usize, hits: &crate::chrome
         && let (Some(view), Some(tab)) = (views.get(i), hits.tabs.get(i))
     {
         let grab = pointer.map_or(egui::Vec2::ZERO, |at| at - tab.min);
-        state.carried = Some((view.clone(), grab));
+        state.carried = Some((view.clone(), grab, false));
     }
 }
 
@@ -366,6 +367,43 @@ pub fn close_others(area: &str, except: &str) {
             crate::chrome::close_next(v);
         }
     }
+}
+
+/// A rollup page taken up by the right button (`RollupPage_c`'s FUN_100493f2): carried as a tab is, its picture its
+/// title, where it was taken hold of from the page's corner.
+pub fn carry(view: &str, title: &str, grab: egui::Vec2) {
+    let mut state = STATE.lock().unwrap();
+    if state.carried.is_none() {
+        state.titles.insert(view.to_string(), title.to_string());
+        state.carried = Some((view.to_string(), grab, true));
+    }
+}
+
+/// A rollup page put down off the column ([`Target`]): on a window's tabs into that area, before the tab it is put on
+/// (or last), shown there; anywhere else into a new area of its own (FUN_100493f2 connects FUN_1003b263 whatever the
+/// page's area holds).
+pub fn drop_from_column(areas: &mut Vec<Area>, view: &str, target: Target) -> Dropped {
+    let area = match target {
+        Target::Tab(area, _) | Target::Strip(area) => {
+            let Some(t) = areas.iter().position(|a| a.name == area) else { return Dropped::Cancelled };
+            let index = match target {
+                Target::Tab(_, on) => areas[t].views.iter().position(|v| v == on),
+                _ => None,
+            };
+            let index = index.unwrap_or(areas[t].views.len());
+            add_view(areas, area, Some(index), view);
+            area.to_string()
+        }
+        Target::Nowhere => {
+            let name = free_name(areas);
+            add_view(areas, &name, None, view);
+            name
+        }
+    };
+    if let Some(a) = areas.iter_mut().find(|a| a.name == area) {
+        a.selected = Some(view.to_string());
+    }
+    if matches!(target, Target::Nowhere) { Dropped::NewArea(area) } else { Dropped::Moved }
 }
 
 /// A view out of its area (docked into the rollup area instead).
@@ -401,11 +439,19 @@ pub fn end_frame(ctx: &egui::Context, palette: &Palette) {
     }
     let strips = std::mem::take(&mut state.strips);
     state.frame += 1;
-    let Some((view, grab)) = state.carried.clone() else { return };
+    let Some((view, grab, page)) = state.carried.clone() else { return };
     ctx.request_repaint();
     let Some(at) = ctx.input(|i| i.pointer.latest_pos()) else { return };
     let title = state.titles.get(&view).cloned().unwrap_or_else(|| view.clone());
+    // (a rollup page's picture: its title in font 5, FUN_100493f2's `TextView_c`)
+    if page {
+        egui::Area::new(egui::Id::unique("rollup-page-carried")).order(egui::Order::Tooltip).interactable(false).fixed_pos(at - grab).show(ctx, |ui| {
+            let font = crate::gui::font::Measure { ctx: Some(ctx.clone()) }.egui_font(crate::gui::font::FontId::NORMAL);
+            ui.label(egui::RichText::new(&title).font(font).color(crate::chrome::rgb(palette.text)));
+        });
+    }
     // (the tab's picture: an open tab with its title, `TabView::CreateDragImage` 0x10146b1e)
+    if !page {
     egui::Area::new(egui::Id::unique("dock-tab-carried")).order(egui::Order::Tooltip).interactable(false).fixed_pos(at - grab).show(ctx, |ui| {
         let font = crate::font::verdana(ctx, 13.0);
         let width = ui.painter().layout_no_wrap(title.clone(), font.clone(), egui::Color32::WHITE).size().x.ceil() + 22.0;
@@ -417,6 +463,7 @@ pub fn end_frame(ctx: &egui::Context, palette: &Palette) {
         }
         ui.painter().text(egui::pos2(rect.left() + 5.0, rect.center().y), egui::Align2::LEFT_CENTER, &title, font, egui::Color32::WHITE);
     });
+    }
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         state.carried = None;
         return;
@@ -425,6 +472,14 @@ pub fn end_frame(ctx: &egui::Context, palette: &Palette) {
         return;
     }
     state.carried = None;
+    // (put down on the rollup area's column: the column takes it, FUN_10049121)
+    if let Some(on) = crate::rollup::column_target(ctx, at) {
+        if crate::rollup::put(&view, on.as_deref()) && area_of(&state.areas, &view).is_some() {
+            remove_view(&mut state.areas, &view);
+            save(state);
+        }
+        return;
+    }
     let target = match strips.iter().find(|s| s.strip.contains(at)) {
         Some(s) => match s.tabs.iter().find(|t| t.1.contains(at)) {
             Some(t) => Target::Tab(&s.area, &t.0),
@@ -432,6 +487,23 @@ pub fn end_frame(ctx: &egui::Context, palette: &Palette) {
         },
         None => Target::Nowhere,
     };
+    // (a rollup page put down elsewhere leaves the column; a window that is no dockable view here is put down free)
+    if page {
+        if !dockable(&view) {
+            crate::rollup::undock(&view);
+            crate::layout::place(&view, at - grab);
+            return;
+        }
+        let dropped = drop_from_column(&mut state.areas, &view, target);
+        if dropped != Dropped::Cancelled {
+            crate::rollup::undock(&view);
+            if let Dropped::NewArea(name) = &dropped {
+                crate::layout::place(name, at - grab);
+            }
+            save(state);
+        }
+        return;
+    }
     let frame = state.frame - 1;
     let shown = &state.shown;
     let live = |v: &str| shown.get(v).is_some_and(|f| f + 1 >= frame);
@@ -518,6 +590,20 @@ mod tests {
         assert_eq!(areas[0].views, ["Container_1x2", "MissionView", "Inventory"]);
         assert_eq!(drop_on(&mut areas, "Container_1x2", Target::Tab("DockArea0", "Container_1x2"), all), Dropped::Moved);
         assert_eq!(areas[0].views, ["MissionView", "Inventory", "Container_1x2"]);
+    }
+
+    /// A rollup page put down on a window's tabs goes into that area before the tab, or last on the strip; anywhere
+    /// else into a new area of its own.
+    #[test]
+    fn a_page_put_down_off_the_column_goes_into_an_area() {
+        let mut areas = vec![area("DockArea0", &["Inventory", "MissionView"], Some("Inventory"))];
+        assert_eq!(drop_from_column(&mut areas, "NCU", Target::Tab("DockArea0", "MissionView")), Dropped::Moved);
+        assert_eq!(areas, vec![area("DockArea0", &["Inventory", "NCU", "MissionView"], Some("NCU"))]);
+        assert_eq!(drop_from_column(&mut areas, "Wear", Target::Strip("DockArea0")), Dropped::Moved);
+        assert_eq!(areas[0].views, ["Inventory", "NCU", "MissionView", "Wear"]);
+        assert_eq!(drop_from_column(&mut areas, "Team", Target::Nowhere), Dropped::NewArea("DockArea1".into()));
+        assert_eq!(areas[1], area("DockArea1", &["Team"], Some("Team")));
+        assert_eq!(drop_from_column(&mut areas, "Friends", Target::Strip("DockArea7")), Dropped::Cancelled);
     }
 
     #[test]

@@ -267,6 +267,26 @@ pub fn dock_files(character: u32) -> Vec<DockFile> {
     found
 }
 
+/// The rollup area's file (`DockAreas/RollupArea.xml`, dock type `RollupController`, written by FUN_10048e92): each
+/// page's view identity with its `is_page_expanded` and `page_height` (the `dock_node_configs`, one archive a page in
+/// the views' order).
+pub fn rollup_pages(text: &str) -> Option<Vec<(String, bool, f32)>> {
+    let file = dock_file(text).filter(|f| f.kind == "RollupController")?;
+    let all = |name: &str| -> Vec<&str> {
+        let key = format!("name=\"{name}\"");
+        text.match_indices(&key).filter_map(|(at, _)| value(&text[at..], name)).collect()
+    };
+    let (expanded, heights) = (all("is_page_expanded"), all("page_height"));
+    Some(file.views.iter().enumerate().map(|(k, v)| (v.clone(), expanded.get(k).is_none_or(|e| *e != "false"), heights.get(k).and_then(|h| h.parse().ok()).unwrap_or(-1.0))).collect())
+}
+
+/// The character's rollup area in the original's files ([`rollup_pages`]); none when the original has not played the
+/// character on this machine.
+pub fn rollup_file(character: u32) -> Option<Vec<(String, bool, f32)>> {
+    let (_, dir) = prefs_dirs(character)?;
+    std::fs::read_dir(dir.join("DockAreas")).ok()?.flatten().filter_map(|e| std::fs::read_to_string(e.path()).ok()).find_map(|t| rollup_pages(&t))
+}
+
 /// Reads the character's layout: the display size and every frame for a window known here.
 pub fn load(character: u32) -> Option<Original> {
     let (prefs, dir) = prefs_dirs(character)?;
@@ -440,5 +460,33 @@ mod tests {
         let half = o.frame("Chat", [2560.0, 720.0]).unwrap();
         assert_eq!(half, [735.0, 606.0, 466.0, 98.5]);
         assert_eq!(o.frame("Skills", [2560.0, 720.0]), None);
+    }
+
+    /// The rollup area's file: its pages' views with their rolled state and height, in order; a tabbed area's is none.
+    #[test]
+    fn the_rollup_areas_pages_are_read() {
+        let text = r#"<Archive code="0">
+    <Archive code="0" name="dock_config">
+        <Array name="dock_node_configs">
+            <Archive code="0">
+                <Bool name="is_page_expanded" value="true" />
+                <Float name="page_height" value="103.000000" />
+            </Archive>
+            <Archive code="0">
+                <Bool name="is_page_expanded" value="false" />
+                <Float name="page_height" value="205.000000" />
+            </Archive>
+        </Array>
+        <Array name="docked_view_identities">
+            <String value='&quot;ncu_window&quot;' />
+            <String value='&quot;nano_window&quot;' />
+        </Array>
+        <Float name="scroll_offset" value="0.000000" />
+    </Archive>
+    <String name="dock_type" value='&quot;RollupController&quot;' />
+    <String name="dock_name" value='&quot;RollupArea&quot;' />
+</Archive>"#;
+        assert_eq!(rollup_pages(text), Some(vec![("ncu_window".to_string(), true, 103.0), ("nano_window".to_string(), false, 205.0)]));
+        assert_eq!(rollup_pages(&text.replace("RollupController", "DockTabbedWindow")), None);
     }
 }
