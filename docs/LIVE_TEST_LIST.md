@@ -1123,6 +1123,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Place an item in the inventory's fourth column, narrow the window to three columns: the item stays in the fourth column (the grid scrolls sideways); widen it again: nothing moved.
 - [ ] Take up an item you cannot wear (requirements too high) and move it over its wear place: the "can't drop" pointer shows; let it go there: the refusal is told and the item is still in hand.
 - [ ] Take up a weapon you can wield: the plain pointer over a hand cell, the "can't drop" one over the belt's and beside the cells; letting it go in the hand wears it.
+- [ ] Open the info of a nano or item with a proc or a cast (a weapon with a proc, a stim): the line shows "Offensive proc (x%): <nano>" or "Cast <nano>", and clicking the nano's name opens its page.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

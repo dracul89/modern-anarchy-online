@@ -133,6 +133,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Requirement lines in item and nano descriptions read as in the original for items, nanos, perks, pets, teams and places.
 - Items placed by hand in the inventory, bank and bags keep their column and row when the window is resized, as in the original.
 - The wear window shows the "can't drop" pointer over places an item in hand cannot go, and a refused item stays in hand instead of going back to the inventory.
+- Item and nano pages list more of their effects: casts (with a link to the nano), procs, damage and healing, nano drain, faction changes, perk locks, anchors and more.
 
 ### The launcher
 

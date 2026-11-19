@@ -10,16 +10,116 @@
 //! "Scale at lvl ..." for 360), a temporary set (0xcf76: "%s temp set to %d", a profession's name for 368), a change of a
 //! skill's base (0xcfc0), a nano program upload (0xcf1b), a nano cast (0xcf3b "Cast "), taunt, a stat set (0xcf22
 //! "Set %s %d"), a skill lock (0xcf29, with the reader's own time by its skill lock modifier), a reduced lock (0xcfb9),
-//! and the fixed texts of 0xcf48, 0xcf4c, 0xcf7e, 0xcf81, 0xcf82, 0xcf86, 0xcf87 and 0xcfaf. The English words are
-//! the original program's own (they are not in the text database). Not written yet: the area nano casts (0xcf4a,
-//! 0xcf5f "AOE %dm ", 0xcf61), 0xcfaa, 0xcfbe (an item's name and description), 0xcfc3 (a perk lock, by the perk's
-//! name and level), 0xcfc5, 0xcfcc, 0xcf0a, 0xcfed, 0xd006 and the other types of the switch's tail. A temporary set of
-//! the stats 0x1e5-0x1e7, 0x21b-0x21e or 0x228-0x22f writes nothing, as in the original.
+//! and the fixed texts of 0xcf48, 0xcf4c, 0xcf7e, 0xcf81, 0xcf82, 0xcf86, 0xcf87 and 0xcfaf; the nano casts (0xcf3b
+//! "Cast ", the area ones 0xcf4a "Team Cast ", 0xcf5f "AOE %dm ", 0xcf61 "Cast "), each with a link to the nano's page
+//! (`<a href="itemid://53019/<id>">name</a>`); a nano resist (0xcfaa "ResistNano"), an item's special (0xcfbe
+//! "EnablesSpecial", with the item's description "EnablesSpecial2"), a perk lock (0xcfc3, the perk's name and rank), a
+//! faction set (0xcfc5), a hit (0xcfcc and 0xcf0a: "SpellHealing" / "SpellDamage" on health, "NanoAdd" / "NanoReduce"
+//! on nano, "FactionAdd" / "FactionReduce" on the factions 0x230-0x23c), the anchors (0xcfd8, 0xcfd9), the procs (0xcfe8
+//! defensive, 0xcfeb offensive), the quests' and mail's texts (0xcfed, 0xd002-0xd004), a lock cleared (0xd000), the
+//! organization's cash (0xd001), the end of a fight (0xd005) and sneaking (0xd006). The English words are the original
+//! program's own (they are not in the text database). Not written: a hit on a map (stats 0x1d7, 0x1d8, 0x249, 0x24a:
+//! "MapArea" and the map's name, from a table of names in the program the client does not have), and the reader's own
+//! figure after a hit's ("(%d-%d)": the spell entry's flag 0x100 at +0x24 asks for it, a flag the client's spell reading
+//! does not give). A temporary set of the stats 0x1e5-0x1e7, 0x21b-0x21e or 0x228-0x22f writes nothing, as in the
+//! original.
 
 use mao_formats::spell::Spell;
 
 fn text(category: i32, name: &str) -> String {
     crate::feedback::texts().and_then(|t| t.named(category, name)).map(str::to_string).unwrap_or_default()
+}
+
+/// A text of the database by its number (`LDBface::GetText(category, id)`).
+fn text_of(category: i32, id: i32) -> String {
+    crate::feedback::texts().and_then(|t| t.get(category, id)).map(str::to_string).unwrap_or_default()
+}
+
+/// A nano program's name as a link to its page: `<a href="itemid://%u/%u">%s</a>` of the nano identity 0xcf1b, the id
+/// and `N3Msg_GetName`.
+fn nano_link(id: i32, nano_name: &dyn Fn(u32) -> Option<String>) -> String {
+    format!("<a href=\"itemid://{}/{}\">{}</a>", 0xcf1b, id as u32, nano_name(id as u32).unwrap_or_default())
+}
+
+/// The perk records' item templates and the ranks before them, by perk id (the perk manager's entries: the database's
+/// records 0xf4264, the id at byte 4, the template at 12, the rank before at 16), read once.
+fn perk_ranks() -> Option<&'static std::collections::HashMap<u32, (u32, u32)>> {
+    static RANKS: std::sync::OnceLock<std::collections::HashMap<u32, (u32, u32)>> = std::sync::OnceLock::new();
+    let db = crate::net::item_db()?;
+    Some(RANKS.get_or_init(|| {
+        let word = |d: &[u8], at: usize| d.get(at..at + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()));
+        let ids: Vec<mao_formats::resource::Id> = db.ids().map(|it| it.filter_map(Result::ok).filter(|i| i.kind == 0xf4264).collect()).unwrap_or_default();
+        ids.into_iter().filter_map(|id| db.get(id).ok().flatten()).filter_map(|r| Some((word(&r, 4)?, (word(&r, 12)?, word(&r, 16)?)))).collect()
+    }))
+}
+
+/// A perk's name and rank (Gamecode FUN_10053bb2 with its rank: the name of the perk's item template, a space, and one
+/// more than the ranks before it); "Missing perk: %d" for one the manager does not have.
+fn perk_name(id: i32) -> String {
+    let named = || {
+        let ranks = perk_ranks()?;
+        let &(template, mut before) = ranks.get(&(id as u32))?;
+        let db = crate::net::item_db()?;
+        let data = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten()?;
+        let name = mao_formats::item::Item::parse(&data)?.name;
+        let mut rank = 1;
+        while before != 0 {
+            rank += 1;
+            match ranks.get(&before) {
+                Some(&(_, b)) => before = b,
+                None => break,
+            }
+        }
+        Some(format!("{name} {rank}"))
+    };
+    named().unwrap_or_else(|| format!("Missing perk: {id}"))
+}
+
+/// An item template's name and description (`N3Msg_CreateDummyItemID` of the template, then `N3Msg_GetName` and
+/// `N3Msg_GetDesc`); none when there is no such template.
+fn item_text(template: i32) -> Option<(String, String)> {
+    let db = crate::net::item_db()?;
+    let data = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template as u32 }).ok().flatten()?;
+    mao_formats::item::Item::parse(&data).map(|i| (i.name, i.description))
+}
+
+/// A hit's numbers, the low and high values (spell stats 2 and 37) as the faction and nano lines write them: "%d%%" of
+/// the low one's size when the high one is 0, "%d" when the two are one, else "%d-%d" of their sizes.
+fn hit_numbers(low: i32, high: i32, range: &str) -> String {
+    if high == 0 {
+        format!("{}%", low.wrapping_abs())
+    } else if low == high {
+        format!("{}", low.wrapping_abs())
+    } else {
+        range.replacen("{}", &low.wrapping_abs().to_string(), 1).replacen("{}", &high.wrapping_abs().to_string(), 1)
+    }
+}
+
+/// A hit (spell 0xcfcc, and 0xcf0a, N3Msg_ConvertSpellList at 0x100224f4): by the stat hit (spell stat 0) and its low and
+/// high values (2 and 37). `None` for the hit on a map, not written here (see the module's notes).
+fn hit_text(s: &Spell) -> Option<String> {
+    let (stat, low, high) = (s.stat(0), s.stat(2), s.stat(37));
+    Some(match stat {
+        // (health: healing when both are no lower than 0, else damage; the sizes after a space)
+        27 => {
+            let mut t = text(1005, if low >= 0 && high >= 0 { "SpellHealing" } else { "SpellDamage" });
+            let (low, high) = (low.wrapping_abs(), high.wrapping_abs());
+            t += &if high == 0 {
+                format!(" {low}%")
+            } else if low == high {
+                format!(" {low}")
+            } else {
+                format!(" {low}-{high}")
+            };
+            t
+        }
+        // (nano: the numbers straight after the text, a range in brackets)
+        0xd6 => text(1005, if low >= 0 && high >= 0 { "NanoAdd" } else { "NanoReduce" }) + &hit_numbers(low, high, "({}-{})"),
+        0x1d7 | 0x1d8 | 0x249 | 0x24a => return None,
+        // (a faction: its name, text category 2014, and the numbers)
+        0x230..=0x23c => printf(&text(1005, if low >= 0 && high >= 0 { "FactionAdd" } else { "FactionReduce" }), &[text_of(2014, stat), hit_numbers(low, high, "{}-{}")]),
+        _ => String::new(),
+    })
 }
 
 /// A C `printf` of `%s`, `%d`, `%u` and `%%` with the arguments in order; a width before the conversion pads the
@@ -126,7 +226,9 @@ pub fn spell_text(s: &Spell, level: u32, skill_lock: i32, nano_name: &dyn Fn(u32
                 format!("Modify {} {}", stat_name(a0), a39)
             }
         }
-        0xcff5 if a39 != 0 => format!("Modify {} {}%", stat_name(a0), a39),
+        // (a value of 0: an empty line, which still takes the target's heading)
+        0xcff5 if a39 == 0 => String::new(),
+        0xcff5 => format!("Modify {} {}%", stat_name(a0), a39),
         0xcfb7 => {
             let scaled = (level as i64 & 0xffff) * a39 as i64 / 200;
             if a0 == 0x168 {
@@ -147,11 +249,59 @@ pub fn spell_text(s: &Spell, level: u32, skill_lock: i32, nano_name: &dyn Fn(u32
             }
         }
         0xcfc0 => printf(&text(1005, "BaseModification"), &[stat_name(a0), a39.to_string()]),
-        0xcf1b => printf(&text(1005, "UploadNanoprogram"), &[nano_name(a39 as u32)?]),
-        0xcf3b => format!("Cast {}", nano_name(a39 as u32).unwrap_or_default()),
-        0xcf7d => format!("Taunt {}", s.stat(0)),
+        // (a nano with no name: an empty line)
+        0xcf1b => nano_name(a39 as u32).map(|name| printf(&text(1005, "UploadNanoprogram"), &[name])).unwrap_or_default(),
+        // (the casts: the nano's name as a link to its page; spell stat 39 the nano of a cast, 88 of an area cast, 11
+        // the area's radius)
+        0xcf3b => format!("Cast {}", nano_link(a39, nano_name)),
+        0xcf4a => format!("Team Cast {}", nano_link(s.stat(88), nano_name)),
+        0xcf5f => format!("AOE {}m {}", s.stat(11), nano_link(s.stat(88), nano_name)),
+        0xcf61 => format!("Cast {}", nano_link(s.stat(88), nano_name)),
+        0xcf7d => format!("Taunt {a39}"),
         0xcf48 => "Spawn Item".into(),
-        0xcf4c if s.stat(0) & 4 != 0 => "Root".into(),
+        // (spell stat 73's bit 4; else an empty line)
+        0xcf4c if s.stat(73) & 4 != 0 => "Root".into(),
+        0xcf4c => String::new(),
+        // ("ResistNano" of the value and the nano school's name, text category 2009 by spell stat 152)
+        0xcfaa => printf(&text(1005, "ResistNano"), &[a39.to_string(), text_of(2009, s.stat(152))]),
+        // (the item of template 88 (quality 84): "EnablesSpecial" of its name, "EnablesSpecial2" of its name and
+        // description when it has one; an empty line when there is no such item)
+        0xcfbe => match item_text(s.stat(88)) {
+            Some((name, desc)) if !desc.is_empty() => printf(&text(1005, "EnablesSpecial2"), &[name, desc]),
+            Some((name, _)) => printf(&text(1005, "EnablesSpecial"), &[name]),
+            None => String::new(),
+        },
+        0xcfc3 => format!("Perk {} locked for {} seconds", perk_name(a0), a39),
+        // ("FactionSet" of the faction's name, text category 2014, and the value)
+        0xcfc5 => printf(&text(1005, "FactionSet"), &[text_of(2014, a0), a39.to_string()]),
+        0xcfcc | 0xcf0a => hit_text(s)?,
+        0xcfd8 => "Set Anchor".into(),
+        0xcfd9 => "Recall Anchor".into(),
+        // ("%s (%d%%): %s": the kind, the chance (39) and the nano (10) as a link)
+        0xcfe8 | 0xcfeb => format!("{} ({}%): {}", if s.kind == 0xcfe8 { "Defensive proc" } else { "Offensive proc" }, a39, nano_link(s.stat(10), nano_name)),
+        0xcfed => text(1005, "SolveQuest"),
+        0xd002 => text(1005, "DeleteQuest"),
+        0xd003 => text(1005, "FailQuest"),
+        0xd004 => text(1005, "SendMail"),
+        // (a lock cleared: by spell stat 1 a skill's lock, its name from text category 2009, or a nano's)
+        0xd000 => match s.stat(1) {
+            1 => format!("Clear lock {}", text_of(2009, a39)),
+            0xcf1b => format!("Clear lock {}", nano_name(a39 as u32).unwrap_or_default()),
+            _ => "Unknown lock type".into(),
+        },
+        // ("ModifyOrgCash" of the value and, with spell stat 73's bit 1, whether it goes to the caster or comes from it)
+        0xd001 => {
+            let way = if s.stat(73) & 1 == 0 {
+                ""
+            } else if a39 < 0 {
+                " (to caster)"
+            } else {
+                " (from caster)"
+            };
+            printf(&text(1005, "ModifyOrgCash"), &[a39.to_string(), way.to_string()])
+        }
+        0xd005 => printf(&text(1005, "EndFight"), &[if s.stat(73) & 1 != 0 { "attackers" } else { "self" }.to_string()]),
+        0xd006 => text(2011, "ActionSneak"),
         0xcf7e => "Pacify".into(),
         0xcf81 => "Fear".into(),
         0xcf82 => "Stun".into(),
@@ -237,5 +387,41 @@ mod tests {
         let temp = |stat| Spell { kind: 0xcf76, stats: vec![(0, stat), (39, 1)], ..Default::default() };
         assert_eq!((spell_text(&temp(0x1e6), 1, 0, &|_| None), spell_text(&temp(0x22f), 1, 0, &|_| None)), (None, None));
         assert!(spell_text(&temp(0x1e8), 1, 0, &|_| None).is_some());
+    }
+
+    /// N3Msg_ConvertSpellList's casts, hits, procs, locks and the rest of its switch.
+    #[test]
+    fn casts_hits_procs_and_the_rest() {
+        let spell = |kind, stats: &[(i32, i32)]| Spell { kind, stats: stats.to_vec(), ..Default::default() };
+        let name = |id: u32| (id == 7).then(|| "Heal".to_string());
+        let text = |s: &Spell| spell_text(s, 1, 0, &name);
+        // (casts: the nano's name as a link; an area cast's nano is spell stat 88, its radius 11)
+        assert_eq!(text(&spell(0xcf3b, &[(39, 7)])).as_deref(), Some("Cast <a href=\"itemid://53019/7\">Heal</a>"));
+        assert_eq!(text(&spell(0xcf4a, &[(88, 7)])).as_deref(), Some("Team Cast <a href=\"itemid://53019/7\">Heal</a>"));
+        assert_eq!(text(&spell(0xcf5f, &[(88, 7), (11, 20)])).as_deref(), Some("AOE 20m <a href=\"itemid://53019/7\">Heal</a>"));
+        assert_eq!(text(&spell(0xcf61, &[(88, 9)])).as_deref(), Some("Cast <a href=\"itemid://53019/9\"></a>"));
+        // (an upload of a nano with no name, a root without its bit, a percentage of 0: empty lines)
+        assert_eq!(text(&spell(0xcf1b, &[(39, 9)])).as_deref(), Some(""));
+        assert_eq!((text(&spell(0xcf4c, &[(73, 4)])).as_deref(), text(&spell(0xcf4c, &[(0, 4)])).as_deref()), (Some("Root"), Some("")));
+        assert_eq!(text(&spell(0xcff5, &[(0, 16)])).as_deref(), Some(""));
+        assert_eq!(text(&spell(0xcf7d, &[(0, 3), (39, 250)])).as_deref(), Some("Taunt 250"));
+        // (procs)
+        assert_eq!(text(&spell(0xcfe8, &[(39, 15), (10, 7)])).as_deref(), Some("Defensive proc (15%): <a href=\"itemid://53019/7\">Heal</a>"));
+        assert!(text(&spell(0xcfeb, &[(39, 5), (10, 7)])).unwrap().starts_with("Offensive proc (5%): "));
+        // (locks cleared, anchors, a perk lock of a perk the manager does not have)
+        assert_eq!(text(&spell(0xd000, &[(1, 0xcf1b), (39, 7)])).as_deref(), Some("Clear lock Heal"));
+        assert_eq!(text(&spell(0xd000, &[(1, 5)])).as_deref(), Some("Unknown lock type"));
+        assert_eq!((text(&spell(0xcfd8, &[])).as_deref(), text(&spell(0xcfd9, &[])).as_deref()), (Some("Set Anchor"), Some("Recall Anchor")));
+        assert!(text(&spell(0xcfc3, &[(0, 0x7fff_fff0), (39, 30)])).unwrap().ends_with(" locked for 30 seconds"));
+        // (hits: on health the sizes after a space, a percentage when the high value is 0; a stat of no kind of its own
+        // an empty line; a hit on a map not written)
+        let hit = |stat, low, high| text(&spell(0xcfcc, &[(0, stat), (2, low), (37, high)])).unwrap();
+        assert!(hit(27, -100, -200).ends_with(" 100-200"));
+        assert!(hit(27, 50, 50).ends_with(" 50") && !hit(27, 50, 50).ends_with("-50"));
+        assert!(hit(27, 30, 0).ends_with(" 30%"));
+        assert!(hit(0xd6, 10, 20).ends_with("(10-20)"));
+        assert_eq!(hit(16, 1, 2), "");
+        assert_eq!(text(&spell(0xcf0a, &[(0, 0x1d7), (2, 1)])), None);
+        assert_eq!((hit_numbers(-5, 0, "{}-{}"), hit_numbers(-5, -5, "{}-{}"), hit_numbers(-5, -9, "({}-{})")), ("5%".to_string(), "5".to_string(), "(5-9)".to_string()));
     }
 }
