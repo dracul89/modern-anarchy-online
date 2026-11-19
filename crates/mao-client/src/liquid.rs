@@ -10,7 +10,13 @@
 //! inner side of its three edges; the liquid's height there is its plane's, and counts when above 0 (`PerformCollisionTest`)
 //! and when its depth (the info's value) reaches down past the point (`n3Zone_t::GetLiquidSurfaceHeight`).
 //!
-//! Not here: the zones' lists (the infos are tested in the order made, all of them; a zone's stops at its first hit).
+//! The original tests only the list of the zone the point is in (`n3Playfield_t::GetLiquidSurfaceHeight` → `GetZoneInstance`
+//! → `n3Zone_t::GetLiquidSurfaceHeight`, N3 0x1000cb1e / 0x1001ab68), stopping at its first hit. Gamecode FUN_100b84b9 fills
+//! the lists: each info, in the order made (`GetFirstWaterInfo` / `GetNextWaterInfo`), is given (`n3Zone_t::SetWater`) to the
+//! zone under every point of a grid a zone wide from its box less a zone to its box plus a zone. So the zone of any point an
+//! info holds has that info, in the same order as here, and testing all of them finds the same first hit; the zones' and
+//! playfield's highest tops (+0x1c, +0x90) only skip what the infos' own tops would. Not here, the two places that differ: a
+//! point off the tiles is looked up in zone 0 alone, and in a dungeon the grid's points are found rooms at height 0.
 
 use std::sync::{Arc, Mutex};
 
