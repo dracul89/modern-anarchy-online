@@ -6319,7 +6319,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: title "Inspect: <name>"; a right click shows the item's info page; no menu
 - A player notices: a different title and a different right-click result in the Inspect window
 - Where: `crates/mao-client/src/invwindows.rs:265`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The Inspect window's title is "Inspect" alone again (the character's name is gone), and a right click on an item no longer opens its info page: as the original's lists without click listeners (GUI.dll FUN_100e24b8 builds the wear view with the other identity; `ItemListViewBase_c` FUN_10041c04 raises the menu signal on the press), the right button pressed on an item opens its menu at once (FUN_100caf07) with Look At (the info page) and Create Reference (a link in the chat's line). Not ported: the lock entry FUN_100caf07 adds for a wear page's item whose TimeExist is not above 0, as which item it would lock for another character's equipment is not known without the live game. invwindows.rs (`InspectEvents`, `inspect_entries`), gear.rs, ui.rs. Tests: `invwindows` (3 pass).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE both for faithfulness: the original's Inspect window is titled Inspect and a right press opens the item menu (FUN_100e24b8); the name in the title and the info page on right click are the client's own. (Porting the menu needs the item menu in that window.)
 
 #### `WIN-169` Missing game texts fall back to the client's own words

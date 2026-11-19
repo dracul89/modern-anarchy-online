@@ -449,8 +449,8 @@ impl GearWindow {
         GearEvents { moves: e.moves, uses: e.uses, deletes: e.deletes, infos: e.infos, trade_adds: e.trade_adds, combines: e.combines, use_ons: e.use_ons, references: e.references, joins: e.joins, splits: e.splits, feedback: e.feedback }
     }
 
-    /// The inspect window (opened by each new inspection); the info pages asked for.
-    pub fn show_inspect(&mut self, ctx: &egui::Context, inspected: &(u32, String, Vec<GearItem>), stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> Vec<String> {
+    /// The inspect window (opened by each new inspection); the info pages and chat links asked for.
+    pub fn show_inspect(&mut self, ctx: &egui::Context, inspected: &(u32, String, Vec<GearItem>), stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> crate::invwindows::InspectEvents {
         self.inspect.show(ctx, inspected, stats, palette, &mut self.textures)
     }
 }

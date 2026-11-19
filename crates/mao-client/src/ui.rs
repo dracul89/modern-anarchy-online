@@ -1510,8 +1510,13 @@ impl Ui {
             }
             // (the items that wait on its map are locked in the inventory; none when the window is gone)
             crate::gear::set_city_locks(city_terminal.map.locked());
-            for url in gear.show_inspect(&ctx, &hud.inspected, &hud.stats, palette) {
+            let inspect = gear.show_inspect(&ctx, &hud.inspected, &hud.stats, palette);
+            for url in inspect.infos {
                 info_view.show_url(&url);
+            }
+            // (an inspected item's link for the chat's line: its menu's "Create Reference")
+            for link in inspect.references {
+                chat_window.add_text(&link);
             }
             if *gear_open || gear.wear_open() {
                 let events = gear.show(&ctx, gear_open, &hud.gear, &hud.stats, palette);

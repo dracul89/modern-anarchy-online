@@ -321,7 +321,8 @@ fn cell_label(tab: &WearTab, slot: u32) -> String {
 
 /// The inspect window: the original's `WearView_c` (FUN_100e24b8) built with the inspected identity: the title "Inspect",
 /// `inspect_window` and `InspectViewConfig` in place of the wear window's, the same four tabs of cells. The items are only
-/// looked at: a tip under the pointer, a right click (the use button) shows the item's page; nothing is dragged.
+/// looked at: a tip under the pointer, and the right button pressed on one opens the item's menu at once (its lists have
+/// no click listeners, so `ItemListViewBase_c`'s FUN_10041c04 raises the menu signal on the press); nothing is dragged.
 #[derive(Default)]
 pub struct InspectWindow {
     grids: Vec<GridView>,
@@ -334,6 +335,15 @@ pub struct InspectWindow {
     labels_on_top: Option<bool>,
     social_labels_under: bool,
     popup: Option<crate::gui::popup::PopupMenu>,
+    /// An item's menu while it is up: the item's place and the menu.
+    item_menu: Option<(u32, crate::gui::popup::PopupMenu)>,
+}
+
+/// What the inspect window asks for: items' info pages and links for the chat's line.
+#[derive(Default)]
+pub struct InspectEvents {
+    pub infos: Vec<String>,
+    pub references: Vec<String>,
 }
 
 /// The wear pages' fourth, which the kept "labels under the items" does not reach when the window is made: the
@@ -342,15 +352,15 @@ pub struct InspectWindow {
 const SOCIAL_PAGE: usize = 3;
 
 impl InspectWindow {
-    pub fn show(&mut self, ctx: &egui::Context, inspected: &(u32, String, Vec<GearItem>), stats: &BTreeMap<u32, i64>, palette: &Palette, textures: &mut HashMap<u32, egui::TextureHandle>) -> Vec<String> {
-        let mut infos = Vec::new();
-        let (count, name, items) = inspected;
+    pub fn show(&mut self, ctx: &egui::Context, inspected: &(u32, String, Vec<GearItem>), stats: &BTreeMap<u32, i64>, palette: &Palette, textures: &mut HashMap<u32, egui::TextureHandle>) -> InspectEvents {
+        let mut events = InspectEvents::default();
+        let (count, _, items) = inspected;
         if *count != self.seen {
             self.seen = *count;
             self.open = true;
         }
         if !self.open {
-            return infos;
+            return events;
         }
         if self.grids.is_empty() {
             self.grids = wear_grids(ctx);
@@ -377,9 +387,8 @@ impl InspectWindow {
         let mut tab = self.tab.min(WEAR_TABS.len() - 1);
         let mut hovered: Option<(u32, String)> = None;
         let grids = &mut self.grids;
-        // (the title names the character too: several inspections look the same otherwise)
-        let title = if name.is_empty() { "Inspect".to_string() } else { format!("Inspect: {name}") };
-        crate::chrome::window(ctx, palette, "Inspect", &title, &mut self.open, |w| w.default_pos(crate::layout::pos("Inspect", egui::pos2(420.0, 90.0))).resizable(false), |ui| {
+        // (the title is "Inspect", whoever is inspected: FUN_100e24b8)
+        crate::chrome::window(ctx, palette, "Inspect", "Inspect", &mut self.open, |w| w.default_pos(crate::layout::pos("Inspect", egui::pos2(420.0, 90.0))).resizable(false), |ui| {
             ui.set_min_width(crate::chrome::tabs_width(ui, &name_refs));
             crate::chrome::tab_view(ui, palette, &name_refs, &mut tab, |ui, t| {
                 let view = &mut grids[t];
@@ -421,18 +430,47 @@ impl InspectWindow {
             }
             view.tree.signals.clear();
         }
+        // (the right button pressed on an item: its menu at once (FUN_100caf07, the entries a wear page's item has here:
+        // Look At and Create Reference))
         if let Some((slot, _)) = hovered
+            && self.item_menu.is_none()
+            && ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
+            && let (Some(_), Some(at)) = (by_slot.get(&slot), pointer)
+        {
+            let entries = inspect_entries().into_iter().map(|(_, label)| (label, true)).collect::<Vec<_>>();
+            self.item_menu = Some((slot, crate::chrome::menu_at(ctx, at, &entries)));
+        }
+        if let Some((slot, popup)) = self.item_menu.take() {
+            let mut popup = Some(popup);
+            if let Some(k) = crate::chrome::menu(ctx, palette, "inspect-item-menu", &mut popup)
+                && let Some(item) = by_slot.get(&slot)
+            {
+                match inspect_entries().get(k).map(|(choice, _)| *choice) {
+                    Some(ItemChoice::LookAt) => events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
+                    Some(ItemChoice::Reference) => events.references.push(reference(item)),
+                    _ => {}
+                }
+            }
+            self.item_menu = popup.map(|p| (slot, p));
+        }
+        if let Some((slot, _)) = hovered
+            && self.item_menu.is_none()
             && let Some(item) = by_slot.get(&slot)
         {
-            if ctx.input(|i| i.pointer.secondary_clicked()) {
-                infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality));
-            }
             egui::Area::new(egui::Id::unique("inspect-tip")).order(egui::Order::Tooltip).fixed_pos(pointer.unwrap_or_default() + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| crate::gear::tooltip(ui, item, stats, palette));
             });
         }
-        infos
+        events
     }
+}
+
+/// The entries of an inspected item's menu (FUN_100caf07): Look At and Create Reference. Not ported: the lock entry the
+/// original adds for a wear page's item whose `TimeExist` is not above 0, as which item it would lock for another
+/// character's equipment is not known.
+fn inspect_entries() -> Vec<(ItemChoice, String)> {
+    let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
+    vec![(ItemChoice::LookAt, text("LookAtItem", "Look At")), (ItemChoice::Reference, text("CreateReference", "Create Reference"))]
 }
 
 impl ItemWindows {

@@ -7397,3 +7397,7 @@ The client's own "Take all" button is gone from corpse, chest and overflow windo
 ### Mail window without a status line (WIN-166)
 
 The client's own status line under the inbox ("The inbox holds N messages.", "Sending ...", "Mail sent.", the declined-mail and no-terminal notes) is gone. As the original's `MailWindow_c` (GUI.dll FUN_10109a11), the window shows the list and the "n/30" inbox size (FUN_10109489); a delete refused for an untaken attachment is still told in chat (`Feedback_MailDeleteAttachments`, FUN_101096f1).
+
+### Inspect window: title and item menu (WIN-168)
+
+The Inspect window is titled "Inspect" for everyone inspected, as the original's (GUI.dll FUN_100e24b8); the client's "Inspect: name" is gone. A right press on an item opens its menu at once, as the original's lists without click listeners do (FUN_10041c04, FUN_100caf07): Look At shows the item's page, Create Reference puts its link into the chat's line. The original's lock entry for a worn item is not in this menu.
