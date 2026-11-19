@@ -7293,3 +7293,7 @@ As in the original (GUI.dll FUN_100cc855 and FUN_100ce25d), an inventory item le
 ### Wearing by right click goes to the item's own place (INV-015)
 
 The original's `N3Msg_UseItem` wears an item at its own place (stat 88) and takes off what is there first. The client no longer picks another free place the item could also go to (a second ring finger, the other wrist); the item goes to its own place, swapping with what is worn there.
+
+### An unknown camera mode is the free camera (CAM-002)
+
+When no camera mode is preferred, the original uses its free camera (mode 1, GUI.dll FUN_10021859). The client now does the same for a `camera_mode` name it does not know, where it fell back to the rubber camera.

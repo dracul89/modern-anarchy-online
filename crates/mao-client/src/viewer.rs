@@ -1089,12 +1089,13 @@ fn yaw_behind(heading: f32) -> f32 {
 }
 
 /// The settings' camera mode as the original's `PreferredCameraMode`: "trail" is the free camera (1), "rubber" the one
-/// that steers behind the character (2), "lock" the one held behind it (3).
+/// that steers behind the character (2), "lock" the one held behind it (3). Any other name is the free camera, the
+/// original's default when nothing is preferred (FUN_10021859).
 fn camera_mode(name: &str) -> crate::camera::Mode {
     match name {
         "lock" => crate::camera::Mode::Locked,
-        "trail" => crate::camera::Mode::Free,
-        _ => crate::camera::Mode::Rubber,
+        "rubber" => crate::camera::Mode::Rubber,
+        _ => crate::camera::Mode::Free,
     }
 }
 
@@ -3342,6 +3343,15 @@ impl ApplicationHandler for App {
 #[cfg(test)]
 mod camera_tests {
     use super::*;
+
+    /// The setting's names: lock, rubber, and the free camera for "trail" and anything else, the original's default.
+    #[test]
+    fn camera_modes_by_name() {
+        assert_eq!(camera_mode("lock"), crate::camera::Mode::Locked);
+        assert_eq!(camera_mode("rubber"), crate::camera::Mode::Rubber);
+        assert_eq!(camera_mode("trail"), crate::camera::Mode::Free);
+        assert_eq!(camera_mode("anything"), crate::camera::Mode::Free);
+    }
 
     /// The own body's fade as the camera nears its head: solid from the start distance on, at its floor from the
     /// end distance in.

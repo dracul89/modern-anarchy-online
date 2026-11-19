@@ -6397,7 +6397,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: `camera_mode` (free/trail, rubber, lock; default trail = free) set by /setoption or the interface; any name other than "lock" and "trail" gives the rubber camera (mode 2); whether the jitter is still there in the free camera is unverified
 - A player notices: an old or odd setting gives the rubber camera instead of the free one
 - Where: `crates/mao-client/src/viewer.rs:1042-1049`; `crates/mao-client/src/settings.rs:641-654`; `docs/LIVE_TEST_LIST.md:368`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original's default when nothing is preferred is the free camera, mode 1 (GUI.dll FUN_10021859); the client gave the rubber camera to any name it did not know. `viewer::camera_mode` now gives the free camera for "trail" and any unknown name, the rubber one only for "rubber". Test: `viewer::camera_tests::camera_modes_by_name`. (The settings file only accepts lock, rubber and trail, so this matters for hand-edited or older values.)
 
 #### `CAM-003` Camera smoothing scaled to sixty frames a second
 
