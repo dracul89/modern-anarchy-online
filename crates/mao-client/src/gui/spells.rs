@@ -19,9 +19,10 @@
 //! defensive, 0xcfeb offensive), the quests' and mail's texts (0xcfed, 0xd002-0xd004), a lock cleared (0xd000), the
 //! organization's cash (0xd001), the end of a fight (0xd005) and sneaking (0xd006). The English words are the original
 //! program's own (they are not in the text database). Not written: a hit on a map (stats 0x1d7, 0x1d8, 0x249, 0x24a:
-//! "MapArea" and the map's name, from a table of names in the program the client does not have), and the reader's own
-//! figure after a hit's ("(%d-%d)": the spell entry's flag 0x100 at +0x24 asks for it, a flag the client's spell reading
-//! does not give). A temporary set of the stats 0x1e5-0x1e7, 0x21b-0x21e or 0x228-0x22f writes nothing, as in the
+//! "MapArea" and the map's name, from a table of names in the program the client does not have). A nano program's
+//! spells (NanoItem_t's reading, FUN_10086774, sets the flag 0x100 on every spell of its lists) add after a health hit
+//! the reader's own figure, by its stat 535 (healing) or 536 (damage) when that is not 100 ([`convert_nano`]). A
+//! temporary set of the stats 0x1e5-0x1e7, 0x21b-0x21e or 0x228-0x22f writes nothing, as in the
 //! original.
 
 use mao_formats::spell::Spell;
@@ -96,21 +97,28 @@ fn hit_numbers(low: i32, high: i32, range: &str) -> String {
 }
 
 /// A hit (spell 0xcfcc, and 0xcf0a, N3Msg_ConvertSpellList at 0x100224f4): by the stat hit (spell stat 0) and its low and
-/// high values (2 and 37). `None` for the hit on a map, not written here (see the module's notes).
-fn hit_text(s: &Spell) -> Option<String> {
+/// high values (2 and 37). `None` for the hit on a map, not written here (see the module's notes). `own`: a nano
+/// program's spell, with the reader's stats 535 and 536 (`N3Msg_GetSkill(.., 2)`).
+fn hit_text(s: &Spell, own: Option<(i32, i32)>) -> Option<String> {
     let (stat, low, high) = (s.stat(0), s.stat(2), s.stat(37));
     Some(match stat {
         // (health: healing when both are no lower than 0, else damage; the sizes after a space)
         27 => {
-            let mut t = text(1005, if low >= 0 && high >= 0 { "SpellHealing" } else { "SpellDamage" });
+            let healing = low >= 0 && high >= 0;
+            let mut t = text(1005, if healing { "SpellHealing" } else { "SpellDamage" });
             let (low, high) = (low.wrapping_abs(), high.wrapping_abs());
-            t += &if high == 0 {
-                format!(" {low}%")
-            } else if low == high {
-                format!(" {low}")
-            } else {
-                format!(" {low}-{high}")
-            };
+            if high == 0 {
+                return Some(t + &format!(" {low}%"));
+            }
+            t += &if low == high { format!(" {low}") } else { format!(" {low}-{high}") };
+            // (a nano's: the reader's own figure, by its healing (535) or damage (536) percentage when not 100)
+            if let Some((heal, damage)) = own {
+                let m = if healing { heal } else { damage };
+                if m != 100 {
+                    let (a, b) = (m.wrapping_mul(low) / 100, m.wrapping_mul(high) / 100);
+                    t += &if a == b { format!("({a})") } else { format!("({a}-{b})") };
+                }
+            }
             t
         }
         // (nano: the numbers straight after the text, a range in brackets)
@@ -202,6 +210,11 @@ pub fn skill_lock_seconds(seconds: i32, modifier: i32) -> i32 {
 /// One spell's text (the switch of `N3Msg_ConvertSpellList`); `None` for a type it does not write. `skill_lock` is the
 /// reader's skill lock modifier (stat 382).
 pub fn spell_text(s: &Spell, level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>) -> Option<String> {
+    spell_text_of(s, level, skill_lock, nano_name, None)
+}
+
+/// [`spell_text`], for a nano program's spell when `own` holds the reader's stats 535 and 536.
+fn spell_text_of(s: &Spell, level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>, own: Option<(i32, i32)>) -> Option<String> {
     let stat_name = |k: i32| super::criteria::stat_name(k as u32);
     let (a0, a39) = (s.stat(0), s.stat(39));
     Some(match s.kind {
@@ -274,7 +287,7 @@ pub fn spell_text(s: &Spell, level: u32, skill_lock: i32, nano_name: &dyn Fn(u32
         0xcfc3 => format!("Perk {} locked for {} seconds", perk_name(a0), a39),
         // ("FactionSet" of the faction's name, text category 2014, and the value)
         0xcfc5 => printf(&text(1005, "FactionSet"), &[text_of(2014, a0), a39.to_string()]),
-        0xcfcc | 0xcf0a => hit_text(s)?,
+        0xcfcc | 0xcf0a => hit_text(s, own)?,
         0xcfd8 => "Set Anchor".into(),
         0xcfd9 => "Recall Anchor".into(),
         // ("%s (%d%%): %s": the kind, the chance (39) and the nano (10) as a link)
@@ -314,10 +327,20 @@ pub fn spell_text(s: &Spell, level: u32, skill_lock: i32, nano_name: &dyn Fn(u32
 
 /// `N3Msg_ConvertSpellList` over one list: the spells' lines.
 pub fn convert(spells: &[Spell], level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>) -> String {
+    convert_of(spells, level, skill_lock, nano_name, None)
+}
+
+/// [`convert`] over a nano program's list, whose spells all have the flag 0x100 (NanoItem_t's FUN_10086774): `own` the
+/// reader's stats 535 and 536.
+pub fn convert_nano(spells: &[Spell], level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>, own: (i32, i32)) -> String {
+    convert_of(spells, level, skill_lock, nano_name, Some(own))
+}
+
+fn convert_of(spells: &[Spell], level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>, own: Option<(i32, i32)>) -> String {
     let mut out = String::new();
     let mut last_target = -1;
     for s in spells {
-        let Some(line) = spell_text(s, level, skill_lock, nano_name) else { continue };
+        let Some(line) = spell_text_of(s, level, skill_lock, nano_name, own) else { continue };
         let target = s.stat(0x20);
         let mut heading = String::new();
         if target != 0 && target != last_target {
@@ -422,6 +445,12 @@ mod tests {
         assert!(hit(0xd6, 10, 20).ends_with("(10-20)"));
         assert_eq!(hit(16, 1, 2), "");
         assert_eq!(text(&spell(0xcf0a, &[(0, 0x1d7), (2, 1)])), None);
+        // (a nano's: the reader's own figure by its stat 536 for damage, none at 100, none after a percentage)
+        let nano_hit = |low, high, own| spell_text_of(&spell(0xcfcc, &[(0, 27), (2, low), (37, high)]), 1, 0, &name, Some(own)).unwrap();
+        assert!(nano_hit(-100, -200, (100, 150)).ends_with(" 100-200(150-300)"));
+        assert!(nano_hit(50, 50, (90, 100)).ends_with(" 50(45)"));
+        assert!(nano_hit(-100, -200, (150, 100)).ends_with(" 100-200"));
+        assert!(nano_hit(30, 0, (90, 90)).ends_with(" 30%"));
         assert_eq!((hit_numbers(-5, 0, "{}-{}"), hit_numbers(-5, -5, "{}-{}"), hit_numbers(-5, -9, "({}-{})")), ("5%".to_string(), "5".to_string(), "(5-9)".to_string()));
     }
 }
