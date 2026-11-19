@@ -58,12 +58,12 @@ const TEAM_CAST: u32 = 0xcf4a;
 
 impl Columns {
     /// From a nano's stats (by number) and whether one of its spells is the team cast.
-    pub fn of(stat: impl Fn(u32) -> Option<u32>, team: bool) -> Columns {
+    pub fn of(stat: impl Fn(u32) -> Option<u32>, team: bool, self_only: bool) -> Columns {
         let flags = stat(0).unwrap_or(0);
         // (a stat the record does not have reads as 1234567890 in the original, shown as 0)
         let value = |n: u32| stat(n).filter(|v| *v != 1_234_567_890).unwrap_or(0);
         Columns {
-            kind: if flags & 0x8000 != 0 { 2 } else if team { 4 } else { 1 },
+            kind: if flags & 0x8000 != 0 { 2 } else if team { 4 } else if self_only { 3 } else { 1 },
             nano_cost: value(407),
             ncu: stat(54).unwrap_or(0),
             range: value(287),
@@ -140,8 +140,10 @@ pub fn describe(db: &ResourceDatabase, textures: &crate::Textures, running: &[(u
                     .clone()
             });
             let effects = data.as_deref().map(|d| item::nano_modifiers_at(d, level)).unwrap_or_default().into_iter().map(|(s, a)| (s, a as i64)).collect();
-            let team = data.as_deref().is_some_and(|d| mao_formats::spell::lists(d).iter().any(|(_, spells)| spells.iter().any(|s| s.kind == TEAM_CAST)));
-            let columns = template.as_ref().map(|t| Columns::of(|n| t.stat(n), team)).unwrap_or_default();
+            let lists = data.as_deref().map(mao_formats::spell::lists).unwrap_or_default();
+            let team = lists.iter().any(|(_, spells)| spells.iter().any(|s| s.kind == TEAM_CAST));
+            let alone = data.is_some() && self_only(&lists, template.as_ref().and_then(|t| t.stat(30)).unwrap_or(0));
+            let columns = template.as_ref().map(|t| Columns::of(|n| t.stat(n), team, alone)).unwrap_or_default();
             NanoInfo {
                 id,
                 name: template.as_ref().map_or_else(|| format!("Nano #{id}"), |t| t.name.clone()),
@@ -163,6 +165,13 @@ pub fn describe(db: &ResourceDatabase, textures: &crate::Textures, running: &[(u
 /// 0x100; nothing otherwise (heals and other instant nanos lack 0x10000). A cost of 999 (the free programs') is none.
 pub fn ncu_cost(flags: i64, ncu: u32) -> u32 {
     if flags & 0x10000 != 0 && flags & (0x4000 | 0x8000 | 0x100) == 0 && ncu < 999 { ncu } else { 0 }
+}
+
+/// Whether a nano is for oneself only (Gamecode FUN_100a49b1, kept at the nano's +0xbc and read by
+/// `N3Msg_IsNanoSelfOnly`): every spell of all its lists aims at target 1 or 2 (spell stat 0x20), or its stat 30 has
+/// 0x800000. A nano with no spells at all counts as one too, as there.
+pub fn self_only(lists: &[(u32, Vec<mao_formats::spell::Spell>)], can: u32) -> bool {
+    lists.iter().all(|(_, spells)| spells.iter().all(|s| matches!(s.stat(0x20), 1 | 2))) || can & 0x80_0000 != 0
 }
 
 /// `mm:ss` (or `h:mm:ss`) of a time in milliseconds.
@@ -510,8 +519,14 @@ mod tests {
             294 => Some(150),
             _ => None,
         };
-        assert_eq!(Columns::of(stats(0), false), Columns { kind: 1, nano_cost: 310, ncu: 42, range: 0, attack_delay: 150, recharge_delay: 0, hidden: false });
-        assert_eq!((Columns::of(stats(0x8000), true).kind, Columns::of(stats(0), true).kind, Columns::of(stats(0x0100_0000), false).hidden), (2, 4, true));
+        assert_eq!(Columns::of(stats(0), false, false), Columns { kind: 1, nano_cost: 310, ncu: 42, range: 0, attack_delay: 150, recharge_delay: 0, hidden: false });
+        assert_eq!((Columns::of(stats(0x8000), true, true).kind, Columns::of(stats(0), true, true).kind, Columns::of(stats(0x0100_0000), false, false).hidden), (2, 4, true));
+        // (NAN-045: FUN_1003f4cf's type 3, self only, after hostile and team)
+        assert_eq!(Columns::of(stats(0), false, true).kind, 3);
+        let spell = |target: i32| mao_formats::spell::Spell { kind: 0xcf1a, instance: 0, criteria: Vec::new(), special: Vec::new(), stats: vec![(0x20, target)], strings: Vec::new() };
+        assert!(self_only(&[(1, vec![spell(1), spell(2)])], 0));
+        assert!(!self_only(&[(1, vec![spell(1)]), (14, vec![spell(3)])], 0));
+        assert!(self_only(&[(1, vec![spell(3)])], 0x80_0000));
         assert_eq!((kind_text(2), kind_text(4).0, kind_text(9).0), (("Hostile", 0xff0000), "Team", "Unknown"));
         // (the columns in the original's order, the time left the one the list starts sorted by)
         assert_eq!(COLUMNS.iter().map(|c| c.0).collect::<Vec<_>>(), [0, 1, 8, 9, 10, 13, 12, 11, 5, 6, 7]);

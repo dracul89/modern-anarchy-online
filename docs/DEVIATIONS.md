@@ -3176,7 +3176,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The fields were not traced to the record, so no nano is told to be Self; self-only nanos are listed as Friendly.
 - A player notices: Self-only nanos show the wrong type; radius also absent.
 - Where: `crates/mao-client/src/ncu.rs:39`; `docs/ORIGINAL_AUDIT.md:109`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The NCU list's type column now tells a self-only nano as type 3: FUN_100a49b1 sets the nano's +0xbc (read by N3Msg_IsNanoSelfOnly 0x10016583) when every spell of all its lists aims at target 1 or 2 (spell stat 0x20), or its stat 30 has 0x800000; FUN_1003f4cf's order is hostile 2, team 4, self 3, else 1 (ncu::self_only). Test: ncu::tests::the_list_columns_are_written_as_the_originals.
 
 #### `NAN-046` Server's answer to a nano cast not shown
 

@@ -130,7 +130,7 @@ pub fn describe(db: &ResourceDatabase, textures: &crate::Textures, ids: &[u32], 
                 icon,
                 cost: template.as_ref().and_then(|t| t.stat(54)).filter(|&c| c < 999).unwrap_or(0),
                 school: school(template.as_ref().and_then(|t| t.stat(405))),
-                columns: template.as_ref().map(|t| crate::ncu::Columns::of(|n| t.stat(n), false)).unwrap_or_default(),
+                columns: template.as_ref().map(|t| crate::ncu::Columns::of(|n| t.stat(n), false, false)).unwrap_or_default(),
                 // (the stat is in hundredths of a second)
                 time_ms: template.as_ref().and_then(|t| t.stat(8)).unwrap_or(0).saturating_mul(10),
                 strain: template.as_ref().and_then(|t| t.stat(75)).filter(|s| *s != 1_234_567_890).unwrap_or(0),

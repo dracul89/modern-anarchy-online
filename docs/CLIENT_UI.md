@@ -7117,3 +7117,7 @@ The original adds a running nano's NCU (its stat 54) to stat 180 only for nanos 
 ### Which swing an attack plays (CMB-006)
 
 Of a weapon's attack actions the original picks one by rand() at each swing (FUN_10045976: rand() % count). The client draws the CRT's rand() (seeded 1) for each swing (`World::swing_rand`); it used to go through them in order.
+
+### Self-only nanos in the NCU list (NAN-045)
+
+The NCU window's type column follows FUN_1003f4cf: hostile 2, team 4, self only 3, else friendly 1. A nano is self-only as FUN_100a49b1 decides it: all its spells aim at target 1 or 2, or its stat 30 has 0x800000 (`ncu::self_only`).
