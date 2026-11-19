@@ -26,9 +26,9 @@
 //!
 //! Here the providers are those this client has an action for (`keybindings::PROVIDERS`), one row set per action:
 //! the original's two sets of movement providers are the same actions here, so only the plain ones are listed (not
-//! the `*_GLOBAL_V2` ones); providers without an action here (the pets', the team members', the per-bar shortcut keys, the
-//! team, raid, research and other windows' keys, the next/previous camera views, copying to the clipboard) are not
-//! listed. Mouse buttons (the box binds a button pressed on it, FUN_100bcc26) are not taken: this client's keys are
+//! the `*_GLOBAL_V2` ones); providers without an action here (the pets' and the team members' selection, the per-bar
+//! shortcut keys, the shortcut bar's and the browser's windows, the next/previous camera views, the reference and
+//! switch-target actions, copying to the clipboard) are not listed. Mouse buttons (the box binds a button pressed on it, FUN_100bcc26) are not taken: this client's keys are
 //! keyboard keys. Add with no key pressed binds the original's "no key" (kept in mao.ini as `Inactive`, a row of
 //! its own). A key bound to two of the providers' actions does them all, as the original's (`Keymap::actions`).
 

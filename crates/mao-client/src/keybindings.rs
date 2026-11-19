@@ -27,7 +27,7 @@
 //! Not read: the fixed keys (the camera's, Tab's, the chat's: `KEY_...` lines of the account's `Login.cfg`, another
 //! mechanism); mouse buttons as keys (the shipped default has the middle button walk forward; this client's keys
 //! are keyboard keys); the actions this client has none for (`CAMERA_NEXTVIEW`, the team and pet selection keys,
-//! `WINDOW_TEAM` and the like). The original's numbers are virtual keys, this client's are places on the keyboard:
+//! `WINDOW_SHORTCUTBAR` and the like). The original's numbers are virtual keys, this client's are places on the keyboard:
 //! on a keyboard that is not QWERTY a letter lands on the letter's QWERTY place.
 
 use std::collections::{BTreeSet, HashMap};
