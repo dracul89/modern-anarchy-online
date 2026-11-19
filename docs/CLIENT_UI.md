@@ -7101,3 +7101,7 @@ The original picks another character's walk or run animations by its movement mo
 ### The server's echo of one's own movement (MOV-017)
 
 The server sends back each movement message of one's own character. The original ignores those for the client's own character (FUN_1006c20f clears a message from the server when its dynel is the client control dynel; CharDCMoveIIR_t's activation FUN_1006bd94 then does nothing). The client did the same except for a full report more than 5 m away that was none of its own in the last 4 s, which put the character back there; now such a report is only logged. Put-backs by SetPos and N3Teleport are followed as before.
+
+### The attack key's refusals (CMB-003)
+
+The attack key and Ctrl+click follow N3Msg_DefaultAttack (Gamecode 0x10028147): a fight is stopped first; swimming then says "can't attack in this state"; otherwise the selection is checked as FUN_10069a9f does and a refusal says its own line followed by "unable to attack target". Of FUN_10069a9f's checks the client follows: oneself, the dead, own state flag 0x400 or flying ("you're unable to attack"), and own flag 0x80000000 with stat 215, which allows any character. Not yet followed: the target's own state flags, surrender, suppression districts, the side and team checks and attackable items.

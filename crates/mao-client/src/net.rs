@@ -9154,22 +9154,24 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         Some(_) => crate::combat::Target::Other,
                     };
                     let pending = attack_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
-                    let decision = crate::combat::default_attack(state.fighting.contains_key(&own), false, pending, target, kind);
+                    let me = crate::combat::Own { flying: state.own_flying, flags: state.stats.get(&224).copied().unwrap_or(0), stat_215: state.stats.get(&215).copied().unwrap_or(0) };
+                    let decision = crate::combat::attack_key(state.fighting.get(&own).copied(), state.fighting.contains_key(&own), false, state.swimming.contains(&own), pending, target, kind, me);
                     if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                         let there = target.and_then(|t| state.entities.get(&t).map(|e| e.0));
                         let distance = there.map(|p| ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt());
                         eprintln!("combat: attack key: target {target:?} {kind:?}, fighting {:?}, pending {pending} -> {decision:?}; own at {position:?}, target at {there:?}, {distance:?} m", state.fighting.get(&own));
                     }
-                    match decision {
-                        crate::combat::Attack::Stop => {
-                            let _ = connection.send(&n3::stop_fight(own));
-                        }
-                        crate::combat::Attack::Start(t) => {
+                    if decision.0 {
+                        let _ = connection.send(&n3::stop_fight(own));
+                    }
+                    match decision.1 {
+                        Some(crate::combat::Attack::Start(t)) => {
                             crate::tips::trigger("OnStartingAttack", "");
                             let _ = connection.send(&n3::attack(own, t));
                             attack_sent = Some(Instant::now());
                         }
-                        crate::combat::Attack::Refuse(name) => pending_messages.push(crate::feedback::plain(name)),
+                        Some(crate::combat::Attack::Refuse(names)) => pending_messages.extend(names.iter().map(|n| crate::feedback::plain(n))),
+                        None => {}
                     }
                     continue;
                 }
@@ -9715,7 +9717,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         crate::combat::Target::Other
                     };
                     let pending = attack_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
-                    let (stop, attack, flag) = crate::combat::switch_attack(state.fighting.get(&own).copied(), state.fighting.contains_key(&own), false, pending, id, aim);
+                    let me = crate::combat::Own { flying: state.own_flying, flags: state.stats.get(&224).copied().unwrap_or(0), stat_215: state.stats.get(&215).copied().unwrap_or(0) };
+                    let (stop, attack, flag) = crate::combat::attack_key(state.fighting.get(&own).copied(), state.fighting.contains_key(&own), true, state.swimming.contains(&own), pending, Some(id), aim, me);
                     if stop {
                         let _ = connection.send(&n3::stop_fight(own));
                     }
@@ -9725,7 +9728,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             let _ = connection.send(&n3::attack_flagged(own, t, flag));
                             attack_sent = Some(Instant::now());
                         }
-                        Some(crate::combat::Attack::Refuse(name)) => pending_messages.push(crate::feedback::plain(name)),
+                        Some(crate::combat::Attack::Refuse(names)) => pending_messages.extend(names.iter().map(|n| crate::feedback::plain(n))),
                         _ => {}
                     }
                 }

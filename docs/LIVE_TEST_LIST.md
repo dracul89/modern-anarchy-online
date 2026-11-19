@@ -1023,6 +1023,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] /ignore with a player targeted ignores them (game text "Ignoring character ..."); /ignore list shows them; /ignore on your own name is refused
 - [ ] Another player toggles walk (the walk key) near you: their walk animation shows even when the server's reports make them look fast; creatures on paths walk/run as before.
 - [ ] Walk about for a few minutes (stairs, slopes, a door): the log shows no "server names us at" line, or if it does, the character stays and later uses are not "too far away".
+- [ ] Press the attack key with oneself selected: two lines ("can't attack yourself", then "unable to attack target"); in water: "can't attack in this state".
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

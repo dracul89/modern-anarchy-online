@@ -60,12 +60,10 @@ pub fn close_target(own: [f32; 3], own_side: u8, current: Option<u32>, list: &[C
 /// What the attack key does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Attack {
-    /// `N3Msg_StopAttack`: the `StopFight` message.
-    Stop,
     /// FUN_1006817d: the `Attack` message.
     Start(u32),
-    /// Nothing sent; the feedback line (text.mdb's name).
-    Refuse(&'static str),
+    /// Nothing sent; the feedback lines (text.mdb's names), in order.
+    Refuse(&'static [&'static str]),
 }
 
 /// What the attack key's target is, as FUN_10069a9f looks at it.
@@ -79,35 +77,58 @@ pub enum Target {
     Other,
 }
 
-/// `N3Msg_DefaultAttack(selection, false)`: a fighting character stops; else the selection is checked (FUN_10069a9f's
-/// first refusals: oneself, the dead, not a character; swimming refuses with its own line) and attacked, unless an attack
-/// is still on its way (FUN_1006817d's +0x79).
-pub fn default_attack(fighting: bool, swimming: bool, pending: bool, target: Option<u32>, kind: Target) -> Attack {
-    if fighting {
-        return Attack::Stop;
-    }
-    if swimming {
-        return Attack::Refuse("Feedback_YouCantAttackWhileSwimming");
-    }
-    let Some(target) = target else { return Attack::Refuse("Feedback_UnableToAttackTarget") };
+/// One's own character as FUN_10069a9f looks at it: whether it flies (movement mode 7), its state flags (stat 224) and
+/// its stat 215.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Own {
+    pub flying: bool,
+    pub flags: i64,
+    pub stat_215: i64,
+}
+
+/// FUN_10069a9f(target, feedback): whether the selection may be attacked, else the line it says (none when it says
+/// nothing). Of its checks those whose facts this client keeps: oneself; one's own state flag 0x80000000 with stat 215
+/// set lets any character be attacked; swimming (mode 4); one's own flag 0x400 or flying (mode 7); the dead (the
+/// original says nothing for one whose health stat is not 0). Not followed: the target's own flags (0x20000000 "can't be
+/// attacked", 0x80000000), surrender (stats 449, 451), the suppression districts, the side and team checks
+/// (FUN_10067c06, FUN_10065d65 ...) and items (flag 0x10000000 and use criterion 0xb, else
+/// `Feedback_YouCantAttackThisItem`): the client counts every other thing as not attackable, silently.
+fn attackable(swimming: bool, kind: Target, own: Own) -> Result<(), Option<&'static str>> {
     match kind {
-        Target::Yourself => Attack::Refuse("Feedback_YouCantAttackYourself"),
-        Target::Character { dead: true } => Attack::Refuse("Feedback_TargetIsAlreadyDead"),
-        Target::Nothing | Target::Other => Attack::Refuse("Feedback_UnableToAttackTarget"),
-        Target::Character { dead: false } if pending => Attack::Refuse("Feedback_PleaseWaitUntilPreviousAction"),
-        Target::Character { dead: false } => Attack::Start(target),
+        Target::Nothing | Target::Other => Err(None),
+        Target::Yourself => Err(Some("Feedback_YouCantAttackYourself")),
+        Target::Character { .. } if own.flags as u32 & 0x8000_0000 != 0 && own.stat_215 != 0 => Ok(()),
+        Target::Character { .. } if swimming => Err(Some("Feedback_YouCantAttackWhileSwimming")),
+        Target::Character { .. } if own.flags & 0x400 != 0 || own.flying => Err(Some("Feedback_YoureUnableToAttack")),
+        Target::Character { dead: true } => Err(Some("Feedback_TargetIsAlreadyDead")),
+        Target::Character { dead: false } => Ok(()),
     }
 }
 
-/// `N3Msg_SwitchTarget` (Gamecode 0x10028422), `N3Msg_DefaultAttack(selection, true)` (0x10028147): a fight goes on to
-/// another target: whoever fights stops first; the one already fought is only stopped; anyone else is checked as for
-/// the attack key and attacked, the message's flag 2 saying that a fight was left for it. Not fighting, it is a plain
-/// attack. `fought` is who the character fights now.
-pub fn switch_attack(fought: Option<u32>, fighting: bool, swimming: bool, pending: bool, target: u32, kind: Target) -> (bool, Option<Attack>, u8) {
-    if fighting && fought == Some(target) {
+/// `N3Msg_DefaultAttack(selection, switching)` (Gamecode 0x10028147): a fighting character stops (`N3Msg_StopAttack`)
+/// first; swimming refuses (`Feedback_CantAttackInThisState`, after the stop); a fight stopped by the attack key ends
+/// there, and so does a switch to the one already fought (`fought`); else the selection is checked (FUN_10069a9f, whose
+/// own line comes first, then `Feedback_UnableToAttackTarget`) and attacked unless an attack is still on its way
+/// (FUN_1006817d's +0x79), with the message's flag 2 when a fight was left for it. Returns whether to stop, what to do
+/// next and the flag.
+pub fn attack_key(fought: Option<u32>, fighting: bool, switching: bool, swimming: bool, pending: bool, target: Option<u32>, kind: Target, own: Own) -> (bool, Option<Attack>, u8) {
+    if swimming {
+        return (fighting, Some(Attack::Refuse(&["Feedback_CantAttackInThisState"])), 0);
+    }
+    if fighting && (!switching || target.is_some_and(|t| fought == Some(t))) {
         return (true, None, 0);
     }
-    (fighting, Some(default_attack(false, swimming, pending, Some(target), kind)), if fighting { 2 } else { 0 })
+    let flag = if fighting { 2 } else { 0 };
+    let attack = match (target, attackable(swimming, kind, own)) {
+        (Some(_), Ok(())) if pending => Attack::Refuse(&["Feedback_PleaseWaitUntilPreviousAction"]),
+        (Some(t), Ok(())) => Attack::Start(t),
+        (_, Err(Some("Feedback_YouCantAttackYourself"))) => Attack::Refuse(&["Feedback_YouCantAttackYourself", "Feedback_UnableToAttackTarget"]),
+        (_, Err(Some("Feedback_YouCantAttackWhileSwimming"))) => Attack::Refuse(&["Feedback_YouCantAttackWhileSwimming", "Feedback_UnableToAttackTarget"]),
+        (_, Err(Some("Feedback_YoureUnableToAttack"))) => Attack::Refuse(&["Feedback_YoureUnableToAttack", "Feedback_UnableToAttackTarget"]),
+        (_, Err(Some("Feedback_TargetIsAlreadyDead"))) => Attack::Refuse(&["Feedback_TargetIsAlreadyDead", "Feedback_UnableToAttackTarget"]),
+        _ => Attack::Refuse(&["Feedback_UnableToAttackTarget"]),
+    };
+    (fighting, Some(attack), flag)
 }
 
 /// FUN_1004e925: the nano cost modifier in percent: stat 318, for a player at least its breed's (Solitus and Opifex 50,
@@ -222,17 +243,27 @@ mod tests {
 
     #[test]
     fn the_attack_key_toggles() {
-        assert_eq!(default_attack(true, false, false, Some(9), Target::Character { dead: false }), Attack::Stop);
-        assert_eq!(default_attack(false, false, false, Some(9), Target::Character { dead: false }), Attack::Start(9));
-        assert_eq!(default_attack(false, false, false, Some(9), Target::Character { dead: true }), Attack::Refuse("Feedback_TargetIsAlreadyDead"));
-        assert_eq!(default_attack(false, false, false, Some(1), Target::Yourself), Attack::Refuse("Feedback_YouCantAttackYourself"));
-        assert_eq!(default_attack(false, false, false, None, Target::Nothing), Attack::Refuse("Feedback_UnableToAttackTarget"));
-        assert_eq!(default_attack(false, false, true, Some(9), Target::Character { dead: false }), Attack::Refuse("Feedback_PleaseWaitUntilPreviousAction"));
+        let (alive, me) = (Target::Character { dead: false }, Own::default());
+        let key = |fighting, swimming, pending, target, kind, own| attack_key(None, fighting, false, swimming, pending, target, kind, own);
+        assert_eq!(key(true, false, false, Some(9), alive, me), (true, None, 0));
+        assert_eq!(key(false, false, false, Some(9), alive, me), (false, Some(Attack::Start(9)), 0));
+        assert_eq!(key(false, false, false, Some(9), Target::Character { dead: true }, me), (false, Some(Attack::Refuse(&["Feedback_TargetIsAlreadyDead", "Feedback_UnableToAttackTarget"])), 0));
+        assert_eq!(key(false, false, false, Some(1), Target::Yourself, me), (false, Some(Attack::Refuse(&["Feedback_YouCantAttackYourself", "Feedback_UnableToAttackTarget"])), 0));
+        assert_eq!(key(false, false, false, None, Target::Nothing, me), (false, Some(Attack::Refuse(&["Feedback_UnableToAttackTarget"])), 0));
+        assert_eq!(key(false, false, true, Some(9), alive, me), (false, Some(Attack::Refuse(&["Feedback_PleaseWaitUntilPreviousAction"])), 0));
+        // (CMB-003: swimming says its own line, after a fight is stopped; flying or state flag 0x400 can't attack; flag
+        // 0x80000000 with stat 215 lets one attack even the dead)
+        assert_eq!(key(true, true, false, Some(9), alive, me), (true, Some(Attack::Refuse(&["Feedback_CantAttackInThisState"])), 0));
+        let unable = Some(Attack::Refuse(&["Feedback_YoureUnableToAttack", "Feedback_UnableToAttackTarget"]));
+        assert_eq!(key(false, false, false, Some(9), alive, Own { flying: true, ..me }), (false, unable, 0));
+        assert_eq!(key(false, false, false, Some(9), alive, Own { flags: 0x406, ..me }), (false, unable, 0));
+        let free = Own { flags: 0x8000_0006u32 as i64, stat_215: 1, flying: true };
+        assert_eq!(key(false, false, false, Some(9), Target::Character { dead: true }, free), (false, Some(Attack::Start(9)), 0));
+        assert_eq!(key(false, false, false, Some(1), Target::Yourself, free).1, Some(Attack::Refuse(&["Feedback_YouCantAttackYourself", "Feedback_UnableToAttackTarget"])));
         // (Ctrl + click: not fighting, an attack; fighting another, a stop and an attack with the flag; the one fought, a stop)
-        let alive = Target::Character { dead: false };
-        assert_eq!(switch_attack(None, false, false, false, 9, alive), (false, Some(Attack::Start(9)), 0));
-        assert_eq!(switch_attack(Some(5), true, false, false, 9, alive), (true, Some(Attack::Start(9)), 2));
-        assert_eq!(switch_attack(Some(9), true, false, false, 9, alive), (true, None, 0));
-        assert_eq!(switch_attack(Some(5), true, false, false, 1, Target::Yourself), (true, Some(Attack::Refuse("Feedback_YouCantAttackYourself")), 2));
+        assert_eq!(attack_key(None, false, true, false, false, Some(9), alive, me), (false, Some(Attack::Start(9)), 0));
+        assert_eq!(attack_key(Some(5), true, true, false, false, Some(9), alive, me), (true, Some(Attack::Start(9)), 2));
+        assert_eq!(attack_key(Some(9), true, true, false, false, Some(9), alive, me), (true, None, 0));
+        assert_eq!(attack_key(Some(5), true, true, false, false, Some(1), Target::Yourself, me), (true, Some(Attack::Refuse(&["Feedback_YouCantAttackYourself", "Feedback_UnableToAttackTarget"])), 2));
     }
 }
