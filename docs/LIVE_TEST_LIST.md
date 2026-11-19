@@ -1172,6 +1172,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] At a mission booth, ask for missions and right-click an offer: "Look at Mission" shows its page (text, pay, reward items) in the info view; "Upload to map" marks its place again and says so. Take a mission with tips on: a mission tip may show.
 - [ ] With a character whose original layout moved or sized the notification window, notifications show in that frame; without one, in the top third.
 - [ ] Combine two items with a skill short (e.g. lock picks on a nano interface): the server's line shows in the tradeskill window's build text and not in the chat.
+- [ ] Set the mouse wheel option to scroll the side bar, dock enough windows in the rollup column to overflow it, and turn the wheel over the world: the column scrolls 40 a notch and the camera does not zoom; restart: the column is scrolled as it was left.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

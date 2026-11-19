@@ -7778,3 +7778,7 @@ A `PowerBar` element's `label` is written centred over the bar, and `left_label`
 ### The tradeskill window's build text from the server (WIN-148)
 
 The server's `FormatFeedback` lines (`FormatFeedbackIIR_t`) carry a kind in their last word: kind 1 is not a chat line in the original but the tradeskill window's build text (Gamecode FUN_1005aff0 emits it on GlobalSignals +0x1d8, `TradeSkillView_c` FUN_100de45e sets `BuildFeedback`): the "you need at least ..." lines of a combine. The client now puts them there (`tradeskill::Event::Feedback`) instead of the chat; the other kinds stay in the chat. The window's other global slot (+0x1d4) does nothing in the original.
+
+### The rollup column's wheel and scroll (WIN-034)
+
+With the options' mouse wheel set to scroll the side bar (`MouseWheel` 1), the wheel over the world scrolls the rollup column 40 points a notch, as the original's `RollupController_c` does (FUN_10048822 connects its `WheelMoved`, FUN_100487aa, to the global wheel); 0 still zooms the camera and 2 does nothing. The column's scroll is kept between sessions, as the controller keeps its `scroll_offset` (FUN_10048e92, FUN_100489f9): a line of rollup.ini.

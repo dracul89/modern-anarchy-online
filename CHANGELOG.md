@@ -111,6 +111,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The planet map shows the Shadowlands map in every Shadowlands playfield, dungeons included, as the original does.
 - With land control shown on the map, a light grey circle marks where a tower would stand while the tower build menu holds an item.
 - Right-clicking a mission booth offer opens its menu: Look at Mission and Upload to map.
+- With the mouse wheel set to scroll the side bar, the wheel over the world scrolls the rollup column; the column keeps its scroll between sessions.
 
 ### Items
 

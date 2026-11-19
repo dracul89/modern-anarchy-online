@@ -1688,11 +1688,14 @@ impl ApplicationHandler for App {
                 };
                 if self.live.is_some() {
                     // (a notch up zooms the game's camera in, when the wheel over the world is set to zoom:
-                    // `MouseWheel` 0, which N3.dll's camera connects its zoom by, 0x100215c8. 1 scrolls the control
-                    // center's side bar in the original, 40 a step, which is not done here; 2 does nothing.)
+                    // `MouseWheel` 0, which N3.dll's camera connects its zoom by, 0x100215c8. 1 scrolls the rollup
+                    // column instead (`rollup::wheel`); 2 does nothing.)
                     // (a notch moves the camera `ZoomSpeed` / 10 units, 2 at the default 20: N3.dll FUN_100200ef)
-                    if crate::prefs::get("MouseWheel").unwrap_or(0.0) == 0.0 {
+                    let mode = crate::prefs::get("MouseWheel").unwrap_or(0.0);
+                    if mode == 0.0 {
                         self.wheel -= lines * crate::prefs::get("ZoomSpeed").unwrap_or(20.0) as f32 / 10.0;
+                    } else if mode == 1.0 {
+                        crate::rollup::wheel(lines);
                     }
                 } else {
                     let closest = w.scene.radius * 0.1;

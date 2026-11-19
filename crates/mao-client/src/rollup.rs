@@ -33,10 +33,11 @@
 //! height); without the file the original's own `DockAreas/RollupArea.xml` for the character gives them once the
 //! character is known (`aoprefs::rollup_file`), else the original's default set is docked, all expanded. A window
 //! coming in takes the room its
-//! free window had (`layout::saved_size`), else a starting height of this client's ([`default_height`]). Not done: the
-//! views' own smallest and largest heights and their grid steps (a page's height is only kept above none here), the
-//! mouse wheel (`MouseWheel`), the column's scroll kept between sessions; a view needing more than the column's width
-//! widens its page (the original's would not).
+//! free window had (`layout::saved_size`), else a starting height of this client's ([`default_height`]). The column's
+//! scroll is kept too (a `scroll_offset` line, FUN_10048e92 / FUN_100489f9), and with `MouseWheel` 1 the wheel over the
+//! world scrolls it 40 a notch ([`wheel`]). Not done: the views' own smallest and largest heights and their grid steps
+//! (a page's height is only kept above none here); a view needing more than the column's width widens its page (the
+//! original's would not).
 
 use std::sync::Mutex;
 
@@ -121,6 +122,7 @@ pub struct Line {
 /// missing).
 pub fn parse(text: &str) -> Vec<Line> {
     text.lines()
+        .filter(|line| !line.starts_with(SCROLL_KEY))
         .filter_map(|line| {
             let mut words: Vec<&str> = line.split_whitespace().collect();
             let mut flag = words.pop()?;
@@ -139,6 +141,20 @@ pub fn parse(text: &str) -> Vec<Line> {
         .collect()
 }
 
+/// The line of `rollup.ini` that keeps the column's scroll (the controller's `scroll_offset`, saved by FUN_10048e92 and
+/// read back by FUN_100489f9).
+const SCROLL_KEY: &str = "scroll_offset ";
+
+/// The scroll `rollup.ini` keeps, if it has one.
+pub fn parse_scroll(text: &str) -> Option<f32> {
+    text.lines().find_map(|l| l.strip_prefix(SCROLL_KEY)).and_then(|v| v.trim().parse::<f32>().ok()).filter(|v| v.is_finite())
+}
+
+/// The scroll's line (always with a decimal, so that no older reader takes it for a page's).
+pub fn render_scroll(scroll: f32) -> String {
+    format!("{SCROLL_KEY}{:.1}\n", scroll)
+}
+
 pub fn render(lines: &[Line]) -> String {
     lines.iter().map(|l| format!("{} {}{}\n", l.name, l.expanded as u8, l.height.map_or(String::new(), |h| format!(" {}", h.round())))).collect()
 }
@@ -148,7 +164,10 @@ fn load(state: &mut Rollup) {
         return;
     }
     state.loaded = true;
-    let list = if disabled() { None } else { std::fs::read_to_string(path()).ok().map(|t| parse(&t)) };
+    let text = if disabled() { None } else { std::fs::read_to_string(path()).ok() };
+    // (the column's scroll as it was left, FUN_100489f9's `scroll_offset`)
+    state.scroll = text.as_deref().and_then(parse_scroll).unwrap_or(0.0).max(0.0);
+    let list = text.map(|t| parse(&t));
     state.seeded = disabled() || list.is_some();
     let list = list.unwrap_or_else(|| DEFAULT.iter().map(|n| Line { name: n.to_string(), expanded: true, height: None }).collect());
     state.pages = list.into_iter().map(|l| Page { height: l.height.unwrap_or_else(|| default_height(&l.name)), name: l.name, expanded: l.expanded, width: WIDTH, shown: 0 }).collect();
@@ -159,7 +178,7 @@ fn save(state: &Rollup) {
         return;
     }
     let list: Vec<Line> = state.pages.iter().map(|p| Line { name: p.name.clone(), expanded: p.expanded, height: Some(p.height) }).collect();
-    let _ = std::fs::write(path(), render(&list));
+    let _ = std::fs::write(path(), render(&list) + &render_scroll(state.scroll));
 }
 
 /// Whether the window is a page of the rollup area now.
@@ -281,6 +300,21 @@ fn places(state: &Rollup, top: f32, header: f32) -> Vec<(String, f32, f32)> {
         y += h;
     }
     out
+}
+
+/// The wheel over the world (no window under the pointer) with `MouseWheel` 1: the controller connects its `WheelMoved`
+/// to the global wheel signal (GlobalSignals +0x21c, FUN_10048822), which scrolls the column 40 a notch
+/// (FUN_100487aa: `ScrollBy(0, wheel * 40)`, the wheel positive downwards); `lines` are notches, up positive. The scroll
+/// is held to the pages when they are next laid out ([`clamp_scroll`]).
+pub fn wheel(lines: f32) {
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    state.scroll = wheel_scroll(state.scroll, lines).max(0.0);
+    save(&state);
+}
+
+/// The scroll a wheel of `lines` notches (up positive) leaves: 40 a notch, up towards the top.
+fn wheel_scroll(scroll: f32, lines: f32) -> f32 {
+    scroll - lines * 40.0
 }
 
 /// The column's scroll held between none and the pages' height past the column's (`View::ScrollBy` 0x1014d269).
@@ -522,6 +556,8 @@ pub fn page<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str, 
                 (Held::Scroll(start), Some(at)) => {
                     state.scroll -= (at.y - bounds.top()) - start;
                     ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                    // (kept when let go, as the controller keeps `scroll_offset`)
+                    save_now |= !down;
                 }
                 (Held::Size(start, from), Some(at)) => {
                     if let Some(p) = state.pages.iter_mut().find(|p| p.name == name) {
@@ -621,6 +657,15 @@ mod tests {
     /// The scroll stays between none and what the pages have past the column.
     #[test]
     fn the_column_scrolls_within_its_pages() {
+        // (FUN_100487aa: 40 a notch, a notch up towards the top)
+        assert_eq!(wheel_scroll(100.0, 1.0), 60.0);
+        assert_eq!(clamp_scroll(wheel_scroll(20.0, 1.0), 400.0, 300.0), 0.0);
+        assert_eq!(wheel_scroll(0.0, -2.0), 80.0);
+        // (the scroll's line is kept beside the pages' and no page is made of it)
+        let text = render(&[Line { name: "Wear".into(), expanded: true, height: Some(330.0) }]) + &render_scroll(1.0);
+        assert_eq!(parse(&text), vec![Line { name: "Wear".into(), expanded: true, height: Some(330.0) }]);
+        assert_eq!(parse_scroll(&text), Some(1.0));
+        assert_eq!(parse_scroll("Wear 1 330\n"), None);
         assert_eq!(clamp_scroll(50.0, 400.0, 300.0), 50.0);
         assert_eq!(clamp_scroll(150.0, 400.0, 300.0), 100.0);
         assert_eq!(clamp_scroll(-20.0, 400.0, 300.0), 0.0);
