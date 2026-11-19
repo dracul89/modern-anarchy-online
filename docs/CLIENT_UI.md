@@ -7794,3 +7794,7 @@ The original takes the clicked point to a character of the text (`TextRenderer_c
 ### Nano programs' school buttons in rows as wide as the window (WIN-016)
 
 The original's `SchoolSelector_c` (FUN_100d6051, on resize FUN_100d7244) lays its school buttons left to right, 6 pixels apart, each at its preferred size less 8 by 2 (FUN_100d6df0); a button that would come within 3 pixels of the width starts a new row 5 pixels below, and each row is spread over the width. The program grid takes as many columns as its width holds. The client did two buttons a row and four columns docked, one row and six columns free; it now lays them as the original at any width (`nanoprograms::flow`). The selector asks only for its widest button's width, so the free window can still be narrowed.
+
+### Scroll bars drawn as their pictures are (WIN-018)
+
+The original's scroll bars are made in code (`ScrollView_c::_UpdateScrollBars` 0x10142b68, `ScrollBar_c::ScrollBar_c` 0x10141f27) and never given a colour: a view starts white (FUN_1014fc2a), and so do the bar's picture surfaces (`ViewSurface_c::_Initialize` 0x1015208d) and its knob's `BitmapView_c`. The client tinted the XML views' scroll bars with the theme's accent colour; it now draws their pictures untinted.

@@ -4810,7 +4810,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the XML scroll bars' pictures are tinted with the palette's accent colour
 - A player notices: scroll bar colours follow the client's theme
 - Where: `crates/mao-client/src/gui/scroll.rs:174`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Read: the scroll views' bars are made in code (ScrollView_c::_UpdateScrollBars 0x10142b68 → ScrollBar_c::ScrollBar_c 0x10141f27, "textview_scrollbar", pictures 0x178/0x179/0x17a) and nothing sets their colour: a view's colour starts at 0xffffff (FUN_1014fc2a from View::View 0x1014e296; View::SetColor 0x1014a2fc writes that field), the arrow surfaces' too (ViewSurface_c::_Initialize 0x1015208d sets +0x50 to 0xffffff), and the knob is a BitmapView_c (0x10125c16) with no colour either. So the original draws the scroll bar pictures as they are; the client tinted them with the theme's accent colour. gui/scroll.rs now draws them white (untinted). No unit test (a colour constant). Not touched: chrome.rs's own scroll area for the client's egui windows (also tinted, with the frame's colour), which is not this entry's.
 - Looked at, left (2026-11-19, overnight): The tint is the theme's accent, which for the game's own skin is GUIColors.xml's `Default` colour (theme.rs `from_gui_colors`), the colour the original tints its greyscale skin pictures with; whether the original's scroll bar pictures are tinted, and by which entry, was not read in `ScrollBar_c`. Left until it is.
 
 #### `WIN-019` TextButton sized to the widest of its three texts

@@ -171,7 +171,10 @@ impl Control for ScrollView {
         if let (Some(left), Some(right)) = (skin.get(LEFT), skin.get(RIGHT)) {
             self.arrows_h.set((left.size.x, right.size.x));
         }
-        let tint = crate::chrome::rgb(p.env.palette.accent);
+        // (the bars are made in code, `ScrollBar_c::ScrollBar_c` 0x10141f27 from `_UpdateScrollBars` 0x10142b68, and nothing
+        // sets their colour: a view's is 0xffffff (FUN_1014fc2a), as are their surfaces' (`ViewSurface_c::_Initialize`
+        // 0x1015208d) and the knob's `BitmapView_c`; so the pictures are drawn as they are)
+        let tint = egui::Color32::WHITE;
         let w = self.bar_width.get();
         if self.v_bar.get() {
             let (up, down) = self.arrows.get();
