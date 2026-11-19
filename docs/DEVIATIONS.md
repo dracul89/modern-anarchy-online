@@ -1158,7 +1158,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: those stats (and 0x25, 4, 0x3b, 0x16d, 0x1b, 0xd6) are not set
 - A player notices: selection and profession changes from such a spell do not happen
 - Where: `crates/mao-client/src/spelllist.rs:227`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The set-stat spell (0xcf22, FUN_100a4f8a) on a character (`SimpleChar_t`): stat 0x2f is not the selection as the notes had it but the `Fatness` (47), set by FUN_1003e464 (the stat through the stat holder's +0x40, and +0x2c4 = 1 so the body is made anew); stat 0x3c, the `Profession` (60), by FUN_10056552 (the stat, then stat 10 = 1 and stat 0x25 = 1). The other six of the eight (0x25, 4, 0x3b, 0x16d, 0x1b, 0xd6) do nothing, and on anything not a character none of the eight is set. The client now gives those `SetStat` outcomes (applied to one's own character, as every `SetStat` is: the client keeps no stats of others there); one's own body takes the new build at once (`fatness` reads stat 47). Test: spelllist::tests::stun_and_set_stat.
 - Looked at, left (2026-11-19, overnight): Stat 0x2f goes to the selection (FUN_1003e464) and 0x3c to FUN_10056552 only on characters; the rest (0x25, 4, 0x3b, 0x16d, 0x1b, 0xd6) set stats the client keeps only for itself. These selection/profession side effects were not read through tonight.
 
 #### `CMB-033` Sounds: special attack fields, item hits and "Sneak Attack!" texts not followed

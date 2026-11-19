@@ -1152,6 +1152,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] The "i" button on the Wear page shows the wear window's menu; on a rolled-up page, "Close".
 - [ ] Option panel rollup fade level slider darkens the column.
 - [ ] Without rollup.ini, the first login of a character the original played takes its RollupArea.xml pages and heights.
+- [ ] A body-shape program (if one is found) changes one's own character's build on screen at once.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

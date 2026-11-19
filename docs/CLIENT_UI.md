@@ -7682,3 +7682,7 @@ The column down the right edge is the original's `RollupController_c` (`rollup.r
 ### A seated character's movement keys (MOV-014)
 
 The original lets every movement pass a gate first (`N3Msg_MovementChanged` 0x10018bc4 asking `CharMovementStatus_t`'s slot 3, FUN_1006c6f4): in the sit mode forward, back, the sidesteps and the jump are refused, the turns and getting up are taken. The client does the same (`seated_keys`), and like GUI.dll's movement slots (0x100289f5 and its twins, AFCM 0xe3, `MovementWhileSittingMessage` 0x1002888f) raises the tip event `OnMovementWhileSitting` for each forward, back or sidestep key while sitting; the game ships no tip for it.
+
+### The set-stat spell's build and profession (CMB-032)
+
+The original's set-stat spell (0xcf22, Gamecode FUN_100a4f8a) leaves eight stats alone except on a character, where the `Fatness` (47) is set by FUN_1003e464, which also has the body remade, and the `Profession` (60) by FUN_10056552, which then sets stats 10 and 0x25 to 1. The client does the same for its own character; its body takes the new build at once.

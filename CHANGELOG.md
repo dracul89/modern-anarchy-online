@@ -283,6 +283,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The "Nano programs available." chat line after a long recharge is gone (the original has no such line).
 - The nano programs window keeps programs where you put them: drag a program onto another cell, and "Don't Auto Arrange" works; each school keeps its own order.
 - The NCU window's menu has the original's Auto Arrange choices (sort the icons by any column, ascending or not), kept between sessions.
+- A program that changes your character's build or profession now does so (it was ignored).
 
 ### Sound
 

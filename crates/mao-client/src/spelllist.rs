@@ -231,10 +231,15 @@ pub fn fire(run: &mut Run, scene: &dyn Scene, now: f64) -> Vec<Outcome> {
         0xcf82 if run.on.0 == crate::requirements::CHARACTER => vec![Outcome::Stun { begin: !run.ending, npc: scene.is_npc(run.on).unwrap_or(false) }],
         0xcf22 => {
             // (FUN_100a4f8a: stat 0 → the dynel's vtable +0x10 with the value, not known; stats 0x3c, 0x25, 0x2f, 4, 0x3b, 0x16d,
-            // 0x1b and 0xd6 are not set: on a character 0x2f goes to its selection (FUN_1003e464) and 0x3c to FUN_10056552, not
-            // ported; the rest is set)
+            // 0x1b and 0xd6 are not set as such: on a character (`SimpleChar_t`) 0x2f, the `Fatness`, is set by FUN_1003e464
+            // (the stat, and the body marked to be made anew, +0x2c4) and 0x3c, the `Profession`, by FUN_10056552 (the stat,
+            // then stat 10 and stat 0x25 to 1); the others of the eight do nothing; the rest is set)
             let (stat, value) = (spell.stat(0), spell.stat(39));
-            if stat == 0 || matches!(stat, 0x3c | 0x25 | 0x2f | 4 | 0x3b | 0x16d | 0x1b | 0xd6) {
+            if run.on.0 == crate::requirements::CHARACTER && stat == 0x2f {
+                vec![Outcome::SetStat { stat: 0x2f, value }]
+            } else if run.on.0 == crate::requirements::CHARACTER && stat == 0x3c {
+                vec![Outcome::SetStat { stat: 0x3c, value }, Outcome::SetStat { stat: 10, value: 1 }, Outcome::SetStat { stat: 0x25, value: 1 }]
+            } else if stat == 0 || matches!(stat, 0x3c | 0x25 | 0x2f | 4 | 0x3b | 0x16d | 0x1b | 0xd6) {
                 Vec::new()
             } else {
                 vec![Outcome::SetStat { stat: stat as u32, value }]
@@ -645,9 +650,17 @@ mod tests {
         assert_eq!(flags.bits, 0x2000006);
         let set = list(vec![spell(0xcf22, 1, 0, 2, &[(0, 689), (39, 5)])], false);
         assert_eq!(run(&set, set.target, &w, &mut Queue::default(), 0.0), vec![((0xc350, 1), Outcome::SetStat { stat: 689, value: 5 })]);
-        // (the profession is not set this way)
+        // (on a character the profession sets itself and stats 10 and 0x25 to 1, FUN_10056552; the build is set, FUN_1003e464;
+        // the other six of the eight do nothing; on anything not a character none of the eight is set)
         let set = list(vec![spell(0xcf22, 1, 0, 2, &[(0, 0x3c), (39, 5)])], false);
+        assert_eq!(shown(&set), vec![Outcome::SetStat { stat: 0x3c, value: 5 }, Outcome::SetStat { stat: 10, value: 1 }, Outcome::SetStat { stat: 0x25, value: 1 }]);
+        let set = list(vec![spell(0xcf22, 1, 0, 2, &[(0, 0x2f), (39, 2)])], false);
+        assert_eq!(shown(&set), vec![Outcome::SetStat { stat: 0x2f, value: 2 }]);
+        let set = list(vec![spell(0xcf22, 1, 0, 2, &[(0, 0x16d), (39, 2)])], false);
         assert!(shown(&set).is_empty());
+        let mut set = list(vec![spell(0xcf22, 1, 0, 2, &[(0, 0x3c), (39, 5)])], false);
+        set.target = (0xc73d, 1);
+        assert!(run(&set, set.target, &World::default(), &mut Queue::default(), 100.0).is_empty());
     }
 
     /// 0xcf76 (FUN_100a95c7): a list sets a stat for as long as it lasts, and ending says so.
