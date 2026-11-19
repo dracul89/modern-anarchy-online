@@ -6321,7 +6321,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a playfield without polygons gets one flat translucent guessed sheet at a detected seabed's level plus 1.5
 - A player notices: a plain sheet rather than liquid passes; level may be wrong
 - Where: `crates/mao-render/src/lib.rs:2233`; `crates/mao-formats/src/terrain.rs:163`; `docs/CLIENT_UI.md:70`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original's liquid is only the playfield's own water triangles (the Anarchy part of its definition object); a playfield without them has none. Terrain::water (mao-formats terrain.rs) no longer guesses a sheet over a big flat low floor; a probe over every playfield showed the guess fell on Omni-1 Trade 710 (at 6.5), Garden_of_unredeemed 4011, Pandemonium Tower 4900, Uturn Canyon/Forest 6550/6551 and Foundry of Nightmares 8040-8050, all of which have no water triangles; every other playfield the guess touched has triangles, which already replaced the sheet. MAO_WATER=level still lays a sheet for tests. Test: terrain::tests::seabed_ground_has_no_guessed_water.
 
 #### `RND-026` Map: ground picture shrunk and averaged
 

@@ -369,7 +369,7 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
     let terrain = load_terrain_data(db, playfield)?;
     eprintln!("terrain {}x{} points, {} tile types", terrain.width, terrain.height, terrain.tile_types.len());
     let mut model = terrain.model(0xf6966, terrain.height_scale);
-    // The playfield's own water polygons (the Anarchy part of its definition object) in place of the guessed sheet.
+    // The playfield's own water polygons (the Anarchy part of its definition object): its only water, as in the original.
     if let Some(anarchy) = mao_formats::playfield::load_anarchy(db, playfield) {
         if !anarchy.water.is_empty() {
             // (MAO_WATER_DUMP=1 lists the polygons' triangles: type, depth value and corners)

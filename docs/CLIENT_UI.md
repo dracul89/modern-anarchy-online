@@ -6981,3 +6981,7 @@ launcher. An older server is refused with a line, as the original's click check 
 (`anarchy.eula`, dialog 152) is shown until it is accepted; I decline ends the launcher. Where the original remembers the
 acceptance was not found, so the client keeps it as `eula = accepted` in `launcher.ini` (its own rule). Tests:
 `versions_compare_by_their_numbers`, `the_licence_is_remembered`.
+
+### No guessed water sheet (RND-025)
+
+The original's water is the playfield's own water triangles and nothing else. The client used to lay a flat translucent sheet 1.5 above any ground with a big flat low floor; it now draws water only from the triangles (and from the rooms' water in interiors). Playfields that lost the sheet: Omni-1 Trade 710, Garden_of_unredeemed 4011, Pandemonium Tower Gigantomachy 4900, Uturn Canyon 6550, Uturn Forest 6551, Foundry of Nightmares 8040/8045/8046/8050. `MAO_WATER=level` still lays one for tests.
