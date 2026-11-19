@@ -4727,7 +4727,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a mail without a recipient or a subject is not sent (this client's own)
 - A player notices: mail cannot be sent without a subject
 - Where: `docs/CLIENT_UI.md:4369`; `crates/mao-client/src/mailmessage.rs:277`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): GUI.dll's Send (FUN_1010733d) checks the text's and subject's lengths and the money fields, not whether the recipient or subject is empty; the client refused such a mail with its own line. The check is gone: such a mail goes to the server as the original sends it. No unit test (window code); mail tests pass.
 
 #### `WIN-014` Mission terminal with no offers gets the client's own sentence
 

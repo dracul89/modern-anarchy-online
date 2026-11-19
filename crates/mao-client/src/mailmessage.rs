@@ -274,8 +274,7 @@ impl MessageWindow {
                     let feedback = |name: &str, own: &str| crate::gui::xml::ldb_named(mao_formats::ldb::FEEDBACK, name, own);
                     if body.chars().count() > 2000 || body.len() > 4000 || subject.chars().count() > 0x40 {
                         crate::chrome::alert(feedback("Feedback_TextSubjectTooLong", "The text or the subject is too long."));
-                    } else if to.trim().is_empty() || subject.trim().is_empty() {
-                        self.status = "A mail needs a recipient and a subject.".into();
+                    // (FUN_1010733d checks no recipient or subject: an empty one goes to the server as it is)
                     } else if let Some(credits) = money {
                         let recipient = recipient_name(&to);
                         let send = MailCommand::Send { recipient: recipient.clone(), subject: subject.trim().to_string(), body, item: self.item.map_or((0, 0), |s| (0x68, s)), credits, express };
