@@ -7369,3 +7369,7 @@ N3.dll's camera turns by the rotate keys' 0.02 rad a frame times `MouseTurnSensi
 ### District music indoors (SND-002)
 
 The original finds the district of the character's zone (`PlayfieldDistrictInfo_t::GetDistrictData(GetZoneInstanceID())`), and in an interior the zones are its rooms. The client now does the same with the room the character stands in, so an interior whose rooms belong to different districts plays each district's music and shows its land control info; before, every interior took its first zone's.
+
+### Talking to an NPC (NPC-001)
+
+The client asks an NPC to talk once, as the original does. The client's own retry (an NPC silent for two seconds was told its chat was closed and asked again, which opened the window two seconds late) is gone.

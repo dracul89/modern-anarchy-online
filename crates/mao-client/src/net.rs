@@ -695,10 +695,6 @@ pub(crate) fn lock_skills(kind: u32, template: u32) -> Vec<u32> {
     skills
 }
 
-/// The last line the chat server told as somebody's spoken notice (its sender's name and the text, a line each) and when:
-/// an NPC's answer to a use when it will not open its window (seen live: "busy" lines).
-static NPC_SPOKE: std::sync::Mutex<Option<(String, Instant)>> = std::sync::Mutex::new(None);
-
 /// A stat of an item template.
 fn template_stat(template: u32, stat: u32) -> Option<i64> {
     let data = ITEM_DB.get()?.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten()?;
@@ -7664,10 +7660,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 let text = unpacked(text);
                                 // (`HandleVicinityMessage` → FUN_1008cdb3: its voice line, if any)
                                 crate::voices::vicinity_message(&mut voices, &name, &blob);
-                                // (an NPC that answers a use with a spoken line has answered: `NPC_SPOKE`)
-                                if let Ok(mut spoke) = NPC_SPOKE.lock() {
-                                    *spoke = Some((format!("{name}\n{}", mao_net::chat::plain(&text)), Instant::now()));
-                                }
                                 Some(Line::new(Kind::System, mao_net::chat::plain(&text)).with_markup("", &text))
                             }
                             Some(Packet::Vicinity { sender, text, blob }) => {
@@ -8056,11 +8048,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut pending_shop, mut pending_shop_status): (Option<crate::shop::ShopState>, Option<String>) = (None, None);
         // (the NPC chat: what the server said for the window, and the NPC talked to)
         let (mut pending_npc_chat, mut chat_npc): (Vec<crate::npcchat::Event>, Option<(u32, u32)>) = (Vec::new(), None);
-        // The NPC asked to talk and not yet heard from: who, when, and whether it was asked again. An NPC whose chat was
-        // open when a client went without closing it answers no new opening until it is told that chat is closed (seen
-        // live 2026-11-10), so one that stays silent for two seconds is told so and asked once more. This client's own
-        // way round it: the original has nothing of the kind.
-        let mut npc_asked: Option<((u32, u32), Instant, bool)> = None;
         // (the mission journal: the server's whole list when it sends one, and the missions it dropped)
         let (mut pending_mission_log, mut pending_missions_removed): (Vec<crate::missionlog::Arrived>, Vec<(u32, u32)>) = (Vec::new(), Vec::new());
         // (which worn items let their wearer fly, by template: looked up once each)
@@ -8309,9 +8296,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             crate::npcchat::Event::Open(n, _) | crate::npcchat::Event::Text(n, ..) | crate::npcchat::Event::Answers(n, _) | crate::npcchat::Event::Close(n) | crate::npcchat::Event::StartTrade(n, ..) | crate::npcchat::Event::Rejected(n, _) => *n,
                         };
                         let name = state.names.get(&npc.1).map(|n| n.0.clone()).or_else(|| state.infos.get(&npc.1).map(|i| i.name.clone())).unwrap_or_default();
-                        if npc_asked.is_some_and(|a| a.0 == npc) {
-                            npc_asked = None;
-                        }
                         if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                             eprintln!("npc chat: {event:?}");
                         }
@@ -8853,19 +8837,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // (the server tells the other members' health and nano, `TeamMemberInfo`; none came for oneself in the live
             // team of 2026-11-10, so one's own bars are filled from the character's own stats: this client's reading, the
             // original's member view was not read for it)
-            if let Some((npc, when, false)) = npc_asked
-                && when.elapsed() > Duration::from_secs(2)
-            {
-                // (not when the NPC answered with a line of its own instead of its window: it is not waiting on an old
-                // chat, and asked again it says the line again)
-                let name = state.names.get(&npc.1).map(|n| n.0.clone()).unwrap_or_default();
-                let spoke = NPC_SPOKE.lock().ok().and_then(|s| s.clone()).is_some_and(|(line, at)| at > when && !name.is_empty() && line.split('\n').any(|part| part.starts_with(&name)));
-                if !spoke {
-                    let _ = connection.send(&n3::npc_chat_close(own, npc));
-                    let _ = connection.send(&n3::npc_chat_open(own, npc));
-                }
-                npc_asked = Some((npc, when, true));
-            }
             crate::team::with(|t| {
                 t.own = own;
                 if let Some(me) = t.members.iter_mut().find(|m| m.id == own) {
@@ -9313,7 +9284,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             // (an NPC is talked to: `KnubotOpenChatWindow`, as aosharp opens a conversation)
                             if kind == n3::CHARACTER && t != own && state.infos.get(&t).is_some_and(|i| !i.is_player()) {
                                 let _ = connection.send(&n3::npc_chat_open(own, (kind, t)));
-                                npc_asked = Some(((kind, t), Instant::now(), false));
                             } else {
                                 let _ = connection.send(&n3::use_object(own, uses, (kind, t)));
                             }
@@ -9939,7 +9909,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         crate::chrome::alert(text.clone());
                     } else if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| !i.is_player()) {
                         let _ = connection.send(&n3::npc_chat_open(own, (kind, id)));
-                        npc_asked = Some(((kind, id), Instant::now(), false));
                     } else if kind == n3::CHARACTER && id != own && state.infos.get(&id).is_some_and(|i| i.is_player()) && !state.fighting.contains_key(&own) {
                         // (another player: the default action on them is a trade, `N3Msg_DefaultActionOnDynel` ->
                         // `N3Msg_TradeStart`, an Open naming them; the server echoes it. Not when the two bodies are

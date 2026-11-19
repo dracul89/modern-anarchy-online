@@ -1068,6 +1068,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] With a pet fighting: its hits and the hits on it show in a window subscribed to "Your pet hit by other", not in "Other hit by other".
 - [ ] Hold the camera rotate keys and the zoom keys with the default settings: compare their speed with the original client's.
 - [ ] In an interior with rooms of different districts (a city's buildings, a dungeon with a boss room), the music changes as you pass between them.
+- [ ] Talk to a few NPCs (and one right after a relog): the chat opens at once; note any NPC that stays silent.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

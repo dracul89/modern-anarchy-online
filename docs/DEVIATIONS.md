@@ -1684,7 +1684,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: an NPC silent for two seconds after being asked is told the chat is closed and asked once more; the window then opens about two seconds late
 - A player notices: NPC dialogue opens late in that case
 - Where: `crates/mao-client/src/net.rs:6565`; `docs/CLIENT_UI.md:1574`; `docs/LIVE_TEST_LIST.md:165`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The client's own rule is removed: the original opens an NPC's chat once (the use: KnubotOpenChatWindow) and has nothing that, after two seconds of silence, tells the NPC its chat is closed and asks again. Gone from net.rs: npc_asked, the close-and-reopen block and NPC_SPOKE (the record of a spoken notice that only served it). If a server NPC still holds an old chat from a client that went without closing it, the NPC will now stay silent as it would for the original client. No unit test (it was a timed network exchange); build checked.
 
 #### `NPC-002` A mission told again takes its old row; list emptied at zoning
 
