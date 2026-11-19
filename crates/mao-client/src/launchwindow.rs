@@ -382,8 +382,9 @@ impl Dialog {
     fn take_fields(&mut self) {
         self.settings.width = self.width.trim().parse().unwrap_or(self.settings.width).clamp(320, 16384);
         self.settings.height = self.height.trim().parse().unwrap_or(self.settings.height).clamp(240, 16384);
-        self.prefs.network_timeout = self.network.trim().parse().unwrap_or(self.prefs.network_timeout).clamp(5, 600);
-        self.prefs.dimension_timeout = self.dimension.trim().parse().unwrap_or(self.prefs.dimension_timeout).clamp(2, 300);
+        // (the Connection page's OK: each time-out `atoi` of its field, unchecked: Anarchy.exe 0x40ecdc)
+        self.prefs.network_timeout = crate::dimensions::page_number(&self.network);
+        self.prefs.dimension_timeout = crate::dimensions::page_number(&self.dimension);
         // (a picture of one's own with no file named is the game's pictures)
         self.prefs.background = match (self.background, self.picture.trim()) {
             (1, _) => crate::launchskin::STARS.to_string(),

@@ -179,6 +179,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The dimension list marks a dimension newer or older than your game, and PLAY becomes PATCH, which starts the game's
   own patcher and closes the launcher, as the original's does.
 - The game's licence is shown once, until you accept it.
+- The Connection page's time-outs accept any number of seconds (5 at the least, as in the original), and the time-out for entering the game now follows the page too.
 
 ### Targeting and clicks
 

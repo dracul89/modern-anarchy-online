@@ -125,6 +125,20 @@ impl Default for Prefs {
     }
 }
 
+/// A time-out field of the Connection page as the original takes it on OK (Anarchy.exe 0x40ecdc: `atoi` of the text, kept
+/// unchecked until the next start raises it to 5): leading blanks, a sign and the digits; 0 for none (and for a negative,
+/// which the client's whole seconds cannot hold).
+pub fn page_number(text: &str) -> u32 {
+    let t = text.trim_start();
+    let (negative, digits) = match t.as_bytes().first() {
+        Some(b'-') => (true, &t[1..]),
+        Some(b'+') => (false, &t[1..]),
+        _ => (false, t),
+    };
+    let value = digits.bytes().take_while(u8::is_ascii_digit).fold(0u64, |v, d| (v * 10 + (d - b'0') as u64).min(u32::MAX as u64)) as u32;
+    if negative { 0 } else { value }
+}
+
 impl Prefs {
     pub fn path() -> PathBuf {
         crate::settings::Settings::path().with_file_name("launcher.ini")
@@ -136,8 +150,10 @@ impl Prefs {
             let value = value.trim();
             match key.trim().to_ascii_lowercase().as_str() {
                 "dimension" => p.dimension = value.to_string(),
-                "network_timeout" => p.network_timeout = value.parse().unwrap_or(p.network_timeout).clamp(5, 600),
-                "dimension_timeout" => p.dimension_timeout = value.parse().unwrap_or(p.dimension_timeout).clamp(2, 300),
+                // (the original launcher raises either time-out below 5 to 5 as it starts, and keeps a larger one: Anarchy.exe
+                // 0x404bad and 0x404cc1)
+                "network_timeout" => p.network_timeout = value.parse().unwrap_or(p.network_timeout).max(5),
+                "dimension_timeout" => p.dimension_timeout = value.parse().unwrap_or(p.dimension_timeout).max(5),
                 "background" if !value.is_empty() => p.background = value.to_string(),
                 "page" => p.page = !matches!(value.to_ascii_lowercase().as_str(), "off" | "false" | "no" | "0"),
                 "eula" => p.eula = matches!(value.to_ascii_lowercase().as_str(), "accepted" | "on" | "yes" | "1"),
@@ -344,6 +360,8 @@ mod tests {
         assert_eq!((own.background.as_str(), own.page), ("D:/My Pictures/sky one.png", true));
         assert_eq!((Prefs::default().background.as_str(), Prefs::default().page), ("game", true));
         assert_eq!(Prefs::from_text(""), Prefs::default());
-        assert_eq!(Prefs::from_text("network_timeout = 100000\n").network_timeout, 600);
+        assert_eq!(Prefs::from_text("network_timeout = 100000\n").network_timeout, 100000);
+        assert_eq!((Prefs::from_text("network_timeout = 1\n").network_timeout, Prefs::from_text("dimension_timeout = 2\n").dimension_timeout), (5, 5));
+        assert_eq!((page_number(" 45s"), page_number("-3"), page_number("x")), (45, 0, 0));
     }
 }

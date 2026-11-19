@@ -297,7 +297,8 @@ impl Launcher {
         let (tx, rx) = channel();
         self.answer = Some(rx);
         self.stage = Stage::Busy;
-        // (the time-out of the launcher's Connection page when it was ever saved, else the game's own preference)
+        // (the time-out of the launcher's Connection page when it was ever saved, else the game's own preference: the
+        // original launcher's page writes the game's `GeneralNetworkTimeout` itself, Anarchy.exe 0x4050cb)
         let timeout = std::fs::read_to_string(crate::dimensions::Prefs::path()).ok().map(|t| crate::dimensions::Prefs::from_text(&t).network_timeout as f32);
         self.progress.start(timeout.unwrap_or_else(|| crate::loginviews::network_timeout("GeneralNetworkTimeout", 90.0)));
         self.message.clear();
@@ -1044,7 +1045,10 @@ impl ApplicationHandler for Launcher {
                         let at = gfx.window.outer_position().ok().map(|p| (p.x, p.y));
                         match self.start_game(&name, at) {
                             Ok(entering) => {
-                                self.progress.start(crate::loginviews::network_timeout("DimensionNetworkTimeout", 30.0));
+                                // (the launcher's Connection page writes the game's `DimensionNetworkTimeout` too, Anarchy.exe
+                                // 0x4050cb: its value when ever saved, else the game's own)
+                                let saved = std::fs::read_to_string(crate::dimensions::Prefs::path()).ok().map(|t| crate::dimensions::Prefs::from_text(&t).dimension_timeout as f32);
+                                self.progress.start(saved.unwrap_or_else(|| crate::loginviews::network_timeout("DimensionNetworkTimeout", 30.0)));
                                 self.entering = Some(entering);
                             }
                             Err(e) => self.start_error = Some(e),

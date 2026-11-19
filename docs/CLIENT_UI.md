@@ -7726,3 +7726,7 @@ FXS's BlueprintRender draws a script's generated mesh as a point list (Visualiza
 ### Sun rays flicker (RND-178)
 
 The environment's frame (Gamecode FUN_100b05b4) keeps a phase moving 50 degrees a second and makes sixteen slow waves from it, each at its own offset, as whole numbers of 255; the sun-ray fan (VisualSunRays_t, DisplaySystem FUN_1005a3a9) dims each ray by its wave (ray i by wave i & 7) under the horizon's brightness, the centre left at the brightness. The client now does the same, so the rays shimmer slowly instead of standing steady.
+
+### The Connection page's time-outs (LCH-008)
+
+The original launcher (Anarchy.exe) keeps its Connection page's two time-outs in the game's own preferences, GeneralNetworkTimeout and DimensionNetworkTimeout (written at 0x4050cb), so the game's login and entering bars run over the launcher's values. On OK it takes each field as a plain number (atoi, 0x40ecdc) without a check; at its next start it raises one below 5 to 5 (0x404bad, 0x404cc1); there is no upper limit. The client keeps the two in launcher.ini the same way: the login's bar and now also the entering bar use the page's values when saved, else the game's own (90 and 30), with 5 the least and no cap.
