@@ -7738,3 +7738,7 @@ GUI.dll's TextWindowFade_t fades a line in over its first number of seconds, hol
 ### Statels' moving parts run on the clock (RND-177)
 
 DisplaySystem's LODManager::Process gives every playfield statel mesh (0xf6951) the frame's time while its `animate` flag is set, and the flag is never cleared (it starts at 1; Gamecode only adds and removes meshes). So a playfield statel's moving parts always play on the clock in the original, as in the client; only the things the server announces follow AnimPlay/AnimPos.
+
+### A window's inner border (WIN-084)
+
+The original gives every normal window two borders (`WndBorder::SetBorderGfx`, GUI.dll 0x1015ab0e): its frame, `GFX_GUI_WINDOW3_BORDER_*` round `GFX_GUI_WINDOW_BACKGROUND` at GUIConfig_c's layer-1 alpha, and inside it a "top_level_border" of the `GFX_GUI_TAB_BORDER_*` pieces round `GFX_GUI_TAB_BACKGROUND`, in the border colour and fully solid, round the client (3 in at the sides and bottom, 24 or the frame icons + 10 down, grown by a point: `UpdateBorderSizes` 0x1015a279, `DoSetFrame` 0x10159b69). The client now draws that inner border and ground over its panel fill (`chrome::frame_shape`, `top_level_border`): with the game's skin the window's body is an even dark teal with a thin light line round it, as in the original's shots. The title row and the frame ring keep the client's own fill; what darkens the original's title row was not read.

@@ -745,7 +745,8 @@ pub fn bare_window(ctx: &egui::Context, palette: &Palette, name: &str, fade: (f3
     });
 }
 
-/// The window's fill and the original's border pieces around `outer`: thin top and sides, rounded bottom corners.
+/// The window's fill and the original's border pieces around `outer` (thin top and sides, rounded bottom corners), and the
+/// original's inner border with its ground round the client.
 pub(crate) fn frame_shape(skin: &crate::skin::Skin, outer: egui::Rect, panel: egui::Color32, tint: egui::Color32) -> egui::Shape {
     let mut shapes = vec![egui::Shape::rect_filled(outer.shrink(2.0), 2.0, panel)];
     let size = |name: &str| skin.get(&format!("GFX_GUI_WINDOW3_BORDER_{name}")).map(|s| s.size);
@@ -767,7 +768,38 @@ pub(crate) fn frame_shape(skin: &crate::skin::Skin, outer: egui::Rect, panel: eg
     piece("BL", egui::Rect::from_min_size(egui::pos2(l, b - bl.y), bl));
     piece("BOTTOM", egui::Rect::from_min_max(egui::pos2(l + bl.x, b - bottom.y), egui::pos2(r - br.x, b)));
     piece("BR", egui::Rect::from_min_size(egui::pos2(r - br.x, b - br.y), br));
+    // (the `top_level_border` over it: `WndBorder::SetBorderGfx` (0x1015ab0e) gives a normal window a `BorderView_c` of the
+    // `GFX_GUI_TAB_BORDER_*` pieces round `GFX_GUI_TAB_BACKGROUND`, in colour code 1 at full alpha, placed round the client
+    // grown by a point (`DoSetFrame` 0x10159b69); the window's own ground stays the panel fill above)
+    let get = |name: &str| skin.get(&format!("GFX_GUI_TAB_{name}"));
+    if let (Some(bg), Some(tl), Some(top), Some(tr), Some(left), Some(right), Some(bl), Some(bottom), Some(br)) =
+        (get("BACKGROUND"), get("BORDER_TL"), get("BORDER_TOP"), get("BORDER_TR"), get("BORDER_LEFT"), get("BORDER_RIGHT"), get("BORDER_BL"), get("BORDER_BOTTOM"), get("BORDER_BR"))
+    {
+        let inner = top_level_border(outer, skin.get("GFX_GUI_WINDOW_CLOSE_X").map_or(0.0, |s| s.size.y));
+        let (l, t, r, b) = (inner.left(), inner.top(), inner.right(), inner.bottom());
+        let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+        for (sprite, rect) in [
+            (&bg, egui::Rect::from_min_max(egui::pos2(l + left.size.x, t + top.size.y), egui::pos2(r - right.size.x, b - bottom.size.y))),
+            (&top, egui::Rect::from_min_max(egui::pos2(l + tl.size.x, t), egui::pos2(r - tr.size.x, t + top.size.y))),
+            (&bottom, egui::Rect::from_min_max(egui::pos2(l + bl.size.x, b - bottom.size.y), egui::pos2(r - br.size.x, b))),
+            (&left, egui::Rect::from_min_max(egui::pos2(l, t + tl.size.y), egui::pos2(l + left.size.x, b - bl.size.y))),
+            (&right, egui::Rect::from_min_max(egui::pos2(r - right.size.x, t + tr.size.y), egui::pos2(r, b - br.size.y))),
+            (&tl, egui::Rect::from_min_size(egui::pos2(l, t), tl.size)),
+            (&tr, egui::Rect::from_min_size(egui::pos2(r - tr.size.x, t), tr.size)),
+            (&bl, egui::Rect::from_min_size(egui::pos2(l, b - bl.size.y), bl.size)),
+            (&br, egui::Rect::from_min_size(egui::pos2(r - br.size.x, b - br.size.y), br.size)),
+        ] {
+            shapes.push(egui::Shape::image(sprite.texture.id(), rect, uv, tint));
+        }
+    }
     egui::Shape::Vec(shapes)
+}
+
+/// Where a normal window whose outer rectangle is `outer` has its `top_level_border`: its client, inside the border sizes
+/// `WndBorder::UpdateBorderSizes` (0x1015a279) gives the style (3 at the sides and bottom, 24 at the top, or the frame's
+/// icons' height and 10 when that is more), grown by a point each way (`DoSetFrame` 0x10159b69).
+fn top_level_border(outer: egui::Rect, icons: f32) -> egui::Rect {
+    egui::Rect::from_min_max(outer.min + egui::vec2(3.0, 24f32.max(icons + 10.0)), outer.max - egui::vec2(3.0, 3.0)).expand(1.0)
 }
 
 /// What `ScrollBar_c` (GUI.dll) is doing with the pointer: pressing an arrow (`HitItem_e` 1 the up, 2 the down; held, it repeats
@@ -1089,6 +1121,15 @@ pub fn tab_view_hits<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], se
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A normal window's `top_level_border` (`WndBorder::UpdateBorderSizes` 0x1015a279, `DoSetFrame` 0x10159b69): its
+    /// client 3 in at the sides and bottom and 24 down (or the frame's icons and 10), grown by a point.
+    #[test]
+    fn the_top_level_border_is_round_the_client() {
+        let outer = egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(300.0, 200.0));
+        assert_eq!(top_level_border(outer, 0.0), egui::Rect::from_min_max(egui::pos2(102.0, 73.0), egui::pos2(398.0, 248.0)));
+        assert_eq!(top_level_border(outer, 15.0), egui::Rect::from_min_max(egui::pos2(102.0, 74.0), egui::pos2(398.0, 248.0)));
+    }
 
     #[test]
     fn pins_are_kept_by_name() {

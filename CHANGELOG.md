@@ -107,6 +107,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The NPC give-trade bar is the original's: a "Trade" tab window docked to the right of the NPC chat, an item grid of the NPC's slots, the NPC's request in place of the answers; V gives no more credits than you have and leaves the bar up, X (or Give again) closes it.
 - The options window's Key bindings tab is now the original's key editor: a list of actions and their keys with Reset All, Add, Change and Clear, and the "Bind Key" box.
 - The rollup column down the right edge works as the original's: 192 wide, the original's page headers, a grip under each page to size it, double click to roll a page, right-click to pick a page up and put it elsewhere (or a window's tab onto the column to dock it), the fade level from the options.
+- Windows have the original's inner border and solid dark-teal body under the title.
 
 ### Items
 
