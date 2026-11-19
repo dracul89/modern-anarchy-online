@@ -803,6 +803,34 @@ pub fn root_frames(mesh: &MeshObject) -> Vec<RootFrame> {
         .collect()
 }
 
+/// A mesh's triangle meshes in the order the original hands a statel's colours to them (DisplaySystem
+/// `VisualMesh_t::SetVertexColours`, `dropin/displaysystem/src/visualmesh.rs`: randy31's frame walk, each frame before its
+/// children and the children in the reverse of the file's order, as `RRefFrame_t::AddChild` puts each new one first), each
+/// with its simple meshes' vertex counts (their `vb_desc`): one colour per vertex, simple mesh after simple mesh.
+pub fn colour_order(mesh: &MeshObject) -> Vec<Vec<usize>> {
+    fn visit(a: &Archive, index: i32, depth: usize, out: &mut Vec<Vec<usize>>) {
+        let Some(frame) = (index >= 0 && depth <= 64).then(|| a.objects.get(index as usize)).flatten() else { return };
+        if a.class(index as usize) == Some("RTriMesh_t") {
+            if let Some(data) = frame.int("0", "data").and_then(|d| a.objects.get(d as usize)) {
+                let counts = refs(data, "mesh")
+                    .into_iter()
+                    .filter_map(|m| a.objects.get(m as usize))
+                    .map(|s| s.field("", "vb_desc").and_then(|f| f.values.first()).filter(|d| d.len() >= 16).map_or(0, |d| u32::from_le_bytes(d[12..16].try_into().unwrap()) as usize))
+                    .collect();
+                out.push(counts);
+            }
+        }
+        for child in refs(frame, "chld").into_iter().rev() {
+            visit(a, child, depth + 1, out);
+        }
+    }
+    let mut out = Vec::new();
+    for root in refs(&mesh.archive.root, "obj") {
+        visit(&mesh.archive, root, 0, &mut out);
+    }
+    out
+}
+
 /// How much of a mesh's root frame transform applies.
 #[derive(Clone, Copy, PartialEq)]
 enum Root {

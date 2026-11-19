@@ -378,6 +378,7 @@ fn every_playfields_statel_zones() {
     let game = PathBuf::from(std::env::var_os("MAO_GAME").unwrap());
     let (mut files, mut zones, mut room_files, mut coloured, mut room_statels, mut lights, mut light_meshes) = (0, 0, 0, 0, 0, 0, 0);
     let mut changed = Vec::new();
+    let (mut vertices, mut fitting) = (std::collections::HashMap::new(), 0);
     for entry in std::fs::read_dir(game.join("cd_image/data/statels")).unwrap() {
         let path = entry.unwrap().path();
         let Some(playfield) = path.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<u32>().ok()) else { continue };
@@ -416,6 +417,17 @@ fn every_playfields_statel_zones() {
             if matches!(layout, Layout::Rooms { .. }) {
                 room_statels += zone.statels.len();
                 coloured += zone.statels.iter().filter(|s| !s.light.is_empty()).count();
+                // (a statel's colours are one for each vertex of its mesh, as the original hands them on)
+                for s in zone.statels.iter().filter(|s| !s.light.is_empty()) {
+                    let total = *vertices.entry(s.mesh).or_insert_with(|| {
+                        let object = db.get(Id { kind: 0xf6951, instance: s.mesh }).ok().flatten()?;
+                        let mesh = mao_formats::mesh::parse(&object).ok()?;
+                        Some(mao_formats::model::colour_order(&mesh).iter().flatten().sum::<usize>())
+                    });
+                    if total == Some(s.light.len()) {
+                        fitting += 1;
+                    }
+                }
             }
             let bytes = &file[offsets[k]..offsets.get(k + 1).copied().unwrap_or(file.len())];
             let now: Vec<(u32, [u32; 3])> = zone.statels.iter().map(|s| (s.mesh, s.position.map(f32::to_bits))).collect();
@@ -429,11 +441,13 @@ fn every_playfields_statel_zones() {
     }
     changed.sort();
     changed.dedup();
-    eprintln!("{files} files, {room_files} of room playfields, {zones} zones; {coloured} of {room_statels} room statels coloured; {lights} lights, {light_meshes} light objects");
+    eprintln!("{files} files, {room_files} of room playfields, {zones} zones; {coloured} of {room_statels} room statels coloured, {fitting} with a colour for each vertex of their mesh; {lights} lights, {light_meshes} light objects");
     assert_eq!(changed, [1186, 1187, 4221, 9070]);
     assert_eq!((files, room_files, zones), (624, 289, 515_020));
     // (the colours run out early in a few rooms; with the other width of count they would in most)
     assert_eq!((coloured, room_statels), (209_765, 213_272));
+    // (and nine in ten have one colour for each vertex of their mesh as the database has it: the hand-out's width is right)
+    assert_eq!(fitting, 193_436);
     assert_eq!((lights, light_meshes), (398, 9451));
 }
 
