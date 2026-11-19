@@ -256,9 +256,11 @@ mod tests {
 
     #[test]
     fn stats_have_names() {
-        assert_eq!(stat_name(16), "Strength");
-        assert_eq!(stat_name(91), "Melee AC");
-        assert_eq!(stat_name(9999), "Stat 9999");
+        // (the game's text when another test has opened the game's folder, the client's table without it)
+        let game = |stat: u32| crate::feedback::texts().and_then(|t| t.get(2003, stat as i32)).filter(|n| !n.is_empty()).map(str::to_string);
+        assert_eq!(stat_name(16), game(16).unwrap_or("Strength".into()));
+        assert_eq!(stat_name(91), game(91).unwrap_or("Melee AC".into()));
+        assert_eq!(stat_name(9999), game(9999).unwrap_or("Stat 9999".into()));
     }
 
     #[test]
