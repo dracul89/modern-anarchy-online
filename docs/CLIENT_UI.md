@@ -7802,3 +7802,7 @@ The original's scroll bars are made in code (`ScrollView_c::_UpdateScrollBars` 0
 ### Windows move by the strip under the title (WIN-021)
 
 In the original a window is moved only by pressing in the strip under its top border (`WndBorder::HitTest` 0x101596b7, item 1; the rect from `WndBorder::Layout` 0x1015a4ba: the top border's width, from one pixel under it down to 18). The client's skinned windows were dragged from anywhere on their body (egui's fallback for a window without a title bar); now egui's drag-from-anywhere is held in place and the strip moves the window. The pin, close and frame menu buttons over it still work.
+
+### Bitmap fonts at the original's line height and advances (WIN-040)
+
+The original reads each `.fnt` as 255 glyph rectangles and a width table (`FontSystem_t::FontSystem_t` 0x1012eef1, each entry plus one); a font's height is the rectangle of 'a' (`FontInfo_t` +0xff0), used as each word's height with no gap (`TextRenderer_c::_UpdateWordSizes` 0x1015dab9), and a character advances by its table entry (`FontInfo_t::GetGlyphWidth` 0x1012eada, -1 above 0xff). The client drew the bitmap fonts with the glyph height plus 4 and advanced by each rectangle's width; it now uses the original's height (9 for the chat and tooltip fonts, 12 for the shell font) and the width table, and draws glyphs from the line's top.

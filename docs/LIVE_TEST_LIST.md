@@ -1177,6 +1177,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Nano programs window docked in the rollup and free: the school buttons wrap into rows spread over the width; widening the free window puts more buttons on a row and more columns in the grid; it can be narrowed again.
 - [ ] Open the info view and a long list on both skins: the scroll bar arrows and knob show the skin pictures' own colours (not tinted).
 - [ ] Drag a window (inventory, chat, a dock area) by its title strip: it moves; drag it by its body or an empty part of its content: it stays; pin, close and the frame menu still click; resize from the corner still works.
+- [ ] With "The original's chat font" on: chat lines sit 9 pixels apart without overlapping; a line with accented letters (é, ü, ø) is spaced evenly; the logout timer's "Logout" and the loading text still sit right.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

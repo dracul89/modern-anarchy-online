@@ -31,10 +31,26 @@ pub fn parse_fnt(bytes: &[u8]) -> Option<Vec<[u16; 4]>> {
     (glyphs.len() > 64).then_some(glyphs)
 }
 
+/// The width table after the 255 rectangles (`FontSystem_t::FontSystem_t` 0x1012eef1 reads 0x3fc bytes into the font's
+/// +0x101c and adds one to each): a character's advance, as `FontInfo_t::GetGlyphWidth` (0x1012eada) gives it.
+pub fn parse_widths(bytes: &[u8]) -> Option<Vec<i32>> {
+    let from = 8 + 0xff0;
+    let table = bytes.get(from..from + 0x3fc)?;
+    Some(table.chunks_exact(4).map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]).wrapping_add(1)).collect())
+}
+
+/// A line's height: `FontInfo_t` +0xff0, which `FontSystem_t::FontSystem_t` (0x1012eef1) sets to the height of character
+/// 0x61's rectangle, and `TextRenderer_c::_UpdateWordSizes` (0x1015dab9) gives each word as its height (no gap added).
+pub fn line_height(glyphs: &[[u16; 4]]) -> Option<f32> {
+    glyphs.get(0x61).map(|g| f32::from(g[3]) - f32::from(g[1]))
+}
+
 pub struct BitmapFont {
     texture: egui::TextureHandle,
     strip: [f32; 2],
     glyphs: Vec<[u16; 4]>,
+    /// Each character code's advance (below 255), from the font's width table.
+    widths: Vec<i32>,
     /// The glyph height (9 or 12).
     pub height: f32,
     /// The height of a line of text as laid out.
@@ -50,7 +66,9 @@ impl BitmapFont {
             "tooltip" => ("FontTooltip9.fnt", "GFX_FONT_TOOLTIP9"),
             _ => ("FontChat9.fnt", "GFX_FONT_CHAT9"),
         };
-        let glyphs = parse_fnt(&mao_formats::files::read(crate::theme::game_dir()?.join("cd_image/textures/fonts").join(file)).ok()?)?;
+        let bytes = mao_formats::files::read(crate::theme::game_dir()?.join("cd_image/textures/fonts").join(file)).ok()?;
+        let glyphs = parse_fnt(&bytes)?;
+        let widths = parse_widths(&bytes).unwrap_or_default();
         let (mut rgba, size) = crate::skin::decode(skin.bytes(sprite)?)?;
         // white glyphs: their brightness becomes the alpha, so the tint colours them
         for px in rgba.chunks_mut(4) {
@@ -62,7 +80,7 @@ impl BitmapFont {
         let texture = ctx.load_texture(sprite, egui::ColorImage::from_rgba_unmultiplied(size, &rgba), egui::TextureOptions::NEAREST);
         let height = glyphs.iter().skip(32).map(|g| g[3].saturating_sub(g[1])).max().unwrap_or(9) as f32;
         let space = glyphs.get(32).map(|g| (g[2].saturating_sub(g[0])) as f32).filter(|w| *w >= 2.0).unwrap_or(3.0);
-        Some(BitmapFont { texture, strip: [size[0] as f32, size[1] as f32], glyphs, height, line_height: height + 4.0, space })
+        Some(BitmapFont { texture, strip: [size[0] as f32, size[1] as f32], line_height: line_height(&glyphs).unwrap_or(height), glyphs, widths, height, space })
     }
 
     /// From a table alone (no picture), for measuring in tests.
@@ -70,7 +88,7 @@ impl BitmapFont {
     fn for_test(ctx: &egui::Context, glyphs: Vec<[u16; 4]>, height: f32) -> BitmapFont {
         let texture = ctx.load_texture("test-font", egui::ColorImage::filled([4, 4], egui::Color32::WHITE), egui::TextureOptions::NEAREST);
         let space = glyphs.get(32).map(|g| (g[2] - g[0]) as f32).filter(|w| *w >= 2.0).unwrap_or(3.0);
-        BitmapFont { texture, strip: [256.0, 256.0], glyphs, height, line_height: height + 4.0, space }
+        BitmapFont { texture, strip: [256.0, 256.0], line_height: line_height(&glyphs).unwrap_or(height), glyphs, widths: Vec::new(), height, space }
     }
 
     fn glyph(&self, c: char) -> Option<[u16; 4]> {
@@ -80,8 +98,16 @@ impl BitmapFont {
         self.glyphs.get(c as usize).copied().filter(|g| g[2] > g[0] && g[3] > g[1])
     }
 
-    /// How far the pen moves for a character (a glyph not in the font takes a space's width).
+    /// How far the pen moves for a character: the font's width table (`GetGlyphWidth` 0x1012eada), which has none above
+    /// 0xff (-1; 0xff itself is read past the table's end in the original, here a space's width). Without a table (a
+    /// test's font) the glyph's width and one, a glyph not in the font a space's.
     pub fn advance(&self, c: char) -> f32 {
+        if let Some(&w) = self.widths.get(c as usize) {
+            return w as f32;
+        }
+        if !self.widths.is_empty() && c as u32 >= 0x100 {
+            return -1.0;
+        }
         match self.glyph(c) {
             Some(g) => (g[2] - g[0]) as f32 + 1.0,
             None => self.space + 1.0,
@@ -102,7 +128,7 @@ impl BitmapFont {
                 let (w, h) = ((g[2] - g[0]) as f32, (g[3] - g[1]) as f32);
                 // a short glyph sits where it sits in its row of the strip
                 let offset = (g[1] % pitch) as f32;
-                let rect = egui::Rect::from_min_size(egui::pos2(x, pos.y + 2.0 + offset), egui::vec2(w, h));
+                let rect = egui::Rect::from_min_size(egui::pos2(x, pos.y + offset), egui::vec2(w, h));
                 let uv = egui::Rect::from_min_max(egui::pos2(g[0] as f32 / self.strip[0], g[1] as f32 / self.strip[1]), egui::pos2(g[2] as f32 / self.strip[0], g[3] as f32 / self.strip[1]));
                 mesh.add_rect_with_uv(rect, uv, color);
             }
@@ -121,7 +147,7 @@ impl BitmapFont {
             if let Some(g) = self.glyph(c) {
                 let (w, h) = ((g[2] - g[0]) as f32, (g[3] - g[1]) as f32);
                 let offset = (g[1] % pitch) as f32;
-                let rect = egui::Rect::from_min_size(egui::pos2(pos.x + x * scale.x, pos.y + (2.0 + offset) * scale.y), egui::vec2(w * scale.x, h * scale.y));
+                let rect = egui::Rect::from_min_size(egui::pos2(pos.x + x * scale.x, pos.y + offset * scale.y), egui::vec2(w * scale.x, h * scale.y));
                 let uv = egui::Rect::from_min_max(egui::pos2(g[0] as f32 / self.strip[0], g[1] as f32 / self.strip[1]), egui::pos2(g[2] as f32 / self.strip[0], g[3] as f32 / self.strip[1]));
                 mesh.add_rect_with_uv(rect, uv, color);
             }
@@ -299,6 +325,27 @@ mod tests {
         assert_eq!(parsed.len(), 128);
         assert_eq!(parsed[b'a' as usize], [10, 0, 15, 9]);
         assert!(parse_fnt(&bytes[..100]).is_none());
+    }
+
+    /// WIN-040: the advances are the width table's plus one (none above 0xff: -1), and a line is as high as 'a'.
+    #[test]
+    fn advances_are_the_width_table_and_lines_as_high_as_a() {
+        let mut bytes = vec![0u8; 8 + 0xff0 + 0x3fc];
+        // ('a''s rectangle 9 high, the table's 'a' 4 wide)
+        bytes[8 + 0x61 * 16 + 4..8 + 0x61 * 16 + 8].copy_from_slice(&11u32.to_le_bytes());
+        bytes[8 + 0x61 * 16 + 12..8 + 0x61 * 16 + 16].copy_from_slice(&20u32.to_le_bytes());
+        bytes[8 + 0xff0 + 0x61 * 4..8 + 0xff0 + 0x61 * 4 + 4].copy_from_slice(&4u32.to_le_bytes());
+        let widths = parse_widths(&bytes).unwrap();
+        assert_eq!(widths.len(), 255);
+        assert_eq!(widths[0x61], 5);
+        let ctx = egui::Context::default();
+        let mut font = BitmapFont::for_test(&ctx, table(), 9.0);
+        font.widths = widths;
+        assert_eq!(font.advance('a'), 5.0);
+        assert_eq!(font.advance('\u{2022}'), -1.0);
+        let mut glyphs = vec![[0u16; 4]; 0x62];
+        glyphs[0x61] = [0, 11, 4, 20];
+        assert_eq!(line_height(&glyphs), Some(9.0));
     }
 
     #[test]
