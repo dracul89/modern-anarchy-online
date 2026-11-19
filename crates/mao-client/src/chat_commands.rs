@@ -165,11 +165,8 @@ pub enum Parsed {
     Sit,
     /// `/perf`: the performance overlay shown or hidden.
     Perf,
-    /// `/pet <command>`: a command to the pets (its `PetCommand` number).
-    Pet { command: u32 },
-    /// `/pet [<pet> ...|all] rename <name>` (Gamecode FUN_100542ad): the pets named before the word (none: the
-    /// selected target; `all`: every pet) and the new name.
-    PetRename { pets: Vec<String>, name: String },
+    /// `/pet [<pet> ...|all] <command> [<argument>]` (Gamecode FUN_100542ad): `pet_line`.
+    Pet { line: PetLine },
     /// `/stuck`, `/anon`, `/list` and `/shop`: commands the server carries out (GUI.dll's `CCFanatic_c` list, FUN_100b4001, each
     /// sent as its text by FUN_100b36da: the line without its slash).
     Server { text: String },
@@ -256,11 +253,41 @@ pub fn suggest_with(input: &str, scripts: &[String]) -> Vec<String> {
 /// `/pet` is Gamecode's own (FUN_100542ad), not in the input line's list, but the control center's Pets menu runs it.
 pub const EXTRA: &[&str] = &["befriend", "sit", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk", "crafting", "craft"];
 
-/// `/pet <command>`'s words and the `PetCommand` numbers they send (Gamecode FUN_100542ad's table).
-/// A `/pet` line that renames: its words (one in double quotes may hold spaces), the last one the name, the one
-/// before it `rename`, and those before that the pets it is for (FUN_100542ad: the last token is the argument of
-/// the word before it, looked up among the commands that take one). The pets' names and the new name.
-pub fn pet_rename(text: &str) -> Option<(Vec<String>, String)> {
+/// `/pet`'s commands that take no argument and their `PetCommand` numbers (Gamecode FUN_100542ad's first table).
+pub const PET_COMMANDS: &[(&str, u32)] = &[
+    ("follow", 1), ("behind", 2), ("survive", 3), ("wait", 4), ("guard", 6), ("attack", 7), ("terminate", 10), ("free", 11), ("report", 14), ("heal", 12),
+];
+
+/// `/pet`'s commands that take one: the word after them (FUN_100542ad's second table).
+pub const PET_ARGUMENT_COMMANDS: &[(&str, u32)] = &[("cycle", 5), ("social", 9), ("rename", 15), ("chat", 16), ("script", 17)];
+
+/// The socials a pet is told to do (`/pet social <name>`): the value sent is the place in this list from 1 (the table at
+/// Gamecode 0x1015fbd8, which FUN_100541b7 looks the name up in without regard to case).
+pub const PET_SOCIALS: [&str; 70] = [
+    "prostrate", "angry", "apachi", "applause", "itch", "backflip", "ballet", "blowkiss", "bow", "bulge", "chicken", "cross", "crossarm", "adjust",
+    "curt", "disco", "drink", "eat", "fblock", "fishsize", "flamenco", "flip", "giggle", "gloat", "greet", "italian", "kneel", "laugh-b", "laugh-s",
+    "legshake", "lookout", "moon", "nod", "nono", "pointba", "pointfor", "pointlef", "pointrig", "pointup", "pray", "puke", "pulp", "read", "rocky",
+    "salute", "scared", "scratch", "shake", "shrug", "slap", "speech", "spit", "strong1", "strong2", "strong3", "strong4", "surprised", "surrender",
+    "swroyal", "thinker", "thumbs", "wave", "ymca", "kiss", "kisslow", "kisshigh", "hug", "sleep", "lounge", "facepalm",
+];
+
+/// A `/pet` line as Gamecode's FUN_100542ad reads it: the pets it names, the command, its value and its text.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PetLine {
+    /// The pets' names as typed (none: every pet, or for a rename the selected target; `all` first: every pet).
+    pub names: Vec<String>,
+    pub command: u32,
+    /// `cycle`'s 1 (`a...`) or 0 (`w...`); `social`'s place in [`PET_SOCIALS`].
+    pub value: u32,
+    /// `rename`'s name, `chat`'s line, `script`'s name.
+    pub text: String,
+}
+
+/// FUN_100542ad: the words (one in double quotes may hold spaces); a last word that is a command without an argument is the
+/// command, else the last is the argument of the word before it, which must be a command that takes one (`cycle`: a word
+/// starting with `a` or `w`; `social`: one of [`PET_SOCIALS`]); the words before are the pets' names. Anything else sends
+/// nothing.
+pub fn pet_line(text: &str) -> Option<PetLine> {
     let mut words: Vec<String> = Vec::new();
     let mut rest = text.trim_start();
     while !rest.is_empty() {
@@ -271,14 +298,24 @@ pub fn pet_rename(text: &str) -> Option<(Vec<String>, String)> {
         words.push(word.to_string());
         rest = after.trim_start();
     }
-    let name = words.pop()?;
-    (words.pop()?.eq_ignore_ascii_case("rename") && !name.is_empty()).then_some((words, name))
+    let find = |table: &[(&str, u32)], word: &str| table.iter().find(|c| c.0.eq_ignore_ascii_case(word)).map(|c| c.1);
+    let last = words.pop()?;
+    if let Some(command) = find(PET_COMMANDS, &last) {
+        return Some(PetLine { names: words, command, value: 0, text: String::new() });
+    }
+    let command = find(PET_ARGUMENT_COMMANDS, &words.pop()?)?;
+    let (value, text) = match command {
+        5 => (match last.chars().next()?.to_ascii_lowercase() {
+            'a' => 1,
+            'w' => 0,
+            _ => return None,
+        }, String::new()),
+        9 => (PET_SOCIALS.iter().position(|s| s.eq_ignore_ascii_case(&last))? as u32 + 1, String::new()),
+        _ if last.is_empty() => return None,
+        _ => (0, last),
+    };
+    Some(PetLine { names: words, command, value, text })
 }
-
-pub const PET_COMMANDS: &[(&str, u32)] = &[
-    ("follow", 1), ("behind", 2), ("survive", 3), ("wait", 4), ("cycle", 5), ("guard", 6), ("attack", 7), ("social", 9), ("terminate", 10),
-    ("free", 11), ("heal", 12), ("report", 14), ("rename", 15), ("chat", 16), ("script", 17),
-];
 
 /// The names a sent line's `%` arguments stand for.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -390,12 +427,9 @@ pub fn parse(line: &str) -> Parsed {
         "crafting" | "craft" => Parsed::Window { name: format!("crafting {text}").trim().to_string(), open: true },
         // (`/find <part of a name>`: the item finder with that to look for; alone, the window)
         "find" => Parsed::Window { name: format!("find {text}").trim().to_string(), open: true },
-        "pet" => match pet_rename(text) {
-            Some((pets, name)) => Parsed::PetRename { pets, name },
-            None => match text.split_whitespace().next().and_then(|w| PET_COMMANDS.iter().find(|c| c.0.eq_ignore_ascii_case(w))) {
-                Some(&(_, command)) => Parsed::Pet { command },
-                None => Parsed::Usage("/pet follow|behind|wait|guard|attack|heal|report|terminate|rename <name>|..."),
-            },
+        "pet" => match pet_line(text) {
+            Some(line) => Parsed::Pet { line },
+            None => Parsed::Usage("/pet [<pet>...|all] follow|behind|survive|wait|guard|attack|terminate|free|report|heal, or cycle a|w, social <name>, rename <name>, chat <line>, script <name>"),
         },
         "voice" => match text.split_whitespace().next() {
             Some(line) => Parsed::Voice { line: line.to_string() },
@@ -690,15 +724,23 @@ mod tests {
         assert_eq!(parse("/ignore Abc"), Parsed::Ignore { name: "Abc".into() });
         assert_eq!(parse("/ignore"), Parsed::Ignore { name: String::new() });
         assert_eq!(parse("/camp"), Parsed::Camp);
-        assert_eq!(parse("/pet attack"), Parsed::Pet { command: 7 });
-        // (a rename carries its name, and the pets named before the word; without a name it is the bare command)
-        assert_eq!(parse("/pet rename Rex"), Parsed::PetRename { pets: vec![], name: "Rex".into() });
-        assert_eq!(parse("/pet \"My Bot\" rename \"New Name\""), Parsed::PetRename { pets: vec!["My Bot".into()], name: "New Name".into() });
-        assert_eq!(parse("/pet all Rename X"), Parsed::PetRename { pets: vec!["all".into()], name: "X".into() });
-        assert_eq!(parse("/pet rename"), Parsed::Pet { command: 15 });
+        let pet = |names: &[&str], command: u32, value: u32, text: &str| Parsed::Pet { line: PetLine { names: names.iter().map(|n| n.to_string()).collect(), command, value, text: text.into() } };
+        assert_eq!(parse("/pet attack"), pet(&[], 7, 0, ""));
+        // (NPC-005, FUN_100542ad: the words before the command are the pets named; a rename carries its name)
+        assert_eq!(parse("/pet rename Rex"), pet(&[], 15, 0, "Rex"));
+        assert_eq!(parse("/pet \"My Bot\" rename \"New Name\""), pet(&["My Bot"], 15, 0, "New Name"));
+        assert_eq!(parse("/pet all Rename X"), pet(&["all"], 15, 0, "X"));
+        assert_eq!(parse("/pet Rex Fido guard"), pet(&["Rex", "Fido"], 6, 0, ""));
+        assert_eq!((parse("/pet cycle aggressive"), parse("/pet cycle w"), parse("/pet social WAVE")), (pet(&[], 5, 1, ""), pet(&[], 5, 0, ""), pet(&[], 9, 62, "")));
+        // (a last word that is a command alone is the command: "cycle" is then a pet's name)
+        assert_eq!(parse("/pet cycle attack"), pet(&["cycle"], 7, 0, ""));
+        // (a command that wants its argument and has none, an unknown social, an unknown word: nothing is sent)
+        for line in ["/pet rename", "/pet social wiggle", "/pet cycle x", "/pet dance"] {
+            assert!(matches!(parse(line), Parsed::Usage(_)), "{line}");
+        }
         assert_eq!(parse("/stuck"), Parsed::Server { text: "stuck".into() });
         assert_eq!(parse("/list doctor"), Parsed::Server { text: "list doctor".into() });
-        assert_eq!(parse("/pet Terminate"), Parsed::Pet { command: 10 });
+        assert_eq!(parse("/pet Terminate"), pet(&[], 10, 0, ""));
         assert_eq!(parse("/sit"), Parsed::Sit);
         assert_eq!(parse("/follow"), Parsed::Follow);
         assert_eq!(parse("/inspect"), Parsed::Inspect);

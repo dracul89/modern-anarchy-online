@@ -84,6 +84,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   Items in the wear window's menu, frees it. "Delete" is no longer offered for an item you are wearing.
 - The bank's items can be placed by hand: its menu has "Don't Auto Arrange", and it starts that way. Each item stays
   in the cell you put it in.
+- `/pet` takes pet names before the command (`/pet Rex guard`, `/pet all attack`) and the commands with an argument
+  (`cycle a|w`, `social <name>`, `chat`, `script`), as in the original, and says when you have no pet.
 
 ### The launcher
 

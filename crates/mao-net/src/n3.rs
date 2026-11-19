@@ -816,15 +816,21 @@ pub fn pet_command(character: u32, command: u32) -> Frame {
 /// which is the name of command 15, rename. The capture's eleven `/pet attack` confirm the part without pets or
 /// text; a command with a text was never captured.
 pub fn pet_command_text(character: u32, first: u32, command: u32, pets: &[(u32, u32)], text: &str) -> Frame {
+    pet_command_full(character, first, command, 0, pets, false, text)
+}
+
+/// [`pet_command_text`] with its value (`cycle`'s 1 or 0, `social`'s number) and the tower word: 1 when the pet is a
+/// service tower (`N3Msg_SendPetCommand` asks `N3Msg_IsPetTower`, Gamecode 0x10016d1e: `PetType` 15).
+pub fn pet_command_full(character: u32, first: u32, command: u32, value: u32, pets: &[(u32, u32)], tower: bool, text: &str) -> Frame {
     let mut data = vec![0u8];
-    for word in [first, command, 0, (pets.len() as u32 + 1) * 0x3f1] {
+    for word in [first, command, value, (pets.len() as u32 + 1) * 0x3f1] {
         data.extend_from_slice(&word.to_be_bytes());
     }
     for pet in pets {
         data.extend_from_slice(&pet.0.to_be_bytes());
         data.extend_from_slice(&pet.1.to_be_bytes());
     }
-    data.extend_from_slice(&[0; 4]);
+    data.extend_from_slice(&u32::from(tower).to_be_bytes());
     data.extend_from_slice(&(text.len() as u32).to_be_bytes());
     data.extend_from_slice(text.as_bytes());
     Message { kind: 0x6b333303, identity: (CHARACTER, character), data }.frame(character)
@@ -847,6 +853,22 @@ pub fn set_name(m: &Message) -> Option<(u32, String)> {
 /// list and `PetCommandIIR_c`'s writer (FUN_100766ec reads it back) gives the first word (the caller's 0 here, where `/pet`
 /// passes 1), the command, 0, the pets counted `(n + 1) * 0x3f1`, whether the pet is a tower (0) and an empty text.
 /// Not captured: the 2026-10-31 capture's commands were all `/pet` ones.
+#[cfg(test)]
+mod pet_command_tests {
+    /// NPC-005: the capture's typed `/pet attack` (2026-10-31, 25 bytes after the header) is what the writer makes; a
+    /// social to one pet carries its value and the pet, a tower's command its tower word.
+    #[test]
+    fn a_pet_command_is_packed_as_the_writer_packs_it() {
+        let data = |f: super::Frame| super::Message::parse(&f).unwrap().data;
+        let attack = data(super::pet_command_full(7, 1, 7, 0, &[], false, ""));
+        assert_eq!(attack, [0, 0, 0, 0, 1, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 3, 0xf1, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let social = data(super::pet_command_full(7, 1, 9, 62, &[(0xc350, 5)], true, ""));
+        assert_eq!(&social[9..13], &62u32.to_be_bytes());
+        assert_eq!(&social[13..17], &(2 * 0x3f1u32).to_be_bytes());
+        assert_eq!(&social[25..29], &1u32.to_be_bytes());
+    }
+}
+
 pub fn pet_command_to(character: u32, command: u32, pet: (u32, u32)) -> Frame {
     pet_command_text(character, 0, command, &[pet], "")
 }

@@ -992,6 +992,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Special attack range (2026-11-18): Brawl at a monster 6 m away says it is out of range and sends nothing; at 4 m it goes; Dimach from 10 m goes
 - [ ] Container windows (2026-11-18): open two corpses: two windows, each taken from on its own; the bank's window keeps a place of its own; Escape closes the corpses' windows
 - [ ] Original shortcut bars (2026-11-18): the first start fills bar 1 (Start Combat, Walk, Sit, Follow, Suspended Animation); keys 1-0, Shift+n page, Alt+n primary; drag by the strip, double-click it upright; wheel pages; drop, swap and drag out; the settings' Smart hotbars switch back
+- [ ] `/pet` lines (2026-11-18): `/pet <name> follow` moves only that pet; `/pet attack` all; `/pet social wave`; with no pet the game's line
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

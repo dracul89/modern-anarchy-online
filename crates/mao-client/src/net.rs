@@ -1096,12 +1096,11 @@ pub fn text_command(action: u8, value: u32) {
 /// the text.
 static ORG_COMMANDS: std::sync::Mutex<Vec<(u8, crate::orgboxes::At, String, bool)>> = std::sync::Mutex::new(Vec::new());
 
-/// The renames asked for by `/pet ... rename <name>`: the pets' names as typed and the new name, for the game loop
-/// (which knows the pets and the target).
-static PET_RENAMES: std::sync::Mutex<Vec<(Vec<String>, String)>> = std::sync::Mutex::new(Vec::new());
+/// The `/pet` lines typed (`chat_commands::pet_line`), for the game loop (which knows the pets and the target).
+static PET_LINES: std::sync::Mutex<Vec<crate::chat_commands::PetLine>> = std::sync::Mutex::new(Vec::new());
 
-pub fn pet_rename(pets: Vec<String>, name: String) {
-    PET_RENAMES.lock().unwrap_or_else(|e| e.into_inner()).push((pets, name));
+pub fn pet_line(line: crate::chat_commands::PetLine) {
+    PET_LINES.lock().unwrap_or_else(|e| e.into_inner()).push(line);
 }
 
 /// The raid's commands asked for by `/raid` (`n3::raid_command`), sent by the game loop.
@@ -1563,14 +1562,23 @@ impl World {
 
     /// The pets a `/pet ... rename` is for: each name's pet (without regard to case), `all` none at all (the
     /// server takes every pet), and with none named the selected target. Nothing when a name is no pet's.
-    fn pets_named(&self, named: &[String], target: Option<u32>) -> Option<Vec<(u32, u32)>> {
+    /// The pets a `/pet` line names (Gamecode FUN_100542ad): none named, the empty list (every pet), but for a rename the
+    /// selected target; `all` first, the empty list; else every pet whose name is one of them, without regard to case, and
+    /// nothing (the command is dropped) when none is.
+    fn pets_named(&self, named: &[String], target: Option<u32>, command: u32) -> Option<Vec<(u32, u32)>> {
         if named.is_empty() {
-            return Some(target.map(|t| (self.types.get(&t).copied().unwrap_or(n3::CHARACTER), t)).into_iter().collect());
+            return Some(if command == 15 { target.map(|t| (self.types.get(&t).copied().unwrap_or(n3::CHARACTER), t)).into_iter().collect() } else { Vec::new() });
         }
-        if named.iter().any(|n| n.eq_ignore_ascii_case("all")) {
+        if named[0].eq_ignore_ascii_case("all") {
             return Some(Vec::new());
         }
-        named.iter().map(|n| self.pets.values().copied().find(|p| self.names.get(&p.1).is_some_and(|name| name.0.eq_ignore_ascii_case(n)))).collect()
+        let pets: Vec<(u32, u32)> = self.pets.values().copied().filter(|p| self.names.get(&p.1).is_some_and(|name| named.iter().any(|n| name.0.eq_ignore_ascii_case(n)))).collect();
+        (!pets.is_empty()).then_some(pets)
+    }
+
+    /// Whether a pet is a service tower (`N3Msg_IsPetTower`, Gamecode 0x10016d1e: its `PetType`, stat 512, is 15).
+    fn pet_is_tower(&self, pet: u32) -> bool {
+        self.infos.get(&pet).and_then(|i| i.pet_type) == Some(15)
     }
 
     /// Another character's body in place of its own is put away (a craft taken off, a polymorph ended): one that had
@@ -7527,7 +7535,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::PetRename { .. } | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::RaidCommand { .. } | Out::RolePlay | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::RaidCommand { .. } | Out::RolePlay | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -8537,14 +8545,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if !text.is_empty() {
                     eprintln!("[{:6.1}] pet {:x}: command {command} {text:?}", clock.elapsed().as_secs_f32(), pet.1);
                 }
-                let _ = connection.send(&n3::pet_command_text(own, 0, command, &[pet], &text));
+                let _ = connection.send(&n3::pet_command_full(own, 0, command, 0, &[pet], state.pet_is_tower(pet.1), &text));
             }
-            // (`/pet ... rename <name>`, FUN_100542ad: the pets named, by their names without regard to case; `all`
-            // the empty list, which is every pet; none named, the selected target; a name that is no pet's: nothing)
-            for (named, name) in std::mem::take(&mut *PET_RENAMES.lock().unwrap_or_else(|e| e.into_inner())) {
-                if let Some(pets) = state.pets_named(&named, target) {
-                    eprintln!("[{:6.1}] pet rename of {pets:x?} to {name:?}", clock.elapsed().as_secs_f32());
-                    let _ = connection.send(&n3::pet_command_text(own, 1, 15, &pets, &name));
+            // (`/pet`, Gamecode FUN_1003fe10 and FUN_100542ad: with no pet the game's line and nothing sent; else the pets
+            // named, `pets_named`, the command, its value and its text, the first word 1 as the typed line's)
+            for line in std::mem::take(&mut *PET_LINES.lock().unwrap_or_else(|e| e.into_inner())) {
+                if state.pets.is_empty() {
+                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_YouHaveNoPet")));
+                    continue;
+                }
+                if let Some(pets) = state.pets_named(&line.names, target, line.command) {
+                    eprintln!("[{:6.1}] pet command {} ({}) to {pets:x?} {:?}", clock.elapsed().as_secs_f32(), line.command, line.value, line.text);
+                    let _ = connection.send(&n3::pet_command_full(own, 1, line.command, line.value, &pets, false, &line.text));
                 }
             }
             // The team window's answers.
@@ -13104,13 +13116,17 @@ mod door_tests {
         w.rename_remembered(first);
         w.rename_remembered(plain);
         assert_eq!(crate::pets::take_commands().into_iter().filter(|c| [first, second, plain].contains(&c.0)).collect::<Vec<_>>(), [(second, 15, "Rex".to_string())]);
-        // (the pets a typed rename is for)
+        // (the pets a typed `/pet` line is for, FUN_100542ad: none named, every pet but for a rename the target; `all`
+        // first, every pet; else those named, the ones not found left out, and nothing when none is found)
         w.types.insert(0x999, 0xc350);
-        assert_eq!(w.pets_named(&[], Some(0x999)), Some(vec![(0xc350, 0x999)]));
-        assert_eq!(w.pets_named(&[], None), Some(vec![]));
-        assert_eq!(w.pets_named(&["ALL".to_string()], Some(0x999)), Some(vec![]));
-        assert_eq!(w.pets_named(&["rex".to_string()], None), Some(vec![first]));
-        assert_eq!(w.pets_named(&["rex".to_string(), "nobody".to_string()], None), None);
+        assert_eq!(w.pets_named(&[], Some(0x999), 15), Some(vec![(0xc350, 0x999)]));
+        assert_eq!(w.pets_named(&[], Some(0x999), 7), Some(vec![]));
+        assert_eq!(w.pets_named(&["ALL".to_string()], Some(0x999), 15), Some(vec![]));
+        assert_eq!(w.pets_named(&["rex".to_string()], None, 7), Some(vec![first]));
+        assert_eq!(w.pets_named(&["rex".to_string(), "nobody".to_string()], None, 7), Some(vec![first]));
+        assert_eq!(w.pets_named(&["nobody".to_string()], None, 7), None);
+        // (a service tower is told so: its `PetType` 15)
+        assert!(!w.pet_is_tower(first.1));
     }
 
     /// One's own death is told by whichever message carries its reason. The Arete capture's own death came by a

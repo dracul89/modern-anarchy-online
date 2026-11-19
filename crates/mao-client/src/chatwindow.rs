@@ -147,10 +147,8 @@ pub enum Out {
     Sit,
     /// Show or hide the performance overlay (`/perf`).
     Perf,
-    /// A command to the pets (`/pet`): its `PetCommand` number.
-    Pet(u32),
-    /// `/pet ... rename <name>`: the pets named (none: the selected target; `all`: every pet) and the name.
-    PetRename { pets: Vec<String>, name: String },
+    /// A command to the pets (`/pet`, `chat_commands::pet_line`).
+    Pet(crate::chat_commands::PetLine),
     /// A command the server carries out (`/stuck` and the like): its text.
     Server(String),
     /// `/fxscript`: the line for the effect scripts' engine.
@@ -1188,8 +1186,10 @@ impl ChatWindow {
             Parsed::Voice { line } => Some(Out::Voice { line }),
             Parsed::Camp => Some(Out::Camp),
             Parsed::Sit => Some(Out::Sit),
-            Parsed::Pet { command } => Some(Out::Pet(command)),
-            Parsed::PetRename { pets, name } => Some(Out::PetRename { pets, name: self.expand(&name) }),
+            Parsed::Pet { mut line } => {
+                line.text = self.expand(&line.text);
+                Some(Out::Pet(line))
+            }
             Parsed::Perf => Some(Out::Perf),
             // (FUN_100b285d: its `%` arguments put in)
             Parsed::Server { text } => Some(Out::Server(self.expand(&text))),

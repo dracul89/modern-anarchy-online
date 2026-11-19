@@ -1352,7 +1352,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: /pet sends an empty pet list (all pets) and lets the server take its known target; the window's per-pet commands are built from the decompile with no capture to compare
 - A player notices: a typed pet command affects all pets; window buttons unverified
 - Where: `crates/mao-net/src/n3.rs:696`; `crates/mao-net/src/n3.rs:709`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): `/pet` is read as Gamecode's FUN_100542ad reads it: the pets named before the command (none: every pet, a rename the target; `all`; names matched without regard to case), the commands with an argument (cycle, social by Gamecode's table of 70, rename, chat, script), `Feedback_YouHaveNoPet` without a pet; the message carries the value, and the window's buttons the tower word (PetType 15). The per-pet layout is still from the writer only, never captured; `/tower` left.
 
 #### `NPC-006` Vehicle riders and other characters use plain/medium bodies only
 

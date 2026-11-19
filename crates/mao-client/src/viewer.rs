@@ -2876,8 +2876,7 @@ impl ApplicationHandler for App {
                             // (these two are for the client itself)
                             crate::chatwindow::Out::Camp => self.keys.camp = self.keys.camp.wrapping_add(1),
                             crate::chatwindow::Out::Sit => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
-                            crate::chatwindow::Out::Pet(command) => self.keys.pet = (self.keys.pet.0.wrapping_add(1), command),
-                            crate::chatwindow::Out::PetRename { pets, name } => crate::net::pet_rename(pets, name),
+                            crate::chatwindow::Out::Pet(line) => crate::net::pet_line(line),
                             crate::chatwindow::Out::Duel(what) => {
                                 self.keys.duel = (self.keys.duel.0.wrapping_add(1), what);
                                 // (an answer, typed or pressed, takes the challenge's box down)

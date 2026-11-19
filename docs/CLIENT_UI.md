@@ -6787,3 +6787,39 @@ Not ported:
 
 Tests: `the_keys_go_to_the_primary_bars_shown_page`, `the_bars_round_trip_through_text`, `the_timer_says_seconds_then_minutes`.
 The picture is `MAO_UI_PREVIEW=shortcutbar` (`MAO_HOTBARS=2`, `MAO_HOTBAR_UPRIGHT=1`).
+
+## The last high entries: pets, stats, camera, fading, chat tabs, the map (2026-11-18)
+
+The user: "NPC-005, CHT-001, WIN-024, WIN-114, WIN-151, WIN-152 and CAM-001". Four readers on a smaller model read
+the original; what the ports rest on was checked here in the decompile, the captures and the game files. None of it
+was seen in the live game.
+
+### `/pet` as the original reads it (NPC-005)
+
+`/pet` took its first word and sent the command to every pet. Gamecode's FUN_100542ad reads the line from its end
+(`chat_commands::pet_line`):
+
+- **The words.** The line is split into words; a word in double quotes may hold spaces.
+- **The command.**
+  - If the last word is a command that takes nothing, that is the command: follow, behind, survive, wait, guard, attack,
+    terminate, free, report and heal.
+  - Otherwise the last word is the argument of the word before it, which must be a command that takes one:
+    - `cycle`: a word starting with `a` (value 1) or `w` (value 0);
+    - `social`: one of the 70 socials of Gamecode's table, by its place from 1;
+    - `rename`, `chat`, `script`: the word itself is sent as the text.
+  - A line that fits neither form sends nothing and shows the usage.
+- **The pets** are named by the words before the command (`World::pets_named`):
+  - none named: every pet (the empty list), except for a rename, which goes to the selected target;
+  - `all` first: every pet;
+  - otherwise every pet whose name is one of them, without regard to case. Names that match no pet are left out, and
+    when none matches nothing is sent.
+- **With no pet at all**, the game's line `Feedback_YouHaveNoPet` is shown and nothing is sent (FUN_1003fe10).
+- **The message** (`n3::pet_command_full`) now carries the value. The pet window's buttons also set the tower word when
+  the pet is a service tower (`N3Msg_IsPetTower`, 0x10016d1e: `PetType` 15); it was always 0.
+
+The capture's eleven typed `/pet attack` lines are the reference for the bytes. A per-pet command was never captured;
+its layout comes from the writer (FUN_10076600) and the reader (FUN_100766ec), which agree. `/tower`, which the code
+reads as the same with the tower word set, is left as it was: its own command list sends it elsewhere.
+
+Tests: `lines_become_commands`, `a_pet_command_is_packed_as_the_writer_packs_it`, and the pet naming in
+`a_pets_name_is_kept_and_given_back`.
