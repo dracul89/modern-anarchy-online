@@ -3957,7 +3957,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a tell of another kind is shown as a tell
 - A player notices: extra tells shown
 - Where: `crates/mao-client/src/net.rs:6186`; `docs/GUI_DLL_PARITY.md:291`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): ChatGUIModule_c::HandlePrivateMessage (GUI.dll 0x10087e59) shows a private message only when its blob is not empty and begins with 0, 2 or 6 (`if (end != start)`, then `cVar1 == 0 / 2 / 6`); other kinds and an empty blob make nothing. New mao_net::chat::tell_is_shown; the chat loop (net.rs) drops the others before they become lines. Kind 2's extra (writing `/command assist %d` and `/command summon %d` script files into the scripts folder) is not ported. Test: chat::tests (the parse test now checks tell_is_shown).
 
 #### `CHT-026` Text database strings read byte by byte
 

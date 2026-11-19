@@ -270,6 +270,12 @@ pub fn buddy_remove_packet(id: u32) -> Vec<u8> {
 /// byte): the client that gets it shows it with no name in front and does not answer it.
 pub const AWAY_REPLY: u8 = 6;
 
+/// Whether a tell is shown at all (GUI.dll `HandlePrivateMessage` 0x10087e59): only when its blob is not empty and
+/// begins with the kind 0 (a tell), 2 (a tell that also writes the `assist` and `summon` scripts) or [`AWAY_REPLY`].
+pub fn tell_is_shown(blob: &[u8]) -> bool {
+    matches!(blob.first().copied(), Some(0 | 2 | AWAY_REPLY))
+}
+
 /// A tell to the character with this id. Its blob is one byte, 0: what the tell is (FUN_10089940 puts the queued
 /// message's kind there, and a voice line's record after it when there is one). The original shows only tells whose
 /// blob begins with 0, 2 or 6 (`HandlePrivateMessage`).
@@ -588,6 +594,9 @@ mod tests {
         assert_eq!(&line[4..9], &hex("87028f0211")[..]);
         assert_eq!(parse(30, &hex("630193db0002686900010000")), Packet::Tell { sender: 0x630193db, text: "hi".into(), blob: vec![0] });
         assert_eq!(parse(30, &hex("630193db00026869000106")), Packet::Tell { sender: 0x630193db, text: "hi".into(), blob: vec![AWAY_REPLY] });
+        // (HandlePrivateMessage shows the kinds 0, 2 and 6 only, and nothing for an empty blob)
+        assert!(tell_is_shown(&[0]) && tell_is_shown(&[2, 9]) && tell_is_shown(&[AWAY_REPLY]));
+        assert!(!tell_is_shown(&[]) && !tell_is_shown(&[1]) && !tell_is_shown(&[3]));
         assert_eq!(parse(21, &hex("000003e900034162 63".replace(' ', "").as_str())), Packet::Name { id: 1001, name: "Abc".into() });
     }
 

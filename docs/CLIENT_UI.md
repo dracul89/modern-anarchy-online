@@ -7137,3 +7137,7 @@ The original's cast effect (the program's CastEffectType, a _GfxControlSpell1_t)
 ### /inspect takes a number (CHT-005)
 
 `/inspect` alone does nothing in the original (FUN_100b280d); with a word it reads it as a number by strtoul and asks what that character wears, a name reading as 0. The client's own /inspect of the target is gone.
+
+### Tells of other kinds are not shown (CHT-025)
+
+HandlePrivateMessage (GUI.dll 0x10087e59) shows a private message only when its blob begins with the kind 0 (a tell), 2 or 6 (an away reply); a message with no blob or of another kind is not shown. The client now drops the same ones; it showed every private message as a tell. Kind 2's script files are not written.

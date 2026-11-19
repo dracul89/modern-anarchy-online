@@ -7476,6 +7476,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 crate::voices::vicinity_message(&mut voices, &who, &blob);
                                 Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup(&format!("{}: ", crate::chatwindow::name_link(&who)), &text))
                             }
+                            // (`HandlePrivateMessage` shows only a tell whose blob begins with the kind 0, 2 or 6: one with
+                            // an empty blob or of another kind makes nothing. Kind 2's script files, `/command assist` and
+                            // `/command summon`, are not written here)
+                            Some(Packet::Tell { blob, .. }) if !mao_net::chat::tell_is_shown(&blob) => None,
                             Some(Packet::Tell { sender, text, blob }) => {
                                 let raw = unpacked(text);
                                 let text = mao_net::chat::plain(&raw);
