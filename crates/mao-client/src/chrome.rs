@@ -1014,24 +1014,85 @@ pub fn text_edit(ui: &mut egui::Ui, palette: &Palette, edit: egui::TextEdit<'_>)
 /// a point and its 5 and 16 point margins, overlapping the one before by 6, 2 points in and 2 to spare), for a window
 /// that sizes itself by its tabs.
 pub fn tabs_width(ui: &egui::Ui, names: &[&str]) -> f32 {
-    let font = crate::font::verdana(ui.ctx(), 13.0);
-    let widths: Vec<f32> = names.iter().map(|n| ui.painter().layout_no_wrap(n.to_string(), font.clone(), egui::Color32::WHITE).size().x.ceil() + 1.0 + 5.0 + 16.0).collect();
+    let widths = tab_widths(ui, names);
     tab_places(&widths, f32::MAX).last().map_or(40.0, |(x, w)| x + w + 2.0) + 2.0
 }
 
-/// Where `TopBorderView_c` (GUI.dll, laid out by FUN_10147438) puts tabs `widths` wide in a strip `room` wide: the first 2 points
-/// in, each overlapping the one before by 6, every tab its own width (a `Tab`'s text width plus a point plus its 5 and 16 point
-/// margins, FUN_101463a4) when they fit, else all narrowed in proportion (`View::SpaceOut`'s share; not followed exactly). The
-/// tabs' left edges and widths.
-pub fn tab_places(widths: &[f32], room: f32) -> Vec<(f32, f32)> {
-    let total: f32 = widths.iter().sum::<f32>() - 6.0 * widths.len().saturating_sub(1) as f32;
-    let space = room - 2.0;
-    let scale = if total > space && total > 0.0 { (space / total).max(0.2) } else { 1.0 };
+/// Each tab's least and own width (`Tab`'s preferred sizes, FUN_101463a4: its first character's width, or its whole text's,
+/// and a point and its 5 and 16 point margins).
+fn tab_widths(ui: &egui::Ui, names: &[&str]) -> Vec<(f32, f32)> {
+    let font = crate::font::verdana(ui.ctx(), 13.0);
+    let width = |t: String| ui.painter().layout_no_wrap(t, font.clone(), egui::Color32::WHITE).size().x.ceil() + 1.0 + 5.0 + 16.0;
+    names.iter().map(|n| (width(n.chars().next().map(String::from).unwrap_or_default()), width(n.to_string()))).collect()
+}
+
+/// `View::SpaceOut` (GUI.dll 0x1014a44a) without weights: `space` shared among children of least sizes `least` and most
+/// `most`: each its least and an equal share of what is over (or short), a child reaching its most held there and the
+/// shares made again among the rest; what is still left after goes to those under their most by how far under they
+/// are. The sizes it gives (not clamped: short of room they fall below the least).
+pub fn space_out(space: f32, least: &[f32], most: &[f32]) -> Vec<f32> {
+    let n = least.len();
+    let mut out = vec![0.0f32; n];
+    let mut fixed = vec![false; n];
+    let mut over = space - least.iter().sum::<f32>();
+    let mut count = n as f32;
+    let mut start = 0;
+    loop {
+        let mut k = start;
+        let mut capped = false;
+        while k < n {
+            if !fixed[k] {
+                out[k] = (1.0 / count) * over + least[k];
+                if most[k] <= out[k] {
+                    over -= most[k] - least[k];
+                    count -= 1.0;
+                    out[k] = most[k];
+                    fixed[k] = true;
+                    if k == start {
+                        start = k + 1;
+                    }
+                    capped = true;
+                    break;
+                }
+            }
+            k += 1;
+        }
+        if !capped {
+            break;
+        }
+    }
+    let left = space - out.iter().sum::<f32>();
+    if left > 0.0 {
+        let under: f32 = (0..n).filter(|&k| most[k] > out[k]).map(|k| most[k] - out[k]).sum();
+        if under > 0.0 {
+            let mut left = left;
+            for k in 0..n {
+                if most[k] > out[k] {
+                    let more = (most[k] - out[k]) / under * left;
+                    out[k] += more;
+                    left -= more;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Where `TopBorderView_c` (GUI.dll, laid out by FUN_10147438) puts tabs of least and own widths `widths` (see [`tab_widths`])
+/// in a strip `room` wide: the first 2 points in, each overlapping the one before by 6, their widths shared out of the strip
+/// less 2 each side and the overlaps (`View::SpaceOut`, [`space_out`]), each rounded and kept within its least and own
+/// width; short of room they keep their least and run past the strip. The tabs' left edges and widths.
+pub fn tab_places(widths: &[(f32, f32)], room: f32) -> Vec<(f32, f32)> {
+    let least: Vec<f32> = widths.iter().map(|w| w.0).collect();
+    let most: Vec<f32> = widths.iter().map(|w| w.1.max(w.0)).collect();
+    let space = room - 4.0 + 6.0 * widths.len().saturating_sub(1) as f32;
+    let shares = space_out(space, &least, &most);
     let mut x = 2.0;
-    widths
+    shares
         .iter()
-        .map(|w| {
-            let w = (w * scale).floor();
+        .enumerate()
+        .map(|(k, &share)| {
+            let w = if share < least[k] { least[k] } else if share > most[k] { most[k] } else { (share + 0.5).floor() };
             let at = (x, w);
             x += w - 6.0;
             at
@@ -1083,7 +1144,7 @@ pub fn tab_view_hits<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], se
     let size = |name: &str| skin.get(name).map(|s| s.size).unwrap_or(egui::vec2(1.0, 1.0));
     let height = size("GFX_GUI_TAB_ACTIVE_MIDDLE").y;
     let font = crate::font::verdana(ui.ctx(), 13.0);
-    let widths: Vec<f32> = names.iter().map(|n| ui.painter().layout_no_wrap(n.to_string(), font.clone(), egui::Color32::WHITE).size().x.ceil() + 1.0 + 5.0 + 16.0).collect();
+    let widths = tab_widths(ui, names);
     let room = ui.available_width();
     let places = tab_places(&widths, room.max(40.0));
     let need = places.last().map(|(x, w)| x + w + 2.0).unwrap_or(40.0);
@@ -1191,10 +1252,15 @@ mod tests {
 
     #[test]
     fn tabs_overlap_by_six_from_two_in() {
-        assert_eq!(tab_places(&[40.0, 30.0, 50.0], 500.0), vec![(2.0, 40.0), (36.0, 30.0), (60.0, 50.0)]);
-        // (too wide: narrowed in proportion)
-        let p = tab_places(&[100.0, 100.0], 98.0);
-        assert!(p[1].0 + p[1].1 <= 98.0 + 1e-3);
+        assert_eq!(tab_places(&[(30.0, 40.0), (30.0, 30.0), (30.0, 50.0)], 500.0), vec![(2.0, 40.0), (36.0, 30.0), (60.0, 50.0)]);
+        // (WIN-071: too wide, `View::SpaceOut`: each its least and an equal share of the room over; a tab at its own width
+        // held there, the rest shared again)
+        let p = tab_places(&[(30.0, 100.0), (30.0, 40.0), (30.0, 100.0)], 140.0);
+        // (room 136 and 12 of overlap: 148 for 90 least, 58 over; the second reaches 40 and keeps it; 48 for the others)
+        assert_eq!(p, vec![(2.0, 54.0), (50.0, 40.0), (84.0, 54.0)]);
+        // (short of room: each its least, past the strip)
+        let p = tab_places(&[(30.0, 100.0), (30.0, 100.0)], 40.0);
+        assert_eq!(p, vec![(2.0, 30.0), (26.0, 30.0)]);
     }
 
     #[test]

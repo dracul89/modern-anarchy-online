@@ -7822,3 +7822,7 @@ The original holds a popup menu in a scroll view with the vertical bar on auto (
 ### Selected list rows in the original's solid colour (WIN-069)
 
 The original fills a selected list row with a colour-only surface of 0x88aadd (FUN_100f1f68), drawn solid: `ViewSurface_c::_Render` (0x10152beb) uses the view's alpha and a `ViewArea_c`'s own alpha starts at 1.0 (0x10151d76). The client blended the colour at 0.45; it now fills the row solid.
+
+### Crowded tab strips shared out as the original (WIN-071)
+
+The original's tab strip (`TopBorderView_c`, FUN_10147438) gives each tab a least width (its label's first letter, FUN_101463a4) and its own (the whole label), and shares the strip between them with `View::SpaceOut` (0x1014a44a): each its least plus an equal share of what is over, a tab reaching its own width held there and the rest shared again, the remainder going to those still under; widths are rounded and kept between least and own. The client scaled all tabs by the same factor; it now shares the room as the original, so short labels keep their width while long ones give way, and no tab goes below one letter's width.
