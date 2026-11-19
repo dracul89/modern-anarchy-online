@@ -32,6 +32,7 @@
 use std::sync::Arc;
 
 use crate::gear::{GearItem, GearWindow, Icon};
+use crate::gui::multilist;
 use crate::theme::Palette;
 
 /// An item's stat read as none (the original's 1234567890).
@@ -278,6 +279,52 @@ pub fn sold_row(db: &mao_formats::resource::ResourceDatabase, icon: &dyn Fn(u32)
     Row { item, name, icon, count, quality: entry.quality, price }
 }
 
+/// The three docks' lists: the stock (`ShopInventoryDock`, FUN_100e07b9), the partner's items or those bought
+/// (`PartnerInventoryDock`, FUN_100e0942) and one's own or those sold (`OurInventoryDock`, FUN_100e0b00).
+const DOCKS: [&str; 3] = ["ShopInventoryDock", "PartnerInventoryDock", "OurInventoryDock"];
+
+/// The columns an item list can have (FUN_100ce55d): the id, the bit of the list's column flags that adds it (none for
+/// the icon's, always there), the program's name for it, its width and its flags (the icon's sortable; the others
+/// resizable, movable and sortable; the price's also 0x10 with the list's flag 0x10, which no trade list has).
+const COLUMNS: [(i32, u32, &str, f32, u32); 5] = [(0, 0, "Icon", 16.0, 8), (1, 2, "Name", 200.0, 0xe), (2, 1, "Count", 30.0, 0xe), (3, 4, "Price", 100.0, 0xe), (4, 8, "Quality", 100.0, 0xe)];
+
+/// A dock's list as the trade view makes it (FUN_100e07b9, FUN_100e0942, FUN_100e0b00): its column flags and the most
+/// cells it asks room for downwards (the fewest are one by one, the most across 1000, which `SetViewCellCounts` makes
+/// 50, as it makes 1000 down). The stock has every column (0xf) and room for many rows; the partner's list has the
+/// price only at a shop (0xf, else 0xb) and one row of room beside a stock list, many without one (a player trade);
+/// one's own list has no price (0xb) and one row.
+pub fn dock_list(dock: usize, shop: bool) -> (u32, usize) {
+    match dock {
+        0 => (0xf, 1000),
+        1 if shop => (0xf, 1),
+        1 => (0xb, 1000),
+        _ => (0xb, 1),
+    }
+}
+
+/// The columns a list with these column flags has (FUN_100ce55d's `AddColumn`s): id, name, width, flags.
+pub fn columns(flags: u32) -> Vec<(i32, &'static str, f32, u32)> {
+    COLUMNS.iter().filter(|c| c.1 == 0 || flags & c.1 != 0).map(|c| (c.0, c.2, c.3, c.4)).collect()
+}
+
+/// A list's row (`InventoryListViewItem_c`, FUN_1003dee6): the name, how many (nothing counted reads 1) and the quality,
+/// and where the list has the price column the shop's price (FUN_100cded9: `N3Msg_GetShopItemStat(item, 74)`, which
+/// is `VendingMachine_t`'s FUN_10099e9b, what the shop sells it for), written with the thousands grouped
+/// (`FormatNumeric`, FUN_1003d7d0); sorted by the order it came in (the icon's column), the name without its case and
+/// the numbers.
+pub fn row(id: i64, icon: Option<egui::TextureId>, name: &str, count: u32, quality: u32, price: Option<i64>) -> multilist::Item {
+    use multilist::CellView::Text;
+    let mut cells = vec![(1, Text(name.to_string())), (2, Text(count.max(1).to_string()))];
+    let mut keys = vec![(0, format!("{id:08}")), (1, name.to_lowercase()), (2, format!("{:010}", count.max(1)))];
+    if let Some(price) = price {
+        cells.push((3, Text(crate::vitals::grouped(price))));
+        keys.push((3, format!("{:020}", price.max(0))));
+    }
+    cells.push((4, Text(quality.to_string())));
+    keys.push((4, format!("{quality:010}")));
+    multilist::Item { id, icon, count: count.max(1), cells, keys, ..Default::default() }
+}
+
 /// The window: the trade view's tree from the skin and the lists it shows.
 #[derive(Default)]
 pub struct ShopWindow {
@@ -305,12 +352,18 @@ pub struct ShopWindow {
     /// The credits last sent, and a confirm waiting for the frame after them.
     credits_sent: i64,
     pending_confirm: bool,
+    /// The docks' lists (none where the view has no such dock), the rows each last showed, and the keepers of their
+    /// widths and list sorts.
+    lists: [Option<crate::gui::view::Id>; 3],
+    shown: [Vec<multilist::Item>; 3],
+    keepers: [multilist::Keeper; 3],
+    /// The stock list's (in a player trade the partner's) list mode and grid order, as kept ([`ShopWindow::config`]).
+    in_list: Option<bool>,
+    grid_sort: Option<(i32, i32)>,
+    /// The window's menu (FUN_100e03c7) and its entries' keys.
+    popup: Option<crate::gui::popup::PopupMenu>,
+    menu: Option<Vec<Vec<String>>>,
 }
-
-/// The docks' heights (the item lists GUI.dll puts in them size them; here they are fixed).
-const DOCKS: [(&str, f32); 3] = [("ShopInventoryDock", 176.0), ("PartnerInventoryDock", 84.0), ("OurInventoryDock", 84.0)];
-/// A list row's height (the icon's).
-const ROW: f32 = 26.0;
 
 impl ShopWindow {
     pub fn set(&mut self, state: ShopState) {
@@ -343,7 +396,8 @@ impl ShopWindow {
                 }
             }
             Change::PlayerOpen { partner, name } => {
-                *self = ShopWindow { partner: Some(partner), name, open: true, window: self.window.take(), view: self.view, ..Default::default() };
+                let (window, lists) = (self.window.take(), self.lists);
+                *self = ShopWindow { partner: Some(partner), name, open: true, window, lists, view: self.view, ..Default::default() };
             }
             Change::PartnerCredits(credits) => self.partner_credits = credits,
             Change::Confirmed { ours } => {
@@ -375,8 +429,15 @@ impl ShopWindow {
         }
     }
 
-    /// FUN_100e1074 and the docks: `ShopTrade` (or, trading with a player, `PlayerTrade`) of the skin's `TradeGUI.xml`, the
-    /// docks and the fields given room.
+    /// The trade's config (FUN_100e121e: `TradeViewConfig` with a player, `ShopViewConfig` at a shop), the list whose mode
+    /// and order it keeps and that list's entry in it: at a shop the stock's (`shop_listview_config`), with a player the
+    /// partner's (`partner_listview_config`). They are the lists the window's menu acts on (FUN_100e03c7).
+    fn config(&self) -> (&'static str, usize, &'static str) {
+        if self.partner.is_some() { ("TradeViewConfig", 1, "partner_listview_config") } else { ("ShopViewConfig", 0, "shop_listview_config") }
+    }
+
+    /// FUN_100e1074 and the docks: `ShopTrade` (or, trading with a player, `PlayerTrade`) of the skin's `TradeGUI.xml`, each
+    /// dock given its `ItemContainerView_c` (FUN_100ce55d) and the fields given room.
     fn load(&mut self, ctx: &egui::Context) {
         let view = self.wanted_view();
         self.view = view;
@@ -384,11 +445,9 @@ impl ShopWindow {
         let Some((mut tree, root)) = crate::gui::load_view(&dirs, "TradeGUI.xml", view) else { return };
         // (the text measured from the start, so the first layout gives the labels their width)
         tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
-        for (dock, height) in DOCKS {
-            if let Some(id) = tree.find(root, dock) {
-                tree.get_mut(id).min_size = crate::gui::geom::Point::new(330.0, height);
-            }
-        }
+        self.lists = add_lists(&mut tree, root);
+        self.shown = Default::default();
+        self.keepers = Default::default();
         for field in ["PartnerName", "PartnerCashView", "OurCashView"] {
             if let Some(id) = tree.find(root, field) {
                 let node = tree.get_mut(id);
@@ -399,7 +458,7 @@ impl ShopWindow {
         if let Some(id) = tree.find(root, "PartnerStatusDock") {
             tree.get_mut(id).min_size = crate::gui::geom::Point::new(110.0, 16.0);
         }
-        self.window = Some(crate::gui::window::XmlWindow { name: "Shop".into(), title: "Shop".into(), tree, root, open: true, default_size: egui::vec2(360.0, 0.0) });
+        self.window = Some(crate::gui::window::XmlWindow { name: "Shop".into(), title: "Shop".into(), tree, root, open: true, default_size: egui::vec2(TRADE_SIZE.0, TRADE_SIZE.1) });
     }
 
     /// Draws the window; returns what to send, if anything.
@@ -434,11 +493,44 @@ impl ShopWindow {
         let mut command = None;
         let text = egui::Color32::from_rgb(palette.text[0], palette.text[1], palette.text[2]);
         let green = egui::Color32::from_rgb(0x44, 0xdd, 0x44);
+        // (the kept list mode and grid order of the list the trade's config keeps: as the original, a grid sorted by
+        // name, FUN_100ce55d's `SetListSortColumn(1, 0)` and FUN_10041258(1), until the menu changes them;
+        // `MAO_SHOP_LIST=1`: the list mode, for a picture)
+        let (config, kept, entry) = self.config();
+        let key = format!("{config}.{entry}");
+        let in_list = *self.in_list.get_or_insert_with(|| std::env::var_os("MAO_SHOP_LIST").is_some() || crate::layout::tab(&format!("{key}.List")) == Some(1));
+        let grid_sort = *self.grid_sort.get_or_insert_with(|| match crate::layout::tab(&format!("{key}.GridSort")) {
+            Some(n) if n > 0 => (((n - 1) / 2) as i32, ((n - 1) % 2) as i32),
+            _ => (1, 0),
+        });
         let w = self.window.as_mut()?;
         let skin = crate::skin::skin(ctx);
-        let min = crate::gui::host::preferred_pixels(&w.tree, w.root, false);
         let root = w.root;
+        // (the lists' rows: the stock's with its price, the bought items' with the stock's price at a shop, one's own
+        // without; each its place in its list as its id)
+        let shop_prices = !player;
+        let rows: [Vec<multilist::Item>; 3] = [
+            self.stock.iter().enumerate().map(|(i, s)| row(i as i64, s.icon.as_ref().map(|c| gear.texture(ctx, c)), &s.name, 1, s.quality, Some(s.price))).collect(),
+            self.bought.iter().enumerate().map(|(i, r)| row(i as i64, r.icon.as_ref().map(|c| gear.texture(ctx, c)), &r.name, r.count, r.quality, shop_prices.then_some(r.price))).collect(),
+            self.sold.iter().enumerate().map(|(i, r)| row(i as i64, r.icon.as_ref().map(|c| gear.texture(ctx, c)), &r.name, r.count, r.quality, None)).collect(),
+        ];
+        for (k, rows) in rows.into_iter().enumerate() {
+            let Some(list) = self.lists[k] else { continue };
+            let tree = &mut w.tree;
+            let list_mode = k == kept && in_list;
+            multilist::set_list_mode(tree, list, list_mode);
+            self.keepers[k].before(&format!("{config}.{}", DOCKS[k]), tree, list, (!list_mode).then_some(if k == kept { grid_sort } else { (1, 0) }));
+            multilist::update(tree, list);
+            if self.shown[k] != rows {
+                let prices = rows.iter().filter_map(|r| r.keys.iter().find(|c| c.0 == 3).and_then(|c| c.1.parse::<i64>().ok()).map(|p| (r.id, p))).collect();
+                multilist::set_items(tree, list, rows.clone());
+                multilist::set_prices(tree, list, prices);
+                self.shown[k] = rows;
+            }
+        }
+        let min = crate::gui::host::preferred_pixels(&w.tree, root, false);
         let tree = &mut w.tree;
+        let lists = self.lists;
         let (stock, bought, sold, info_url) = (&self.stock, &self.bought, &self.sold, &mut self.info_url);
         let buy_only = self.buy_only && self.partner.is_none();
         let name = if self.name.is_empty() { format!("Booth {:x}", self.shop.1 & 0xffff) } else { self.name.clone() };
@@ -458,116 +550,155 @@ impl ShopWindow {
         }
         let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
         let mut is_open = self.open;
+        let menu_up = self.popup.is_some();
+        let mut menu_at = None;
         // (the shop's name in the title too: the skins' `ShopTrade` views leave `PartnerName` out)
         let title = name.clone();
-        crate::chrome::window(ctx, palette, "Shop", &title, &mut is_open, |w| w.default_size(min.max(egui::vec2(360.0, 0.0))).resizable(false), |ui| {
-            let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
-            let origin = response.rect.min;
-            let tree: &crate::gui::view::Tree = tree;
-            let rect_of = |name: &str| tree.find(root, name).map(|id| crate::gui::host::screen_rect(tree, id, origin));
-            let font = egui::FontId::proportional(12.0);
-            // (each side's cost in the green GUI.dll gives the cash fields, 0x44dd44; with a player, the partner's credits,
-            // and our own field is typed in)
-            if player {
-                if let Some(r) = rect_of("PartnerStatusDock") {
-                    let status = if confirmed.1 { "Partner accepted" } else { "Partner trading" };
-                    ui.painter().text(r.left_center() + egui::vec2(4.0, 0.0), egui::Align2::LEFT_CENTER, status, font.clone(), if confirmed.1 { green } else { text });
-                }
-            }
-            for (field, rows) in [("PartnerCashView", bought), ("OurCashView", sold)] {
+        let shift = ctx.input(|i| i.modifiers.shift);
+        // (a list's row a right click acted on, and an item's page asked for: the list and the row)
+        let (mut right_act, mut page): (Option<(usize, usize)>, Option<(usize, usize)>) = (None, None);
+        crate::chrome::window(ctx, palette, "Shop", &title, &mut is_open, |w| w.default_size(min.max(egui::vec2(TRADE_SIZE.0, TRADE_SIZE.1))).resizable(true), |ui| {
+            // (the views over the whole window, laid out from the bottom so the window does not grow)
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+                let origin = response.rect.min;
+                let rect_of = |tree: &crate::gui::view::Tree, name: &str| tree.find(root, name).map(|id| crate::gui::host::screen_rect(tree, id, origin));
+                let font = egui::FontId::proportional(12.0);
+                // (each side's cost in the green GUI.dll gives the cash fields, 0x44dd44; with a player, the partner's
+                // credits, and our own field is typed in)
                 if player {
-                    break;
-                }
-                if let Some(r) = rect_of(field) {
-                    ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(40)), egui::StrokeKind::Inside);
-                    ui.painter().text(r.right_center() - egui::vec2(4.0, 0.0), egui::Align2::RIGHT_CENTER, rows.iter().map(|r| r.price).sum::<i64>().to_string(), font.clone(), green);
-                }
-            }
-            // the three lists: Icon, Name, Count, Price, Quality (a row's description as its tooltip); returns the row whose
-            // action a click asked for and the row whose page one did (`row_click`)
-            let shift = ui.input(|i| i.modifiers.shift);
-            let mut list = |ui: &mut egui::Ui, dock: &str, rows: Vec<(Option<&Arc<Icon>>, &str, u32, i64, u32, &str)>| -> (Option<usize>, Option<usize>, Option<egui::Rect>) {
-                let Some(area) = rect_of(dock) else { return (None, None, None) };
-                let (mut acted, mut page) = (None, None);
-                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area.shrink(2.0)).id_salt(dock));
-                crate::chrome::scroll(&mut child, palette, egui::ScrollArea::vertical().max_height(area.height() - 4.0).auto_shrink([false, false]), |ui| {
-                    for (i, (icon, name, count, price, quality, tip)) in rows.into_iter().enumerate() {
-                        let (r, resp) = ui.allocate_exact_size(egui::vec2(area.width() - 16.0, ROW), egui::Sense::click());
-                        if resp.hovered() {
-                            ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(12));
-                        }
-                        let icon_rect = egui::Rect::from_min_size(r.min + egui::vec2(1.0, 1.0), egui::vec2(ROW - 2.0, ROW - 2.0));
-                        if let Some(icon) = icon {
-                            ui.painter().image(gear.texture(ctx, icon), icon_rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-                        }
-                        let x = |f: f32| r.left() + f * r.width();
-                        let y = r.center().y;
-                        ui.painter().text(egui::pos2(icon_rect.right() + 4.0, y), egui::Align2::LEFT_CENTER, name, font.clone(), text);
-                        ui.painter().text(egui::pos2(x(0.68), y), egui::Align2::RIGHT_CENTER, count.to_string(), font.clone(), text);
-                        ui.painter().text(egui::pos2(x(0.87), y), egui::Align2::RIGHT_CENTER, price.to_string(), font.clone(), green);
-                        ui.painter().text(egui::pos2(x(0.99), y), egui::Align2::RIGHT_CENTER, quality.to_string(), font.clone(), text);
-                        let click = if resp.clicked() {
-                            row_click(false, shift, 0.0)
-                        } else if resp.secondary_clicked() {
-                            row_click(true, shift, right_held)
-                        } else {
-                            RowClick::Nothing
-                        };
-                        match click {
-                            RowClick::Act => acted = Some(i),
-                            RowClick::Page => page = Some(i),
-                            RowClick::Nothing => {}
-                        }
-                        if !tip.is_empty() {
-                            resp.on_hover_text(tip.replace("\r\n", "\n"));
-                        }
+                    if let Some(r) = rect_of(tree, "PartnerStatusDock") {
+                        let status = if confirmed.1 { "Partner accepted" } else { "Partner trading" };
+                        ui.painter().text(r.left_center() + egui::vec2(4.0, 0.0), egui::Align2::LEFT_CENTER, status, font.clone(), if confirmed.1 { green } else { text });
                     }
-                });
-                (acted, page, Some(area))
-            };
-            fn rows(rs: &[Row]) -> Vec<(Option<&Arc<Icon>>, &str, u32, i64, u32, &str)> {
-                rs.iter().map(|r| (r.icon.as_ref(), r.name.as_str(), r.count, r.price, r.quality, "")).collect()
-            }
-            // (a stock item clicked goes in, one of it a click; one in either list clicked comes out; with Shift the click
-            // shows the item's page. The original's pages are `shopitemid://type/instance` for a stock row, which adds
-            // the shop's price (FUN_10031fda), and `itemid://type/instance` for the others: here the client's own
-            // `shopitemid://low/high/quality/price` for a stock row and the item's own page for the other two.)
-            let page_of = |item: [u32; 4]| match item[2] {
-                0x6f => stock.get(item[3] as usize).map(|s| format!("itemref://{}/{}/{}", s.low, s.high, s.quality)),
-                _ => items.iter().find(|g| g.slot == item[3]).map(|g| format!("itemref://{}/{}/{}", g.item_id, g.high_id, g.quality)),
-            };
-            let (acted, page, stock_area) = list(ui, "ShopInventoryDock", stock.iter().map(|s| (s.icon.as_ref(), s.name.as_str(), 1, s.price, s.quality, s.description.as_str())).collect());
-            if let Some(i) = acted {
-                command = Some(ShopCommand::Buy(i));
-            }
-            if let Some(s) = page.and_then(|i| stock.get(i)) {
-                *info_url = Some(format!("shopitemid://{}/{}/{}/{}", s.low, s.high, s.quality, s.price));
-            }
-            let (acted, page, bought_area) = list(ui, "PartnerInventoryDock", rows(bought));
-            if let Some(i) = acted {
-                command = Some(ShopCommand::Remove(bought[i].item));
-            }
-            if let Some(url) = page.and_then(|i| page_of(bought[i].item)) {
-                *info_url = Some(url);
-            }
-            let (acted, page, sold_area) = list(ui, "OurInventoryDock", rows(sold));
-            if let Some(i) = acted {
-                command = Some(ShopCommand::Remove(sold[i].item));
-            }
-            if let Some(url) = page.and_then(|i| page_of(sold[i].item)) {
-                *info_url = Some(url);
-            }
-            // (an inventory item dropped on any of the three lists goes in: in shop mode FUN_100e121e gives each list's
-            // drop signal, +0x2dc, FUN_100e015f, which adds an "inventory/item" drag to the trade)
-            let dropped = |area: &Option<egui::Rect>| area.is_some_and(|a| crate::gear::letting_go(ui.ctx()) && ui.input(|i| i.pointer.interact_pos().is_some_and(|p| a.contains(p))));
-            if dragged != u32::MAX && !buy_only && [&stock_area, &bought_area, &sold_area].into_iter().any(dropped) {
-                command = Some(ShopCommand::Sell(dragged));
-            }
+                }
+                for (field, rows) in [("PartnerCashView", bought), ("OurCashView", sold)] {
+                    if player {
+                        break;
+                    }
+                    if let Some(r) = rect_of(tree, field) {
+                        ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(40)), egui::StrokeKind::Inside);
+                        ui.painter().text(r.right_center() - egui::vec2(4.0, 0.0), egui::Align2::RIGHT_CENTER, rows.iter().map(|r| r.price).sum::<i64>().to_string(), font.clone(), green);
+                    }
+                }
+                // (the row under the pointer, in which list)
+                let pointer = ui.input(|i| i.pointer.hover_pos());
+                let hovered = pointer.and_then(|at| lists.iter().enumerate().find_map(|(k, l)| l.and_then(|l| multilist::item_at(tree, l, origin, at)).map(|i| (k, i as usize))));
+                // (a right click on a row: the list's click signal, unless the button was held for the menu's delay
+                // (`row_click`); beside the rows, the window's menu, FUN_100e03c7. The original's is the frame's menu
+                // button.)
+                if ui.input(|i| i.pointer.secondary_clicked()) && !menu_up {
+                    match hovered {
+                        Some(at) => {
+                            if row_click(true, shift, right_held) == RowClick::Act {
+                                right_act = Some(at);
+                            }
+                        }
+                        None => menu_at = pointer.filter(|p| response.rect.contains(*p)),
+                    }
+                }
+                // (an inventory item dropped on any of the three lists goes in: in shop mode FUN_100e121e gives each
+                // list's drop signal, +0x2dc, FUN_100e015f, which adds an "inventory/item" drag to the trade)
+                let areas: Vec<egui::Rect> = DOCKS.iter().filter_map(|d| rect_of(tree, d)).collect();
+                let dropped = crate::gear::letting_go(ui.ctx()) && ui.input(|i| i.pointer.interact_pos().is_some_and(|p| areas.iter().any(|a| a.contains(p))));
+                if dragged != u32::MAX && !buy_only && dropped {
+                    command = Some(ShopCommand::Sell(dragged));
+                }
+                // (a stock row's description as its tip)
+                if let Some(tip) = hovered.filter(|h| h.0 == 0).and_then(|(_, i)| stock.get(i)).map(|s| s.description.replace("\r\n", "\n")).filter(|t| !t.is_empty()) {
+                    response.on_hover_text(tip);
+                }
+            });
         });
+        // (a left click: the click signal, or with Shift the item's page, `row_click`; a press that moves is nothing)
+        for list in lists.into_iter().flatten() {
+            multilist::click_only(tree, list);
+        }
+        for (list, event) in multilist::take_events(tree) {
+            let multilist::ItemEvent::Clicked(i, _) = event else { continue };
+            let Some(k) = lists.iter().position(|l| *l == Some(list)) else { continue };
+            match row_click(false, shift, 0.0) {
+                RowClick::Act => right_act = Some((k, i as usize)),
+                RowClick::Page => page = Some((k, i as usize)),
+                RowClick::Nothing => {}
+            }
+        }
+        // (a stock item clicked goes in, one of it a click; one in either list clicked comes out; with Shift the click
+        // shows the item's page. The original's pages are `shopitemid://type/instance` for a stock row, which adds
+        // the shop's price (FUN_10031fda), and `itemid://type/instance` for the others: here the client's own
+        // `shopitemid://low/high/quality/price` for a stock row and the item's own page for the other two.)
+        let page_of = |item: [u32; 4]| match item[2] {
+            0x6f => stock.get(item[3] as usize).map(|s| format!("itemref://{}/{}/{}", s.low, s.high, s.quality)),
+            _ => items.iter().find(|g| g.slot == item[3]).map(|g| format!("itemref://{}/{}/{}", g.item_id, g.high_id, g.quality)),
+        };
+        match right_act {
+            Some((0, i)) if i < stock.len() => command = Some(ShopCommand::Buy(i)),
+            Some((1, i)) => command = bought.get(i).map(|r| ShopCommand::Remove(r.item)).or(command),
+            Some((2, i)) => command = sold.get(i).map(|r| ShopCommand::Remove(r.item)).or(command),
+            _ => {}
+        }
+        match page {
+            Some((0, i)) => {
+                if let Some(s) = stock.get(i) {
+                    *info_url = Some(format!("shopitemid://{}/{}/{}/{}", s.low, s.high, s.quality, s.price));
+                }
+            }
+            Some((1, i)) => {
+                if let Some(url) = bought.get(i).and_then(|r| page_of(r.item)) {
+                    *info_url = Some(url);
+                }
+            }
+            Some((2, i)) => {
+                if let Some(url) = sold.get(i).and_then(|r| page_of(r.item)) {
+                    *info_url = Some(url);
+                }
+            }
+            _ => {}
+        }
+        for (k, list) in lists.iter().enumerate() {
+            if let Some(list) = *list {
+                self.keepers[k].after(&format!("{config}.{}", DOCKS[k]), tree, list, k == kept && in_list);
+            }
+        }
+        // (the window's menu, FUN_100e03c7: "List Mode" with its mark, and "Auto Arrange" with FUN_10041637(0)'s sub-menu,
+        // dead in list mode, for the list the config keeps; then the frame's own entry)
+        if let Some(list) = lists[kept]
+            && let Some(at) = menu_at.or_else(|| crate::chrome::frame_menu("Shop"))
+        {
+            use crate::gui::popup::Entry;
+            let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
+            let labels: Vec<(i32, String)> = multilist::columns(tree, list).into_iter().map(|c| (c.id, c.label)).collect();
+            let (arrange_keys, arrange) = crate::nanoprograms::arrange_menu(&labels, Some(grid_sort), false);
+            let keys = vec![vec!["list".to_string()], arrange_keys, vec!["close".to_string()]];
+            let entries = vec![Entry::marked(text("GTK_Container_ListMode", "As a list"), true, in_list), Entry::submenu(text("GTK_Container_AutoArrange", "Order"), !in_list, arrange), Entry::text(crate::chrome::close_entry(), true)];
+            self.popup = Some(crate::chrome::menu_of(ctx, at, entries));
+            self.menu = Some(keys);
+        }
+        if let Some(crate::chrome::Picked::Entry(path)) = crate::chrome::menu_path(ctx, palette, "shop-menu", &mut self.popup)
+            && let Some(keys) = self.menu.take()
+            && let Some(chosen) = path.first().and_then(|k| keys.get(*k)).and_then(|k| k.get(path.get(1).copied().unwrap_or(0)))
+        {
+            match chosen.as_str() {
+                "close" => crate::chrome::close_next("Shop"),
+                "list" => {
+                    self.in_list = Some(!in_list);
+                    crate::layout::set_tab(&format!("{key}.List"), usize::from(!in_list));
+                }
+                other => {
+                    if let Some(Some(new)) = crate::loot::arrange_choice(other, Some(grid_sort)) {
+                        self.grid_sort = Some(new);
+                        crate::layout::set_tab(&format!("{key}.GridSort"), 1 + (new.0 * 2 + new.1) as usize);
+                    }
+                }
+            }
+        }
+        if self.popup.is_none() {
+            self.menu = None;
+        }
         // (a player trade: the credits typed in, `OurCashView`'s text as a number)
-        let typed = w.tree.find(w.root, "OurCashView").and_then(|id| crate::gui::textinput::text(&w.tree, id)).map(|t| t.chars().filter(char::is_ascii_digit).collect::<String>().parse::<i64>().unwrap_or(0));
-        for (id, signal) in std::mem::take(&mut w.tree.signals) {
-            let name = w.tree.get(id).name.clone();
+        let typed = tree.find(root, "OurCashView").and_then(|id| crate::gui::textinput::text(tree, id)).map(|t| t.chars().filter(char::is_ascii_digit).collect::<String>().parse::<i64>().unwrap_or(0));
+        for (id, signal) in std::mem::take(&mut tree.signals) {
+            let name = tree.get(id).name.clone();
             match (signal, name.as_str()) {
                 // (FUN_100e0622: the cash sent, then a player trade confirmed, a shop's accepted)
                 (crate::gui::host::Signal::Clicked, "AcceptButton") if player => {
@@ -601,6 +732,38 @@ impl ShopWindow {
         }
         command
     }
+}
+
+/// `TradeView_c`'s own size as it is made (FUN_100e121e: `Rect(0, 0, 119, 452)`), the window's to start with where the
+/// view needs no more.
+const TRADE_SIZE: (f32, f32) = (119.0, 452.0);
+
+/// Each dock of the view its `ItemContainerView_c` (FUN_100ce55d) as the trade view makes them (FUN_100e07b9,
+/// FUN_100e0942, FUN_100e0b00; the stock's only at a shop, FUN_100e121e): a grid-mode list (`MultiListView_c` starts in
+/// it, layout mode 0) of the columns its flags give, sorted by name in both modes and arranged (`SetListSortColumn(1, 0)`,
+/// FUN_10041258(1)), no slots beyond its items (no `SetMaxItemCount`), the vertical bar always there
+/// (`SetVScrollBarMode(1)`), and room for one cell to as many as [`dock_list`] gives (`SetViewCellCounts`); the dock's
+/// `LayoutNode` puts it over the whole dock. The original's horizontal bar is never shown (`SetHScrollBarMode(0)`):
+/// here it is shown when needed, which an arranged grid never is, so that the grid's width does not hold the window's.
+fn add_lists(tree: &mut crate::gui::view::Tree, root: crate::gui::view::Id) -> [Option<crate::gui::view::Id>; 3] {
+    let shop = tree.find(root, DOCKS[0]).is_some();
+    let mut lists = [None; 3];
+    for (k, dock) in DOCKS.iter().enumerate() {
+        let Some(at) = tree.find(root, dock) else { continue };
+        let (flags, rows) = dock_list(k, shop);
+        let list = multilist::create_grid(tree, "ItemContainerView", -1, 1);
+        for (id, label, width, column_flags) in columns(flags) {
+            multilist::add_column(tree, list, id, label, width, column_flags);
+        }
+        multilist::set_sort(tree, list, 1, 0);
+        multilist::set_scroll_modes(tree, list, 2, 1);
+        multilist::set_view_cells(tree, list, (1, 1), (1000, rows));
+        multilist::click_only(tree, list);
+        tree.get_mut(at).layout = crate::gui::view::Layout::Base;
+        tree.add_child(at, list);
+        lists[k] = Some(list);
+    }
+    lists
 }
 
 #[cfg(test)]
@@ -688,6 +851,61 @@ mod tests {
         let of = |instance: u32| Rates::of(&template(&db, instance).unwrap());
         assert_eq!((of(0x3f2ea).kind, of(0x41142).kind, of(0x184f1).kind), (68, 669, CREDITS_SHOP));
         assert!(of(0x3f2ea).buy_only() && of(0x41142).buy_only() && !of(0x184f1).buy_only());
+    }
+
+    /// WIN-035: the docks' lists have FUN_100ce55d's columns by the trade view's flags (FUN_100e07b9, FUN_100e0942,
+    /// FUN_100e0b00); a row's cells (FUN_1003dee6, FUN_100cded9, the price grouped as `FormatNumeric` writes it) and
+    /// what it sorts by, the name without its case first.
+    #[test]
+    fn the_docks_lists_have_the_originals_columns() {
+        let ids = |flags| columns(flags).iter().map(|c| c.0).collect::<Vec<_>>();
+        assert_eq!(dock_list(0, true), (0xf, 1000));
+        assert_eq!((ids(dock_list(0, true).0), ids(dock_list(1, true).0)), (vec![0, 1, 2, 3, 4], vec![0, 1, 2, 3, 4]));
+        // (no price with a player, nor in one's own list)
+        assert_eq!((ids(dock_list(1, false).0), ids(dock_list(2, true).0)), (vec![0, 1, 2, 4], vec![0, 1, 2, 4]));
+        // (one row of room for the bought and the sold items beside the stock; a player's list room for many)
+        assert_eq!((dock_list(1, true).1, dock_list(1, false).1, dock_list(2, false).1), (1, 1000, 1));
+        assert_eq!(columns(0xf)[3], (3, "Price", 100.0, 0xe));
+        assert_eq!(columns(0xb)[0], (0, "Icon", 16.0, 8));
+        use multilist::CellView::Text;
+        let r = row(2, None, "Bolt", 0, 25, Some(12_345));
+        assert_eq!(r.count, 1);
+        assert_eq!(r.cells, vec![(1, Text("Bolt".into())), (2, Text("1".into())), (3, Text("12,345".into())), (4, Text("25".into()))]);
+        assert!(row(3, None, "Bolt", 2, 25, None).cells.iter().all(|c| c.0 != 3));
+        // (sorted by name, as the lists start: `SetListSortColumn(1, 0)`)
+        let mut tree = crate::gui::view::Tree::default();
+        let list = multilist::create_grid(&mut tree, "ItemContainerView", -1, 1);
+        for (id, label, width, flags) in columns(0xf) {
+            multilist::add_column(&mut tree, list, id, label, width, flags);
+        }
+        multilist::set_sort(&mut tree, list, 1, 0);
+        multilist::set_items(&mut tree, list, vec![row(0, None, "zeta", 1, 1, Some(5)), row(1, None, "Alpha", 1, 1, Some(500)), row(2, None, "beta", 1, 1, Some(50))]);
+        assert_eq!(multilist::order(&tree, list), [1, 2, 0]);
+        // (by price, the numbers' order, the dearest first)
+        multilist::set_sort(&mut tree, list, 3, 1);
+        assert_eq!(multilist::order(&tree, list), [1, 2, 0]);
+    }
+
+    /// WIN-035, `MAO_GAME`: in the game's `ShopTrade` view the bought and sold items' lists are one row of cells high
+    /// and the stock's takes the rest of the window's height; a player's trade has the two lists only.
+    #[test]
+    fn the_docks_are_sized_by_their_lists() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let dir = std::path::Path::new(&game).join("cd_image/gui/Default");
+        let (mut tree, root) = crate::gui::load_view(std::slice::from_ref(&dir), "TradeGUI.xml", "ShopTrade").unwrap();
+        let lists = add_lists(&mut tree, root);
+        assert!(lists.iter().all(Option::is_some));
+        for l in lists.iter().flatten() {
+            multilist::update(&mut tree, *l);
+        }
+        crate::gui::host::fit(&mut tree, root, egui::vec2(TRADE_SIZE.0 + 100.0, TRADE_SIZE.1));
+        let h = |k: usize| tree.get(lists[k].unwrap()).frame.height();
+        assert_eq!((h(1), h(2)), (59.0, 59.0));
+        assert!(h(0) > 59.0);
+        let (mut tree, root) = crate::gui::load_view(&[dir], "TradeGUI.xml", "PlayerTrade").unwrap();
+        let lists = add_lists(&mut tree, root);
+        assert!(lists[0].is_none() && lists[1].is_some() && lists[2].is_some());
+        assert_eq!(multilist::columns(&tree, lists[1].unwrap()).len(), 4);
     }
 
     #[test]

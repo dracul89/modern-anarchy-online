@@ -213,6 +213,13 @@ impl GridMode {
         let across = self.cols() as f32 * self.step().0 - (self.step().0 - self.cell_px().0);
         ((self.width - across) * 0.5).floor().max(self.border())
     }
+    /// The size of so many cells across and down, the edge round them included (`CellCountToPreferredSize`
+    /// 0x101332b8).
+    pub fn cells_size(&self, (x, y): (usize, usize)) -> Point {
+        let (sx, sy) = self.step();
+        let (cw, ch) = self.cell_px();
+        Point::new(2.0 * self.border() + x as f32 * sx - (sx - cw), 2.0 * self.border() + y as f32 * sy - (sy - ch))
+    }
     /// A cell's top left.
     fn place(&self, (x, y): (usize, usize)) -> (f32, f32) {
         let (sx, sy) = self.step();
@@ -251,11 +258,13 @@ pub struct Rows {
     /// The items that are locked (`InventoryListViewItem_c` +0xf0): the lock's picture in the cell's bottom right
     /// corner (FUN_10040bda: picture 0xfc, `GFX_GUI_INV_ITEM_LOCK`).
     pub locked: Vec<i64>,
+    /// The items' prices, which a grid's cells show at their bottom right ([`set_prices`]).
+    pub prices: Vec<(i64, i64)>,
 }
 
 impl Rows {
     fn new(grid: Option<GridMode>) -> Rows {
-        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, stash: None, last_click: None, pressed: None, dragged: false, click_only: false, picture: Shared::new(None), locked: Vec::new() }
+        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, stash: None, last_click: None, pressed: None, dragged: false, click_only: false, picture: Shared::new(None), locked: Vec::new(), prices: Vec::new() }
     }
     fn step() -> f32 {
         ROW_HEIGHT + 1.0 + SPACE.y
@@ -373,6 +382,15 @@ impl Rows {
                 let text = item.count.to_string();
                 let w = p.env.measure.width(font, &text);
                 super::controls::text(p, font, egui::pos2(cell.right() - w, cell.top()), &text, egui::Color32::YELLOW);
+            }
+            // (the price at the bottom right, yellow small text: FUN_100406a4, placed by FUN_1003fcee)
+            if let Some(&(_, price)) = self.prices.iter().find(|(id, _)| *id == item.id)
+                && price >= 1
+            {
+                let font = FontId(7);
+                let text = price_text(price);
+                let (w, h) = (p.env.measure.width(font, &text), p.env.measure.height(font));
+                super::controls::text(p, font, egui::pos2(cell.right() - w, cell.bottom() - h), &text, egui::Color32::YELLOW);
             }
             if !item.timer.is_empty() {
                 let w = p.env.measure.width(FontId::NORMAL, &item.timer);
@@ -637,6 +655,8 @@ pub struct MultiList {
     pub header: Id,
     pub scroll: Id,
     pub rows: Id,
+    /// The fewest and most cells a grid asks room for ([`set_view_cells`]).
+    pub view_cells: Option<((usize, usize), (usize, usize))>,
 }
 
 impl Control for MultiList {
@@ -667,7 +687,7 @@ pub fn create(tree: &mut Tree, name: &str) -> Id {
     let rows = tree.add(Node::new("", Box::new(Rows::new(None))));
     tree.add_child(child, rows);
     tree.add_child(scroll, child);
-    let id = tree.add(Node::new(name, Box::new(MultiList { sort_column: -1, sort_order: 0, header, scroll, rows })));
+    let id = tree.add(Node::new(name, Box::new(MultiList { sort_column: -1, sort_order: 0, header, scroll, rows, view_cells: None })));
     tree.add_child(id, header);
     tree.add_child(id, scroll);
     tree.get_mut(id).layout = Layout::Vertical;
@@ -803,6 +823,7 @@ pub fn set_grid_scale(tree: &mut Tree, id: Id, scale: f32) {
 /// Before showing: a grid lays its cells out in the width its scroll view gives it (`FrameSized` 0x101363c5 ->
 /// `RecalcCellCount`).
 pub fn update(tree: &mut Tree, id: Id) {
+    apply_view_cells(tree, id);
     let Some((_, scroll, rows)) = parts(tree, id) else { return };
     let width = tree.control::<ScrollView>(scroll).map_or(0.0, |v| v.visible.get().x);
     if width <= 0.0 {
@@ -813,6 +834,63 @@ pub fn update(tree: &mut Tree, id: Id) {
         && g.width != width
     {
         g.width = width;
+        tree.relayout = true;
+    }
+}
+
+/// `SetViewCellCounts` (0x10132e44): the fewest and most cells (across, down) a grid asks room for, the most no more
+/// than 50 each way. In grid mode the list is then no smaller than its fewest cells and no larger than its most
+/// (`GetClientPreferredSize` 0x10133331 with no most items, `+0x234` -1), with the room of a vertical bar shown always;
+/// in list mode it asks for nothing (-1, at most 16000).
+pub fn set_view_cells(tree: &mut Tree, id: Id, min: (usize, usize), max: (usize, usize)) {
+    if let Some(l) = tree.control_mut::<MultiList>(id) {
+        l.view_cells = Some((min, (max.0.min(50), max.1.min(50))));
+        tree.relayout = true;
+    }
+}
+
+/// `SetHScrollBarMode` and `SetVScrollBarMode` of the list's scroll view (`ScrollBarMode_e`: never 0, always 1, when
+/// needed 2, room kept 3).
+pub fn set_scroll_modes(tree: &mut Tree, id: Id, h: u8, v: u8) {
+    let Some((_, scroll, _)) = parts(tree, id) else { return };
+    if let Some(s) = tree.control_mut::<ScrollView>(scroll) {
+        s.h_mode = h;
+        s.v_mode = v;
+        tree.relayout = true;
+    }
+}
+
+/// The prices a grid's cells show (`InventoryListViewItem_c`'s column 3, `+0x7c`): an item with one above 0 gets its
+/// icon view with flag 4 (`CreateItemView` FUN_1003da33), which writes it at the cell's bottom right in yellow small text
+/// (FUN_100406a4, [`price_text`]).
+pub fn set_prices(tree: &mut Tree, id: Id, prices: Vec<(i64, i64)>) {
+    let Some((_, _, rows)) = parts(tree, id) else { return };
+    if let Some(r) = tree.control_mut::<Rows>(rows) {
+        r.prices = prices;
+    }
+}
+
+/// An icon's price (FUN_100406a4): `%u`, or from ten million on the millions with an M (`%uM`).
+pub fn price_text(price: i64) -> String {
+    if price < 10_000_000 { format!("{}", price as u32) } else { format!("{}M", price / 1_000_000) }
+}
+
+/// The list's room from its view cells ([`set_view_cells`]), as its own least and most size.
+fn apply_view_cells(tree: &mut Tree, id: Id) {
+    let Some(((min, max), (_, scroll, rows))) = tree.control::<MultiList>(id).and_then(|l| l.view_cells).zip(parts(tree, id)) else { return };
+    // (the vertical bar's room where it is always shown or kept: `ScrollView_c::CalculatePreferredSize`)
+    let bar = tree.control::<ScrollView>(scroll).map_or(0.0, |s| if s.v_mode == 1 || s.v_mode == 3 { s.bar_width.get() + 1.0 } else { 0.0 });
+    let (lo, hi) = match tree.control::<Rows>(rows).and_then(|r| r.grid.as_ref()) {
+        Some(g) => {
+            let (a, b) = (g.cells_size(min), g.cells_size(max));
+            (Point::new(a.x + bar, a.y), Point::new(b.x + bar, b.y))
+        }
+        None => (Point::new(-1.0, -1.0), Point::new(16000.0, 16000.0)),
+    };
+    let node = tree.get_mut(id);
+    if node.min_size != lo || node.max_limit != hi {
+        node.min_size = lo;
+        node.max_limit = hi;
         tree.relayout = true;
     }
 }
@@ -1109,6 +1187,31 @@ mod tests {
         // (the list again)
         keeper.before("Test", &mut tree, id, None);
         assert_eq!(sort_state(&tree, id), (1, 1));
+    }
+
+    /// `SetViewCellCounts` and `GetClientPreferredSize`: a grid asks room for its fewest cells to its most (each way
+    /// no more than 50), its bar's room beside; in list mode for nothing. FUN_100406a4's price on an icon.
+    #[test]
+    fn view_cells_give_a_grid_its_room() {
+        let mut tree = Tree::default();
+        let id = create_grid(&mut tree, "list", -1, 1);
+        // (one cell: 6 + 47 + 6; a row of 50 across: 12 + 50 * 58 - 11)
+        let g = GridMode::new(-1, 1);
+        assert_eq!(g.cells_size((1, 1)), Point::new(59.0, 59.0));
+        assert_eq!(g.cells_size((50, 1)), Point::new(12.0 + 50.0 * 58.0 - 11.0, 59.0));
+        set_scroll_modes(&mut tree, id, 2, 1);
+        set_view_cells(&mut tree, id, (1, 1), (1000, 1));
+        assert_eq!(tree.control::<MultiList>(id).unwrap().view_cells, Some(((1, 1), (50, 1))));
+        let (_, scroll, _) = parts(&tree, id).unwrap();
+        tree.control::<ScrollView>(scroll).unwrap().bar_width.set(15.0);
+        update(&mut tree, id);
+        assert_eq!((tree.get(id).min_size, tree.get(id).max_limit), (Point::new(59.0 + 16.0, 59.0), Point::new(2901.0 + 16.0, 59.0)));
+        assert_eq!(tree.preferred(id, true).y, 59.0);
+        // (the list mode: no room asked)
+        set_list_mode(&mut tree, id, true);
+        update(&mut tree, id);
+        assert_eq!((tree.get(id).min_size, tree.get(id).max_limit), (Point::new(-1.0, -1.0), Point::new(16000.0, 16000.0)));
+        assert_eq!((price_text(1), price_text(9_999_999), price_text(12_345_678)), ("1".to_string(), "9999999".to_string(), "12M".to_string()));
     }
 
     #[test]

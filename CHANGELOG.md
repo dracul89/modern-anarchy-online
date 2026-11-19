@@ -103,6 +103,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The mission journal remembers your active mission between sessions and puts its waypoint back on the map when the journal opens or after zoning.
 - "Update Team Members" in a team mission's menu now works (sends the original's request to the server).
 - With the AutoCloseWindows preference on, opening a window from the menus closes the other character windows, as in the original.
+- The shop window's lists are the original's item lists: icons in a grid with their prices (or a sortable list with Name, Count, Price and Quality columns from the window's menu), the bought and sold items in one row each.
 
 ### Items
 

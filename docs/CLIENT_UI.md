@@ -7658,3 +7658,7 @@ The original keeps each character's tells in a FriendListNode_c with a count of 
 ### Private chat group invitation (CHT-051)
 
 An invitation (FUN_100a7986) marks the inviter's row in the friends list, which flashes; the inviter becomes a recent message (FUN_100a6487). With `ChatPGInviteAction` 1 the question comes at once; with 2 it comes when the marked row is pressed (FUN_100a76c9, which takes the mark off); 0 declines with a line, and an ignored inviter is declined without a word. The question (`InviteDialog_c`, FUN_100ae840) shows the inviter's name, a list of the chat windows by name where several can be chosen (those already showing the group start chosen), and Yes/No. Yes puts the group into the chosen windows and out of all the others, then joins (FUN_100a74cb).
+
+### Shop lists are item-container lists (WIN-035)
+
+The original's trade view (GUI.dll FUN_100e121e) puts an ItemContainerView_c (FUN_100ce55d) in each dock (FUN_100e07b9, FUN_100e0942, FUN_100e0b00): a grid of item cells by default, sorted by name, with Icon/Name/Count/Price/Quality columns in list mode (no Price in one's own list or in a player trade), the stock's icons tagged with their price in yellow (FUN_100406a4), the bought and sold lists one row of cells high (SetViewCellCounts). The client builds the docks the same way on gui::multilist; the window's menu (FUN_100e03c7: List Mode, Auto Arrange) switches the stock list (a player trade: the partner's) and its order, kept per ShopViewConfig/TradeViewConfig. The window starts at the view's own 119 by 452 and can be resized.

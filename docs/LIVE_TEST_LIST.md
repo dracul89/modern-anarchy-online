@@ -1138,6 +1138,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] Press a channel's name in a chat line: the window now talks to that channel; with Shift, "/group <name> " is typed.
 - [ ] Get invited to a private chat group: the question lists the chat windows; choose one, answer Yes, and only that window shows the group.
 - [ ] With ChatPGInviteAction 2, the inviter's row flashes in the friends list and pressing it brings the question.
+- [ ] Open a shop booth: the stock is a grid of icons with yellow prices at the bottom right, the bought and sold lists one row high; the window can be resized and the stock grid fills it.
+- [ ] Right click beside the rows (or the frame's menu button): "As a list" turns the stock into the column list; clicking a header sorts; the choice is kept the next time a shop opens.
+- [ ] Buying (click a stock item), taking out (click a bought/sold item), dragging an inventory item onto a list to sell, and Shift-click pages work as before.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
