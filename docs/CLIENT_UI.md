@@ -7253,3 +7253,7 @@ Gamecode's `N3Msg_TradeStart` (0x10019148) starts a trade only when the two char
 ### Requirements "On Self" judged in the wear and use checks (INV-056)
 
 Gamecode's requirement evaluator changes whose stats it reads by the apply-on operators, through FUN_10001fba: "On Self" is the character itself, "On User", "On Target" and "On Secondary Item" other objects, and anything else nothing. The client's checks before wearing or using an item now know "On Self" (before, such a list could not be judged and was let through) and fail a list with "On Fight Target", as the original's picker has no case for it. The user, target and secondary item are still not known.
+
+### Requirements comparing two stats (INV-057)
+
+Gamecode's requirement evaluator (FUN_100065d8) has four operators that compare one of the character's stats with another (equal, below, above, unequal: 0x82-0x85), judged only for the client's own character. The client now judges them; before, such a requirement was "unknown" (no colour in the tip, a perk counted as not met).

@@ -2578,6 +2578,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some item, perk and spell requirements are not enforced or shown (no green/red mark, perks possibly red or untrainable wrongly).
 - Where: `crates/mao-client/src/requirements.rs:24`; `crates/mao-client/src/gear.rs:306`; `crates/mao-client/src/perks.rs:172`; `docs/ORIGINAL_AUDIT.md:114`; `docs/CAPTURE_GAPS.md:88`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The entry says the stat-against-stat operators 0x82-0x85 were ported; they were not in `requirements::judge` (they fell to "unknown"). Ported now from Gamecode FUN_100065d8's cases (0x10008a26 equal, 0x10008a50 below, 0x10008a86 above, 0x10008abc unequal): `GetStat(criterion's stat)` against `GetStat(the stat the value names)`, both with detail 0 (as below/above), for the client's own character only (the evaluator's +0x140 flag); for anyone else the criterion passes. Test `requirements::tests::below_and_above_pass_for_others`. Left: the other 60-odd cases of the jump table (0x100093b0) that read the world (timers, item slots, running nanos, teams, organizations, playfields, positions, vehicles); each reads its own object of the original (the +0x1b8 inventory, the +0x1d0 target object ...) and needs its case read one by one.
 
 #### `INV-058` Requirement texts: special criteria, breed/gender names, apply-on reordering not ported
 

@@ -173,6 +173,21 @@ fn judge(criteria: &[Criterion], holder: Holder, ctx: &dyn Context, told: &mut V
             }
             // (0x10006f20) unequal
             0x18 => get(holder)? != v,
+            // (0x10008a26, 0x10008a50, 0x10008a86, 0x10008abc) a stat against another (the value names it): equal, below,
+            // above, unequal; the client's own character only, anyone else passes
+            0x82..=0x85 => {
+                if !own {
+                    true
+                } else {
+                    let (a, b) = (get(holder)?, ctx.stat(holder, value as u32).ok_or(unknown)?);
+                    match op {
+                        0x82 => a == b,
+                        0x83 => a < b,
+                        0x84 => a > b,
+                        _ => a != b,
+                    }
+                }
+            }
             // (0x1000717a) all the value's bits set; (0x10007129) none of them
             0x16 => get(holder)? & v == v,
             0x6b => get(holder)? & v == 0,
@@ -402,6 +417,16 @@ mod tests {
 
     #[test]
     fn below_and_above_pass_for_others() {
+        // (a stat against another, 0x82..0x85: the own character's two stats; anyone else passes)
+        let (stats, perks) = ([(16u32, 300i64), (17, 400)].into_iter().collect(), Default::default());
+        let me = Own { id: (CHARACTER, 1), stats: &stats, perks: &perks };
+        let all = |op| [(16, 17, op), (16, 16, op)].map(|c| evaluate(&[c], (CHARACTER, 1), &me));
+        assert_eq!(all(0x82), [Ok(false), Ok(true)]);
+        assert_eq!(all(0x83), [Ok(true), Ok(false)]);
+        assert_eq!(all(0x84), [Ok(false), Ok(false)]);
+        assert_eq!(all(0x85), [Ok(true), Ok(false)]);
+        assert_eq!(evaluate(&[(17, 16, 0x84)], (CHARACTER, 1), &me), Ok(true));
+        assert_eq!(evaluate(&[(16, 17, 0x82)], (CHARACTER, 2), &me), Ok(true));
         struct Npc;
         impl Context for Npc {
             fn stat(&self, _: Holder, _: u32) -> Option<i64> {
