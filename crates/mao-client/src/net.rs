@@ -4898,6 +4898,38 @@ impl World {
         self.skill_lock_left(0x8c).map(crate::feedback::unable_to_perform_plain)
     }
 
+    /// Whether a character is in the own team's list (FUN_10065d65) or, in a raid, in any of the raid's lists
+    /// (FUN_10065dab).
+    fn team_mate(id: u32) -> bool {
+        crate::team::with(|t| t.members.iter().any(|m| m.id == id) || (t.raid.is_some() && t.others.iter().flatten().any(|m| m.id == id)))
+    }
+
+    /// What the attack key's target is for FUN_10069a9f.
+    fn attack_target(&self, target: Option<u32>) -> crate::combat::Target {
+        match target {
+            None => crate::combat::Target::Nothing,
+            Some(t) if t == self.own => crate::combat::Target::Yourself,
+            Some(t) if self.infos.contains_key(&t) => crate::combat::Target::Character {
+                dead: self.dead.contains_key(&t),
+                fights_me: self.fighting.get(&t) == Some(&self.own),
+                mate: Self::team_mate(t),
+            },
+            Some(_) => crate::combat::Target::Other,
+        }
+    }
+
+    /// What FUN_10069a9f asks of the own character.
+    fn attacker(&self) -> crate::combat::Own {
+        crate::combat::Own { swimming: self.swimming.contains(&self.own), flying: self.own_flying, flags: self.stats.get(&224).copied().unwrap_or(0), stat_215: self.stats.get(&215).copied().unwrap_or(0) }
+    }
+
+    /// Whether `N3Msg_GetCloseTarget` takes a character for one of one's own side (0x1001c6db): a player in the own team
+    /// or raid; a creature whose master (stat 196) is oneself (the only masters the client knows: its own pets) or such a
+    /// member.
+    fn close_target_mate(&self, id: u32, player: bool) -> bool {
+        if player { Self::team_mate(id) } else { self.pets.values().any(|p| p.1 == id) }
+    }
+
     fn special_refusal(&self, number: u32, target: Option<u32>) -> Option<Vec<String>> {
         let line = |name: &str| Some(vec![crate::feedback::plain(name)]);
         if self.specials_told.as_ref().is_some_and(|s| !s.contains(&number)) && number != crate::actions::SEARCH {
@@ -9241,41 +9273,34 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 if slot == 4 {
                     // The attack key (`N3Msg_DefaultAttack(selection, false)`): stop a fight, else attack the selection.
-                    let kind = match target {
-                        None => crate::combat::Target::Nothing,
-                        Some(t) if t == own => crate::combat::Target::Yourself,
-                        Some(t) if state.infos.contains_key(&t) => crate::combat::Target::Character { dead: state.dead.contains_key(&t) },
-                        Some(_) => crate::combat::Target::Other,
-                    };
+                    let kind = state.attack_target(target);
                     let pending = attack_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
-                    let me = crate::combat::Own { flying: state.own_flying, flags: state.stats.get(&224).copied().unwrap_or(0), stat_215: state.stats.get(&215).copied().unwrap_or(0) };
-                    let decision = crate::combat::attack_key(state.fighting.get(&own).copied(), state.fighting.contains_key(&own), false, state.swimming.contains(&own), pending, target, kind, me);
+                    let decision = crate::combat::default_attack(state.fighting.get(&own).copied(), state.fighting.contains_key(&own), false, state.attacker(), pending, target, kind);
                     if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                         let there = target.and_then(|t| state.entities.get(&t).map(|e| e.0));
                         let distance = there.map(|p| ((p[0] - position[0]).powi(2) + (p[2] - position[2]).powi(2)).sqrt());
                         eprintln!("combat: attack key: target {target:?} {kind:?}, fighting {:?}, pending {pending} -> {decision:?}; own at {position:?}, target at {there:?}, {distance:?} m", state.fighting.get(&own));
                     }
-                    if decision.0 {
+                    if decision.stop {
                         let _ = connection.send(&n3::stop_fight(own));
                     }
-                    match decision.1 {
-                        Some(crate::combat::Attack::Start(t)) => {
-                            crate::tips::trigger("OnStartingAttack", "");
-                            let _ = connection.send(&n3::attack(own, t));
-                            attack_sent = Some(Instant::now());
-                        }
-                        Some(crate::combat::Attack::Refuse(names)) => pending_messages.extend(names.iter().map(|n| crate::feedback::plain(n))),
-                        None => {}
+                    if let Some((t, flag)) = decision.start {
+                        crate::tips::trigger("OnStartingAttack", "");
+                        let _ = connection.send(&n3::attack_flagged(own, t, flag));
+                        attack_sent = Some(Instant::now());
                     }
+                    pending_messages.extend(decision.lines.iter().map(|name| crate::feedback::plain(name)));
                     continue;
                 }
                 // Tab and friends (`N3Msg_GetCloseTarget`): the next character of the kind, by distance past the target's
-                // (the living ones; a side the same as one's own is a friend's)
+                // (the living ones; a side the same as one's own is a friend's, and so is a team or raid member and one's pet)
                 let list: Vec<crate::combat::Candidate> = state
                     .infos
                     .iter()
                     .filter(|(id, _)| **id != own && !state.dead.contains_key(id))
-                    .filter_map(|(id, i)| Some(crate::combat::Candidate { id: *id, position: state.entities.get(id)?.0, side: i.side }))
+                    .filter_map(|(id, i)| {
+                        Some(crate::combat::Candidate { id: *id, position: state.entities.get(id)?.0, side: i.side, mate: state.close_target_mate(*id, i.is_player()) })
+                    })
                     .collect();
                 let own_side = state.stats.get(&33).copied().unwrap_or(0) as u8;
                 if std::env::var_os("MAO_COMBAT_LOG").is_some() {
@@ -9803,28 +9828,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 // (Ctrl + click on a character: `N3Msg_SwitchTarget`)
                 if deed == crate::picking::Deed::Switch {
-                    let aim = if id == own {
-                        crate::combat::Target::Yourself
-                    } else if state.infos.contains_key(&id) {
-                        crate::combat::Target::Character { dead: state.dead.contains_key(&id) }
-                    } else {
-                        crate::combat::Target::Other
-                    };
+                    let aim = state.attack_target(Some(id));
                     let pending = attack_sent.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
-                    let me = crate::combat::Own { flying: state.own_flying, flags: state.stats.get(&224).copied().unwrap_or(0), stat_215: state.stats.get(&215).copied().unwrap_or(0) };
-                    let (stop, attack, flag) = crate::combat::attack_key(state.fighting.get(&own).copied(), state.fighting.contains_key(&own), true, state.swimming.contains(&own), pending, Some(id), aim, me);
-                    if stop {
+                    let decision = crate::combat::default_attack(state.fighting.get(&own).copied(), state.fighting.contains_key(&own), true, state.attacker(), pending, Some(id), aim);
+                    if decision.stop {
                         let _ = connection.send(&n3::stop_fight(own));
                     }
-                    match attack {
-                        Some(crate::combat::Attack::Start(t)) => {
-                            crate::tips::trigger("OnStartingAttack", "");
-                            let _ = connection.send(&n3::attack_flagged(own, t, flag));
-                            attack_sent = Some(Instant::now());
-                        }
-                        Some(crate::combat::Attack::Refuse(names)) => pending_messages.extend(names.iter().map(|n| crate::feedback::plain(n))),
-                        _ => {}
+                    if let Some((t, flag)) = decision.start {
+                        crate::tips::trigger("OnStartingAttack", "");
+                        let _ = connection.send(&n3::attack_flagged(own, t, flag));
+                        attack_sent = Some(Instant::now());
                     }
+                    pending_messages.extend(decision.lines.iter().map(|name| crate::feedback::plain(name)));
                 }
                 let can = state.table.iter().find(|d| d.0 == kind && d.1 == id).and_then(|d| template_stat(d.3, 30));
                 if crate::picking::uses(deed, kind == n3::CHARACTER, id == own, can) {

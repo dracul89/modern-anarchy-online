@@ -141,6 +141,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The attack key refuses while swimming or flying with the original's lines, and a refusal is followed by "Unable to attack target" as in the original.
 - A hit followed late by the target's health no longer shows a second "unknown damage" line for the same damage.
 - Attack swings vary at random as in the original instead of in a fixed order.
+- The attack key refuses team and raid members, and refuses while flying, with the original's lines; a refused attack also says "Unable to attack target" as the original does.
+- The friendly targeting keys pick team and raid mates of another side and one's own pets; the hostile keys skip them.
 
 ### Launcher
 

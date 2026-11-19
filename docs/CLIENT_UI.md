@@ -7325,3 +7325,11 @@ The original's text buttons (`TextButton_c::CalculatePreferredSize` 0x10004e3f) 
 ### Tip patterns as the original matches them (WIN-020)
 
 The original's tips (GUI.dll FUN_100539be) match a pattern `*x` against the start of an item's or playfield's name, as `x*`; only `*x*` looks inside the name. The client had taken `*x` as "ends with"; it matches as the original now, so those eleven tips fire where the original's do.
+
+### The attack key's checks (TGT-004)
+
+The original's attack key calls `N3Msg_DefaultAttack(selection, false)` (Gamecode 0x10028147; a Ctrl + click is the same with `true`, `N3Msg_SwitchTarget`): a fighting character is stopped first; swimming then says "Feedback_CantAttackInThisState" and nothing else; a fight that went on ends there for the key. Else FUN_10069a9f checks the target, saying its own line, and the key adds "Feedback_UnableToAttackTarget" after any refusal. The check's order: oneself, swimming, the own stat 224's bit 0x400 or flying, a dead target, then a target that fights oneself may always be attacked, and a member of the own team or raid is refused with the local action 0x76 of parameter 5 (FUN_100692b4), which the action handler's table says as "Feedback_NotAllowedToAttackTeamMembers". The client now does the same (`combat::default_attack`, `combat::can_attack`). Not checked, the client not knowing them: the target's own flags (stat 224 bits 0x20000000 and 0x80000000), the surrender stats, an item's attackable flag, the suppression-gas line.
+
+### Friends for the targeting keys (TGT-005)
+
+`N3Msg_GetCloseTarget` (Gamecode 0x1001c49a) counts a character as a friend when its side (stat 33, or 668 on battle stations) is one's own, and takes that side as one's own for a player in the own team (FUN_10065d65) or in any team of the own raid (FUN_10065dab), and for a creature whose master (stat 196) is oneself or such a member. The client now does the same for players and for its own pets (`combat::friend`); the pets of the other team members are not known to it.
