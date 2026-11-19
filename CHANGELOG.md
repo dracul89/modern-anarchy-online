@@ -47,6 +47,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - More of the options act: "Zoom in and out of first person", the mouse wheel over the world (zoom or nothing),
   "Show my character in first person view", the fading of your own character when the camera is close to it, and
   the view distance and character distance sliders.
+- Notum Wars: the map has its Build and War buttons, and using a tower, controller or shield disabler item opens
+  the build menu with its checklist instead of doing nothing. The battlestation has its small map with the points
+  and scores, the invitation to a battle and the end's message. The laser target and airstrike window is there
+  too. (All built from the original's code alone: none of it has met a server yet.)
 
 ### Items
 

@@ -133,6 +133,9 @@ mod mailmessage;
 mod tips;
 mod team;
 mod signup;
+mod battlestation;
+mod laser;
+mod towerbuild;
 mod vehicles;
 mod teleport;
 mod pets;
@@ -2307,7 +2310,7 @@ fn run(args: &[String]) -> Result<(), String> {
                             hud.preview_hotbars = bars;
                         }
                     }
-                    if preview.as_deref() == Some("gear") {
+                    if preview.as_deref() == Some("gear") || preview.as_deref() == Some("towerbuild") {
                         if let Some(log) = std::env::var_os("MAO_CAPTURE") {
                             hud.gear = net::capture_entries(&log.to_string_lossy()).map(|e| gear::from_entries(&db, &textures, &e, 220)).unwrap_or_default();
                             hud.gear_open = true;

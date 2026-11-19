@@ -952,6 +952,12 @@ These were written before this list; some may have been seen working since witho
 - [ ] Dying (2026-11-18): let Maotesttwo die: for the seconds the character lies there, keys, mouse and typing do
   nothing and the pointer is gone; all of it comes back when the character stands at the reclaim. **Tell me at
   once if it does not come back** (the window's close button still works).
+- [ ] The tower build menu (2026-11-18): with the Notum Wars expansion, the map's Build button opens the menu;
+  right-click a tower or controller item: the menu comes up with it and its checklist. **Send me the log
+  whatever happens** ("notum: checklist asked for ..." and the answer): the exchange was never captured. Do not
+  press Build on land you do not mean to build on: it uses the item at once.
+- [ ] The battlestation (2026-11-18): after signing up, the invitation box, the small map at the top with the
+  points and scores, the end's box. Send me the log: none of its messages was ever captured.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

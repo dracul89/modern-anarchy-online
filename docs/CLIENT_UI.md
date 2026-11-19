@@ -6224,3 +6224,51 @@ Here: `derived::SHOCK`, `shock_penalty` (in `shown` and `shown_one`, so the wind
 have it), `shock_step`, `World::tick_shock`. The resurrection message is in no capture (the ordinary return after
 a death is a teleport), so the shock will only ever come from another player's resurrection.
 Tests: `the_shock_takes_its_share_of_skills_and_abilities`.
+
+### The last three Notum Wars windows (OTH-010)
+
+Two readers read them to the end; the byte orders and the paths below were checked here in the decompile. **Still
+nothing of it is in a capture**: all of it is the decompile's word, and each message that comes for these windows
+goes to the log whole (`notum: ...`). The network side is `mao_net::notum` (its seven message numbers are their
+class names through `MapToKey`, tested) and `n3::character_action`, a `CharacterAction` with a whole word for the
+action and two identities.
+
+**The laser target and the airstrike** (`laser.rs`; GUI.dll `LaserTarget_c`, FUN_100f2e32): opened by a used
+terminal of window kind 4 (the orbital attack's) or 5 (the airstrike's) for a character whose stat 389 has bit
+0x20. `Views/LaserTarget.xml`, 500 by 420: a list of the tagged players (name, area, level range) from the
+server's `LaserTagList` (`2933154f`: a count, then per tag three numbers, the area's and the name's text, four
+numbers), asked for as the window comes up, by Refresh and every 30 seconds (`CharacterAction` 0x100). The attack
+button sends the orbital attack (0x102) or the airstrike (0x103) on the selected tag `(0xc73d, its number)` and
+does nothing with none selected. No terminal of these kinds was found in the game's data, so nothing known opens
+it. Not ported: the columns' widths kept.
+
+**The battlestation's view** (`battlestation.rs`; GUI.dll `BattlestationView_c`, FUN_100f8967): the server's
+`ArriveAtBs` (`540e3b27`: the points' places) turns it on and closes the signup terminal; `BattleOver`
+(`4b062919`: the character's points and how it ended) turns it off. A square a tenth of the screen's width at the
+top's middle: the picture `GFX_GUI_BS_MAIN`, a star for each point at its place (x from 292 to 1696, z from 1653
+down to 442) in its holder's colour once a `SendScore` (`44483b3a`: the two scores, each point's side) names it,
+the green dot at the character's own place, the clan's score at the left in red and Omni-Tek's at the right in
+light blue. As it comes up it asks for the points (`CharacterAction` 0x104). The two boxes: `InfromPlayer`
+(`3301337a`) asks whether to go to a battle, 30 seconds, Yes answers `AcceptBSInvite` (`166a435e`) with the
+invitation's identity; the battle's end tells the outcome and the points, and its button sends `LeaveBattle`
+(`3f3a1914`). Not ported: `BattleOver`'s release of two of the character's state flags and its setting of stat
+27 to 40000 (not understood), the view's place kept, and whether the end's box leaves the battle by itself after
+its 30 seconds (here it does not).
+
+**The tower build menu** (`towerbuild.rs`; GUI.dll `TowerBuildMenuView_c`, FUN_1005cb45): the map control has its
+"Build" and "War" buttons now (dead without Notum Wars, as "Info"), each opening the menu empty and closing it
+when pressed again. **Using a tower item opens the menu instead of using it**: the interface's `N3Msg_UseItem`
+(Interfaces.dll 0x1000a73f, disassembled) does that for an item whose template's stat 388 is not 0 (1 a
+controller, else a tower) and for a shield disabler (its use action has a criterion of operator 0x53); here the
+inventory's right click does, and an inventory item let go on the menu. The item is checked at once: its
+template and quality go to the server (`CharacterAction` 0xaf), unless the lock on Computer Literacy runs (the wait
+is said). The answer (`CharacterAction` 0xb0, its second parameter the marks of what failed) fills the
+checklist: 13 lines for a controller, 15 for a tower, 6 for a disabler, each with its pass or fail picture and a
+link to its help page (the game's own `BuildMenu_*.html` and `WarMenu_*.html`). With nothing failed "Build" (or
+"Disable shield") lives, until the character moves; it uses the item the ordinary way and the menu closes.
+Not ported: the item's mark in the inventory while it is in the menu, the answer for somebody else's item.
+The use of such an item from a hotbar slot or by dropping it on the world still goes the ordinary way.
+
+Looked at offscreen: `MAO_UI_PREVIEW=laser`, `=battlestation`, `=towerbuild` (with `MAO_CAPTURE=<net.log>` for an
+item and `MAO_TOWER_FLAGS=<hex>` for the answer). Tests: `mao_net::notum`'s four, `laser`'s, `battlestation`'s
+two, `towerbuild`'s three.

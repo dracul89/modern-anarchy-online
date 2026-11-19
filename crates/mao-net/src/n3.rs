@@ -213,11 +213,18 @@ pub const QUEUE_LEAVE: u8 = 0xff;
 /// a `CharacterAction` whose target is the character itself and whose second parameter is the side (0 for the two
 /// that have none). From the decompile alone: none is in a capture.
 pub fn queue_action(character: u32, code: u8, side: u32) -> Frame {
+    character_action(character, u32::from(code), (CHARACTER, character), (0, side))
+}
+
+/// A `CharacterAction` as its class writes it (`CharacterActionIIR_t`, made by Gamecode FUN_10072a88 and written by
+/// 0x100729bc): the lead byte 0, the action (a whole word: the laser target's are above 0xff), a word of 0, the
+/// first identity, the second (two words: an identity, or two parameters) and an empty text's length.
+pub fn character_action(character: u32, action: u32, first: (u32, u32), second: (u32, u32)) -> Frame {
     let mut data = vec![0u8; 27];
-    data[4] = code;
-    data[9..13].copy_from_slice(&CHARACTER.to_be_bytes());
-    data[13..17].copy_from_slice(&character.to_be_bytes());
-    data[21..25].copy_from_slice(&side.to_be_bytes());
+    data[1..5].copy_from_slice(&action.to_be_bytes());
+    for (at, word) in [(9, first.0), (13, first.1), (17, second.0), (21, second.1)] {
+        data[at..at + 4].copy_from_slice(&word.to_be_bytes());
+    }
     Message { kind: 0x5e477770, identity: (CHARACTER, character), data }.frame(character)
 }
 

@@ -24,6 +24,7 @@ pub mod inventory;
 pub mod landcontrol;
 pub mod mail;
 pub mod n3;
+pub mod notum;
 pub mod schema;
 pub mod session;
 pub mod socket;

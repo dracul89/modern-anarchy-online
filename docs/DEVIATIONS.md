@@ -8945,8 +8945,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only tower sites and land-control view on the map
 - A player notices: no Notum Wars interface
 - Where: `docs/GUI_DLL_PARITY.md:110`
-- Decision: [ ] port  [ ] leave
-- Done in part (2026-11-18): Done: the battlestation's signup terminal (a used terminal of window kind 3) and the vehicles window (Shift+V, or a terminal of kind 7: the researched vehicles with their descriptions, Order Vehicle and Leave vehicle), both from the decompile alone. Left: the laser target and the airstrike (one window; its list's record was not read to the end), the tower build menu (its Build message is in no decompile at hand) and the battlestation's own view (needs a battle's state). None of the six has a message in any capture; the survey is in CLIENT_UI.md.
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): Done: all six windows, from the decompile alone (no message of any of them is in a capture; each that comes goes to the log whole). The signup terminal and the vehicles window (earlier the same day); the laser target and airstrike window (terminals of window kinds 4 and 5; no such terminal was found in the game's data); the battlestation's view with its invitation and end boxes; the tower build menu (the map's Build and War buttons, and using a tower, controller or shield disabler item opens it with its checklist). Not ported: BattleOver's two side effects on the character (not understood), the tower item's mark in the inventory, the use of such an item from a hotbar or dropped on the world.
 
 #### `OTH-011` Help assistant: other sites and sources not done
 

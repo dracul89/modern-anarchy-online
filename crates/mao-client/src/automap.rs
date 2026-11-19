@@ -259,6 +259,8 @@ pub struct AutoMap {
     /// The map control's land-control button (MapControlView_c's `Info` toggle) as a GUI view tree: the tree, its root and
     /// the button.
     controls: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
+    /// The map control's "Build" (true) or "War" button was pressed: the tower build menu is asked for.
+    pub tower_menu: Option<bool>,
     land_source: Option<std::sync::Arc<mao_formats::landcontrolmap::LandControlMap>>,
 }
 
@@ -280,7 +282,7 @@ struct Planet {
 
 impl Default for AutoMap {
     fn default() -> Self {
-        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), mini_size: load_size(), ground_image: None, ground: None, ground_extent: [0.0; 2], planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, land_source: None }
+        AutoMap { grid: None, texture: None, dirty: false, last_upload: std::time::Instant::now(), overlay: false, mini_span: 150.0, zoom: 3.0, pan: [0.0; 2], mini_at: load_position(), mini_size: load_size(), ground_image: None, ground: None, ground_extent: [0.0; 2], planet: None, planet_tried: None, playfield: 0, planet_zoom: PLANET_NATIVE * 2.0, planet_span: 2500.0, land_control: load_land_control(), land_map: None, lc_district: None, controls: None, tower_menu: None, land_source: None }
     }
 }
 
@@ -632,6 +634,17 @@ impl AutoMap {
             node.tooltip = text("ShowLConMap");
             let button = tree.add(node);
             tree.add_child(root, button);
+            // (the build and the war menu's buttons, FUN_100ecdf7: `Build` with the tip `OpenLCbuild`, `Plafieldmap_War`
+            // with `OpenLCwar`; a spacer before each)
+            for (name, label, tip) in [("Build", "Build", "OpenLCbuild"), ("War", "Plafieldmap_War", "OpenLCwar")] {
+                if let Some(spacer) = crate::gui::xml::parse("<HLayoutSpacer/>").first().and_then(|e| crate::gui::create(&mut tree, e)) {
+                    tree.add_child(root, spacer);
+                }
+                let mut node = Node::new(name, Box::new(crate::gui::controls::Button::new(&text(label))));
+                node.tooltip = text(tip);
+                let id = tree.add(node);
+                tree.add_child(root, id);
+            }
             (tree, root, button)
         });
         let (root, button) = (*root, *button);
@@ -639,6 +652,12 @@ impl AutoMap {
             b.on = self.land_control;
         }
         tree.get_mut(button).enabled = notum_wars;
+        // (all three are dead without the Notum Wars expansion, stat 389's bit 0)
+        for name in ["Build", "War"] {
+            if let Some(id) = tree.find(root, name) {
+                tree.get_mut(id).enabled = notum_wars;
+            }
+        }
         tree.measure = crate::gui::font::Measure { ctx: Some(ui.ctx().clone()) };
         let size = crate::gui::host::preferred_pixels(tree, root, false);
         let skin = crate::skin::skin(ui.ctx());
@@ -651,6 +670,13 @@ impl AutoMap {
             {
                 self.land_control = on;
                 save_prefs(self.mini_at, on, self.mini_size);
+            }
+            if signal == crate::gui::host::Signal::Clicked {
+                match tree.get(id).name.as_str() {
+                    "Build" => self.tower_menu = Some(true),
+                    "War" => self.tower_menu = Some(false),
+                    _ => {}
+                }
             }
         }
         bar.bottom()

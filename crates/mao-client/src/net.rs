@@ -539,6 +539,11 @@ struct World {
     grid_token: Vec<u8>,
     /// The server's word on the character's place in the battlestation's queue, for the signup terminal's window.
     queue_place: Option<i32>,
+    /// The laser tags of the server's list, the battlestation's messages and a tower item's checklist answer, for
+    /// their windows (`mao_net::notum`).
+    laser_tags: Option<Vec<mao_net::notum::LaserTag>>,
+    battle_events: Vec<crate::battlestation::Event>,
+    checklist: Option<u32>,
     /// The usable objects the server announces (doors, mail terminals, booths: identity type
     /// 0xc76a, message `4f474e05`) with their positions; targeted with Ctrl+Tab and used with E.
     objects: BTreeMap<u32, [f32; 3]>,
@@ -2138,10 +2143,12 @@ impl World {
                 self.browser = Some(crate::browser::Request { mode: crate::browser::Mode::Market, headers });
             }
             Some(8) => self.open_windows.push("mail"),
-            // (the battlestation's signup terminal: kind 3 has no test of the character in FUN_1002e2fe. Kinds 4 and
-            // 5, the laser target and the airstrike, have a window this client has not. Kind 7, the vehicles, is for
-            // a character whose stat 389 has bit 0x20.)
+            // (the battlestation's signup terminal: kind 3 has no test of the character in FUN_1002e2fe. Kinds 4, 5
+            // and 7, the laser target, the airstrike and the vehicles, are for a character whose stat 389 has bit
+            // 0x20.)
             Some(3) => self.open_windows.push("signup"),
+            Some(4) if self.stats.get(&389).copied().unwrap_or(0) & 0x20 != 0 => self.open_windows.push("laser"),
+            Some(5) if self.stats.get(&389).copied().unwrap_or(0) & 0x20 != 0 => self.open_windows.push("airstrike"),
             Some(7) if self.stats.get(&389).copied().unwrap_or(0) & 0x20 != 0 => self.open_windows.push("vehicles"),
             _ => {}
         }
@@ -3762,6 +3769,32 @@ impl World {
         if let Some(place) = n3::queue_place(&m) {
             eprintln!("battlestation queue: place {place}");
             self.queue_place = Some(place);
+        }
+        // (the laser target's list, the battlestation's messages, a checklist's answer: none of them ever captured, so
+        // each goes to the log whole)
+        if matches!(m.kind, mao_net::notum::LASER_TAGS | mao_net::notum::ARRIVE | mao_net::notum::SCORE | mao_net::notum::BATTLE_OVER | mao_net::notum::INVITATION) {
+            eprintln!("notum: message {:08x} for {:x}:{:x}, {} bytes: {}", m.kind, m.identity.0, m.identity.1, m.data.len(), m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        }
+        if let Some(tags) = mao_net::notum::laser_tags(&m) {
+            self.laser_tags = Some(tags);
+        }
+        if let Some(points) = mao_net::notum::arrival(&m) {
+            self.battle_events.push(crate::battlestation::Event::Arrived(points));
+        }
+        if let Some((scores, sides)) = mao_net::notum::score(&m) {
+            self.battle_events.push(crate::battlestation::Event::Score(scores, sides));
+        }
+        if let Some((points, how)) = mao_net::notum::battle_over(&m) {
+            self.battle_events.push(crate::battlestation::Event::Over(points, how));
+        }
+        if let Some(identity) = mao_net::notum::invitation(&m) {
+            self.battle_events.push(crate::battlestation::Event::Invited(identity));
+        }
+        if m.identity.1 == self.own
+            && let Some(flags) = mao_net::notum::checklist(&m)
+        {
+            eprintln!("notum: a checklist's answer, flags {flags:08x}: {}", m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+            self.checklist = Some(flags);
         }
         if m.kind == DOOR_STATUS && m.identity.0 == DOOR_TYPE && self.door_ids.insert(m.identity.1) {
             self.register_doors();
@@ -8289,6 +8322,29 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     crate::research::Command::SetStat(stat, value) => connection.send(&n3::set_stat(own, stat, value)),
                 };
             }
+            // The laser target window, the battlestation's view and the tower build menu (`mao_net::notum`).
+            for command in crate::laser::take_commands() {
+                eprintln!("notum: laser target {command:?}");
+                let own_identity = (n3::CHARACTER, own);
+                let _ = match command {
+                    crate::laser::Command::Refresh => connection.send(&n3::character_action(own, mao_net::notum::REFRESH_LASER_TAGS, own_identity, (0, 0))),
+                    crate::laser::Command::Attack(airstrike, tag) => {
+                        connection.send(&n3::character_action(own, if airstrike { mao_net::notum::AIRSTRIKE } else { mao_net::notum::ORBITAL_ATTACK }, own_identity, (mao_net::notum::LASER_TAG, tag)))
+                    }
+                };
+            }
+            for command in crate::battlestation::take_commands() {
+                eprintln!("notum: battlestation {command:?}");
+                let _ = match command {
+                    crate::battlestation::Command::Points => connection.send(&n3::character_action(own, mao_net::notum::POINT_LOCATIONS, (n3::CHARACTER, own), (0, 0))),
+                    crate::battlestation::Command::Accept(identity) => connection.send(&mao_net::notum::accept(own, identity)),
+                    crate::battlestation::Command::Leave => connection.send(&mao_net::notum::leave(own)),
+                };
+            }
+            for check in crate::towerbuild::take_checks() {
+                eprintln!("notum: checklist asked for {check:?}");
+                let _ = connection.send(&n3::character_action(own, mao_net::notum::REQUEST_CHECKLIST, (check.low, check.high), (check.quality, 0)));
+            }
             // The vehicles window's request for the global research and its orders (`SpawnMech`).
             for command in crate::vehicles::take_commands() {
                 eprintln!("vehicles: {command:?}");
@@ -11071,6 +11127,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     mail_flags: pending_mail_flags.take(),
                     teleport: pending_teleport.take(),
                     queue_place: state.queue_place.take(),
+                    laser_tags: state.laser_tags.take(),
+                    battle: std::mem::take(&mut state.battle_events),
+                    checklist: state.checklist.take(),
                     city: pending_city.take(),
                     city_map: pending_city_map.take(),
                     mail_status: pending_mail_status.take(),

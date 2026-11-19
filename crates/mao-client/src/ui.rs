@@ -329,6 +329,9 @@ pub struct Ui {
     pub mail: crate::mailbox::MailWindow,
     pub teleport: crate::teleport::TeleportWindow,
     pub signup: crate::signup::SignupWindow,
+    pub laser: crate::laser::LaserWindow,
+    pub battle: crate::battlestation::BattleWindow,
+    pub tower: crate::towerbuild::TowerWindow,
     pub city_terminal: crate::cityterminal::CityTerminalWindow,
     pub shop: crate::shop::ShopWindow,
     pub npc_chat: crate::npcchat::NpcChatWindow,
@@ -398,7 +401,7 @@ fn esc_default(name: &str) -> bool {
 pub const ESCAPABLE: &[&str] = &[
     "Options", "Whom-Pah", "Browser", "Help", "Option panel", "loot", "Shop", "Perks", "Research",
     "Missions", "PlanetMap", "Info", "NPCChat", "Nano programs", "Inventory", "Wear", "Inspect", "Tradeskill", "ChatConfig",
-    "Raid", "LFT", "CityTerminal", "CityTerminalBuy",
+    "Raid", "LFT", "CityTerminal", "CityTerminalBuy", "MechSelect", "TowerBuildMenu",
 ];
 
 /// The `esc_*` option that lets Escape close a window (by its `chrome::window` name), which the original's window reads when
@@ -428,6 +431,9 @@ pub fn escape_option(name: &str, loot_kind: Option<u32>, trading: bool) -> Optio
         // (`DialogBox_c::Go`, 0x1012a871: a dialog's Escape is `SlotSelected(-1)`, its close)
         name if crate::chrome::DIALOGS.contains(&name) => "esc_dialogs",
         "Perks" => "esc_perkwindow",
+        // (the vehicles window, FUN_100f3e80, and the tower build menu, FUN_1005cb45)
+        "MechSelect" => "esc_vehicle",
+        "TowerBuildMenu" => "esc_towerbuildmenu",
         "Research" => "esc_research",
         "Missions" => "esc_missionselection",
         "PlanetMap" => "esc_planetmap",
@@ -609,7 +615,7 @@ impl Ui {
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), Some(gpu.device.limits().max_texture_dimension_2d as usize));
         // (the widest picture the card takes, not egui's own 2048: on a screen of two pixels to the point a skin's long strip, GFX_GUI_CONTROLCENTER_WING_LEFT, is 6000 across, and egui stops the program over a wider one)
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -946,6 +952,9 @@ impl Ui {
             "missionselection" | "mission selection" => &mut self.mission.open,
             "mail" => &mut self.mail.open,
             "signup" => &mut self.signup.open,
+            "laser" | "lasertarget" => &mut self.laser.open,
+            "battlestation" => &mut self.battle.open,
+            "towerbuild" | "buildmenu" => &mut self.tower.open,
             "vehicles" | "vehicle" => &mut self.vehicles.open,
             "map" | "planetmap" | "planet map" => &mut self.planet.open,
             "automap" | "overlay" => &mut self.automap.overlay,
@@ -1039,6 +1048,9 @@ impl Ui {
         let team_window = &mut self.team;
         let teleport_window = &mut self.teleport;
         let signup_window = &mut self.signup;
+        let laser_window = &mut self.laser;
+        let battle_window = &mut self.battle;
+        let tower_window = &mut self.tower;
         let city_terminal = &mut self.city_terminal;
         let pet_window = &mut self.pets;
         let tradeskill_window = &mut self.tradeskill;
@@ -1420,6 +1432,23 @@ impl Ui {
             if teleport_window.open {
                 requests.teleport = teleport_window.show(&ctx, palette);
             }
+            laser_window.show(&ctx, palette);
+            battle_window.show(&ctx, palette, hud.position);
+            if let Some(build) = automap.tower_menu.take() {
+                tower_window.toggle(build);
+            }
+            {
+                let out = tower_window.show(&ctx, palette, &hud.gear, hud.position, crate::actions::skill_lock_left(crate::towerbuild::LOCK).map(|l| l.0), &mut |icon| gear.texture(&ctx, icon));
+                for line in out.lines {
+                    chat_window.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                }
+                for command in out.commands {
+                    if let Some(line) = chat_window.run(&command) {
+                        requests.chat.push(line);
+                    }
+                }
+                requests.item_uses.extend(out.use_item);
+            }
             if signup_window.open {
                 let (lines, ask) = signup_window.show(&ctx, palette, &hud.stats);
                 for line in lines {
@@ -1468,7 +1497,19 @@ impl Ui {
                                 eprintln!("items: the bag at place {place}: its window {}", if window.open { "shown again" } else { "closed" });
                             }
                         }
-                        None => requests.item_uses.push(place),
+                        // (an item that goes into the tower build menu is not used: the interface's `N3Msg_UseItem`
+                        // opens the menu with it, `towerbuild.rs`)
+                        None => {
+                            let item = hud.gear.iter().find(|g| g.slot == place);
+                            let tower = item.and_then(|i| crate::net::item_template_stat(i.item_id, 388));
+                            match item.filter(|i| crate::towerbuild::kind_of(i, tower).is_some()) {
+                                Some(item) => {
+                                    let line = tower_window.insert(item, tower, crate::actions::skill_lock_left(crate::towerbuild::LOCK).map(|l| l.0));
+                                    tower_window.pending.extend(line);
+                                }
+                                None => requests.item_uses.push(place),
+                            }
+                        }
                     }
                 }
                 requests.item_deletes.extend(events.deletes);
@@ -1630,6 +1671,13 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     let mut preview_mail = hud.mail_preview.lock().ok().and_then(|mut m| m.take());
     // (MAO_UI_PREVIEW=teleport: the teleport target window with two made-up rows)
     let mut preview_teleport = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("teleport")).then(crate::teleport::TeleportWindow::sample);
+    // (MAO_UI_PREVIEW=laser: the laser target window with two made-up tags; =battlestation: the battlestation's view
+    // with three made-up points and a score; =towerbuild: the tower build menu with the first backpack item as a
+    // tower, MAO_TOWER_FLAGS=<hex>: the checklist's answer)
+    let mut preview_laser = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("laser")).then(crate::laser::LaserWindow::sample);
+    let mut preview_battle = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("battlestation")).then(crate::battlestation::BattleWindow::sample);
+    let mut preview_tower: Option<crate::towerbuild::TowerWindow> = None;
+    let preview_tower_wanted = std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("towerbuild");
     // (MAO_UI_PREVIEW=vehicles: the vehicles window)
     let mut preview_vehicles = (std::env::var("MAO_UI_PREVIEW").as_deref() == Ok("vehicles")).then(|| {
         let mut w = crate::vehicles::VehiclesWindow::default();
@@ -1939,6 +1987,26 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             if let Some(window) = preview_teleport.as_mut() {
                 window.show(&ctx, &palette);
+            }
+            if let Some(window) = preview_laser.as_mut() {
+                window.show(&ctx, &palette);
+            }
+            if let Some(window) = preview_battle.as_mut() {
+                window.show(&ctx, &palette, Some([900.0, 0.0, 1200.0]));
+            }
+            if preview_tower_wanted {
+                let window = preview_tower.get_or_insert_with(|| {
+                    let flags = std::env::var("MAO_TOWER_FLAGS").ok().and_then(|f| u32::from_str_radix(f.trim_start_matches("0x"), 16).ok()).unwrap_or(0x1004);
+                    match hud.gear.iter().find(|g| g.slot >= 64) {
+                        Some(item) => crate::towerbuild::TowerWindow::sample(item, flags),
+                        None => {
+                            let mut w = crate::towerbuild::TowerWindow::default();
+                            w.toggle(true);
+                            w
+                        }
+                    }
+                });
+                window.show(&ctx, &palette, &hud.gear, None, None, &mut |icon| gear.texture(&ctx, icon));
             }
             if let Some(window) = preview_vehicles.as_mut() {
                 window.show(&ctx, &hud.perk_state, &hud.stats, &palette);

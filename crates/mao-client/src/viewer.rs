@@ -287,6 +287,12 @@ pub struct Update {
     pub teleport: Option<Vec<crate::teleport::Row>>,
     /// The server's word on the character's place in the battlestation's queue (the signup terminal's window).
     pub queue_place: Option<i32>,
+    /// The laser tags of the server's list (the laser target window's rows).
+    pub laser_tags: Option<Vec<mao_net::notum::LaserTag>>,
+    /// The battlestation's messages, in their order.
+    pub battle: Vec<crate::battlestation::Event>,
+    /// The answer to a tower item's checklist: the flags of what failed.
+    pub checklist: Option<u32>,
     /// The city controller's session as it opens or changes (`Some(None)`: it ended).
     pub city: Option<Option<crate::cityterminal::Session>>,
     /// The city's houses, the backpack's building items and the zones, for the controller's map, when the houses or
@@ -1759,7 +1765,14 @@ impl ApplicationHandler for App {
                                 ui.info.show_url(&url);
                             }
                             for name in std::mem::take(&mut u.open_windows) {
-                                ui.set_window(name, true);
+                                match name {
+                                    // (the laser target's window is the orbital attack's or the airstrike's)
+                                    "laser" => ui.laser.show_kind(false),
+                                    "airstrike" => ui.laser.show_kind(true),
+                                    _ => {
+                                        ui.set_window(name, true);
+                                    }
+                                }
                             }
                             if let Some(request) = u.browser.take() {
                                 ui.browser.show_page(request);
@@ -1793,6 +1806,19 @@ impl ApplicationHandler for App {
                             }
                             if let Some(place) = u.queue_place.take() {
                                 ui.signup.set_place(place);
+                            }
+                            if let Some(tags) = u.laser_tags.take() {
+                                ui.laser.set(tags);
+                            }
+                            for event in std::mem::take(&mut u.battle) {
+                                // (an arrival and an invitation close the signup terminal)
+                                if ui.battle.apply(event) {
+                                    ui.signup.open = false;
+                                }
+                            }
+                            if let Some(flags) = u.checklist.take() {
+                                let line = ui.tower.set_flags(flags);
+                                ui.tower.pending.extend(line);
                             }
                             if let Some(session) = u.city.take() {
                                 ui.city_terminal.set(session);
