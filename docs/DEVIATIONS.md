@@ -1833,7 +1833,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: dropped_out is used on what is under the pointer; nothing for the ground.
 - A player notices: An item cannot be dropped on the ground by letting it go in the world.
 - Where: `crates/mao-client/src/loot.rs:144`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): an item let go over a character is `N3Msg_UseItemOnCharacter` (the use message's action 0x20, captured), over another object `UseItemOnItem` as before, and over the ground the original's boxes by `N3Msg_IsDropPossible`'s answer (`dropitem.rs`): too far, "not a fixture, delete it instead?" for nearly every item, unique, no-drop, or the drop question, whose Yes sends `DropTemplateIIR_t`. That message was never captured (its bytes are the decompile's). Not ported: the tests that come after the fixture test, and anything inside, where there is no terrain to meet. `CLIENT_UI.md` "An item let go over the world".
 
 #### `INV-017` Item stat effects: only some spell types read
 

@@ -6439,3 +6439,37 @@ the container's window here, which looks at the left button only). On a worn tar
 handlers are connected and may each send the message (not followed to the end); one is sent here.
 
 Tests: `invwindows`' `a_right_click_with_an_item_in_hand`.
+
+### An item let go over the world: a character, an object, the ground (INV-016)
+
+GUI.dll's FUN_100cbcb5 by what is under the pointer (`dropitem.rs`, `viewer.rs`):
+
+- **A character** (a player or an NPC): `N3Msg_UseItemOnCharacter`, the use message's action 0x20
+  (`n3::use_item_on_character`; the original's capture of 2026-10-30 has one, and the test holds its shape). The
+  client sent action 5, the one for things.
+- **Any other object**: `UseItemOnItem`, action 5, as before. The identity type 0x9c52 takes nothing.
+- **The ground**: the original asks `N3Msg_IsDropPossible` (Gamecode FUN_10048dbd) and shows a box by the answer.
+  Ported in its order (`dropitem::reason`): further than 5 from the character, the "cannot be dropped there"
+  box; **an item that is no fixture, the box that says so and offers to delete it instead (Delete, Cancel)**;
+  a unique fixture and a no-drop one, their boxes; else the question whether to drop it (not asked with the
+  preference `ShowDropItemDialog` off), whose Yes sends the drop.
+  A fixture is an item whose `Can` has bit 0 and whose flags have 0x1000 (FUN_10080ad7): 526 of the game's
+  120820 item templates, the furniture. **So an ordinary item let go on the ground brings the delete offer,
+  as in the original**, where nothing happened here.
+
+The ground under the pointer is found by walking the line from the eye until it goes under the terrain
+(`viewer::ground_on_line`). Guesses and gaps, plainly:
+
+- **The drop's message, `DropTemplateIIR_t` (`3a243f41`), was never captured.** Its fields are the writer's
+  (FUN_10073244: the item, then x, height, z); the zero byte before them is what the other messages of the kind
+  have. It goes only for a fixture, after the question, and is said in the log.
+- The distance is taken from the character's place; the original takes it from the character's sphere.
+- Inside (no terrain) nothing is met and nothing happens.
+- Not ported: the character's state test, the placing of a fixture in a building
+  (`CanAddAnotherFixture`), a worn item's own tests (a worn fixture gets the original's later refusal,
+  `Feedback_MoveItemToInventoryBeforeDropping`), and the half second for which the original keeps the last
+  thing pointed at before the ground counts.
+- `docs/INVENTORY_ORIGINAL.md` had Delete and Cancel on the no-drop box; they are on the no-fixture one.
+
+Looked at offscreen: `MAO_DROP_BOX=fixture` and `=drop` put the two boxes up. Tests: `dropitem`'s three (one
+counts the game's items), `mao_net::n3`'s two.

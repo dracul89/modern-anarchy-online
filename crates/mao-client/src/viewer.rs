@@ -42,6 +42,8 @@ pub struct Input {
     pub face: Option<f32>,
     /// An item used on something in the world: a counter that steps with each, the item's identity and the target's.
     pub use_on: (u8, (u32, u32), (u32, u32)),
+    /// An item put on the ground: a counter that steps with each, the item's identity and the place (x, height, z).
+    pub drop: (u8, (u32, u32), [f32; 3]),
     /// Flying: the vehicle's elevation (radians, nose up positive), set by the right button's vertical mouse movement.
     pub pitch: f32,
     /// A hotbar item to use: a counter that steps with each, and the inventory slot.
@@ -1053,6 +1055,16 @@ fn fly_pitch(pitch: f32, by: f32) -> f32 {
     } else {
         pitch
     }
+}
+
+/// Where a line from the eye first goes under the ground, as a place of the game's frame (x, height, z): the line is
+/// walked a quarter of a metre at a time for 300 m (`height` gives the ground under a point of the renderer's
+/// frame). None when it starts under the ground or never meets it.
+fn ground_on_line(from: mao_render::glam::Vec3, along: mao_render::glam::Vec3, height: &dyn Fn(f32, f32) -> f32) -> Option<[f32; 3]> {
+    if from.z <= height(from.x, from.y) {
+        return None;
+    }
+    (1..1200).map(|k| from + along * (k as f32 * 0.25)).find(|p| p.z <= height(p.x, p.y)).map(|p| [p.x, height(p.x, p.y), p.y])
 }
 
 /// What is under a point of the window (physical pixels): the first pickable the line from the eye through it meets, as a
@@ -3183,12 +3195,33 @@ impl ApplicationHandler for App {
                     // (an item let go over something in the world is used on it: `N3Msg_UseItemOnItem`)
                     if let Some((item, at)) = requests.use_on.take() {
                         let size = w.window.inner_size();
-                        if let Some((kind, id)) = pick(&self.hud, camera, radius, (size.width, size.height), at) {
-                            self.keys.use_on = (self.keys.use_on.0.wrapping_add(1), item, (kind, id));
-                            if let Some(live) = &self.live {
-                                let _ = live.input.send(self.keys);
+                        match pick(&self.hud, camera, radius, (size.width, size.height), at) {
+                            // (the identity type 0x9c52 takes nothing: GUI.dll's FUN_100cbcb5)
+                            Some((0x9c52, _)) => crate::dropitem::forget(),
+                            Some((kind, id)) => {
+                                crate::dropitem::forget();
+                                self.keys.use_on = (self.keys.use_on.0.wrapping_add(1), item, (kind, id));
+                                if let Some(live) = &self.live {
+                                    let _ = live.input.send(self.keys);
+                                }
+                            }
+                            // (nothing there but the ground: the drop's tests and boxes, `dropitem`. Where there is no
+                            // terrain, inside, nothing is met and nothing happens.)
+                            None => {
+                                let (from, along) = camera.ray(at.0 / size.width.max(1) as f32, at.1 / size.height.max(1) as f32, size.width as f32 / size.height.max(1) as f32, radius);
+                                let met = self.ground.as_ref().and_then(|(terrain, offset)| ground_on_line(from, along, &|x, y| terrain.height_at(x, y, terrain.height_scale) + offset));
+                                match (met, self.hud.position) {
+                                    (Some(point), Some(own)) => {
+                                        let distance = ((point[0] - own[0]).powi(2) + (point[1] - own[1]).powi(2) + (point[2] - own[2]).powi(2)).sqrt();
+                                        crate::dropitem::over_terrain(point, distance);
+                                    }
+                                    _ => crate::dropitem::forget(),
+                                }
                             }
                         }
+                    }
+                    if let Some((item, position)) = requests.item_drop.take() {
+                        self.keys.drop = (self.keys.drop.0.wrapping_add(1), item, position);
                     }
                     for place in requests.item_uses.drain(..) {
                         self.keys.fire = (self.keys.fire.0.wrapping_add(1), place);

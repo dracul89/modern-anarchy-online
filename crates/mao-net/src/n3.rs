@@ -1111,11 +1111,40 @@ pub fn use_object(character: u32, sequence: u32, target: (u32, u32)) -> Frame {
 /// (`(0x68, place)` in the backpack, `(0x6b, handle << 16 | place)` in an open container) and the target's. The original entering
 /// the Garden of Lord Galahad (2026-10-31): the key, `(0x6b, 0x00700006)`, used on the statue `(0xc73d, 0x58f37539)`.
 pub fn use_item_on(character: u32, sequence: u32, item: (u32, u32), target: (u32, u32)) -> Frame {
+    use_item_action(character, sequence, 5, item, target)
+}
+
+/// `52526858` action 0x20: use an item on a character (`N3Msg_UseItemOnCharacter`, Gamecode 0x10026a2b; GUI.dll's
+/// FUN_100cbcb5 for an item let go over one): the same words as [`use_item_on`]. The original's capture of 2026-10-30
+/// has one: the backpack's `(0x68, 0x48)` on another character.
+pub fn use_item_on_character(character: u32, sequence: u32, item: (u32, u32), target: (u32, u32)) -> Frame {
+    use_item_action(character, sequence, 0x20, item, target)
+}
+
+fn use_item_action(character: u32, sequence: u32, action: u32, item: (u32, u32), target: (u32, u32)) -> Frame {
     let mut data = vec![1u8];
-    for word in [0, sequence, 5, 0, CHARACTER, character, item.0, item.1, target.0, target.1] {
+    for word in [0, sequence, action, 0, CHARACTER, character, item.0, item.1, target.0, target.1] {
         data.extend_from_slice(&word.to_be_bytes());
     }
     Message { kind: 0x52526858, identity: (CHARACTER, character), data }.frame(character)
+}
+
+/// `DropTemplateIIR_t`'s number: its class name through `MapToKey`.
+pub const DROP_TEMPLATE: u32 = 0x3a243f41;
+
+/// `DropTemplateIIR_t`: an item put on the ground (`N3Msg_DropItem`, Gamecode 0x10027e1f, which builds it with
+/// FUN_100732c6 and sends it to the character's observers). Its writer, FUN_10073244, puts the item's identity and
+/// the place's x, y and z as floats, nothing after. **No capture has one**: the zero byte before the fields is what
+/// every other message of the kind has there, and is not known of this one.
+pub fn drop_template(character: u32, item: (u32, u32), position: [f32; 3]) -> Frame {
+    let mut data = vec![0u8];
+    for word in [item.0, item.1] {
+        data.extend_from_slice(&word.to_be_bytes());
+    }
+    for c in position {
+        data.extend_from_slice(&c.to_be_bytes());
+    }
+    Message { kind: DROP_TEMPLATE, identity: (CHARACTER, character), data }.frame(character)
 }
 
 /// `Mail` (`333b2867`) asking a mail terminal for the inbox: action 1 and eight zero bytes (as the
@@ -1560,6 +1589,26 @@ mod tests {
         let hex = |f: Frame| Message::parse(&f).unwrap().data.iter().map(|b| format!("{b:02x}")).collect::<String>();
         assert_eq!(hex(train_perk(0x4bc82, 0x7d, true)), "00000000bb000000000000000000000000000000000000007d0000");
         assert_eq!(hex(train_perk(0x4bc82, 0x7d, false)), "00000000bc000000000000000000000000000000000000007d0000");
+    }
+
+    /// The original's capture of 2026-10-30 (its dump's message 9015): the backpack's place 0x48 used on another
+    /// character, the use message's action 0x20 (the characters' numbers are not the capture's).
+    #[test]
+    fn use_item_on_a_character_is_the_captured_shape() {
+        let m = Message::parse(&use_item_on_character(0x4bc80, 0x15, (0x68, 0x48), (CHARACTER, 0x4bc99))).unwrap();
+        let hex: String = m.data.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "01000000000000001500000020000000000000c3500004bc8000000068000000480000c3500004bc99");
+        assert_eq!(m.kind, 0x52526858);
+    }
+
+    /// The drop's message by the decompile: its number is its class name's key, its fields the writer's.
+    #[test]
+    fn a_drop_names_the_item_and_the_place() {
+        let key = "DropTemplateIIR_t".bytes().enumerate().fold(0u32, |key, (i, b)| key ^ ((b as i8 as i32 as u32) << (8 * (i & 3))));
+        assert_eq!(key, DROP_TEMPLATE);
+        let m = Message::parse(&drop_template(0x4bc80, (0x68, 0x41), [1.0, 2.0, -3.5])).unwrap();
+        let hex: String = m.data.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!((m.kind, hex.as_str()), (DROP_TEMPLATE, "0000000068000000413f80000040000000c0600000"));
     }
 
     #[test]

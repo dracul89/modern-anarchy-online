@@ -202,6 +202,8 @@ pub struct TargetBar {
 pub struct Requests {
     /// An item let go over the world (not over a window): its identity and where (physical pixels), to be used on what is there.
     pub use_on: Option<((u32, u32), (f32, f32))>,
+    /// An item to put on the ground (the drop question's Yes): its identity and the place (x, height, z).
+    pub item_drop: Option<((u32, u32), [f32; 3])>,
     /// A theme picked in the options window.
     pub theme: Option<String>,
     /// A skin folder typed in the options window.
@@ -1212,6 +1214,9 @@ impl Ui {
                 if let (Some(place), Some(at)) = (loot_window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
                     requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
+                    if let Some(i) = view.items.iter().find(|i| i.slot == place) {
+                        crate::dropitem::let_go(crate::dropitem::Held { identity: (0x6b, view.handle << 16 | (place & 0xffff)), place: None, name: i.name.clone(), low: i.item_id, high: i.high_id, flags: i.flags, can: i.can });
+                    }
                 }
             }
             // (one's own backpacks, each in its window: shown when opened, and again when opened anew)
@@ -1243,6 +1248,9 @@ impl Ui {
                 if let (Some(place), Some(at)) = (window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
                     requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
+                    if let Some(i) = view.items.iter().find(|i| i.slot == place) {
+                        crate::dropitem::let_go(crate::dropitem::Held { identity: (0x6b, view.handle << 16 | (place & 0xffff)), place: None, name: i.name.clone(), low: i.item_id, high: i.high_id, flags: i.flags, can: i.can });
+                    }
                 }
             }
             if help_window.open {
@@ -1543,6 +1551,17 @@ impl Ui {
                     requests.shop = Some(crate::shop::ShopCommand::Sell(slot));
                 }
             }
+            // (an item let go over the ground: the box that asks, and what its answer does)
+            match crate::dropitem::take_command() {
+                Some(crate::dropitem::Command::Drop { item, position }) => requests.item_drop = Some((item, position)),
+                Some(crate::dropitem::Command::Refused(name)) => requests.feedback.push(name),
+                Some(crate::dropitem::Command::Delete(item)) => match (item.place, item.identity) {
+                    (Some(place), _) => requests.item_deletes.push(place),
+                    (None, (0x6b, id)) => requests.loot_take = Some(crate::loot::Take::Delete { handle: id >> 16, place: id & 0xffff, low: item.low, high: item.high }),
+                    _ => {}
+                },
+                None => {}
+            }
             browser.show(&ctx, palette);
             if market_send.open {
                 let cash = hud.stats.get(&61).copied().unwrap_or(0);
@@ -1575,7 +1594,11 @@ impl Ui {
             && let Some(at) = self.ctx.input(|i| i.pointer.interact_pos())
         {
             let k = self.ctx.pixels_per_point();
-            requests.use_on = Some(((0x68, dragged), (at.x * k, at.y * k)));
+            let identity = mao_net::inventory::place_identity(dragged);
+            requests.use_on = Some((identity, (at.x * k, at.y * k)));
+            if let Some(i) = hud.gear.iter().find(|i| i.slot == dragged) {
+                crate::dropitem::let_go(crate::dropitem::Held { identity, place: Some(dragged), name: i.name.clone(), low: i.item_id, high: i.high_id, flags: i.flags, can: i.can });
+            }
         }
         // (the hand is empty once the item is let go, wherever; Escape puts it back, and so does the inventory
         // window going, which is where the item in hand is drawn. A split in hand the same: it is used on nothing in
@@ -2388,6 +2411,7 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     // (the error boxes: `chrome::alert`)
     crate::chrome::show_alerts(ctx, palette);
     crate::orgboxes::show(ctx, palette);
+    crate::dropitem::show(ctx, palette);
     // (the loading screen over everything while the world comes in)
     crate::loading::draw(ctx, screen);
     let frame = || egui::Frame::new().fill(egui::Color32::from_black_alpha(130)).corner_radius(4).inner_margin(6);

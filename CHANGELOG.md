@@ -61,6 +61,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - With an item in hand, a right click on another item **uses** the one on the other, worn items and items in
   bags included; **Shift + right click is the tradeskill combine** (it was the plain right click). This is the
   original's.
+- An item let go over the ground now brings the original's box: for nearly every item "this is not a fixture,
+  delete it instead?" with Delete and Cancel (**Delete destroys the item**); furniture is asked whether to drop
+  it. Let go over a character, an item is used on that character with the original's message.
 
 ### Items
 

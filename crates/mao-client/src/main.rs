@@ -52,6 +52,7 @@ mod launchskin;
 mod shotnotes;
 mod hall;
 mod dimensions;
+mod dropitem;
 mod loading;
 mod whiteout;
 mod missionlog;

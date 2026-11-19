@@ -974,6 +974,10 @@ These were written before this list; some may have been seen working since witho
 - [ ] Combining by Shift (2026-11-18): take a tradeskill piece up, Shift + right click its partner: the combine
   goes through as before. A plain right click instead: send me the log of what the server says (the use
   message's action 5 between two backpack items was never tried here).
+- [ ] An item over the ground (2026-11-18, Maotesttwo): take a cheap item up and click the ground near the
+  character: the box offers to delete it; Cancel leaves it; far away the box says it cannot be dropped there.
+  On a character: send me the log line of the use (action 0x20). A piece of furniture, if one is at hand, is
+  asked about and dropped: **send me the log whatever happens**, the drop's message was never captured.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

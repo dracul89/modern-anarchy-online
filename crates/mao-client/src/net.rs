@@ -7671,6 +7671,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut polymorph_cache: std::collections::HashMap<u32, Option<u32>> = std::collections::HashMap::new();
         let mut vehicle_cache: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
         let mut delete_seen = 0u8;
+        let mut drop_seen = 0u8;
         let mut combine_seen = 0u8;
         let mut join_seen = 0u8;
         let mut split_seen = 0u8;
@@ -9240,7 +9241,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if keys.use_on.0 != use_on_seen {
                 use_on_seen = keys.use_on.0;
                 uses += 1;
-                let _ = connection.send(&n3::use_item_on(own, uses, keys.use_on.1, keys.use_on.2));
+                // (on a character it is `N3Msg_UseItemOnCharacter`, action 0x20: GUI.dll's FUN_100cbcb5 for the
+                // identity type 50000)
+                let (item, target) = (keys.use_on.1, keys.use_on.2);
+                let _ = connection.send(&if target.0 == n3::CHARACTER { n3::use_item_on_character(own, uses, item, target) } else { n3::use_item_on(own, uses, item, target) });
+            }
+            // An item put on the ground (`N3Msg_DropItem`): `DropTemplateIIR_t`, which no capture has. Said in the
+            // log, with whatever the server answers going to the message log as any message does.
+            if keys.drop.0 != drop_seen {
+                drop_seen = keys.drop.0;
+                eprintln!("items: dropping {:x?} at {:?} (DropTemplateIIR_t, never captured)", keys.drop.1, keys.drop.2);
+                let _ = connection.send(&n3::drop_template(own, keys.drop.1, keys.drop.2));
             }
             // The Action window and the hotbar: special actions and social actions.
             if keys.special.0 != special_seen {
