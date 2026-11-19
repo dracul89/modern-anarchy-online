@@ -223,6 +223,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Talking to an NPC asks it once, as the original does; the client no longer re-asks a silent NPC after two seconds.
 - Choosing a camera mode no longer prints a "Camera: ..." line.
 - The message box at the bottom left is gone: messages appear in the chat window as feedback lines, as in the original, and the client's own notices (screenshot saved, Whom-Pah destinations, walking/following, nano cancelled, zoning) are no longer shown.
+- The CC17 and TT_MIN12 fonts grow with the window's height as in the original (for example the control center's large numbers at 1080 lines).
 
 ### Chat
 

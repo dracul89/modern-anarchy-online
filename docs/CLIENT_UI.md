@@ -7578,3 +7578,7 @@ The NCU window's menu (GUI.dll FUN_100d758a) has "List Mode" and "Auto Arrange",
 ### /version (CHT-002)
 
 The original has no /version of its own in GUI.dll: the line goes to Gamecode's text commands (N3Msg_TextCommand, FUN_1003fe10 at 0x1003fec0), which ask the server with CharacterAction 0x9d and say nothing themselves. The client does the same; the client's own version line is gone.
+
+### Fonts that follow the screen's height (WIN-027)
+
+FontSystem_t (GUI.dll 0x1012eef1) sizes two of its fonts by the screen: CC17 is 20 times the display height over 768, TT_MIN12 is 14 times one plus 0.4 of how far the height over 480 is above one, each cut to a whole number; the others keep the table's sizes. The client does the same with the window's height in points (CC17 28 and TT_MIN12 21 at 1080).

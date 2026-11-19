@@ -7,9 +7,13 @@
 //! The table's byte at +0x10 asks for bold, the one at +0x11 for italic (the constructor's "Bold" / "Regular" plus
 //! "italic" style, which `CreateTTFont` turns into weight 700 and the italic flag): entries 4, 6 and 9 are bold, 11 italic.
 //!
+//! Two cell heights follow the screen's height (the constructor, before the fonts are made): CC17's (4) is its 20 times
+//! the display height over 768 (0x1012f09c), TT_MIN12's (10) its 14 times one plus 0.4 of what
+//! `GetScaleFromLowestResolution`'s height (over 480) is above one (0x1012ef0f), each cut to a whole number (`_ftol`). Here
+//! the height is the egui screen's, in the points the views are laid out in.
+//!
 //! Departures: the TrueType fonts are egui's Verdana (the system's regular, bold or italic face) at the size whose ascent
-//! plus descent is the cell height (Verdana's 2489/2048 of its em); the original also scales them by the screen's height
-//! (`GetScaleFromLowestResolution`), which egui's points do here; CHAT (12, empty in the table) is the chat bitmap font.
+//! plus descent is the cell height (Verdana's 2489/2048 of its em); CHAT (12, empty in the table) is the chat bitmap font.
 
 use super::geom::Point;
 
@@ -40,7 +44,20 @@ impl FontId {
         (matches!(self.0, 4 | 6 | 9), self.0 == 11)
     }
 
-    /// A TrueType entry's cell height.
+    /// A TrueType entry's cell height on a screen `height` high (none or not laid out yet: the table's own).
+    fn cell_on(self, height: Option<f32>) -> f32 {
+        let table = self.cell();
+        let Some(h) = height.filter(|h| *h > 0.0) else { return table };
+        // (x87 at 53 bits: the scale kept as a float, the product cut toward zero)
+        let scale = match self.0 {
+            4 => (h as f64 / 768.0) as f32,
+            10 => ((((h as f64 / 480.0) as f32 - 1.0) as f64) * 0.4 + 1.0) as f32,
+            _ => return table,
+        };
+        (table as f64 * scale as f64).trunc() as f32
+    }
+
+    /// A TrueType entry's cell height in the table.
     fn cell(self) -> f32 {
         match self.0 {
             4 => 20.0,
@@ -64,9 +81,14 @@ pub struct Measure {
 const VERDANA_CELL: f32 = 2489.0 / 2048.0;
 
 impl Measure {
+    /// The screen's height the fonts are made for.
+    fn screen_height(&self) -> Option<f32> {
+        self.ctx.as_ref().map(|ctx| ctx.content_rect().height())
+    }
+
     /// The egui font of a TrueType entry.
     pub fn egui_font(&self, font: FontId) -> egui::FontId {
-        let size = font.cell() / VERDANA_CELL;
+        let size = font.cell_on(self.screen_height()) / VERDANA_CELL;
         match &self.ctx {
             Some(ctx) => {
                 let (bold, italic) = font.style();
@@ -93,7 +115,7 @@ impl Measure {
         match font.bitmap() {
             Some("chat") | Some("tooltip") => 9.0,
             Some(_) => 12.0,
-            None => font.cell(),
+            None => font.cell_on(self.screen_height()),
         }
     }
 
@@ -131,5 +153,15 @@ mod tests {
         for n in ["NORMAL", "SMALL", "LARGE", "TT_MIN12"] {
             assert_eq!(FontId::named(n).style(), (false, false), "{n}");
         }
+    }
+
+    /// WIN-027: CC17 by the height over 768, TT_MIN12 by 1 + 0.4 of the height over 480 less one, cut to whole
+    /// numbers; the others as the table has them; no screen, the table's.
+    #[test]
+    fn two_fonts_follow_the_screens_height() {
+        let (cc17, tt, normal) = (FontId::named("CC17"), FontId::named("TT_MIN12"), FontId::NORMAL);
+        assert_eq!([cc17.cell_on(Some(768.0)), cc17.cell_on(Some(1080.0)), cc17.cell_on(Some(600.0))], [20.0, 28.0, 15.0]);
+        assert_eq!([tt.cell_on(Some(480.0)), tt.cell_on(Some(1080.0)), tt.cell_on(Some(768.0))], [14.0, 21.0, 17.0]);
+        assert_eq!([normal.cell_on(Some(1080.0)), cc17.cell_on(None), tt.cell_on(Some(0.0))], [13.0, 20.0, 14.0]);
     }
 }
