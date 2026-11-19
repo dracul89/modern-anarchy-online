@@ -664,6 +664,8 @@ pub struct CharacterInfo {
     pub profession: u8,
     pub level: u8,
     pub title_level: u8,
+    /// The side's experience bonus, in hundredths of a percent (`N3Msg_GetInfoPacketSideXpBonus`: the info's `+0x30`).
+    pub side_xp: u16,
     pub first: String,
     pub last: String,
     pub legacy: String,
@@ -701,7 +703,8 @@ pub fn character_info(data: &[u8]) -> Option<CharacterInfo> {
     let (first, last, legacy) = (text(data, &mut at)?, text(data, &mut at)?, text(data, &mut at)?);
     at += 2;
     let rank = if member { Some(text(data, &mut at)?) } else { None };
-    let mut info = CharacterInfo { profession: *data.get(3)?, level: *data.get(4)?, title_level: *data.get(5)?, first, last, legacy, rank, ..Default::default() };
+    let side_xp = u16::from_be_bytes(data.get(7..9)?.try_into().ok()?);
+    let mut info = CharacterInfo { profession: *data.get(3)?, level: *data.get(4)?, title_level: *data.get(5)?, side_xp, first, last, legacy, rank, ..Default::default() };
     if matches!(kind, 64 | 65) {
         at += 4;
         let mut records = [0u32; 8];
@@ -2774,7 +2777,7 @@ mod entity_tests {
     #[test]
     fn a_characters_info_packet_is_read() {
         // (a character of no organization: the header, then names, the city and the records)
-        let mut data = vec![0, 64, 1, 4, 27, 3, 4, 0, 0];
+        let mut data = vec![0, 64, 1, 4, 27, 3, 4, 0x04, 0xe2];
         data.extend([0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0]);
         for name in ["Zachary", "", "Old hand"] {
             data.extend((name.len() as u16).to_be_bytes());
@@ -2786,7 +2789,7 @@ mod entity_tests {
             data.extend(v.to_be_bytes());
         }
         let info = character_info(&data).unwrap();
-        assert_eq!((info.profession, info.level, info.title_level), (4, 27, 3));
+        assert_eq!((info.profession, info.level, info.title_level, info.side_xp), (4, 27, 3, 1250));
         assert_eq!((info.first.as_str(), info.last.as_str(), info.legacy.as_str(), info.rank.clone()), ("Zachary", "", "Old hand", None));
         assert_eq!((info.invaders_killed, info.killed_by_invaders, info.ai_level, info.duel_wins, info.duel_losses, info.solo_kills, info.team_kills), (7, 1, 12, 5, 2, 9, 4));
         assert_eq!(info_packet(&data).map(|i| (i.health, i.max_health)), Some((512, 768)));

@@ -3527,6 +3527,8 @@ impl World {
                                 solo_kills: detail.solo_kills as i64,
                                 team_kills: detail.team_kills as i64,
                                 own: id == self.own,
+                                side_xp: detail.side_xp as u32,
+                                stats: if id == self.own { self.stats.clone() } else { BTreeMap::new() },
                             })
                         }
                         None => format!("<font color=CCInfoHeadline>{name}</font><br><br>Health: {} / {}<br>", info.health, info.max_health),

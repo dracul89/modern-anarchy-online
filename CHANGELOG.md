@@ -224,6 +224,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Choosing a camera mode no longer prints a "Camera: ..." line.
 - The message box at the bottom left is gone: messages appear in the chat window as feedback lines, as in the original, and the client's own notices (screenshot saved, Whom-Pah destinations, walking/following, nano cancelled, zoning) are no longer shown.
 - The CC17 and TT_MIN12 fonts grow with the window's height as in the original (for example the control center's large numbers at 1080 lines).
+- The character info page (/inspect, own info) shows the side experience bonus, your tokens, veteran and victory points, ICC commendations, Freelancers Inc. tokens, specializations, and the duel, solo and team ranks.
 
 ### Chat
 

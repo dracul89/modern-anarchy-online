@@ -1110,6 +1110,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] NCU window: right click, Auto Arrange > By Name and Sort Ascending reorder the icons; dead in list mode; kept after a relog.
 - [ ] Type /version: the log shows "text command 0x9d" and the server's answer appears in chat (note what it says and how it comes).
 - [ ] At 1080 lines high, look at whatever uses the CC17 and TT_MIN12 fonts (control center numbers, small headings) and compare with an original shot at the same height.
+- [ ] Open your own character's info page: tokens, side XP bonus, veteran/victory points, ICC and FI tokens, specializations and the three ranks are there with believable numbers; inspect another player: no own-only lines, ranks 0.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

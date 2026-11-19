@@ -7582,3 +7582,7 @@ The original has no /version of its own in GUI.dll: the line goes to Gamecode's 
 ### Fonts that follow the screen's height (WIN-027)
 
 FontSystem_t (GUI.dll 0x1012eef1) sizes two of its fonts by the screen: CC17 is 20 times the display height over 768, TT_MIN12 is 14 times one plus 0.4 of how far the height over 480 is above one, each cut to a whole number; the others keep the table's sizes. The client does the same with the window's height in points (CC17 28 and TT_MIN12 21 at 1080).
+
+### Character info page: more of the original's lines (WIN-116)
+
+GUI.dll FUN_1003482c's page also has the side's tokens for one's own character (stat 62, an omni's 75), the side experience bonus from the info packet ("%.02f%%"), an omni's organization as "Detachment", and for one's own character the veteran points, victory points, ICC commendations, Freelancers Inc. tokens and specializations, then the duel, solo and team ranks by name and number (N3Msg_GetPVPRank's thresholds) before their kills. The client now writes all of these. Not yet: the organization's grid destinations, the city, the account's items and the item page's shop price.
