@@ -7558,3 +7558,7 @@ FUN_10069a9f, the check behind the attack key and Ctrl + click, also looks at th
 ### Tab: others' pets and characters not yet in play (TGT-005)
 
 N3Msg_GetCloseTarget (0x1001c49a) counts a creature as a friend when its master (stat 196) is oneself or a member of the own team or raid. It passes over any character not in play (stat 194). That flag comes from the announcement's flags bit 1 (FUN_1007803b) and is set later by the CharInPlay message (FUN_10072b96). The client now does both, taking other pets' masters from the server's Stat messages. Not yet: a master known only from the announcement, and the battlestation's own side stat.
+
+### Creatures after a target stop 4 m short (NPC-017)
+
+When the server sets a creature after a target (FollowTarget), the original's vehicle aims for the target's place less 4 m along the way and stands once within 4 m, measured in three dimensions (FUN_100706ce, DAT_10161ad0 / DAT_10161ad8). The client now does the same; it stopped 1.5 m short before. A running creature's speed is the characters' rule (FUN_1006f9eb) over its RunSpeed as the server last told it, by its announcement or a later Stat. The speed the client used to learn from two paths in a row is gone.

@@ -118,9 +118,10 @@ enum Route {
 /// How fast the walked creatures go (m/s): a walk is `CharVehicle_t`'s mode 2, whose speed FUN_1006f9eb sets to
 /// [`WALK_SPEED`] for every character, the same 1.5 the wandering creatures were measured at live.
 const PATH_SPEED: f32 = WALK_SPEED;
-/// A running creature's speed when neither its `RunSpeed` nor its paths tell it: the rule's speed at a RunSpeed of nothing.
-const RUN_SPEED: f32 = 5.0;
-const CHASE_NEAR: f32 = 1.5;
+/// How near a creature after a target comes (FUN_100706ce, `CharVehicle_t`'s goal while it follows a dynel, +0x180): to
+/// `DAT_10161ad0` = 4.0 metres short of the target, standing where it is once within 4 (its square within
+/// `DAT_10161ad8` = 16), the distance taken in three dimensions.
+const CHASE_NEAR: f32 = 4.0;
 
 /// The name a `CorpseFullUpdate` carries ("Remains of Leet"): a big-endian length, then that many bytes, the last a zero.
 /// Found live (after the corpse's stats); read as the first such string of letters.
@@ -131,15 +132,6 @@ fn corpse_name(data: &[u8]) -> Option<String> {
         let (last, name) = text.split_last()?;
         (*last == 0 && name.len() >= 3 && name[0].is_ascii_uppercase() && name.iter().all(|b| b.is_ascii_graphic() || *b == b' ')).then(|| String::from_utf8_lossy(name).into_owned())
     })
-}
-
-/// A creature's speed from two paths in a row: how far along the first one the second starts, over the time between them
-/// (none when the first was already walked to its end, or the second does not start on it).
-fn path_speed(previous: (Instant, [f32; 3], [f32; 3]), start: [f32; 3], now: Instant) -> Option<f32> {
-    let flat = |a: [f32; 3], b: [f32; 3]| ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
-    let dt = now.duration_since(previous.0).as_secs_f32();
-    let (moved, length) = (flat(previous.1, start), flat(previous.1, previous.2));
-    (dt > 0.4 && moved < length - 0.3 && moved > 0.2).then(|| (moved / dt).clamp(0.5, 15.0))
 }
 
 /// `MAO_TRACE=1`: print the server messages that matter for zoning and
@@ -380,9 +372,6 @@ struct World {
     /// they put on in view (`others_wear`), until the list ends, the item comes off, they are announced otherwise,
     /// leave, or the playfield changes.
     flying: std::collections::BTreeSet<u32>,
-    /// Each walked creature's last path (when it came, its start, its end) and its speed as the paths show it.
-    path_seen: BTreeMap<u32, (Instant, [f32; 3], [f32; 3])>,
-    path_speeds: BTreeMap<u32, f32>,
     /// The creatures the server last sent running along their path or after their target (`FollowTarget`'s mode 0x19);
     /// the others walk.
     path_runs: std::collections::BTreeSet<u32>,
@@ -4239,15 +4228,8 @@ impl World {
                 }
                 match path {
                     Some(Route::Waypoints(mut points)) if m.identity.1 != self.own && !points.is_empty() => {
-                        // (the first place is where the server has it now: it starts from there, and the paths in a row tell
-                        // its speed)
+                        // (the first place is where the server has it now: it starts from there)
                         let start = points.remove(0);
-                        if let Some(previous) = self.path_seen.get(&m.identity.1) {
-                            if let Some(speed) = path_speed(*previous, start, Instant::now()) {
-                                self.path_speeds.insert(m.identity.1, speed);
-                            }
-                        }
-                        self.path_seen.insert(m.identity.1, (Instant::now(), start, *points.last().unwrap_or(&start)));
                         if let Some(e) = self.entities.get_mut(&m.identity.1) {
                             e.0 = start;
                         }
@@ -4834,7 +4816,18 @@ impl World {
                     }
                 },
                 Route::Chase(t) => match if *t == self.own { Some(own) } else { self.entities.get(t).map(|e| e.0) } {
-                    Some(p) => (p, CHASE_NEAR),
+                    // (FUN_100706ce: the goal is the target's place less [`CHASE_NEAR`] along the way to it, or its own place
+                    // when nearer than that)
+                    Some(p) => {
+                        let d = [p[0] - at[0], p[1] - at[1], p[2] - at[2]];
+                        let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                        if length * length > CHASE_NEAR * CHASE_NEAR {
+                            let k = (length - CHASE_NEAR) / length;
+                            ([at[0] + d[0] * k, at[1] + d[1] * k, at[2] + d[2] * k], 0.0)
+                        } else {
+                            (at, 0.0)
+                        }
+                    }
                     None => {
                         self.paths.remove(&id);
                         continue;
@@ -4850,14 +4843,15 @@ impl World {
                 continue;
             }
             // (a walk is 1.5 a second. A run is the creature's own run speed by the characters' rule, FUN_1006f9eb:
-            // `RunSpeed / 275 + 5` within 1.5 and 13; where its RunSpeed is not known, the speed its paths in a row
-            // showed, and 5 with neither. Until 2026-11-17 a creature chasing went at the walk's 1.5 until two paths in a
-            // row had shown its speed, and came up to eight metres behind the server's: it fought and died from afar.)
+            // `RunSpeed / 275 + 5` within 1.5 and 13: its `RunSpeed` as a `Stat` last set it, else as its announcement
+            // gave it, else 0 (a message cut short; 5 a second). Until 2026-11-19 an unknown one took the speed two paths in
+            // a row showed, the client's own.)
             // (the run's `RunSpeed` falls off below 15% health as a player's does, FUN_1006f2fc: the health as the
             // announcement and the info packets tell it)
             let speed = if self.path_runs.contains(&id) {
                 let health = self.health.get(&id).copied();
-                self.infos.get(&id).and_then(|i| i.run_speed).map(|r| creature_run_speed(r, health)).or_else(|| self.path_speeds.get(&id).copied()).unwrap_or(RUN_SPEED)
+                let told = self.others_stats.get(&id).and_then(|m| m.get(&156)).map(|&v| v.clamp(0, u16::MAX as i64) as u16);
+                creature_run_speed(told.or_else(|| self.infos.get(&id).and_then(|i| i.run_speed)).unwrap_or(0), health)
             } else {
                 PATH_SPEED
             };
@@ -15469,11 +15463,6 @@ mod movement_tests {
 
     #[test]
     fn creatures_walk_their_paths() {
-        // a path's speed: 3 m along a 5 m path in 2 s is 1.5 m/s; a path walked to its end tells nothing
-        let then = Instant::now();
-        let now = then + Duration::from_secs(2);
-        assert_eq!(path_speed((then, [0.0; 3], [0.0, 0.0, 5.0]), [0.0, 0.0, 3.0], now), Some(1.5));
-        assert_eq!(path_speed((then, [0.0; 3], [0.0, 0.0, 3.0]), [0.0, 0.0, 3.0], now), None);
         // walked at 1.5 m/s toward the path's end, then stopped there
         let mut w = World { own: 1, ..World::default() };
         w.entities.insert(7, ([0.0; 3], 0));
@@ -15484,12 +15473,19 @@ mod movement_tests {
             w.walk_paths(1.0, [50.0, 0.0, 0.0]);
         }
         assert!((w.entities[&7].0[2] - 3.0).abs() < 0.11);
-        // after oneself: stops 1.5 m short
+        // after oneself: stops 4 m short (FUN_100706ce), measured in three dimensions
         w.paths.insert(7, Route::Chase(1));
         for _ in 0..40 {
             w.walk_paths(1.0, [0.0, 0.0, 20.0]);
         }
-        assert!((w.entities[&7].0[2] - 18.5).abs() < 1e-3);
+        assert!((w.entities[&7].0[2] - 16.0).abs() < 1e-3);
+        // (3 m along and 3 up is 4.24 m: it comes on, where on the flat it would have stood; 2.5 along and 3 up it stands)
+        w.walk_paths(1.0, [0.0, 3.0, 19.0]);
+        let z = w.entities[&7].0[2];
+        assert!(z > 16.1 && z < 16.3, "{z}");
+        w.walk_paths(1.0, [0.0, 3.0, z + 2.5]);
+        assert!((w.entities[&7].0[2] - z).abs() < 1e-4);
+        w.entities.get_mut(&7).unwrap().0 = [0.0, 0.0, 16.0];
         // sent running (the path message's mode 0x19): 5 a second with nothing known of it, and its own run speed
         // (a captured announcement's RunSpeed of 30: 30 / 275 + 5) once it is announced; sent walking again, 1.5
         let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
