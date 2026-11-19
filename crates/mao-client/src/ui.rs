@@ -1276,6 +1276,11 @@ impl Ui {
                     }
                 }
             }
+            // (the bank's window shut by the player, by its close or by name: the server is told, FUN_100ca891's
+            // `N3Msg_UseItem(0xdead)`)
+            if crate::loot::bank_shut(bag_windows.iter().find(|(id, _)| id.0 == crate::loot::BANK).map(|(_, w)| w.open)) {
+                crate::net::close_bank();
+            }
             if help_window.open {
                 help_window.show(&ctx, &settings.keymap, palette);
             }

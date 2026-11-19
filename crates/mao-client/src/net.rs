@@ -1089,6 +1089,16 @@ pub fn request_claims(check: bool) {
     CLAIM_REQUESTS.lock().unwrap_or_else(|e| e.into_inner()).push(check);
 }
 
+/// The bank's window shut, how many times: the game loop tells the server each (`CharacterAction` 0x6a).
+static BANK_CLOSES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The bank's window was shut by the player: the window's close uses the bank again (GUI.dll FUN_100ca891 calls
+/// `N3Msg_UseItem(0xdead)`), whose bank branch (Gamecode 0x10028883) sends `CharacterAction` 0x6a with no identity
+/// and no parameters.
+pub fn close_bank() {
+    BANK_CLOSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Gamecode's text commands waiting to be sent (`n3::text_command`): the action and its number.
 static TEXT_COMMANDS: std::sync::Mutex<Vec<(u8, u32)>> = std::sync::Mutex::new(Vec::new());
 
@@ -8751,6 +8761,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                     },
                 }
+            }
+            for _ in 0..BANK_CLOSES.swap(0, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("[{:6.1}] the bank's window shut: told the server (action 0x6a)", clock.elapsed().as_secs_f32());
+                let _ = connection.send(&n3::character_action(own, 0x6a, (0, 0), (0, 0)));
             }
             for check in std::mem::take(&mut *CLAIM_REQUESTS.lock().unwrap_or_else(|e| e.into_inner())) {
                 if let Some(text) = state.claims_refusal() {

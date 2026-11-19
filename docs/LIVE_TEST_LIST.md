@@ -1045,6 +1045,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Place items by hand with one character, log in with another: the second keeps its own layout; back on the first, its layout is as it was left.
 - [ ] Drag an implant onto an empty corner cell of the implant page: it goes to its own implant place.
 - [ ] Open the info of a stim or a nano that locks a skill: "<skill> skill locked for N seconds" (with a second number in brackets for a character whose skill lock modifier is not 0).
+- [ ] Open the bank, shut its window: the log says "the bank's window shut: told the server (action 0x6a)"; open the bank again from the terminal: it opens as before.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

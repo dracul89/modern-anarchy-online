@@ -7237,3 +7237,7 @@ ItemContainerView_c FUN_100ce55d: a corpse, a chest, another's container, the or
 ### More spell lines on item pages (INV-023)
 
 Gamecode `N3Msg_ConvertSpellList` (0x100213ec) writes a line for each spell type it knows, mostly with the program's own English formats. The client now also writes the stat set ("Set <stat> <value>"), the skill lock ("<skill> skill locked for <n> seconds", with the reader's own time in brackets when its skill lock modifier is not 0) and the reduced lock ("Reduce <line> by <n> seconds"), and writes nothing for a temporary set of the stats the original skips. The area nano casts, perk locks and a few rarer types are still not written.
+
+### Shutting the bank tells the server (INV-051)
+
+The original's container window, when shut, uses its container again (GUI.dll FUN_100ca891); for the bank that is Gamecode's `N3Msg_UseItem(0xdead)`, which sends `CharacterAction` 0x6a with nothing in it. The client now sends it when the player shuts the bank's window (`loot::bank_shut`, `net::close_bank`). Not sent: the close when walking away from the terminal.

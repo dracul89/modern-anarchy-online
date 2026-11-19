@@ -403,6 +403,20 @@ pub struct LootWindow {
 /// What a container's list mode and order are kept under (the original keeps a file each: `Bank.xml`,
 /// `Container_<type>x<instance>.xml` for one's own backpack, `TempContainer_<handle>.xml` for another's; here the
 /// others share one, since their handles are new each time).
+/// Whether the bank's window was up at the last look.
+static BANK_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the bank's window was shut since the last look: it was up and is now there and down (the window of a bank
+/// the server took away is gone, not shut: nothing is told for it). The original's window close uses the bank again
+/// (FUN_100ca891), which tells the server (`net::close_bank`).
+pub fn bank_shut(window: Option<bool>) -> bool {
+    shut(BANK_UP.swap(window == Some(true), std::sync::atomic::Ordering::Relaxed), window)
+}
+
+fn shut(was_up: bool, window: Option<bool>) -> bool {
+    was_up && window == Some(false)
+}
+
 /// The identity type of the reclaim terminal's list.
 pub const RECLAIM: u32 = 0xdeae;
 
@@ -1086,6 +1100,15 @@ pub fn title(kind: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_100ca891: the bank's window going down is told; one that was not up, or that is gone, is not.
+    #[test]
+    fn the_bank_window_shut_is_told() {
+        assert!(shut(true, Some(false)));
+        assert!(!shut(true, Some(true)));
+        assert!(!shut(true, None));
+        assert!(!shut(false, Some(false)));
+    }
 
     /// FUN_100ce55d: another's container and the contract by name; one's own, the bank and the reclaim list not.
     #[test]

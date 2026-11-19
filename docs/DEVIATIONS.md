@@ -2520,6 +2520,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Bank use, corpse slot progress, pet commands may not work as the original's.
 - Where: `docs/CAPTURE_GAPS.md:302`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The bank's window shut by the player (its close, `/bank close`, Escape) now sends `CharacterAction` 0x6a with no identity and no parameters: GUI.dll FUN_100ca891 (the container window's close) calls `N3Msg_UseItem(0xdead)`, whose bank branch (Gamecode 0x10028883) closes the bank (FUN_10046e44) and sends 0x6a by FUN_10072a88(own, zero identity, 0, 0x6a, ...), as the one capture shows ("no parameters"). `loot::bank_shut` sees the window go down while the bank is still there (a bank the server takes away is gone, not shut); `net::close_bank` sends. Test `loot::tests::the_bank_window_shut_is_told`. Left: the 0x6a Gamecode sends when the character walks away from the terminal (FUN_1003f8fc walks the open containers), CharacterAction 0x8e (a corpse slot's action with progress, answered by 0x6e) and 0x80 (a pet's): their senders were not found by name among the N3Msg functions, and the 0x8e one sits in a 1975-line handler (FUN_100065d8).
 
 #### `INV-052` Inventory behaviours left from the original reading (ground drop, use on a character, and others)
 
