@@ -6995,14 +6995,21 @@ before login) is not ported: no capture of the message, and the client closes it
 
 ### The launcher's version check and licence (LCH-036)
 
-Anarchy.exe compares the game folder's version with each dimension's (0x4126d6): a newer dimension is marked as needing a
-patch, an older one as an old server. The launcher's list now says so after the name (in the client's own words), and
-PLAY takes the original's PATCH pictures (bitmaps 183-185) while the chosen dimension is newer. The original then starts
-`AnarchyPatcher.exe`; this client has no patcher and does not start Funcom's, so PATCH says to patch with the game's own
-launcher. An older server is refused with a line, as the original's click check (0x40b60f) refuses it. The licence
+Anarchy.exe reads the game folder's version (`version.id` without its `_EP1`/`_EP2` mark) and each dimension's with
+`%u.%u.%u.%u` (0x412511-0x412535) and marks the dimension (0x4126d6-0x412761): the first number that differs, the game's
+lower, needs a patch; the game's higher is an old server, unless the dimension's version has more than two numbers and
+the game's just two (then a patch); versions of another count of numbers need a patch (an empty one too: sscanf's EOF).
+The launcher's list says so after the name (in the client's own words), and PLAY takes the original's PATCH pictures
+(bitmaps 183-185) while the chosen dimension needs a patch. PATCH does what the original's does (0x40c13d): it opens the
+game's `AnarchyPatcher.exe` (ShellExecuteEx "open", 0x407d37) in the game's folder with the dimension's version and the
+game's expansion mark (`18.8.63_EP1`), and the launcher closes as Cancel closes it (mfc100 ordinal 8137, EndDialog(2)),
+whether the patcher started or not (a failure is only written down, as the original writes it to `Anarchy.err`). The
+client's own fallback dimension (no list kept or downloaded) takes the game's version, so it never asks for a patch.
+An older server is refused with a line, as the original's click check (0x40b60f) refuses it. The licence
 (`anarchy.eula`, dialog 152) is shown until it is accepted; I decline ends the launcher. Where the original remembers the
 acceptance was not found, so the client keeps it as `eula = accepted` in `launcher.ini` (its own rule). Tests:
-`versions_compare_by_their_numbers`, `the_licence_is_remembered`.
+`versions_compare_by_their_numbers`, `the_licence_is_remembered`,
+`the_patcher_is_given_the_dimensions_version_and_the_expansion`.
 
 ### No guessed water sheet (RND-025)
 

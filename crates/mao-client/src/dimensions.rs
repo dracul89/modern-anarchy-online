@@ -168,8 +168,9 @@ impl Prefs {
     }
 }
 
-/// How the game folder's version stands to a dimension's (Anarchy.exe 0x4126d6 compares the two versions' numbers): the
-/// dimension newer needs a patch, older is an old server. A version not known is taken as the same.
+/// How the game folder's version stands to a dimension's (Anarchy.exe 0x412560-0x412761 reads both with `%u.%u.%u.%u`
+/// and keeps two flags on the dimension: +0x32 needs a patch, +0x33 an old server; the list shows the first that is
+/// set and the click checks the label in that order).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionState {
     Same,
@@ -177,21 +178,85 @@ pub enum VersionState {
     OldServer,
 }
 
-pub fn version_state(local: &str, dimension: &str) -> VersionState {
-    let numbers = |v: &str| -> Option<Vec<u32>> {
-        let v = v.trim().split('_').next().unwrap_or("");
-        if v.is_empty() {
-            return None;
+/// `sscanf(text, "%u.%u.%u.%u", ...)`: how many numbers were read (-1 when the text ends before the first, as sscanf
+/// gives EOF) and the numbers (0 where none was read). A number may have a sign and wraps as an unsigned one.
+fn scan_version(text: &str) -> (i32, [u32; 4]) {
+    let b = text.as_bytes();
+    let mut at = 0;
+    let mut out = [0u32; 4];
+    for n in 0..4 {
+        if n > 0 {
+            if b.get(at) != Some(&b'.') {
+                return (n as i32, out);
+            }
+            at += 1;
         }
-        let mut n: Vec<u32> = v.split('.').map(|p| p.trim().parse().unwrap_or(0)).collect();
-        n.resize(4, 0);
-        Some(n)
-    };
-    match (numbers(local), numbers(dimension)) {
-        (Some(l), Some(d)) if d > l => VersionState::NeedPatch,
-        (Some(l), Some(d)) if d < l => VersionState::OldServer,
-        _ => VersionState::Same,
+        while b.get(at).is_some_and(|c| c.is_ascii_whitespace()) {
+            at += 1;
+        }
+        if at >= b.len() {
+            return (if n == 0 { -1 } else { n as i32 }, out);
+        }
+        let negative = b[at] == b'-';
+        if matches!(b[at], b'+' | b'-') {
+            at += 1;
+        }
+        let digits = at;
+        let mut value = 0u32;
+        while let Some(c) = b.get(at).filter(|c| c.is_ascii_digit()) {
+            value = value.wrapping_mul(10).wrapping_add((c - b'0') as u32);
+            at += 1;
+        }
+        if at == digits {
+            return (n as i32, out);
+        }
+        out[n] = if negative { value.wrapping_neg() } else { value };
     }
+    (4, out)
+}
+
+pub fn version_state(local: &str, dimension: &str) -> VersionState {
+    let (local_count, l) = scan_version(local);
+    let (dimension_count, d) = scan_version(dimension);
+    // (the first number that differs, game's less the dimension's: below nought needs a patch, above is an old server,
+    // unless the dimension's has more than two numbers and the game's just two; numbers of another count need a patch)
+    let first = (0..4).map(|i| l[i].wrapping_sub(d[i]) as i32).find(|&x| x != 0).unwrap_or(0);
+    let mut patch = first < 0;
+    let mut old = false;
+    if first > 0 {
+        old = true;
+        if dimension_count > 2 && local_count == 2 {
+            old = false;
+            patch = true;
+        }
+    }
+    if dimension_count != local_count {
+        patch = true;
+    }
+    if patch {
+        VersionState::NeedPatch
+    } else if old {
+        VersionState::OldServer
+    } else {
+        VersionState::Same
+    }
+}
+
+/// The game's expansion mark in `version.id` (Anarchy.exe 0x4035fc: `_EP1` is looked for first, then `_EP2`; neither
+/// is the small client).
+pub fn episode(version_id: &str) -> &'static str {
+    if version_id.contains("_EP1") {
+        "_EP1"
+    } else if version_id.contains("_EP2") {
+        "_EP2"
+    } else {
+        ""
+    }
+}
+
+/// What the patcher is given: the dimension's version with the game's expansion mark (Anarchy.exe 0x40c1b3-0x40c1dd).
+pub fn patcher_argument(dimension_version: &str, episode: &str) -> String {
+    format!("{dimension_version}{episode}")
 }
 
 /// The words after a dimension's name in the list (the original's " (Need patch)" and " (Old server)").
@@ -215,8 +280,22 @@ mod tests {
         assert_eq!(version_state("18.8.62", "18.10.1"), VersionState::NeedPatch);
         assert_eq!(version_state("18.8.62", "18.8.9"), VersionState::OldServer);
         assert_eq!(version_state("18.8", "18.8.0.1"), VersionState::NeedPatch);
-        assert_eq!(version_state("", "18.8.62"), VersionState::Same);
-        assert_eq!(version_state("18.8.62", ""), VersionState::Same);
+        // (numbers of another count need a patch, even an empty version: sscanf's EOF)
+        assert_eq!(version_state("18.8.62", "18.8.62.0"), VersionState::NeedPatch);
+        assert_eq!(version_state("18.8.62", ""), VersionState::NeedPatch);
+        assert_eq!(version_state("18.9", "18.8.62"), VersionState::NeedPatch);
+        assert_eq!(version_state("18.8.62", "18.8.x"), VersionState::NeedPatch);
+        assert_eq!(scan_version(""), (-1, [0; 4]));
+        assert_eq!(scan_version("abc"), (0, [0; 4]));
+        assert_eq!(scan_version(" 18. 8.62_EP1"), (3, [18, 8, 62, 0]));
+    }
+
+    #[test]
+    fn the_patcher_is_given_the_dimensions_version_and_the_expansion() {
+        assert_eq!(episode("18.8.62_EP1"), "_EP1");
+        assert_eq!(episode("18.8.62_EP2"), "_EP2");
+        assert_eq!(episode("18.8.62"), "");
+        assert_eq!(patcher_argument("18.8.63", episode("18.8.62_EP1")), "18.8.63_EP1");
     }
 
     #[test]

@@ -49,8 +49,9 @@
 //! - The pictures and the page run guarded: a failure there leaves the plain window, which still has its settings and
 //!   PLAY.
 //!
-//! Not done: patching (the original turns PLAY into PATCH when the versions differ; here the difference is only
-//! told), the end-user licence dialog. (The page of an error code, `ERRORURL`, is the login's: `launcher.rs`.)
+//! - PLAY is PATCH while the chosen dimension needs a patch; PATCH starts the game's `AnarchyPatcher.exe` with the
+//!   dimension's version and the game's expansion mark, in the game's folder, and the launcher closes (Anarchy.exe
+//!   0x40c13d, 0x407d37). (The page of an error code, `ERRORURL`, is the login's: `launcher.rs`.)
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -718,6 +719,8 @@ struct Launch {
     status: String,
     list: Option<Receiver<Result<String, String>>>,
     local_version: String,
+    /// The game's expansion mark from `version.id` (`_EP1`, `_EP2` or nothing), which the patcher is given.
+    episode: &'static str,
     titled: String,
     dialog: Option<Dialog>,
     play: bool,
@@ -737,6 +740,8 @@ struct Launch {
     eula: Option<String>,
     /// The licence was declined: the launcher ends.
     declined: bool,
+    /// PATCH started the patcher: the launcher ends.
+    patching: bool,
 }
 
 impl Launch {
@@ -840,16 +845,24 @@ impl Launch {
             if button(ui, "launcher-settings", SETTINGS_BUTTON, &pictures.settings, enabled, "SETTINGS") {
                 open_settings = true;
             }
-            // (PLAY is PATCH while the dimension is newer than the game; the original then starts its patcher, which
-            // this client does not have: it says to patch with the game's own launcher. An older server is refused, as
-            // the original's click check 0x40b60f does.)
+            // (PLAY is PATCH while the dimension needs a patch, and starts the patcher; an older server is refused, as the
+            // original's click check 0x40b60f does)
             let state = self.dimension().map_or(dimensions::VersionState::Same, |d| dimensions::version_state(&self.local_version, &d.version));
             let (faces, label) = if state == dimensions::VersionState::NeedPatch { (&pictures.patch, "PATCH") } else { (&pictures.play, "PLAY") };
             if button(ui, "launcher-play", PLAY_BUTTON, faces, enabled && self.game_ok && self.dimension().is_some(), label) {
                 match state {
                     dimensions::VersionState::Same => self.play = true,
                     dimensions::VersionState::NeedPatch => {
-                        self.status = format!("{} runs a newer version ({}) than this game folder ({}). Patch the game with Funcom's own launcher, then start this one again.", self.dimension().map_or("", |d| d.name.as_str()), self.dimension().map_or("", |d| d.version.as_str()), self.local_version);
+                        // (the game's AnarchyPatcher.exe, opened in the game's folder with the dimension's version and
+                        // the game's expansion mark; a failure is only written down, as the original writes it to
+                        // Anarchy.err, and the launcher closes either way, as Cancel closes it: Anarchy.exe 0x40c13d,
+                        // 0x407d37 ShellExecuteEx "open", mfc100 ordinal 8137 EndDialog(2))
+                        let argument = dimensions::patcher_argument(self.dimension().map_or("", |d| d.version.as_str()), self.episode);
+                        let folder = Path::new(&self.game);
+                        if let Err(e) = std::process::Command::new(folder.join("AnarchyPatcher.exe")).arg(&argument).current_dir(folder).spawn() {
+                            eprintln!("could not start the patcher (AnarchyPatcher.exe {argument}): {e}");
+                        }
+                        self.patching = true;
                     }
                     dimensions::VersionState::OldServer => {
                         self.status = format!("{} runs an older version ({}) than this game folder ({}).", self.dimension().map_or("", |d| d.name.as_str()), self.dimension().map_or("", |d| d.version.as_str()), self.local_version);
@@ -1124,7 +1137,7 @@ impl Launch {
                 if self.play_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) && self.list.is_none() && self.game_ok {
                     self.play = true;
                 }
-                if self.play || self.restart || self.declined || self.quit_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) {
+                if self.play || self.restart || self.declined || self.patching || self.quit_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) {
                     gfx.window.set_visible(false);
                     event_loop.exit();
                 } else {
@@ -1235,7 +1248,9 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
     let prefs = Prefs::load();
     // (the folder's version without what follows an underscore, the expansion's mark, as the original's title has it and
     // as the dimension list gives a version)
-    let local_version = mao_formats::files::read_to_string(Path::new(game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().split('_').next().unwrap_or("").to_string()).unwrap_or_default();
+    let version_id = mao_formats::files::read_to_string(Path::new(game).join("version.id")).map(|t| t.lines().next().unwrap_or("").trim().to_string()).unwrap_or_default();
+    let local_version = version_id.split('_').next().unwrap_or("").to_string();
+    let episode = dimensions::episode(&version_id);
     let mut launch = Launch {
         game: game.to_string(),
         settings,
@@ -1246,6 +1261,7 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         status: String::new(),
         list: None,
         local_version,
+        episode,
         titled: String::new(),
         dialog: None,
         play: false,
@@ -1259,12 +1275,15 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         // (the licence until it is accepted; read as the bytes are, one character each)
         eula: if prefs.eula { None } else { std::fs::read(mao_formats::files::find(&Path::new(game).join("anarchy.eula"))).ok().map(|b| b.iter().map(|&c| c as char).collect::<String>().replace('\r', "")) },
         declined: false,
+        patching: false,
     };
-    // (the list kept from before until the server's comes; with neither, the one dimension the client knows itself)
+    // (the list kept from before until the server's comes; with neither, the one dimension the client knows itself, at
+    // the game's own version, as it is not known: the original has no such dimension, and an empty version would need
+    // a patch)
     launch.set_list(&std::fs::read_to_string(dimensions::cache_path()).unwrap_or_default());
     if launch.dimensions.is_empty() {
         let (connect, port) = mao_net::session::RUBI_KA.split_once(':').unwrap_or((mao_net::session::RUBI_KA, "7505"));
-        launch.dimensions = vec![Dimension { name: "Rubi-Ka".into(), connect: connect.into(), port: port.parse().unwrap_or(7505), version: String::new() }];
+        launch.dimensions = vec![Dimension { name: "Rubi-Ka".into(), connect: connect.into(), port: port.parse().unwrap_or(7505), version: launch.local_version.clone() }];
     }
     if let Some(address) = dimensions::list_address(Path::new(game)) {
         let (tx, rx) = channel();
@@ -1309,7 +1328,7 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
     }
     let Some(dimension) = launch.dimension().cloned() else { return Ok(()) };
     if !dimension.version.is_empty() && !launch.local_version.is_empty() && dimension.version != launch.local_version {
-        eprintln!("the game folder is version {}, {} wants {}: the login may be refused (this client cannot patch the game)", launch.local_version, dimension.name, dimension.version);
+        eprintln!("the game folder is version {}, {} wants {}: the login may be refused", launch.local_version, dimension.name, dimension.version);
     }
     // (this run is over before the login starts, or the login would take it for one that never ended: `crash.rs`)
     crate::crash::end("launcher", None);

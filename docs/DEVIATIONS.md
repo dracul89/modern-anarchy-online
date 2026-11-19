@@ -42,10 +42,10 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| **high** | 54 | 49 | 5 | 0 | 0 | 0 | **0** |
+| **high** | 54 | 50 | 4 | 0 | 0 | 0 | **0** |
 | **medium** | 158 | 47 | 29 | 55 | 27 | 0 | **0** |
 | **low** | 725 | 117 | 20 | 532 | 56 | 0 | **0** |
-| **all** | 937 | 213 | 54 | 587 | 83 | 0 | **0** |
+| **all** | 937 | 214 | 53 | 587 | 83 | 0 | **0** |
 
 ### By area
 
@@ -64,7 +64,7 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | Camera (`CAM`) | 13 | 5 | 0 | 8 | 0 | 0 | **0** |
 | Rendering and world (`RND`) | 194 | 24 | 4 | 158 | 8 | 0 | **0** |
 | Sound and music (`SND`) | 17 | 3 | 0 | 14 | 0 | 0 | **0** |
-| Launcher, login, character creation (`LCH`) | 51 | 18 | 4 | 23 | 6 | 0 | **0** |
+| Launcher, login, character creation (`LCH`) | 51 | 19 | 3 | 23 | 6 | 0 | **0** |
 | Settings and files (`SET`) | 54 | 8 | 2 | 27 | 17 | 0 | **0** |
 | Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 2 | 0 | **0** |
 | Other (`OTH`) | 21 | 3 | 1 | 13 | 4 | 0 | **0** |
@@ -75,7 +75,6 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 - `WIN-114` Window chrome: no "?" help button, docking, auto-fade, original titles or art (MISSING) - part done
 - `RND-137` Statels of generated buildings and rendering effects get no effects (MISSING) - part done
 - `LCH-035` No account activation window and no limbo window (MISSING) - part done
-- `LCH-036` Patching and licence dialog not done (MISSING) - part done
 
 ### Medium weight not finished, by area
 
@@ -321,7 +320,7 @@ The `high` entries that are not additions, by area. The full entries are below u
 
 - [x] `LCH-034` Character creation: figures and ships do not animate, no selection glow, no expansion rules (MISSING) **(done)**
 - [ ] `LCH-035` No account activation window and no limbo window (MISSING) **(part done)**
-- [ ] `LCH-036` Patching and licence dialog not done (MISSING) **(part done)**
+- [x] `LCH-036` Patching and licence dialog not done (MISSING) **(done)**
 - [x] `LCH-037` The picked character and the hall's figures cannot be turned or animated (MISSING) **(done)**
 
 **Settings and files**
@@ -9105,7 +9104,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a version difference is only told (logged); no licence dialog; the launcher was built from resources and the user's pictures, not from the decompiled program
 - A player notices: the game cannot be patched from the launcher; no licence prompt
 - Where: `crates/mao-client/src/launchwindow.rs:52`; `docs/ORIGINAL_AUDIT.md:25`; `docs/CLIENT_UI.md:1517`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19): PATCH starts the game's AnarchyPatcher.exe as the original's does (Anarchy.exe 0x40c13d, 0x407d37): in the game's folder, given the dimension's version with the game's expansion mark from version.id (_EP1/_EP2, 0x4035fc), and the launcher closes as Cancel does (mfc100 ordinal 8137 EndDialog(2)) whether it started or not. The version compare is now the original's sscanf %u.%u.%u.%u rule (0x412511-0x412761: another count of numbers, or an empty version, needs a patch). The client's fallback dimension takes the game's version. Tests: versions_compare_by_their_numbers, the_patcher_is_given_the_dimensions_version_and_the_expansion.
 - Done in part (2026-11-19, overnight): Version compare with labels in the list, PLAY becomes PATCH (bitmaps 183-185) and says to patch with Funcom's launcher, an older server is refused with a line, and the anarchy.eula licence is asked until accepted (kept in launcher.ini, the client's own rule). Running AnarchyPatcher.exe is left: Funcom's servers and the game folder at stake, its arguments guessed.
 
 #### `LCH-037` The picked character and the hall's figures cannot be turned or animated

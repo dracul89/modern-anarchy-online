@@ -1124,3 +1124,5 @@ These were written before this list; some may have been seen working since witho
   inventory (with a full inventory the game's "inventory full" line, nothing sent); what the server answers to it is
   new (no capture had the message). Crawl starts crawling (others see it), the tile then shows the stop, and a second
   click stands up; while swimming it does nothing.
+- [ ] Launcher PATCH (LCH-036, 2026-11-19): only when a dimension really is newer than the game folder (do not fake
+  it: the patcher changes the game folder). PATCH opens AnarchyPatcher.exe for that dimension and the launcher closes.
