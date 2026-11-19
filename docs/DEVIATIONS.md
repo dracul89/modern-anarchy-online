@@ -42,10 +42,10 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| **high** | 54 | 51 | 3 | 0 | 0 | 0 | **0** |
+| **high** | 54 | 53 | 1 | 0 | 0 | 0 | **0** |
 | **medium** | 158 | 48 | 28 | 55 | 27 | 0 | **0** |
 | **low** | 725 | 117 | 20 | 532 | 56 | 0 | **0** |
-| **all** | 937 | 216 | 51 | 587 | 83 | 0 | **0** |
+| **all** | 937 | 218 | 49 | 587 | 83 | 0 | **0** |
 
 ### By area
 
@@ -55,7 +55,7 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | Combat (`CMB`) | 38 | 11 | 3 | 23 | 1 | 0 | **0** |
 | Targeting and mouse (`TGT`) | 17 | 4 | 3 | 10 | 0 | 0 | **0** |
 | Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
-| NPCs and creatures (`NPC`) | 40 | 13 | 7 | 19 | 1 | 0 | **0** |
+| NPCs and creatures (`NPC`) | 40 | 14 | 6 | 19 | 1 | 0 | **0** |
 | Inventory and items (`INV`) | 84 | 32 | 12 | 36 | 4 | 0 | **0** |
 | Nano programs (`NAN`) | 60 | 8 | 3 | 46 | 3 | 0 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 5 | 0 | 19 | 4 | 0 | **0** |
@@ -64,16 +64,14 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | Camera (`CAM`) | 13 | 5 | 0 | 8 | 0 | 0 | **0** |
 | Rendering and world (`RND`) | 194 | 24 | 4 | 158 | 8 | 0 | **0** |
 | Sound and music (`SND`) | 17 | 3 | 0 | 14 | 0 | 0 | **0** |
-| Launcher, login, character creation (`LCH`) | 51 | 19 | 3 | 23 | 6 | 0 | **0** |
+| Launcher, login, character creation (`LCH`) | 51 | 20 | 2 | 23 | 6 | 0 | **0** |
 | Settings and files (`SET`) | 54 | 8 | 2 | 27 | 17 | 0 | **0** |
 | Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 2 | 0 | **0** |
 | Other (`OTH`) | 21 | 3 | 1 | 13 | 4 | 0 | **0** |
 
 ### High weight not finished
 
-- `NPC-006` Vehicle riders and other characters use plain/medium bodies only (SIMPLIFIED) - part done
 - `RND-137` Statels of generated buildings and rendering effects get no effects (MISSING) - part done
-- `LCH-035` No account activation window and no limbo window (MISSING) - part done
 
 ### Medium weight not finished, by area
 
@@ -259,7 +257,7 @@ The `high` entries that are not additions, by area. The full entries are below u
 **NPCs and creatures**
 
 - [x] `NPC-005` Per-pet command never captured; /pet sends an empty list (SIMPLIFIED) **(done)**
-- [ ] `NPC-006` Vehicle riders and other characters use plain/medium bodies only (SIMPLIFIED) **(part done)**
+- [x] `NPC-006` Vehicle riders and other characters use plain/medium bodies only (SIMPLIFIED) **(done)**
 - [x] `NPC-014` Shop: double-click buys or removes, right click opens the page (GUESS) **(done)**
 - [x] `NPC-028` Other characters and humanoid NPCs are drawn at scale 100 (MISSING) **(done)**
 - [x] `NPC-029` Pet window: no running-nano list per pet, no Remember Pet Names (MISSING) **(done)**
@@ -317,7 +315,7 @@ The `high` entries that are not additions, by area. The full entries are below u
 **Launcher, login, character creation**
 
 - [x] `LCH-034` Character creation: figures and ships do not animate, no selection glow, no expansion rules (MISSING) **(done)**
-- [ ] `LCH-035` No account activation window and no limbo window (MISSING) **(part done)**
+- [x] `LCH-035` No account activation window and no limbo window (MISSING) **(done)**
 - [x] `LCH-036` Patching and licence dialog not done (MISSING) **(done)**
 - [x] `LCH-037` The picked character and the hall's figures cannot be turned or animated (MISSING) **(done)**
 
@@ -1642,7 +1640,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: thin/fat players look medium; board/bike visuals incomplete
 - Where: `crates/mao-client/src/net.rs:4041`; `crates/mao-client/src/net.rs:4633`; `docs/CLIENT_UI.md:2335`
 - Decision: [x] port  [ ] leave
-- Done (2026-11-19, overnight): Every character of the world is now drawn with the body the original asks for: Gamecode FUN_100585bf (run when the look changes) names it with FUN_100583fa as `<breed>_<sex>[_thin|_fat][_robe][_hires|_lores].cir` (a neuter as male; `_thin` for the Fatness stat 47 at 0, `_fat` at 2; `_robe` when the dynel's robe flag +0x208 is 1; stat 888's detail) and FUN_1005853e retries without the detail; no body found keeps the mesh the character had (at first the breed's plain body, FUN_10057a2e). The build comes from the full update's packed word (bits 3-4, FUN_1007916d +0x8a, set as stat 47 by the exec FUN_1007835c) and from Stat messages (FUN_1006288f → FUN_1003e464); the robe flag from the full update's byte after the scale's short (+0x32e) and the AppearanceUpdate's last byte (FUN_10071bc2 → FUN_10057800). mao-net's EntityInfo now has `fatness` and `robe`; appearance::body_names builds the names; Characters keys its bodies by (breed, sex, build, robe) and every caller sets the character's build and robe first. The real body also feeds what depends on the mesh stat 12: a vehicle program's ChangeMesh criteria (a robed body rides its own board template, 272944 not 270044), the animation calibration (FUN_1007009f: only the plain bodies are listed, so thin/fat ones play at 1.0, as there), the mine/trade body spheres and the aura's body. The database has every thin, fat and robed body of the four breeds and no `_hires`/`_lores` one, so the detail is left at 0. The vehicle jump was missing: a character on a vehicle body now asks the body's own set for the jump, 0x9c standing / 0x9d moving ahead or back (FUN_1006dcdb → FUN_1006d8f6; a hoverboard's three tricks), and the landing 0xbb / 0xb9 / 0xba by the movement (FUN_1006dd6a; a board's run); a hoverbike has none and goes on with what plays. Guesses/limits: the times in the air and of the landing are the client's own (as for a player's jump); FUN_1006dd6a's 0xb9 for a standing landing when the status +0x10 is 2 is not followed (the field was not read); the trick variant is picked by the character's id like every creature variant (NPC-009), not rand() per jump. Tests: appearance::tests::the_body_names (mao-formats), n3::entity_tests::a_player_is_announced_with_its_scale (mao-net, build and robe), net::movement_tests::a_characters_body_follows_its_build and a_vehicle_jumps_with_its_bodys_animations (MAO_GAME).
+- Done (2026-11-19): Every character of the world is now drawn with the body the original asks for: Gamecode FUN_100585bf (run when the look changes) names it with FUN_100583fa as `<breed>_<sex>[_thin|_fat][_robe][_hires|_lores].cir` (a neuter as male; `_thin` for the Fatness stat 47 at 0, `_fat` at 2; `_robe` when the dynel's robe flag +0x208 is 1; stat 888's detail) and FUN_1005853e retries without the detail; no body found keeps the mesh the character had (at first the breed's plain body, FUN_10057a2e). The build comes from the full update's packed word (bits 3-4, FUN_1007916d +0x8a, set as stat 47 by the exec FUN_1007835c) and from Stat messages (FUN_1006288f → FUN_1003e464); the robe flag from the full update's byte after the scale's short (+0x32e) and the AppearanceUpdate's last byte (FUN_10071bc2 → FUN_10057800). mao-net's EntityInfo now has `fatness` and `robe`; appearance::body_names builds the names; Characters keys its bodies by (breed, sex, build, robe) and every caller sets the character's build and robe first. The real body also feeds what depends on the mesh stat 12: a vehicle program's ChangeMesh criteria (a robed body rides its own board template, 272944 not 270044), the animation calibration (FUN_1007009f: only the plain bodies are listed, so thin/fat ones play at 1.0, as there), the mine/trade body spheres and the aura's body. The database has every thin, fat and robed body of the four breeds and no `_hires`/`_lores` one, so the detail is left at 0. The vehicle jump was missing: a character on a vehicle body now asks the body's own set for the jump, 0x9c standing / 0x9d moving ahead or back (FUN_1006dcdb → FUN_1006d8f6; a hoverboard's three tricks), and the landing 0xbb / 0xb9 / 0xba by the movement (FUN_1006dd6a; a board's run); a hoverbike has none and goes on with what plays. Guesses/limits: the times in the air and of the landing are the client's own (as for a player's jump); FUN_1006dd6a's 0xb9 for a standing landing when the status +0x10 is 2 is not followed (the field was not read); the trick variant is picked by the character's id like every creature variant (NPC-009), not rand() per jump. Tests: appearance::tests::the_body_names (mao-formats), n3::entity_tests::a_player_is_announced_with_its_scale (mao-net, build and robe), net::movement_tests::a_characters_body_follows_its_build and a_vehicle_jumps_with_its_bodys_animations (MAO_GAME).
 - Done in part (2026-11-18): Partly stale, checked 2026-11-18: the vehicles' trails (kind 3039, effects::visual_trails), thrown particles (kind 3028) and the movement flags 0x2000 / 0x4000 are drawn now. Still so: every character of the world is drawn with its breed's medium body (Characters::build is 1 outside character creation; the thin and fat bodies are only in the creation preview). Not checked: a vehicle's jump animation.
 
 #### `NPC-007` A creature with no standing animation holds its walk's first frame
@@ -9096,7 +9094,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: accounts needing activation or limbo cannot proceed in the client
 - Where: `docs/GUI_DLL_PARITY.md:70`; `crates/mao-client/src/launcher.rs`
 - Decision: [x] port  [ ] leave
-- Done (2026-11-19, overnight): The limbo window is ported (the activation window was done overnight). Read from the code, not a capture (none holds a 0x4e): Interfaces.dll `Client_t::ProcessMessage` takes system message 0x4e at 0x10003537 as an `i32` time-out and a `CharacterInfo_c` read by MessageProtocol's `ReadStream` (version 2: breed, sex, a 32-byte name; else instance, the organization's from version 5, the name, breed, sex, profession, level, the area, banned, the ban reason, and from version 4 head, height, width; a name or area of 255 bytes or more reads as ERROR-CHANGE-NAME/-AREA), and signals GUI.dll `LoginModule_c::SlotLoginLimbo` 0x10011c56: the time-out at LEAST 10 seconds (the earlier note said "at most": it is `if (t < 10) t = 10`), `LimboWindow_c::SetCharacterInfo` 0x10010979 (name; level "%d"; gender and breed by `N3InterfaceModule_t::GetSexStr`/`GetBreedStr`, Gamecode's tables; profession text 2004, or 506 `NotChosenYet` for 255 or below 1; the location's lines are commented out of the view), `SetTimeout` 0x100101f0, `Show(2)` (the login, the character list and any progress window put away, the limbo window shown; the hall's stage left as it was). The window (ctor 0x10010502) is `Views/LimboWindow.xml`, centred; `SlotFrameProcess` 0x1001035b sets the countdown bar to 1 − elapsed/time-out and, once the time is up, signals as the close button does (`SlotQuitPressed` 0x1001025d) → `SlotLimboTimeout` 0x10011c4e → `Show(0)`, the login form; Login (`SlotLoginPressed` 0x100102ca) → `SlotSelectCharacter` with the info's instance: the 0x16 on the same connection and the progress window (`Show(4)`). In the client: mao-net reads the message (`system::limbo`, `character_info`) and `session::login_account` returns `Error::Limbo` instead of a refusal; the launcher shows `loginviews::LimboWindow` (Stage::Limbo) in place of the error page; Login plays that character as Play does (progress window, then the loading screen), and the game's process, told of the limbo again at its own login, enters that character with the 0x16 on its connection (`net::login`); time-out or close goes back to the login form. Departures, the client's own: the launcher's login connection is closed and the game's process logs in again (as for every character), so the 0x16 goes on the game process's connection; the gender words for sex 1 and 0 ("neuter", "none") are the client's own words where Gamecode's table has its own. Tests: system::tests::a_limbo_message (mao-net, hand-made bytes from the reader), loginviews::tests::the_limbo_window_counts_down. Not tried live; the window's look was not photographed.
+- Done (2026-11-19): The limbo window is ported (the activation window was done overnight). Read from the code, not a capture (none holds a 0x4e): Interfaces.dll `Client_t::ProcessMessage` takes system message 0x4e at 0x10003537 as an `i32` time-out and a `CharacterInfo_c` read by MessageProtocol's `ReadStream` (version 2: breed, sex, a 32-byte name; else instance, the organization's from version 5, the name, breed, sex, profession, level, the area, banned, the ban reason, and from version 4 head, height, width; a name or area of 255 bytes or more reads as ERROR-CHANGE-NAME/-AREA), and signals GUI.dll `LoginModule_c::SlotLoginLimbo` 0x10011c56: the time-out at LEAST 10 seconds (the earlier note said "at most": it is `if (t < 10) t = 10`), `LimboWindow_c::SetCharacterInfo` 0x10010979 (name; level "%d"; gender and breed by `N3InterfaceModule_t::GetSexStr`/`GetBreedStr`, Gamecode's tables; profession text 2004, or 506 `NotChosenYet` for 255 or below 1; the location's lines are commented out of the view), `SetTimeout` 0x100101f0, `Show(2)` (the login, the character list and any progress window put away, the limbo window shown; the hall's stage left as it was). The window (ctor 0x10010502) is `Views/LimboWindow.xml`, centred; `SlotFrameProcess` 0x1001035b sets the countdown bar to 1 − elapsed/time-out and, once the time is up, signals as the close button does (`SlotQuitPressed` 0x1001025d) → `SlotLimboTimeout` 0x10011c4e → `Show(0)`, the login form; Login (`SlotLoginPressed` 0x100102ca) → `SlotSelectCharacter` with the info's instance: the 0x16 on the same connection and the progress window (`Show(4)`). In the client: mao-net reads the message (`system::limbo`, `character_info`) and `session::login_account` returns `Error::Limbo` instead of a refusal; the launcher shows `loginviews::LimboWindow` (Stage::Limbo) in place of the error page; Login plays that character as Play does (progress window, then the loading screen), and the game's process, told of the limbo again at its own login, enters that character with the 0x16 on its connection (`net::login`); time-out or close goes back to the login form. Departures, the client's own: the launcher's login connection is closed and the game's process logs in again (as for every character), so the 0x16 goes on the game process's connection; the gender words for sex 1 and 0 ("neuter", "none") are the client's own words where Gamecode's table has its own. Tests: system::tests::a_limbo_message (mao-net, hand-made bytes from the reader), loginviews::tests::the_limbo_window_counts_down. Not tried live; the window's look was not photographed.
 - Done in part (2026-11-19, overnight): Play on an inactive character asks (CharacterActivateWindow.xml, ActivateCharacterWarning) or, with no slot free, shows CharacterSlotsExhausted, as SlotLoginPressed 0x1000dcf0 does; test play_asks_for_an_inactive_character. The limbo window (system message 0x4e) is left: no capture of it.
 
 #### `LCH-036` Patching and licence dialog not done
