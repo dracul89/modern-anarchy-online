@@ -9747,13 +9747,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let stats = &state.stats;
                 crate::browser::set_game_headers(crate::browser::headers(own, ticket.as_ref(), state.server_id, &|s| stats.get(&s).copied().unwrap_or(0)));
             }
-            // "Deposit to Market"'s Send (`N3Msg_SendMarketItem`): the items from the backpack and the credits.
+            // "Deposit to Market"'s Send (`N3Msg_SendMarketItem`): the items from the backpack and the credits, sent with
+            // no line of the client's own.
             if keys.market.0 != market_seen {
                 market_seen = keys.market.0;
                 let d = keys.market.1;
                 let items: Vec<(u32, u32)> = d.slots[..d.count as usize].iter().map(|&s| (0x68, s)).collect();
                 let _ = connection.send(&n3::market_send(own, d.credits, &items));
-                pending_messages.push(format!("Sent {} items and {} credits to the market.", items.len(), d.credits));
             }
             if state.fighting.contains_key(&own) {
                 attack_sent = None;

@@ -7456,3 +7456,7 @@ The client's own "Using <name>" line (on every use of the target and every perk 
 ### /fxscript runs the line as typed (CHT-072)
 
 The client's own help for `/fxscript` was removed: a bare script name is no longer given a parameters mark, and no chat line tells what the script started or what its reader complained of. As in the original (GUI.dll FUN_100b70be), the typed line goes to the scripts' engine as it is, a script runs only when a parameters part follows its name (`/fxscript <name> #`), and the reader's complaints go to the log only.
+
+### Deposit to Market says nothing (CHT-075)
+
+The client's own "Sent N items and X credits to the market." line was removed. As in the original (GUI.dll FUN_10009c40, N3Msg_SendMarketItem), Send only sends the items and credits; the market window shows what was sent.

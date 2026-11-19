@@ -4554,7 +4554,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: shows "Sent N items and X credits to the market."
 - A player notices: an extra chat line
 - Where: `crates/mao-client/src/net.rs:8247`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The client's "Sent N items and X credits to the market." line after Deposit to Market's Send is removed (net.rs). The original's Send (GUI.dll FUN_10009c40) only calls N3Msg_SendMarketItem with the items and the credits and writes no line; the client now sends the same message and says nothing. No new warnings (69).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original says nothing; the market window itself shows what was sent.
 
 #### `CHT-076` Inspect result also told as a chat line
