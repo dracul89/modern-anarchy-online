@@ -2114,7 +2114,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: An item past a container's room is given the first free cell beyond it, and the grid grows a row.
 - A player notices: An over-full container shows extra rows.
 - Where: `crates/mao-client/src/places.rs:117`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already the original's rule, no change: MultiListView_c::GetFirstFreePos (GUI.dll 0x10133940), which FUN_100ce25d calls for a new item, scans the cells k = 0, 1, 2 … as (k mod columns, k div columns) with the columns at least 3 until one is free, with no bound from the item count (SetMaxItemCount 0x1013578f only resizes the view's virtual size); the item past the room therefore takes the first cell beyond it and the used extents grow by a row. places.rs `first_free` (columns.max(3), unbounded scan) is that function, and `assign` calls it as FUN_100ce25d does.
 - Looked at, left (2026-11-19, overnight): Where the original puts an item when a container has no free cell left is `MultiListView_c::GetFirstFreePos` past `SetMaxItemCount` (FUN_100ce25d calls it), which was not read tonight; the client's extra row stands until it is.
 
 #### `INV-013` Shift+right-click inventory menu (Info, Use, Delete) is the client's own
@@ -2270,6 +2271,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The inventory window opens with a different shape than the original.
 - Where: `crates/mao-client/src/invwindows.rs:319`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the inventory view (FUN_100ccefe) is made from an empty Rect and its size comes from the dock window's saved frame or, with none, the views' layout; the shipped gui/Default files hold no frame for inventory_window and the view sets no cell count, so the original's first width needs a picture of a fresh character's inventory in the original client measured, which this pass cannot take.
 - Looked at, left (2026-11-19, overnight): The original's inventory view is made with an empty `Rect` (FUN_100ccefe) and opens at the window system's frame for `inventory_window`; the shipped files (`gui/Default`) hold no default frame for it (only `CharPrefs.xml`'s open flag and the menu entry), so the original's first width was not found. The five columns stay until a reference shot of a fresh character's inventory is measured.
 
 #### `INV-028` Item action chunk read only when 2 to 9 actions fit whole
@@ -2370,6 +2372,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Scale stats are set locally.
 - Where: `crates/mao-client/src/net.rs:1515`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: whether the original runs a worn item's temporary stat sets itself (its spell runner on the wear event) or is sent them by the server is not settled by the reading (the spell executor, INV-053), and the captures show no server list for them; deciding needs a capture of a wear with a scale-changing item. The client keeps running them so scale stats apply.
 - Looked at, left (2026-11-19, overnight): Notes say the server sends no list for worn items' temporary sets, so the client runs them; whether the original runs them itself (its spell runner, FUN_100a5f4b, on the wear event) or takes them from the server was not settled tonight (see INV-053: the spell executor). No change.
 
 ### Inventory and items: the original was not read: inferred or measured (8)
@@ -2402,6 +2405,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Which stack is used and the message wording may differ.
 - Where: `crates/mao-client/src/viewer.rs:951`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read further: the lookup a shortcut's item goes through, N3Msg_TemplateIDToDynelID (Gamecode 0x10017e32 → FUN_100490ae), does not search by template: for an identity whose type is 0x65..0xf9 (an inventory or wear place; type 0x6b keeps the low 16 bits of the instance) it reads the character's place table (FUN_1002a51d: the entry at that place, flag 2 = an item there, FUN_1002ae4a its dynel identity), and any other identity passes through unchanged. So the original fires the item at the place the shortcut names, not the first stack of the same template; what ShortcutBarView_c stores for a dropped item (the place, or the item's own identity) was not traced (its drop slot SlotObj3_c<IPoint, InventoryListViewItem_c*, int> was found, not read), nor the original's text when the place is empty. Porting needs that and the client's hotbar keeping a place instead of a template; left with this reading for the next pass.
 - Looked at, left (2026-11-19, overnight): Which stack a hotbar item fires was not found in GUI.dll's shortcut code tonight (the bar keeps the item's template, and the lookup of a place for it was not traced); the message wording is the client's because the original's was not found either.
 
 #### `INV-041` Inventory list end found by a heuristic
@@ -2451,7 +2455,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Place 15 counts as worn because "a Dreadloch booster sat there".
 - A player notices: Bonuses from place 15 items may be wrong.
 - Where: `crates/mao-client/src/derived.rs:15`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Already ported (2026-11-18), the entry's text is stale: derived.rs `worn` is now `slot < 0x30`, the original's rule — Gamecode FUN_10080fc3 (an item worn at a place) takes `0x2f < place` as the social tab, and only below it runs the item's wear list with every spell (from 0x30 on only how the character looks); place 15 (the weapon tab's second HUD place) is worn by that rule, not by the old "a Dreadloch booster sat there" guess. No change.
 - Looked at, left (2026-11-19, overnight): Which places count as worn (and place 15) is inferred; the original's rule would be in the stat engine's item walk, not found tonight.
 
 ### Inventory and items: a guard or fallback the original lacks (2)
@@ -2773,6 +2778,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: off-hand and social-slot weapons are not drawn as in the original
 - Where: `crates/mao-client/src/net.rs:5403`; `docs/ORIGINAL_AUDIT.md:24`; `docs/CLIENT_UI.md:714`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read further: FUN_1009cda2 (Gamecode) attaches the weapon's stat 0xd1 (209) mesh with CharacterMesh::AddAttractorMesh(place, mesh, mode, 0): wear place 6 or 0x3d → attractor 1, place 8 or 0x3f → attractor 2, mode 2, or 3 for a weapon on place 8/0x3f with can-flag 0x800000; the social places' weapons are worn while the character's stat 0x2a1 (673) has bit 5 set, and wielding one takes the combat hands' meshes off (and putting it away puts them back: the recursion on places 8 and 6). What mode 3 does to the mesh (the mirror) is DisplaySystem's CharacterMesh::AddAttractorMesh, not read, and the client's `wear` attaches gear as (attractor, mesh, texture) with no mode; porting it needs that reading, the renderer's attach changed and a look in the game, so it stays left. The social switch alone could be ported with stat 673, but without the mirror it would draw the left social weapon wrong, so it waits with the rest.
 - Looked at, left (2026-11-19, overnight): Drawing a left-hand weapon mirrored (can flag 0x800000) and weapons on the social hands (places 0x3d, 0x3f) is Gamecode FUN_1009cda2's mesh attaching; it needs the renderer's attach code changed and a look in the game to check, not testable tonight.
 
 #### `INV-077` Worn items' temporary stat sets with criteria are left out
@@ -4703,6 +4709,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: web pages persist while hidden; reopening shows the home page
 - Where: `docs/CLIENT_UI.md:3231`; `docs/CLIENT_UI.md:3463`; `crates/mao-client/src/browser.rs:402`; `crates/mao-client/src/browser.rs:456`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the original clears cookies when it sets up its browser (awe_webcore_clear_cookies after awe_webcore_initialize, GUI.dll Reinitialize 0x1010bbd7); the client's private (incognito) WebView2 already starts every session without old cookies, and hiding instead of dropping the page is what keeps the item store's ticket valid on a second visit (dropping it ended the session and the site refused the ticket). Porting the drop would break the second visit the user relies on.
 - Looked at, left (2026-11-19, overnight): Kept: dropping the WebView2 page ended the web session and the site refused the ticket the second time; hiding it and opening it private keeps the original's fresh cookies (awe_webcore_clear_cookies) without losing the session. Clearing as the original would break the second visit.
 
 #### `WIN-008` Fixed dialogs and the client's own windows keep no place
@@ -4733,6 +4740,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Window size on first open.
 - Where: `crates/mao-client/src/gui/infoview.rs:156`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read further: the info view (FUN_100ef289) is a DockableView_c (FUN_100395fd) named "info_window", titled "Info" (the client's title already matches), made from an empty Rect; it is shown in a dock area window (FUN_1003c78b) that is made from an empty Rect too and, having no saved frame, is put in the screen's middle (Window::MoveToCenter 0x10154c4e) at the size its WndBorder takes from the views' layout (Window::Window 0x101566c7 hands the empty rect to WndBorder; the growth to the layout's preferred size happens in the preferred-size notifications, not read). How big the original's TextView (BrowserView, min_size 0,0, max 16000) asks to be with the page's text in it is the missing piece: setting the client to the views' minimum would open a window no taller than the button row, and to their maximum a screen-filling one; which one the original shows can only be told by looking at the original client. 360x480 stands.
 - Looked at, left (2026-11-19, overnight): What size the original's info view opens at was not read (its window's constructor and XML were not found with a size); 360x480 stands until then.
 
 #### `WIN-011` Land control view: district text placed under the button
@@ -5067,6 +5075,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Browser frame looks different.
 - Where: `crates/mao-client/src/browser.rs:161`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: BrowserWindow_c's HomeButton, BackButton, ForwardButton, URL bar and StatusBar are views around GUI.dll's Awesomium view; the client's page is a WebView2 overlay window (WIN-004's engine), which GUI views cannot hold, so the frame's buttons are drawn by the client beside it. Rebuilding the original's frame waits on that engine choice.
 - Looked at, left (2026-11-19, overnight): BrowserWindow_c's frame (HomeButton, BackButton, ForwardButton, URL bar, StatusBar) is built around the Awesomium view; the client's web view is a WebView2 overlay (WIN-004) and its frame buttons are drawn by the client because the overlay cannot hold GUI.dll views. Rebuilding the frame from the original's views is tied to WIN-004's engine choice. Left.
 
 #### `WIN-043` Buttons in right-click menus and the launcher left as egui's
@@ -5320,6 +5329,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/research.rs:46`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Re-checked: the original rebuilds the research lists on stats 53 and 60 changing and on a finished personal rank (LAB_100f712a, LAB_100f7151, FUN_100f70b0); the client rebuilds whenever what they show changes, which covers those events, so the lists a player sees are the same; changing the triggers would show nothing different.
 - Looked at, left (2026-11-19, overnight): Nothing a player sees differs: the original rebuilds the research lists on stats 53 and 60 and a finished personal rank (LAB_100f712a, LAB_100f7151, FUN_100f70b0), the client whenever the shown data changed, which includes those events; the lists come out the same.
 
 #### `WIN-068` Reset all skills count counts unknown stats as nothing
@@ -5402,6 +5412,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Home and End in a wrapped multi-line field jump to the paragraph's ends, not the visible line's
 - Where: `crates/mao-client/src/gui/edit.rs:8`; `docs/CLIENT_UI.md:2951`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, overnight): Read further but not to the end: TextRenderer_c::KeyDown (0x10164224) case 0x23 (End) acts only when no 0x8000 modifier or the 0x30 pair is held and there are rendered lines; without the multi-line flag (0x20) the key goes to the view's listeners; with it, FindLineByPosition takes the cursor's line (five-int records): past the last line → listeners; on the last line it does nothing when the character before the line is a new line, else it moves; otherwise it takes the next line's record word [4]; then ClearSelection and SetCursorPosition with Point(+0x1c8 + 1, that word) — whose meaning (a buffer offset given as the point's y, and +0x1c8) was not worked out, and Home has no case of its own in the switch (it shares another path not found). The client keeps plain text and its own wrap; porting needs those two points settled and the markup escaping, which is more than this entry's time. Left.
 - Looked at, left (2026-11-19, overnight): TextRenderer_c::KeyDown (0x10164224) handles End (case 0x23) for a multi-line view with FindLineByPosition over the rendered lines (0x14-byte line records): on the last line the key goes to the listeners, otherwise the cursor goes to the next rendered line's start, or for a line ending in a new line (HTMLParser_c::IsCharNewline) to before it, then ClearSelection; Home is the mirror. The client keeps plain text and its own wrap; following that rule needs its lines in the same form (start, length) and the shift/selection variant (uVar2 & 0x8000, 0x30) read through. Not finished tonight; the reading is here for the next pass.
 
 #### `WIN-076` Tips of the day: only a few events, no reset
