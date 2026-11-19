@@ -2,8 +2,8 @@
 //! skin's pictures are there (`skin`), the window has no egui title bar and is drawn with the original's frame pieces
 //! (`GFX_GUI_WINDOW3_BORDER_*`, greyscale masks tinted with the theme's border colour, as the original tints them with its
 //! `GUIColors.xml`), the title inside the frame at the top left and the original's pin and close buttons at the top right;
-//! dragging anywhere on the window moves it (egui's own fallback without a title bar). Without the pictures it is the plain
-//! egui window it was.
+//! the window is moved by the strip under its top border, as the original's (`WndBorder::HitTest`). Without the pictures
+//! it is the plain egui window it was.
 //!
 //! A window fades when the pointer leaves it and comes back when it returns, unless its pin is down (the original's
 //! autofade, [`fade_level`]). Each window starts where the player left it (`layout.rs`), and closes the next time it is
@@ -594,6 +594,22 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     // (the pin and the fading are the window's: an area's for a docked view)
     let win = win.to_string();
     let level = fade_level(&win);
+    // (the window moves only by the strip under its top border, `WndBorder::HitTest` 0x101596b7's item 1, laid out by
+    // `WndBorder::Layout` 0x1015a4ba: the top border's width, from a point under it down to 18; egui's own drag of a
+    // window without a title bar, from anywhere on it, is held where the window is: the drag's start is made its place)
+    if let Some(r) = ctx.read_response(id.with("move"))
+        && r.dragged()
+        && let (Some(at), Some(total)) = (egui::AreaState::load(ctx, id).and_then(|s| s.pivot_pos), r.total_drag_delta())
+    {
+        ctx.data_mut(|d| d.insert_temp(id.with("pivot_at_drag_start"), at - total));
+    }
+    if ctx.read_response(id.with("move-strip")).is_some_and(|r| r.dragged())
+        && let Some(mut state) = egui::AreaState::load(ctx, id)
+        && let Some(at) = state.pivot_pos.as_mut()
+    {
+        *at += ctx.input(|i| i.pointer.delta());
+        ctx.memory_mut(|m| m.areas_mut().set_state(egui::LayerId::new(egui::Order::Middle, id), state));
+    }
     let shown = build(egui::Window::new(title.as_str()).title_bar(false).collapsible(false).frame(frame)).id(id).show(ctx, |ui| {
         // (the window's fade over its frame and all it holds: `UpdateFadeLevel` multiplies the view's alpha)
         ui.multiply_opacity(level);
@@ -611,6 +627,13 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         let content = ui.min_rect();
         let outer = ctx.memory(|m| m.area_rect(id)).filter(|r| r.is_finite() && r.width() > 20.0).unwrap_or_else(|| egui::Rect::from_min_max(content.min - egui::vec2(LEFT as f32, TOP as f32), content.max + egui::vec2(RIGHT as f32, BOTTOM as f32)));
         painter.set(under, frame_shape(&skin, outer, panel, accent));
+        // (the strip that moves the window, under the buttons and the frame menu made after it)
+        if let (Some(tl), Some(tr), Some(top)) = (skin.get("GFX_GUI_WINDOW3_BORDER_TL"), skin.get("GFX_GUI_WINDOW3_BORDER_TR"), skin.get("GFX_GUI_WINDOW3_BORDER_TOP")) {
+            let strip = egui::Rect::from_min_max(egui::pos2(outer.left() + tl.size.x, outer.top() + top.size.y + 1.0), egui::pos2(outer.right() - tr.size.x, outer.top() + 18.0));
+            if strip.is_positive() {
+                ui.interact(strip, id.with("move-strip"), egui::Sense::drag());
+            }
+        }
         // (the frame's menu button at the title's left end, which moves the title right: `AddBorderView` in the
         // border's first place)
         let mut title_left = outer.left() + 9.0;

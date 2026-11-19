@@ -7798,3 +7798,7 @@ The original's `SchoolSelector_c` (FUN_100d6051, on resize FUN_100d7244) lays it
 ### Scroll bars drawn as their pictures are (WIN-018)
 
 The original's scroll bars are made in code (`ScrollView_c::_UpdateScrollBars` 0x10142b68, `ScrollBar_c::ScrollBar_c` 0x10141f27) and never given a colour: a view starts white (FUN_1014fc2a), and so do the bar's picture surfaces (`ViewSurface_c::_Initialize` 0x1015208d) and its knob's `BitmapView_c`. The client tinted the XML views' scroll bars with the theme's accent colour; it now draws their pictures untinted.
+
+### Windows move by the strip under the title (WIN-021)
+
+In the original a window is moved only by pressing in the strip under its top border (`WndBorder::HitTest` 0x101596b7, item 1; the rect from `WndBorder::Layout` 0x1015a4ba: the top border's width, from one pixel under it down to 18). The client's skinned windows were dragged from anywhere on their body (egui's fallback for a window without a title bar); now egui's drag-from-anywhere is held in place and the strip moves the window. The pin, close and frame menu buttons over it still work.
