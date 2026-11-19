@@ -1014,6 +1014,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Cancel in that progress window: back at the login form, no game window appears
 - [ ] Delete confirmation: the name in small letters gives the match error; typed exactly, the character is deleted
 - [ ] A character with no folder under the original's Prefs: windows open at their default places, not another character's
+- [ ] Entering the game: the loading picture in its own colours, not blue
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

@@ -6,18 +6,17 @@
 //! pixels above the bottom. Entering the game (`InitialiseMessage`) the picture and the text fade in over 4 s on the black;
 //! once the world is in (`StartClosingLoadscreenMessage`) all of it fades out over 7 s.
 //!
-//! This client's own: the picture is tinted blue ([`TINT`], each channel multiplied), and the screen also covers a zoning
+//! The pictures are shown as they are, as the original shows them. This client's own: the screen also covers a zoning
 //! (shown at once, fading out over [`ZONE_FADE_OUT`] when the new playfield is drawn).
 //!
 //! The game is a process of its own here, which logs in and reads the playfield before it has a window: the character
-//! list's window puts the screen up when Play is pressed and keeps it until the game's window has drawn (`launcher.rs`),
-//! and the game's goes on from there ([`begin_since`]), so the fade in is one.
+//! list's window puts the screen up when the character's ticket has come (after the progress window, as the original's
+//! `Show(4)`) and keeps it until the game's window has drawn (`launcher.rs`), and the game's goes on from there
+//! ([`begin_since`]), so the fade in is one.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// The blue the picture is tinted with (red, green, blue multipliers; the blue may brighten).
-pub const TINT: [f32; 3] = [0.35, 0.6, 1.45];
 /// The original's fades: in while entering, out once in (`_DAT_101aa1a0`, `_DAT_101aa198`).
 pub const FADE_IN: Duration = Duration::from_millis(4000);
 pub const FADE_OUT: Duration = Duration::from_millis(7000);
@@ -98,7 +97,7 @@ fn alphas(l: &Load, now: Instant) -> Option<(f32, f32)> {
     }
 }
 
-/// The picture, tinted (made once).
+/// The picture (made once).
 fn picture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
     let mut slot = PICTURE.lock().unwrap_or_else(|e| e.into_inner());
     if slot.is_none() {
@@ -108,20 +107,9 @@ fn picture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
         let path = crate::theme::game_dir()?.join("cd_image/gui/Default/gfx").join(file);
         let image = image::open(mao_formats::files::find(&path)).ok()?.to_rgba8();
         let (w, h) = image.dimensions();
-        let mut rgba = image.into_raw();
-        tint(&mut rgba, TINT);
-        *slot = Some(ctx.load_texture("loading-screen", egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba), egui::TextureOptions::LINEAR));
+        *slot = Some(ctx.load_texture("loading-screen", egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], image.as_raw()), egui::TextureOptions::LINEAR));
     }
     slot.clone()
-}
-
-/// Multiplies each pixel's colour by `tint` (clamped), leaving its alpha.
-pub fn tint(rgba: &mut [u8], tint: [f32; 3]) {
-    for px in rgba.chunks_exact_mut(4) {
-        for c in 0..3 {
-            px[c] = (px[c] as f32 * tint[c]).round().clamp(0.0, 255.0) as u8;
-        }
-    }
 }
 
 /// Draws the screen over everything while it is up.
@@ -174,9 +162,5 @@ mod tests {
         assert_eq!(elapsed_since(13_000, 10_000), Duration::ZERO);
         let l = Load { began: t, fade_in: FADE_IN, fade_out: FADE_OUT, done: None };
         assert_eq!(alphas(&l, t + elapsed_since(10_000, 13_000)), Some((1.0, 0.75)));
-        // (the blue: green-teal turned blue, the alpha kept)
-        let mut px = [40, 200, 160, 255];
-        tint(&mut px, TINT);
-        assert_eq!(px, [14, 120, 232, 255]);
     }
 }

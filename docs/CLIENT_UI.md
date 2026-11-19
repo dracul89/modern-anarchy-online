@@ -7057,3 +7057,7 @@ The original reads a character's window places from that character's own prefere
 ### The Keeper and the Shade: the expansion flag or the list's switch (LCH-040)
 
 The character list ends with three numbers: the slots, the expansion flags and a switch that Interfaces.dll (`Client_t::ProcessMessage` 0x10002a9e, at 0x1000319b) keeps as `s_nSLProfsEnabled`. The original's profession scene (GUI.dll `ProfessionScene_t` 0x101216d1, `SlotNextPressed` 0x10121035) lets the Keeper and the Shade be chosen when the account has the Shadowlands (`ExpansionFlags & 2`) or that switch is on. The client reads the switch too and uses the same rule; the head counts still follow the flag alone.
+
+### The loading screen's picture in its own colours (LCH-003)
+
+The original's loading screen (GUI.dll `ServerLogin3DModule_t::SetupScreen` 0x10017331) shows `ai_loading_login.png`, or `welcome_to_rubika.jpg` after a creation, as it is, scaled to the display. The client had tinted it blue; it now shows the pictures in their own colours. The screen over a zoning is still the client's own.

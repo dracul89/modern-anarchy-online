@@ -8237,6 +8237,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: loading picture is blue; loading screen at zoning
 - Where: `crates/mao-client/src/loading.rs:9`; `crates/mao-client/src/loading.rs:93`; `docs/CLIENT_UI.md:2796`; `crates/mao-client/src/loading.rs:10`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The blue tint was the client's own (added with the first loading screen, 2026-10-29, not a user's request): GUI.dll `ServerLogin3DModule_t::SetupScreen` 0x10017331 draws `gfx/ai_loading_login.png` (or `welcome_to_rubika.jpg` after a creation) scaled from 1024x768 to the display with no colour change. `loading.rs` now shows the pictures as they are (`TINT` and `tint` removed); test `loading::tests::the_screen_fades_in_then_out`. Left: the screen over a zoning, since whether the original covers a zoning with a screen of its own (and which) was not read: `ServerLogin3DModule_t` is the login's module, and the zoning's flow in GUI.dll/Gamecode is still to be traced.
 
 #### `LCH-004` Wide window keeps the 4:3 view height in the login hall and character creation
 
