@@ -150,6 +150,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Effects that the game shows only on certain playfields now appear there.
 - Interiors (shops, dungeons) are seen against black, as in the original, not a very dark blue.
 
+### Interface
+
+- Shift+Enter also opens the chat input and the numeric pad's / also starts a chat command, as in the original (new settings files; an existing mao.ini keeps its keys).
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher

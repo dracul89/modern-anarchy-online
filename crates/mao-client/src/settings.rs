@@ -17,10 +17,10 @@
 //!
 //! The actions are named as the original client names its fixed key
 //! commands (`KEY_COMMAND_ROTATE_CAMERA_LEFT` is `camera_rotate_left`, and so
-//! on) plus the movement of this client. The default keys of the original's
-//! own commands are not recorded in its data files, so the defaults below are
-//! the ones its players know (marked "assumed" where they could not be checked
-//! against the original).
+//! on) plus the movement of this client. The default keys are the original's:
+//! the rebindable ones the shipped `CharPrefs.xml`'s (`keybindings.rs`), the
+//! fixed ones (camera, targets, chat, coordinates) GUI.dll's built-in key table
+//! (the text at 0x101aab28 that `ParseFile` 0x1001b058 reads).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -294,8 +294,10 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::Quick(10), "action_aimed_shot", "O"),
     (Action::Quick(11), "action_bow_special_attack", "Period"),
     // The chat.
-    (Action::ChatInput, "chat_input", "Enter"),
-    (Action::ChatCommand, "chat_command", "Slash"),
+    // (GUI.dll's key table: `COMMAND_TEXT_INPUT_START_TEXT_INPUT` on Enter, Shift+Enter and Alt+Enter, the last
+    // left to this client's window mode; `COMMAND_START_CHAT_CMD_INPUT` on Slash and the numeric pad's divide)
+    (Action::ChatInput, "chat_input", "Enter, Shift+Enter"),
+    (Action::ChatCommand, "chat_command", "Slash, NumpadDivide"),
     (Action::ChatReply, "chat_reply", "Shift+R"),
     (Action::ChatPageUp, "chat_history_page_up", "PageUp"),
     (Action::ChatPageDown, "chat_history_page_down", "PageDown"),
@@ -1039,6 +1041,9 @@ log_messages = on
         assert_eq!(keymap.action(KeyCode::Tab, ModifiersState::empty()), Some(Action::NextHostileTarget));
         assert_eq!(keymap.action(KeyCode::Enter, ModifiersState::ALT), Some(Action::CycleWindowMode));
         assert_eq!(keymap.action(KeyCode::Enter, ModifiersState::empty()), Some(Action::ChatInput));
+        // (GUI.dll's key table: the chat's second keys)
+        assert_eq!(keymap.action(KeyCode::Enter, ModifiersState::SHIFT), Some(Action::ChatInput));
+        assert_eq!(keymap.action(KeyCode::NumpadDivide, ModifiersState::empty()), Some(Action::ChatCommand));
         // Every action's defaults are valid, and no two actions share a binding.
         let mut seen: HashMap<Binding, Action> = HashMap::new();
         for &(action, name, keys) in ACTIONS {

@@ -8925,7 +8925,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: uses defaults the players know, marked "assumed" where they could not be checked
 - A player notices: some default keys may differ from the original client's
 - Where: `crates/mao-client/src/settings.rs:20`; `docs/CLIENT_UI.md:38`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The defaults are no longer assumed: the rebindable keys were already the shipped `CharPrefs.xml`'s (`keybindings.rs`, the provider hash decoded, 2026-11-18), and the fixed keys (camera, targets, chat, coordinates, perk/vehicle windows) are in GUI.dll's built-in key table, the text at 0x101aab28 that `ParseFile` 0x1001b058 reads. Compared line by line, every client default matched it but two: `COMMAND_TEXT_INPUT_START_TEXT_INPUT` is also on Shift+Enter (and Alt+Enter, left to the client's window-mode key, see SET-044) and `COMMAND_START_CHAT_CMD_INPUT` also on NUMPAD_DIV; both added as defaults (`chat_input = Enter, Shift+Enter`, `chat_command = Slash, NumpadDivide`). The head comment of settings.rs now names the sources. Test: `settings::tests::defaults_parse_and_resolve` (13 settings tests pass). Left: an existing mao.ini (key table version 3) keeps the chat keys it has written; only new files and reset keys get the second keys. Not ported from the table: Shift+F9 (extended coordinates), Ctrl+F10 (camp to login), Shift+| (control center), Shift+C (chat config): the client has no such actions.
 
 #### `SET-027` Chat filter rules kept in chatfilter.ini
 

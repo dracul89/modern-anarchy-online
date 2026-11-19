@@ -7033,3 +7033,7 @@ DisplaySystem's LODManager::Process (globals at 0x100ae1a4) hides a statel mesh 
 ### A new character goes straight into the game (LCH-009)
 
 The original logs a character in as soon as the server says it was made (Interfaces.dll `Client_t::ProcessMessage` 0x10002a9e, message 0x11 at 0x10002ee3: the new id into `s_nCharID`, then `LoginCharacter`). The launcher now does the same: once the creation's walk to the shuttle has ended, the game starts for the new character (the welcome loading screen), without logging in again to fetch the character list first.
+
+### The fixed keys' defaults are the original's table (SET-026)
+
+The original's fixed keys come from a key table built into GUI.dll (the text at 0x101aab28, read by `ParseFile` 0x1001b058): the camera on the numeric pad, Tab and its modifiers for targets, Enter / Slash / Shift+R / PgUp / PgDn for the chat, F9 for the coordinates, Shift+P and Shift+V for the perk and vehicle windows. The client's defaults are that table's; the chat input also starts on Shift+Enter and a command on the numeric pad's divide, as there (Alt+Enter, the table's third chat key, stays the client's window-mode switch).
