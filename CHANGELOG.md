@@ -129,6 +129,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Corpse, chest and overflow windows no longer have a "Take all" button, as in the original; take items by clicking them (or turn on the auto-loot option for corpses).
 - Item requirements "on target" are judged against the selected target: with nothing selected such an item is refused, as in the original.
 - More item and nano requirements are judged by the client: wielding a given item, having or running a nano, a perk lock, free backpack space.
+- Requirement lines in item and nano descriptions read as in the original for items, nanos, perks, pets, teams and places.
 
 ### The launcher
 

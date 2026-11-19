@@ -1117,6 +1117,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Use or wield an item whose requirements start with "On Target" with and without a target selected: refused without one.
 - [ ] Wear or wield items whose requirements name a running nano or a worn item: the refusal comes as in the original.
 - [ ] Wear-effect lists that depend on a running nano still sum as before on the skills window.
+- [ ] Open the info of a perk-locked item and a nano crystal: the requirement lines name the perk and the nano.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
