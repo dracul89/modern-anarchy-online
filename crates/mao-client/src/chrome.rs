@@ -769,16 +769,10 @@ pub fn scroll<R>(ui: &mut egui::Ui, palette: &Palette, area: egui::ScrollArea, a
     out.inner
 }
 
-/// The colour of colour code 0x1000000 (`GUIColors.xml`'s `Default`) for a control's art and labels: `Default` itself, but on a
-/// dark theme (the AOU Translucent's `Default` is near black, 0x051a2a) the palette's border colour, its `Selected`, as the
-/// palette already draws the window frames (`Palette::from_gui_colors`), so the controls stay visible.
+/// The colour of colour code 0x1000000 (`GUIColors.xml`'s `Default`, `LoadGUIColors` 0x1006c13d) for a control's art and
+/// labels, on every theme (the AOU Translucent's is near black, 0x051a2a, and the original draws its controls in it too).
 pub fn code1(palette: &Palette) -> crate::theme::Rgb {
-    if dark(palette) { palette.accent } else { palette.default }
-}
-
-/// Whether the theme's `Default` is dark, the palette then bordering in `Selected` (`Palette::from_gui_colors`).
-fn dark(palette: &Palette) -> bool {
-    palette.accent != palette.default
+    palette.default
 }
 
 /// The size `Button_c::CalculatePreferredSize` (GUI.dll 0x10128396) gives a button whose label is `label` big and whose border
@@ -949,8 +943,8 @@ pub fn tab_view_hits<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], se
         }
         let active = i == *selected;
         skin.three_slice(&painter, if active { "GFX_GUI_TAB_ACTIVE" } else { "GFX_GUI_TAB_INACTIVE" }, rect, if active { tint } else { tint.gamma_multiply(0.6) });
-        // (a dark theme's tabs are dark: their black text gives way to the theme's text colour there)
-        let text = if active { egui::Color32::WHITE } else if dark(palette) { rgb(palette.text) } else { egui::Color32::BLACK };
+        // (FUN_101462d8: white on the open tab, black on the others, whatever the theme)
+        let text = if active { egui::Color32::WHITE } else { egui::Color32::BLACK };
         // (the text is the tab's child view: what does not fit inside its right margin is cut off)
         painter.with_clip_rect(rect.intersect(egui::Rect::from_min_max(rect.min, egui::pos2(rect.right() - 12.0, rect.bottom())))).text(egui::pos2(rect.left() + 5.0, rect.center().y), egui::Align2::LEFT_CENTER, names[i], font.clone(), text);
     }

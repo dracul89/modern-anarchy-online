@@ -7181,3 +7181,7 @@ The original's character info page (GUI.dll FUN_1003482c) writes the profession 
 ### Links in text views fire on the press (WIN-121)
 
 The original's text renderer (`TextRenderer_c::MouseDown` 0x10163bcd) acts on a link as soon as the left button goes down on it, in a view that takes the mouse (TVF_ACCEPT_MOUSE_INPUT); elsewhere in the text the press begins a selection. The client now opens links on the press too; selecting text in views that do not edit is not done yet.
+
+### Colour codes follow GUIColors.xml on every skin (WIN-002)
+
+The original's `LoadGUIColors` (GUI.dll 0x1006c13d) turns GUIColors.xml's six colours, Default, Selected, Hover, Text, TextSelected and TextHover, into colour codes 1 to 6, whatever the skin; tabs show white text when open and black otherwise (FUN_101462d8). The client now draws code 1 in the skin's Default and code 6 in its TextHover on dark skins too (it used the border colour and Hover there), and inactive tab text is black on every skin.

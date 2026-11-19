@@ -28,6 +28,8 @@ pub struct Palette {
     pub hover: Rgb,
     pub text: Rgb,
     pub text_selected: Rgb,
+    /// `GUIColors.xml`'s `TextHover` (colour code 0x6000000: `LoadGUIColors` 0x1006c13d reads the six names in turn).
+    pub text_hover: Rgb,
     /// `GUIColors.xml`'s `Default` and `Selected` as they are (`ControlCenterModule_c::LoadGUIColors`, GUI.dll 0x1006c13d, makes
     /// them colour codes 0x1000000 and 0x2000000: a button at rest and pressed).
     pub default: Rgb,
@@ -77,7 +79,7 @@ fn scale(c: Rgb, k: f32) -> Rgb {
 impl Palette {
     /// The look used when no theme is chosen: dark warm panels with silver and gold.
     pub fn built_in() -> Palette {
-        Palette { name: "built-in".into(), panel: [18, 14, 10], accent: [212, 175, 55], hover: [240, 208, 96], text: [230, 226, 214], text_selected: [255, 255, 255], default: [212, 175, 55], selected: [240, 208, 96], text_colors: Vec::new() }
+        Palette { name: "built-in".into(), panel: [18, 14, 10], accent: [212, 175, 55], hover: [240, 208, 96], text: [230, 226, 214], text_selected: [255, 255, 255], text_hover: [240, 208, 96], default: [212, 175, 55], selected: [240, 208, 96], text_colors: Vec::new() }
     }
 
     /// A palette from a `GUIColors.xml`. A theme whose `Default` is dark (the
@@ -97,6 +99,7 @@ impl Palette {
             hover: get("Hover").unwrap_or(selected),
             text: get("Text").unwrap_or(selected),
             text_selected: get("TextSelected").unwrap_or([255, 255, 255]),
+            text_hover: get("TextHover").or(get("Hover")).unwrap_or(selected),
             default,
             selected,
             text_colors: Vec::new(),

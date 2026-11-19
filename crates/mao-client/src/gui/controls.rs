@@ -47,13 +47,13 @@ impl Colour {
 
     pub fn rgb(self, palette: &Palette) -> egui::Color32 {
         let c = match self.0 >> 24 {
-            // (on a dark theme the border colour, as `chrome::code1` draws the client's other controls)
-            1 => crate::chrome::code1(palette),
+            // (`LoadGUIColors` 0x1006c13d: the six colours of `GUIColors.xml` in turn)
+            1 => palette.default,
             2 => palette.selected,
             3 => palette.hover,
             4 => palette.text,
             5 => palette.text_selected,
-            6 => palette.hover,
+            6 => palette.text_hover,
             _ => [(self.0 >> 16) as u8, (self.0 >> 8) as u8, self.0 as u8],
         };
         egui::Color32::from_rgb(c[0], c[1], c[2])
@@ -948,6 +948,20 @@ impl Control for TextView {
 #[cfg(test)]
 mod slider_tests {
     use super::*;
+
+    /// `LoadGUIColors` (0x1006c13d): colour codes 1 to 6 are `GUIColors.xml`'s six colours, Default to TextHover, on a
+    /// dark skin as on a light one.
+    #[test]
+    fn colour_codes_are_the_skins_six_colours() {
+        let xml = r#"<Root><Color name="Default" color="0x00051a2a"/><Color name="Selected" color="0x0030d2ff"/><Color name="Hover" color="0x0040e6ff"/><Color name="Text" color="0x00112233"/><Color name="TextSelected" color="0x00445566"/><Color name="TextHover" color="0x00778899"/></Root>"#;
+        let p = crate::theme::Palette::from_gui_colors("dark", xml).unwrap();
+        let c = |code: u32| Colour(code << 24).rgb(&p);
+        assert_eq!(c(1), egui::Color32::from_rgb(0x05, 0x1a, 0x2a));
+        assert_eq!(c(2), egui::Color32::from_rgb(0x30, 0xd2, 0xff));
+        assert_eq!(c(3), egui::Color32::from_rgb(0x40, 0xe6, 0xff));
+        assert_eq!(c(6), egui::Color32::from_rgb(0x77, 0x88, 0x99));
+        assert_eq!(crate::chrome::code1(&p), [0x05, 0x1a, 0x2a]);
+    }
 
     /// `TextRenderer_c::MouseDown` (0x10163bcd): a link fires as the button goes down on it; letting go does nothing.
     #[test]

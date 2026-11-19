@@ -4564,7 +4564,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: on a dark theme (the AOU Translucent's Default is near black) colour code 1 is drawn with the palette's border colour (chrome::code1), TEXTHOVER maps to the hover colour, and inactive tab text turns the theme's text colour
 - A player notices: buttons, check boxes and tabs under dark skins are drawn lighter than the skin states
 - Where: `crates/mao-client/src/gui/controls.rs:50`; `crates/mao-client/src/chrome.rs:528`; `docs/CLIENT_UI.md:2036`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): ControlCenterModule_c::LoadGUIColors (GUI.dll 0x1006c13d) reads GUIColors.xml's Default, Selected, Hover, Text, TextSelected and TextHover (compared in that order, each SetColor'd as its colour code) and nothing in it looks at how dark a colour is; TabView's tab (FUN_101462d8) gives the open tab white text and the others black. Ported: colour code 1 is the palette's Default on every theme (gui/controls.rs Colour::rgb and chrome::code1, which the client's buttons, check boxes, insets, dropdowns, perks and vitals use), code 6 (TEXTHOVER) is the new Palette::text_hover read from GUIColors.xml's TextHover (Hover, then Selected, when a skin has none), inactive tab text is black on every theme; the unused chrome::dark helper is gone. Caveat for the morning look: under AOU Translucent (Default 0x051a2a) buttons and check boxes are now tinted near black, as the original would tint them. Test: gui::controls::slider_tests::colour_codes_are_the_skins_six_colours.
 
 #### `WIN-003` Grid columns centred in the width
 
