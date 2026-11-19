@@ -7201,3 +7201,7 @@ The original hands the in-game pages `AnarchyOnline.AcceptLanguage` as the user'
 ### Stat names are the game's (WIN-070)
 
 Gamecode names a stat by text.mdb 2003 and the stat's number (`ConvertCriteria` 0x1001e2cf, `N3Msg_GetSkillToUseString` 0x1001a272). The client's tooltips and requirement lines now take the same text; its own English table remains only for when the game's texts are missing.
+
+### Control center experience bars (WIN-090)
+
+The original's control center bars (`CharacterBar_c`, GUI.dll FUN_1006716e and FUN_100672bb) count experience from the last level's figure to the next's below level 200 and shadowknowledge from level 200 (from zero unless stat 576's bit 0 is set), alien experience from zero, each capped at a full bar. The client's wing and docked bars now do the same (they showed no bar past the figure and ignored shadowknowledge).

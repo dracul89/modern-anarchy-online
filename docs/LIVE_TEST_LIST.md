@@ -1037,6 +1037,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] /org leave: the question box comes up in the screen's middle; an organization invitation's box comes up at the pointer.
 - [ ] Open the item store or market page; nothing changes for an English system (the page sees "en-US"); with MAO_BROWSER_TRACE the script object's AcceptLanguage shows the system's language.
 - [ ] Hover an item with unusual requirements and a stat breakdown: names read as the game's (e.g. "Max Health", "Duck-Exp"), none as "Stat N".
+- [ ] On a level 200+ character, the XP wing bar fills with shadowknowledge; on a character at the level cap it shows full, its tip "value / span".
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

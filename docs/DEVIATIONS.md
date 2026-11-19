@@ -5372,7 +5372,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the wing bars use experience only; a value past the next level's figure shows no bar
 - A player notices: at level 200 and above, or when over the figure, the XP wing bar is empty or wrong
 - Where: `crates/mao-client/src/vitals.rs:14`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The control center's bars are CharacterBar_c's: the experience bar (GUI.dll FUN_1006716e) reads stat 350 (next) and 57 (last), and below level 200 stat 52, from 200 stat 573 (shadowknowledge) with last taken as 0 unless stat 576's bit 0 is set; the fraction (value - last) / (next - last) is capped at 1 (a value past the next level's figure is a full bar, not none) and the tip is "<value> / <span>". The alien bar (FUN_100672bb) is stat 40 over stat 178, 40 taken as 0 while N3Msg_GetSkill has no value (1234567890), capped at 1. vitals.rs's three experience bars (wings, docked bars, plain strip) now use xp_bar (the same rule as stats::experience, the Stats window's) and alien_bar instead of the client's progress(), which gave nothing past the figure and ignored shadowknowledge. Test: vitals::tests::the_bars_are_the_control_centers.
 
 #### `WIN-091` Default chat window look values taken from the player's files
 

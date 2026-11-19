@@ -174,6 +174,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Dark skins (AOU Translucent) draw buttons, check boxes and tabs in the skin's own Default colour, as the original does.
 - In-game web pages are told the system's language and country, as the original tells them.
 - Stat names in tooltips and item requirements are the game's own (no more "Stat 123" for stats the game names).
+- The control center's experience bar shows shadowknowledge from level 200 and stays full past the next level's figure, as in the original.
 
 ### Chat
 

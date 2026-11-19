@@ -8,13 +8,19 @@ use crate::skin::Skin;
 use crate::stats::{bar, stat};
 use crate::theme::Palette;
 
-/// How far a stat has come between two others, 0 to 1, and the text for the bar: `value / limit`.
-fn progress(value: Option<i64>, from: i64, to: Option<i64>) -> (Option<i64>, Option<i64>) {
-    match (value, to) {
-        // Past the next level's figure (a character at the level cap keeps collecting): nothing meaningful to show.
-        (Some(v), Some(t)) if t > from && v <= t => (Some((v - from).max(0)), Some(t - from)),
-        _ => (None, None),
-    }
+/// The control center's experience bar, `CharacterBar_c`'s (GUI.dll FUN_1006716e): below level 200 the experience
+/// (stat 52) from the last level's (57) to the next's (350); from 200 the shadowknowledge (573), from 0 unless stat 576's
+/// bit 0 is set; the share no more than the whole (a value past the next level's figure is a full bar), the text
+/// "value / span". The same rule as the Stats window's bar ([`crate::stats::experience`]).
+fn xp_bar(stats: &BTreeMap<u32, i64>) -> (Option<i64>, Option<i64>) {
+    crate::stats::experience(stats)
+}
+
+/// The control center's alien experience bar (`CharacterBar_c`, FUN_100672bb): the alien experience (stat 40; 0 while the
+/// game does not know it, `N3Msg_GetSkill`'s 1234567890) from zero over the next alien level's figure (178), the share
+/// no more than the whole.
+fn alien_bar(stats: &BTreeMap<u32, i64>) -> (Option<i64>, Option<i64>) {
+    (Some(stats.get(&stat::ALIEN_XP).copied().unwrap_or(0)), stats.get(&stat::ALIEN_NEXT_XP).copied())
 }
 
 /// The bearing (clockwise from north) of the mission's waypoint when it is in this playfield: the compass's yellow indicator
@@ -310,10 +316,10 @@ fn show_skinned(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, parts
                 let nano = wing_bar(ui, &skin, &painter, egui::pos2(wing_at.x + 24.0, top), "NANO_BAR", egui::Color32::WHITE, get(stat::CURRENT_NANO), get(stat::MAX_NANO), "Nano");
                 crate::stats::hover(nano, "Max nano energy", parts.get(&stat::MAX_NANO), accent);
             } else {
-                let (value, span) = progress(get(stat::XP), get(stat::LAST_XP).unwrap_or(0), get(stat::NEXT_XP));
+                let (value, span) = xp_bar(stats);
                 wing_bar(ui, &skin, &painter, egui::pos2(wing_at.x + wing_size.x - 20.0, top), "XP_BAR", egui::Color32::WHITE, value, span, "Experience");
                 if get(stat::ALIEN_LEVEL).is_some_and(|l| l > 0) {
-                    let (value, span) = progress(get(stat::ALIEN_XP), 0, get(stat::ALIEN_NEXT_XP));
+                    let (value, span) = alien_bar(stats);
                     wing_bar(ui, &skin, &painter, egui::pos2(wing_at.x + wing_size.x - 36.0, top), "XP_BAR", egui::Color32::from_rgb(190, 110, 255), value, span, "Alien experience");
                 }
             }
@@ -479,8 +485,8 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
         });
     }
     // the bars: windows of their own
-    let (xp, xp_span) = progress(get(stat::XP), get(stat::LAST_XP).unwrap_or(0), get(stat::NEXT_XP));
-    let (alien, alien_span) = progress(get(stat::ALIEN_XP), 0, get(stat::ALIEN_NEXT_XP));
+    let (xp, xp_span) = xp_bar(stats);
+    let (alien, alien_span) = alien_bar(stats);
     // (where each stands until the player moves it: in the wings' tall sides, on their floors, health and nano in the left
     // wing and the experience bars in the right, as the original's own layout has them; without the wings, in a row
     // under the top of the screen)
@@ -591,10 +597,10 @@ fn show_inner(ctx: &egui::Context, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<
             let nano = bar(ui, egui::Color32::from_rgb(40, 90, 200), get(stat::CURRENT_NANO), get(stat::MAX_NANO));
             crate::stats::hover(nano, "Max nano energy", parts.get(&stat::MAX_NANO), accent);
             // Experience towards the next level: from the experience at the last level to the next level's.
-            let (value, span) = progress(get(stat::XP), get(stat::LAST_XP).unwrap_or(0), get(stat::NEXT_XP));
+            let (value, span) = xp_bar(stats);
             bar(ui, egui::Color32::from_rgb(190, 150, 40), value, span);
             // Alien experience towards the next alien level (the server's own next-level figure).
-            let (value, span) = progress(get(stat::ALIEN_XP), 0, get(stat::ALIEN_NEXT_XP));
+            let (value, span) = alien_bar(stats);
             bar(ui, egui::Color32::from_rgb(130, 60, 170), value, span);
             if let Some(level) = get(stat::ALIEN_LEVEL).filter(|&l| l > 0) {
                 ui.label(egui::RichText::new(format!("Alien level {level}")).small().color(accent));
@@ -608,14 +614,20 @@ fn show_inner(ctx: &egui::Context, stats: &BTreeMap<u32, i64>, parts: &BTreeMap<
 
 #[cfg(test)]
 mod tests {
-    use super::progress;
+    use super::*;
 
     #[test]
-    fn progress_counts_from_the_last_level() {
-        assert_eq!(progress(Some(150), 100, Some(300)), (Some(50), Some(200)));
-        assert_eq!(progress(Some(50), 100, Some(300)), (Some(0), Some(200)));
-        assert_eq!(progress(Some(5), 0, None), (None, None));
-        assert_eq!(progress(Some(5), 10, Some(10)), (None, None));
-        assert_eq!(progress(Some(500), 100, Some(300)), (None, None));
+    fn the_bars_are_the_control_centers() {
+        let stats: BTreeMap<u32, i64> = [(stat::LEVEL, 50), (stat::XP, 150), (stat::LAST_XP, 100), (stat::NEXT_XP, 300)].into();
+        assert_eq!(xp_bar(&stats), (Some(50), Some(200)));
+        // (past the next level's figure: the whole span and more, which the bar draws full)
+        let over: BTreeMap<u32, i64> = [(stat::LEVEL, 50), (stat::XP, 500), (stat::LAST_XP, 100), (stat::NEXT_XP, 300)].into();
+        assert_eq!(xp_bar(&over), (Some(400), Some(200)));
+        // (from level 200 the shadowknowledge, from 0 unless stat 576's bit 0 is set)
+        let shadow: BTreeMap<u32, i64> = [(stat::LEVEL, 205), (0x23d, 700), (stat::LAST_XP, 100), (stat::NEXT_XP, 1000), (0x240, 0)].into();
+        assert_eq!(xp_bar(&shadow), (Some(700), Some(1000)));
+        // (the alien experience from zero, 0 while not known)
+        assert_eq!(alien_bar(&[(stat::ALIEN_NEXT_XP, 1500)].into()), (Some(0), Some(1500)));
+        assert_eq!(alien_bar(&[(stat::ALIEN_XP, 300), (stat::ALIEN_NEXT_XP, 1500)].into()), (Some(300), Some(1500)));
     }
 }
