@@ -133,9 +133,10 @@ pub fn proper(name: &str) -> String {
     name.chars().enumerate().map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect()
 }
 
-/// The text (category 600) for a refusal code of the login server (`NameScene_t::SetState`).
-pub fn refusal(code: i32) -> &'static str {
-    match code {
+/// The text (category 600) for a refusal code of the login server (`NameScene_t::SetState` 0x1011fc0f); none for a
+/// code it has no case for (its default: no message, the buttons usable again).
+pub fn refusal(code: i32) -> Option<&'static str> {
+    Some(match code {
         1 => "PlayerNotFound",
         2 => "IllegalPassword",
         3 => "ContactAdministration",
@@ -152,8 +153,8 @@ pub fn refusal(code: i32) -> &'static str {
         28 => "ServerWrongRDB",
         30 => "NicknameTaken",
         31 => "NicknameInvalid",
-        _ => "ServerProblem",
-    }
+        _ => return None,
+    })
 }
 
 /// A text of category 600 from text.mdb (its name when the file has none).
@@ -557,8 +558,10 @@ impl Creating {
                             }
                         }
                         Ok(mao_net::create::Reply::Refused(code)) => {
-                            self.message = plain_text(&text(refusal(code)));
-                            crate::audio::play_named(if matches!(code, 30 | 31) { "SM_Sandy_CC_Nick" } else { "SM_Sandy_CC_GUI_Error" });
+                            if let Some(name) = refusal(code) {
+                                self.message = plain_text(&text(name));
+                                crate::audio::play_named(if matches!(code, 30 | 31) { "SM_Sandy_CC_Nick" } else { "SM_Sandy_CC_GUI_Error" });
+                            }
                         }
                         Ok(_) => {}
                         Err(e) => self.message = e,
@@ -944,6 +947,15 @@ impl Creating {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refusal's text is `NameScene_t::SetState`'s for its code; a code it has no case for says nothing.
+    #[test]
+    fn refusals_have_the_originals_texts_or_none() {
+        assert_eq!(refusal(8), Some("CantCreateMoreChars"));
+        assert_eq!(refusal(28), Some("ServerWrongRDB"));
+        assert_eq!(refusal(31), Some("NicknameInvalid"));
+        assert_eq!((refusal(0), refusal(11), refusal(29), refusal(32)), (None, None, None, None));
+    }
 
     /// The game's own files have every text and every picture the scenes ask for by name (`MAO_GAME`).
     #[test]

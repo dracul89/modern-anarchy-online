@@ -11759,7 +11759,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let reply = session::ask_creation(&mut connection, &mao_net::create::create_character(&c)).map_err(|e| e.to_string())?;
             connection.close();
             match reply {
-                mao_net::create::Reply::Refused(code) => println!("refused: {code} {}", crate::charcreate::text(crate::charcreate::refusal(code))),
+                mao_net::create::Reply::Refused(code) => println!("refused: {code} {}", crate::charcreate::refusal(code).map(crate::charcreate::text).unwrap_or_default()),
                 other => println!("{other:?}"),
             }
             Ok(())

@@ -8402,7 +8402,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: any other code is shown as "ServerProblem"
 - A player notices: unknown refusals look generic
 - Where: `crates/mao-client/src/charcreate.rs:143`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Read: GUI.dll `NameScene_t::SetState` 0x1011fc0f has cases for codes 1-10, 0x13, 0x14, 0x15, 0x1c, 0x1e, 0x1f (each a category-600 text; 0x1e/0x1f also the `SM_Sandy_CC_Nick` sound); any other code goes to its default: no message, the waiting flag cleared and the buttons updated. `charcreate::refusal` now returns `None` for those codes and the creation shows nothing (and plays nothing) for them, instead of "ServerProblem". Test: `charcreate::tests::refusals_have_the_originals_texts_or_none`. (The test command `net ... create` prints an empty text for such a code.)
 
 ### Launcher, login, character creation: the original was not read: inferred or measured (6)
 

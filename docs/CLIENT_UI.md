@@ -7045,3 +7045,7 @@ The original's Play (GUI.dll `LoginModule_c::SlotSelectCharacter` 0x10011be1, `S
 ### Deleting a character asks for its name exactly (LCH-015)
 
 The original's deletion confirmation (GUI.dll `CharDeleteWindow_c::SlotOkayButtonActivated` 0x1000db27) goes on only when the typed text is the character's name exactly, with its capitals and nothing around it; otherwise it shows `MatchError`. The client compares the same way now (it ignored case and spaces before).
+
+### A creation refusal the original does not know says nothing (LCH-021)
+
+The original's name scene (GUI.dll `NameScene_t::SetState` 0x1011fc0f) has a text for the refusal codes 1-10, 19-21, 28, 30 and 31 only; for any other code it shows nothing and lets the buttons be used again. The client does the same now instead of showing "ServerProblem".
