@@ -98,6 +98,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The mail window no longer shows its own status line ("Sending ...", "Mail sent.", inbox count text); the "n/30" inbox size remains, as in the original.
 - The Inspect window is titled "Inspect" as in the original, and right-clicking an item opens its menu (Look At, Create Reference) instead of its info page.
 - The skills window no longer shows "Changes sent." or "Reset asked for."; refusals (disabled skill, cap, not enough IP) still show.
+- Inventory, backpacks, bank, loot, missions, info, tradeskill kit, knowledge and actions windows now have tabs: right-click a tab to pick it up, left-click on another window's tabs to dock it there, or elsewhere to give it a window of its own, as in the original.
+- Framed chat windows fade when the pointer leaves them like other windows (pin them to keep them solid); borderless chat windows fade as a whole to their "inactive" level unless being typed in.
 
 ### Items
 

@@ -1575,9 +1575,14 @@ impl ChatWindow {
         out
     }
 
+    /// Whether a frame's chat is being typed in, or is about to be.
+    fn frame_typing(&self, ctx: &egui::Context, frame: &str, main: bool) -> bool {
+        ctx.memory(|m| m.has_focus(bar_id(frame))) || (main && self.focus_next) || self.focus_frame.as_deref() == Some(frame)
+    }
+
     /// Whether a frame's window is active: typed in, about to be, or under the pointer.
     fn frame_active(&self, ctx: &egui::Context, name: &str, frame: &str, main: bool) -> bool {
-        let typing = ctx.memory(|m| m.has_focus(bar_id(frame))) || (main && self.focus_next) || self.focus_frame.as_deref() == Some(frame);
+        let typing = self.frame_typing(ctx, frame, main);
         typing || ctx.memory(|m| m.area_rect(egui::Id::unique(name))).zip(ctx.input(|i| i.pointer.hover_pos())).is_some_and(|(rect, at)| rect.contains(at))
     }
 
@@ -1773,8 +1778,8 @@ impl ChatWindow {
             let Some(&lead) = members.first() else { continue };
             let name = if n == 0 { "Chat".to_string() } else { format!("Chat:{frame}") };
             let look = self.panes[lead].look;
-            // (`visual_mode` 2: a window alone in its frame has no frame or title, and a background as solid as its
-            // setting for an active window or for one that is not)
+            // (`visual_mode` 2: a window alone in its frame has no frame or title, and fades as a whole to its setting
+            // for a window typed in or for one that is not, FUN_100972da; a framed one fades as every window does)
             let bare = look.borderless && members.len() == 1;
             let (at, size) = if n == 0 { (egui::pos2(8.0, (screen.height() - 270.0).max(40.0)), [560.0, 230.0]) } else { (egui::pos2(60.0, 160.0), [420.0, 170.0]) };
             let order = match look.layer {
@@ -1787,12 +1792,10 @@ impl ChatWindow {
             let mut stays = true;
             let mut sent = None;
             if bare {
-                let active = self.frame_active(ctx, &name, frame, n == 0);
-                let solid = f32::from(if active { look.solid.0 } else { look.solid.1 }) / 100.0;
-                crate::chrome::bare_window(ctx, palette, &name, solid, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, true, &mut clicks, &mut menu_at));
+                let fade = crate::chrome::chat_fade(self.frame_typing(ctx, frame, n == 0), f32::from(look.solid.0) / 100.0, f32::from(look.solid.1) / 100.0);
+                crate::chrome::bare_window(ctx, palette, &name, fade, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, true, &mut clicks, &mut menu_at));
             } else {
                 let open = if n == 0 { &mut open } else { &mut stays };
-                crate::chrome::keep_solid(&name);
                 crate::chrome::window(ctx, palette, &name, "Chat", open, build, |ui| sent = self.frame_body(ui, ctx, palette, n, frame, &members, false, &mut clicks, &mut menu_at));
             }
             out = out.or(sent);

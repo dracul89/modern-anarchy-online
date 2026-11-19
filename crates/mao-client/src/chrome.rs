@@ -58,16 +58,8 @@ struct Fade {
 
 static FADES: Mutex<Vec<(String, Fade)>> = Mutex::new(Vec::new());
 
-/// The windows that keep their own look (the chat windows: their fading is their own, `chatwindow.rs`).
-static SOLID: Mutex<Vec<String>> = Mutex::new(Vec::new());
-
-/// A window that never autofades (a chat frame).
-pub fn keep_solid(name: &str) {
-    let mut list = SOLID.lock().unwrap();
-    if !list.iter().any(|n| n == name) {
-        list.push(name.to_string());
-    }
-}
+/// The windows fading by a rule of their own now ([`bare_window`]: a borderless chat window), not by the pointer.
+static OWN: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 fn level_of(fade: &Fade, now: std::time::Instant) -> f32 {
     if now <= fade.start {
@@ -93,9 +85,38 @@ fn fade_to(name: &str, to: f32, delay: f32, duration: f32) {
 }
 
 /// Whether a window may fade (`Window::_CanFade`, 0x10154b4d: its pin is not down; `WindowController_c::FadeWindows` also
-/// leaves a modal window alone: the message boxes here).
+/// leaves a modal window alone: the message boxes here). A framed chat window fades as any other: its own fading
+/// (`FUN_100972da`) is only that of a borderless one ([`bare_window`]).
 fn can_fade(name: &str) -> bool {
-    !pinned(name) && !DIALOGS.contains(&name) && !SOLID.lock().unwrap().iter().any(|n| n == name)
+    !pinned(name) && !DIALOGS.contains(&name)
+}
+
+/// A window's fading toward `to` over `duration` seconds from now, unless it is already going there: the chat window's
+/// own (FUN_100972da: `Window::FadeTo(level, 0, duration)`).
+fn fade_toward(name: &str, to: f32, duration: f32) {
+    let going = FADES.lock().unwrap().iter().find(|f| f.0 == name).map(|f| f.1.to);
+    if going != Some(to) {
+        fade_to(name, to, 0.0, duration);
+    }
+}
+
+/// While a fade of the window is under way or waiting, the next frames are asked for.
+fn repaint_while_fading(ctx: &egui::Context, name: &str) {
+    let now = std::time::Instant::now();
+    if let Some((_, f)) = FADES.lock().unwrap().iter().find(|f| f.0 == name) {
+        let end = f.start + std::time::Duration::from_secs_f32(f.duration);
+        if now < end {
+            ctx.request_repaint_after(if now < f.start { f.start - now } else { std::time::Duration::from_millis(30) });
+        }
+    }
+}
+
+/// The level a borderless chat window fades to, and over how long (FUN_100972da): its `window_transparency_active`
+/// over 0.2 s while its chat is being typed in (the shown window's config +0xda, set as the input starts,
+/// FUN_10099084, and cleared as it ends, FUN_1009b273), else its `window_transparency_inactive` over a second; at once
+/// from where it is.
+pub fn chat_fade(typing: bool, active: f32, inactive: f32) -> (f32, f32) {
+    if typing { (active, 0.2) } else { (inactive, 1.0) }
 }
 
 /// The pointer's going in or out of a window, seen after it was drawn (`WindowController_c::HandleMouseMoved` 0x1015867f →
@@ -120,13 +141,7 @@ fn note_hover(ctx: &egui::Context, name: &str, layer: egui::LayerId) {
         }
     }
     // (a fade under way, or one waiting to start, is drawn as it goes)
-    let now = std::time::Instant::now();
-    if let Some((_, f)) = FADES.lock().unwrap().iter().find(|f| f.0 == name) {
-        let end = f.start + std::time::Duration::from_secs_f32(f.duration);
-        if now < end {
-            ctx.request_repaint_after(if now < f.start { f.start - now } else { std::time::Duration::from_millis(30) });
-        }
-    }
+    repaint_while_fading(ctx, name);
 }
 
 /// The windows that have a "?" button, and the help page each opens (`WndBorder::SetHelpFile`, 0x1015b139, called for these
@@ -462,12 +477,32 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     if crate::layout::kept(name) && crate::layout::screen().is_none() && std::env::var_os("MAO_UI_PREVIEW").is_none() {
         return None;
     }
-    // (the place the player left it last time, `layout.ini`: over the caller's starting place)
-    crate::layout::track(name);
-    let saved = crate::layout::kept(name).then(|| crate::layout::saved(name)).flatten();
+    // (one of the original's dockable views is a tab of its dock area's window, `docks.rs`: the window is the area's,
+    // drawn by the view shown in it with its tabs, and titled with nothing but them — FUN_1003c78b makes it with an
+    // empty title; a view behind another's tab is open but not drawn)
+    let docked = if crate::docks::dockable(name) {
+        match crate::docks::enter(name, title) {
+            Some(shown) => Some(shown),
+            None => return None,
+        }
+    } else {
+        None
+    };
+    let win: &str = docked.as_ref().map_or(name, |d| d.area.as_str());
+    let title = if docked.is_some() { "" } else { title };
+    // (the place the player left it last time, `layout.ini`: over the caller's starting place; an area's window not
+    // placed yet starts where its view was kept, else at the original's frame for the area, else the view's)
+    crate::layout::track(win);
+    let saved = if !crate::layout::kept(win) {
+        None
+    } else if win != name {
+        crate::layout::spot(win).or_else(|| crate::layout::spot(name)).or_else(|| crate::layout::saved(win)).or_else(|| crate::layout::saved(name))
+    } else {
+        crate::layout::saved(name)
+    };
     // (the original client's layout gives a size too, until the player has placed the window here)
-    let sized = crate::layout::kept(name).then(|| crate::layout::original_size(name)).flatten();
-    let relocate = crate::layout::relocate(name);
+    let sized = crate::layout::kept(win).then(|| crate::layout::original_size(win).or_else(|| (win != name).then(|| crate::layout::original_size(name)).flatten())).flatten();
+    let relocate = crate::layout::relocate(win);
     let sizable = std::cell::Cell::new(false);
     let sizable = &sizable;
     let build = move |w: egui::Window<'static>| {
@@ -478,7 +513,7 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
             sizable.set(r.is_resizable().any());
             r
         });
-        let sized = sizable.get().then(|| crate::layout::saved_size(name)).flatten().or(sized);
+        let sized = sizable.get().then(|| crate::layout::saved_size(win).or_else(|| (win != name).then(|| crate::layout::saved_size(name)).flatten())).flatten().or(sized);
         let w = match sized {
             Some(size) => w.default_size(size),
             None => w,
@@ -489,8 +524,20 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
             None => w,
         }
     };
+    // (a dock area's window: its tabs over the shown view, `DockWindow_c`'s `TabView`; the tab picked is shown from
+    // the next frame, and a tab taken up by the right button is carried, `docks::end_frame`)
+    let tabbed = docked.as_ref().map(|d| (d.area.clone(), d.tabs.iter().map(|t| t.0.clone()).collect::<Vec<String>>(), d.tabs.iter().map(|t| t.1.clone()).collect::<Vec<String>>(), d.selected));
+    let add = move |ui: &mut egui::Ui| -> R {
+        let Some((area, views, titles, selected)) = tabbed else { return add(ui) };
+        let names: Vec<&str> = titles.iter().map(String::as_str).collect();
+        let mut picked = selected;
+        let mut hits = TabHits::default();
+        let result = tab_view_hits(ui, palette, &names, &mut picked, &mut hits, |ui, _| add(ui));
+        crate::docks::after(&area, &views, picked, &hits, ui.input(|i| i.pointer.interact_pos()));
+        result
+    };
     let accent = rgb(palette.accent);
-    let id = egui::Id::unique(name);
+    let id = egui::Id::unique(win);
     let skin = crate::skin::skin(ctx).filter(|s| s.has("GFX_GUI_WINDOW3_BORDER_TL"));
     let Some(skin) = skin else {
         let mut is_open = *open;
@@ -501,11 +548,14 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
             if sizable.get()
                 && let Some(outer) = ctx.memory(|m| m.area_rect(id)).filter(|r| r.is_finite())
             {
-                crate::layout::note_size(name, room + (outer.size() - ui.min_rect().size()).max(egui::Vec2::ZERO));
+                crate::layout::note_size(win, room + (outer.size() - ui.min_rect().size()).max(egui::Vec2::ZERO));
             }
             result
         });
         *open = is_open;
+        if !is_open && let Some(d) = &docked {
+            crate::docks::close_others(&d.area, name);
+        }
         return shown;
     };
     if !*open {
@@ -516,8 +566,15 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     let frame = egui::Frame::NONE.inner_margin(egui::Margin { left: LEFT, right: RIGHT, top: TOP, bottom: BOTTOM });
     let mut close = false;
     let title = title.to_string();
+    let view = name;
     let name = name.to_string();
-    let level = fade_level(&name);
+    if OWN.lock().unwrap().iter().any(|n| *n == name) {
+        OWN.lock().unwrap().retain(|n| *n != name);
+        fade_to(&name, 1.0, 0.0, 0.0);
+    }
+    // (the pin and the fading are the window's: an area's for a docked view)
+    let win = win.to_string();
+    let level = fade_level(&win);
     let shown = build(egui::Window::new(title.as_str()).title_bar(false).collapsible(false).frame(frame)).id(id).show(ctx, |ui| {
         // (the window's fade over its frame and all it holds: `UpdateFadeLevel` multiplies the view's alpha)
         ui.multiply_opacity(level);
@@ -528,7 +585,7 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         let result = add(ui);
         // (the size kept: the room the window gives its content, and the frame)
         if sizable.get() {
-            crate::layout::note_size(&name, room + egui::vec2((LEFT + RIGHT) as f32, (TOP + BOTTOM) as f32));
+            crate::layout::note_size(&win, room + egui::vec2((LEFT + RIGHT) as f32, (TOP + BOTTOM) as f32));
         }
         // The whole window as laid out: egui's record of the area (last frame's for a window that just appeared, hence the fallback
         // from the content).
@@ -558,12 +615,12 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         if let Some(at) = stale {
             *FRAME_ASKED.lock().unwrap() = None;
             let autofade = crate::gui::xml::ldb_named(10000, "AutofadeWindow", "Autofade Window");
-            FRAME_POPUP.with(|p| *p.borrow_mut() = Some((name.clone(), menu_marked(ctx, at, &[(autofade, true, Some(!pinned(&name))), (close_entry(), true, None)]))));
+            FRAME_POPUP.with(|p| *p.borrow_mut() = Some((name.clone(), menu_marked(ctx, at, &[(autofade, true, Some(!pinned(&win))), (close_entry(), true, None)]))));
         }
         let mut own = FRAME_POPUP.with(|p| p.borrow_mut().take_if(|(n, _)| *n == name)).map(|(_, popup)| popup);
         if own.is_some() {
             match menu(ctx, palette, "frame-menu", &mut own) {
-                Some(0) => set_pinned(&name, !pinned(&name)),
+                Some(0) => set_pinned(&win, !pinned(&win)),
                 Some(1) => close = true,
                 _ => {}
             }
@@ -586,7 +643,7 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
             }
             let rect = egui::Rect::from_min_size(egui::pos2(x, outer.top() + 5.0), egui::vec2(15.0, 15.0));
             let response = ui.interact(rect, id.with(what), egui::Sense::click());
-            let down = what == "pin" && pinned(&name);
+            let down = what == "pin" && pinned(&win);
             let state = if response.is_pointer_button_down_on() || down { "_STATE3" } else if response.hovered() { "_STATE2" } else { "" };
             let tint = if response.hovered() { hover } else if down { rgb(palette.text_selected) } else { accent };
             let drawn = if what == "dock" {
@@ -599,8 +656,11 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
             }
             if response.clicked() {
                 match what {
-                    "pin" => set_pinned(&name, !down),
-                    "dock" => crate::rollup::dock(&name),
+                    "pin" => set_pinned(&win, !down),
+                    "dock" => {
+                        crate::docks::take_out(&name);
+                        crate::rollup::dock(&name);
+                    }
                     "help" => HELP_ASKED.lock().unwrap().extend(help.map(|page| format!("file://{page}"))),
                     _ => close = true,
                 }
@@ -617,23 +677,41 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
     });
     if close {
         *open = false;
+        if let Some(d) = &docked {
+            crate::docks::close_others(&d.area, view);
+        }
     }
     if let Some(r) = &shown {
-        note_hover(ctx, &name, r.response.layer_id);
+        note_hover(ctx, &win, r.response.layer_id);
     }
     shown
 }
 
-/// A window without the frame and the title, only a background `solid` (0 to 1) of the panel's colour: a chat window
-/// in its borderless mode. Its place and size are kept under `name` as a framed window's are, so one can be turned
-/// into the other where it stands.
-pub fn bare_window(ctx: &egui::Context, palette: &Palette, name: &str, solid: f32, build: impl FnOnce(egui::Window<'static>) -> egui::Window<'static>, add: impl FnOnce(&mut egui::Ui)) {
+/// A window without the frame and the title, only a background of the panel's colour: a chat window in its
+/// borderless mode (`Window::SetStyle(3, … | 0xc3c)`, FUN_1009767c: the 0x800 flag keeps it out of the pointer's
+/// fading and without a pin). It fades by its own rule instead, `fade` = ([`chat_fade`]) the level and the time to it
+/// (FUN_100972da), from full the first time it is drawn (`SetStyle` puts a 0x800 window at 1.0 at once); the level is
+/// the whole window's, its background and all it holds, as `Window::UpdateFadeLevel` sets the root view's alpha that
+/// `View::_CallRender` multiplies down the tree. Its place and size are kept under `name` as a framed window's are, so
+/// one can be turned into the other where it stands.
+pub fn bare_window(ctx: &egui::Context, palette: &Palette, name: &str, fade: (f32, f32), build: impl FnOnce(egui::Window<'static>) -> egui::Window<'static>, add: impl FnOnce(&mut egui::Ui)) {
     if crate::layout::kept(name) && crate::layout::screen().is_none() && std::env::var_os("MAO_UI_PREVIEW").is_none() {
         return;
     }
     crate::layout::track(name);
+    {
+        let mut own = OWN.lock().unwrap();
+        if !own.iter().any(|n| n == name) {
+            own.push(name.to_string());
+            drop(own);
+            fade_to(name, 1.0, 0.0, 0.0);
+        }
+    }
+    fade_toward(name, fade.0.clamp(0.0, 1.0), fade.1);
+    repaint_while_fading(ctx, name);
+    let level = fade_level(name);
     let saved = crate::layout::kept(name).then(|| crate::layout::saved(name)).flatten();
-    let fill = egui::Color32::from_rgba_unmultiplied(palette.panel[0], palette.panel[1], palette.panel[2], (solid.clamp(0.0, 1.0) * 255.0) as u8);
+    let fill = egui::Color32::from_rgba_unmultiplied(palette.panel[0], palette.panel[1], palette.panel[2], (level.clamp(0.0, 1.0) * 255.0) as u8);
     const MARGIN: i8 = 4;
     let mut w = build(egui::Window::new(name).title_bar(false).collapsible(false).frame(egui::Frame::NONE.fill(fill).inner_margin(MARGIN))).id(egui::Id::unique(name));
     if let Some(size) = crate::layout::saved_size(name) {
@@ -645,6 +723,7 @@ pub fn bare_window(ctx: &egui::Context, palette: &Palette, name: &str, solid: f3
         None => w,
     };
     w.show(ctx, |ui| {
+        ui.multiply_opacity(level);
         let room = ui.max_rect().size();
         add(ui);
         crate::layout::note_size(name, room + egui::Vec2::splat(f32::from(MARGIN) * 2.0));
@@ -1003,6 +1082,21 @@ mod tests {
         assert!(pinned("Test window"));
         set_pinned("Test window", false);
         assert!(!pinned("Test window"));
+    }
+
+    /// A borderless chat window goes to its active level over 0.2 s while typed in, else to its inactive one over a
+    /// second (FUN_100972da); a fade already going there is not started again; a framed chat window may fade as any.
+    #[test]
+    fn a_borderless_chat_window_fades_by_its_own_rule() {
+        assert_eq!(chat_fade(true, 0.8, 0.3), (0.8, 0.2));
+        assert_eq!(chat_fade(false, 0.8, 0.3), (0.3, 1.0));
+        fade_toward("Chat:test", 0.3, 1.0);
+        let first = FADES.lock().unwrap().iter().find(|f| f.0 == "Chat:test").map(|f| f.1.start).unwrap();
+        fade_toward("Chat:test", 0.3, 1.0);
+        let again = FADES.lock().unwrap().iter().find(|f| f.0 == "Chat:test").map(|f| f.1.start).unwrap();
+        assert_eq!(first, again);
+        assert!(fade_level("Chat:test") > 0.9);
+        assert!(can_fade("Chat:test"));
     }
 
     #[test]

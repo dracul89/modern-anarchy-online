@@ -1093,6 +1093,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] Talk to an NPC and click an answer: it shows as your line once (no duplicate), the answers go until the NPC replies; give an unwanted item: it returns with no line.
 - [ ] Typing /sit does not sit the character (the unknown-script line comes instead); X still sits and stands.
 - [ ] No box appears at the bottom left; F12 saves a screenshot silently; /follow with a target says "Following <name> ...", without one "Cannot follow selected target."; /logout-in-fight and similar feedback lines show in chat once (not twice).
+- [ ] Open inventory and a backpack: each has one tab; right-click the backpack's tab, left-click on the inventory's tab strip: one window with two tabs; relog: still together (docks.ini).
+- [ ] Right-click a tab of a two-tab window, left-click on empty screen: it gets its own window there; closing a two-tab window closes both views.
+- [ ] A borderless chat window: faint when not typing, solid while typing; a framed chat window fades when the pointer leaves it, not when pinned.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

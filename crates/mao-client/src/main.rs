@@ -116,6 +116,7 @@ mod chrome;
 mod citymap;
 mod cityterminal;
 mod rollup;
+mod docks;
 mod aoprefs;
 mod combat;
 mod nametag;

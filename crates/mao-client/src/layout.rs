@@ -114,6 +114,16 @@ pub fn saved(name: &str) -> Option<egui::Pos2> {
     original_frame(&mut layout, name).map(|f| egui::pos2(f[0], f[1]))
 }
 
+/// The place this client kept for a window (`layout.ini`), not the original's.
+pub fn spot(name: &str) -> Option<egui::Pos2> {
+    if disabled() {
+        return None;
+    }
+    let mut layout = LAYOUT.lock().unwrap();
+    load(&mut layout);
+    layout.spots.get(name).map(|p| egui::pos2(p[0], p[1]))
+}
+
 /// Reads the files, once.
 fn load(layout: &mut Layout) {
     if !layout.loaded {

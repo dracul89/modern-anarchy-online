@@ -1581,6 +1581,8 @@ impl Ui {
                     *rebinding = None;
                 }
             }
+            // (a window's tab carried and put down, `docks.rs`, once every window has drawn its tabs)
+            crate::docks::end_frame(&ctx, palette);
         });
         crate::chrome::end_frame();
         // (an inventory item let go over the world, not over a window, is used on what is there)

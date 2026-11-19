@@ -213,11 +213,58 @@ pub fn config_frames(text: &str) -> Vec<(String, [f32; 4])> {
     out
 }
 
-/// A dock area file: the window identities it holds and its frame.
-pub fn dock_area(text: &str) -> Option<(Vec<String>, [f32; 4])> {
-    let ids = value(text, "docked_view_identities")?.replace("&quot;", "");
-    let frame = window_frame(text)?;
-    Some((ids.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(), frame))
+/// A `DockAreas/<name>.xml` file as the original writes it (`DockingController_c`, FUN_1003aad8): `dock_name`,
+/// `dock_type` (`DockTabbedWindow` or `RollupController`) and the `dock_config` archive, which holds the views'
+/// identities in their tabs' order (FUN_10039a07: one `docked_view_identities` string each, an `Array` of them when
+/// there are several), the window's frame and `selected_tab` (-1: none).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DockFile {
+    pub name: String,
+    pub kind: String,
+    pub views: Vec<String>,
+    pub selected: i32,
+    pub frame: Option<[f32; 4]>,
+}
+
+pub fn dock_file(text: &str) -> Option<DockFile> {
+    let unquote = |v: &str| v.replace("&quot;", "").trim().to_string();
+    let mut views = Vec::new();
+    let key = "name=\"docked_view_identities\"";
+    let mut rest = text;
+    while let Some(at) = rest.find(key) {
+        // (the tag it is in: an `<Array …>` of `<String value=…/>`, or one `<String … value=…/>`)
+        let tag = rest[..at].rfind('<').map_or("", |t| &rest[t..at]);
+        if tag.starts_with("<Array") {
+            let end = rest[at..].find("</Array>").map_or(rest.len(), |e| at + e);
+            let mut body = &rest[at..end];
+            while let Some(v) = body.find("value=") {
+                let quoted = &body[v + 6..];
+                let Some(quote) = quoted.chars().next().filter(|q| *q == '\'' || *q == '"') else { break };
+                let Some(close) = quoted[1..].find(quote) else { break };
+                views.push(unquote(&quoted[1..1 + close]));
+                body = &quoted[1 + close..];
+            }
+            rest = &rest[end..];
+        } else {
+            if let Some(v) = value(&rest[at..], "docked_view_identities") {
+                views.push(unquote(v));
+            }
+            rest = &rest[at + key.len()..];
+        }
+    }
+    views.retain(|v| !v.is_empty());
+    let name = value(text, "dock_name").map(unquote).unwrap_or_default();
+    let kind = value(text, "dock_type").map(unquote).unwrap_or_default();
+    (!name.is_empty() || !views.is_empty()).then(|| DockFile { name, kind, views, selected: value(text, "selected_tab").and_then(|v| v.parse().ok()).unwrap_or(-1), frame: window_frame(text) })
+}
+
+/// The character's tabbed dock areas (`DockTabbedWindow`s) in the original's files, for the windows' tab groups here
+/// (`docks.rs`); none when the original has not played the character on this machine.
+pub fn dock_files(character: u32) -> Vec<DockFile> {
+    let Some((_, dir)) = prefs_dirs(character) else { return Vec::new() };
+    let mut found: Vec<DockFile> = std::fs::read_dir(dir.join("DockAreas")).map(|areas| areas.flatten().filter_map(|e| std::fs::read_to_string(e.path()).ok()).filter_map(|t| dock_file(&t)).filter(|f| f.kind == "DockTabbedWindow").collect()).unwrap_or_default();
+    found.sort_by(|a, b| a.name.cmp(&b.name));
+    found
 }
 
 /// Reads the character's layout: the display size and every frame for a window known here.
@@ -237,11 +284,17 @@ pub fn load(character: u32) -> Option<Original> {
     if let Ok(areas) = std::fs::read_dir(dir.join("DockAreas")) {
         for entry in areas.flatten() {
             let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
-            if let Some((ids, frame)) = dock_area(&text) {
-                for id in ids {
-                    if let Some(h) = here(&id) {
+            if let Some(file) = dock_file(&text)
+                && let Some(frame) = file.frame
+            {
+                for id in &file.views {
+                    if let Some(h) = here(id) {
                         out.frames.insert(h, frame);
                     }
+                }
+                // (and the area's own, for the tab group made from it here: `docks.rs` keeps the original's names)
+                if !file.name.is_empty() {
+                    out.frames.insert(file.name.clone(), frame);
                 }
             }
         }
@@ -312,8 +365,30 @@ mod tests {
     </Archive>
     <String name="dock_type" value='&quot;DockTabbedWindow&quot;' />
 </Archive>"#;
-        assert_eq!(dock_area(area), Some((vec!["inventory_window".to_string()], [2709.0, 1233.0, 3290.0, 1408.0])));
+        let one = dock_file(area).unwrap();
+        assert_eq!((one.views, one.frame), (vec!["inventory_window".to_string()], Some([2709.0, 1233.0, 3290.0, 1408.0])));
         assert_eq!(rect("Rect(1,2,0,5)"), None);
+        // (two views in one area: an array of identities, in the tabs' order)
+        let two = r#"<Archive code="0">
+    <Archive code="0" name="dock_config">
+        <Array name="dock_node_configs">
+            <Archive code="0" />
+            <Archive code="0" />
+        </Array>
+        <Array name="docked_view_identities">
+            <String value='&quot;inventory_window&quot;' />
+            <String value='&quot;mission_window&quot;' />
+        </Array>
+        <Bool name="WindowPinButtonState" value="false" />
+        <Rect name="WindowFrame" value="Rect(30.000000,98.000000,611.000000,273.000000)" />
+        <Int32 name="selected_tab" value="1" />
+    </Archive>
+    <String name="dock_type" value='&quot;DockTabbedWindow&quot;' />
+    <String name="dock_name" value='&quot;DockArea0&quot;' />
+</Archive>"#;
+        assert_eq!(dock_file(two), Some(DockFile { name: "DockArea0".into(), kind: "DockTabbedWindow".into(), views: vec!["inventory_window".into(), "mission_window".into()], selected: 1, frame: Some([30.0, 98.0, 611.0, 273.0]) }));
+        let one = dock_file(area).unwrap();
+        assert_eq!((one.selected, one.kind.as_str()), (0, "DockTabbedWindow"));
         // (a shortcut bar's file: its frame at the top, `bar_orientation` among the rest)
         let bar = "<Root>
     <Rect name=\"WindowFrame\" value=\"Rect(20.000000,20.000000,422.000000,57.000000)\" />
