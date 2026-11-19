@@ -230,12 +230,14 @@ impl MailWindow {
             let shown = (self.entries.clone(), self.count);
             if self.shown.as_ref() != Some(&shown) {
                 let rows = Self::rows(&self.entries);
+                // (FUN_10109489: the rows given to the list and the constant 30, not the server's count)
+                let row_count = rows.len();
                 crate::gui::multilist::set_items(&mut w.tree, list, rows);
                 crate::gui::multilist::select(&mut w.tree, list, self.selected.map(i64::from));
                 if let Some(id) = w.tree.find(root, "InboxSize")
                     && let Some(t) = w.tree.control_mut::<crate::gui::controls::TextView>(id)
                 {
-                    t.set_text(&format!("{}/30", self.count.unwrap_or(self.entries.len())));
+                    t.set_text(&format!("{row_count}/30"));
                 }
                 w.tree.relayout = true;
                 self.shown = Some(shown);

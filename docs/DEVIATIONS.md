@@ -4689,7 +4689,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: shows the server's count when it has one
 - A player notices: the count may differ when rows are not yet loaded
 - Where: `docs/ORIGINAL_CODE_QUESTIONS.md:39`; `crates/mao-client/src/mailbox.rs:232`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): GUI.dll FUN_10109489 writes `InboxSize` as "%d/%d" with the rows in the list view and the constant 30; the client showed the server's count when it had one. `mailbox.rs` now writes the number of rows it has just given the list over 30. No unit test (window code); mail tests pass.
 
 #### `WIN-010` Info view window opens at the client's own size and title
 

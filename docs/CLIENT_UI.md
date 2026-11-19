@@ -7301,3 +7301,7 @@ When no camera mode is preferred, the original uses its free camera (mode 1, GUI
 ### The music's random choices differ from run to run (SND-005)
 
 The original's music player seeds its random numbers with the tick count when it starts (SIMPlayer.dll, `srand(GetTickCount())`), so which piece and layer play differ every time. The client had seeded them with 1, so every run chose the same; it now seeds them from the clock.
+
+### The inbox size counts the list's rows (WIN-009)
+
+The original's mail window shows its size as the rows in its list over 30 (GUI.dll FUN_10109489). The client now writes the same, where it showed the server's count.
