@@ -2314,7 +2314,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Always the three entries Look At, Create Reference, Delete, on the inventory and the wear grids; no lock entries.
 - A player notices: Worn items can be deleted from the menu and cannot be locked.
 - Where: `crates/mao-client/src/invwindows.rs:310`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The lock entries on wear pages and no Delete there were already ported (`ItemWindows::item_menu`, GUI.dll FUN_100caf07); the menu's first three entries were the client's English. Now all are text category 10000 by name, as FUN_100caf07 gets them: `LookAtItem`, `CreateReference`, `DeleteItem` (`UnlockItem` / `LockItem` were already). The corpse's Looter submenu is the loot window's (`loot::item_entries`). Test: the invwindows tests build.
 
 #### `INV-030` Item pages use the item's template stats for the reader
 

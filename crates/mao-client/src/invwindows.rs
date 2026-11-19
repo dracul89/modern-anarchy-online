@@ -441,9 +441,11 @@ impl ItemWindows {
     /// unlock it. The original leaves the lock's entry out for an item whose stat 8 (`TimeExist`) is above 0; the
     /// template's is asked here.
     fn item_menu(item: &GearItem) -> Vec<(ItemChoice, String)> {
-        let mut menu = vec![(ItemChoice::LookAt, "Look At".to_string()), (ItemChoice::Reference, "Create Reference".to_string())];
+        // (the entries' words: text category 10000 by name, as FUN_100caf07 gets them)
+        let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
+        let mut menu = vec![(ItemChoice::LookAt, text("LookAtItem", "Look At")), (ItemChoice::Reference, text("CreateReference", "Create Reference"))];
         if item.slot >= BACKPACK_FIRST {
-            menu.push((ItemChoice::Delete, "Delete".to_string()));
+            menu.push((ItemChoice::Delete, text("DeleteItem", "Delete")));
         } else if crate::net::item_template_stat(item.item_id, 8).is_none_or(|v| (v as i32) < 1) {
             let locked = crate::gear::equipment_locked(item.slot);
             let label = if locked { crate::gui::xml::ldb_named(10000, "UnlockItem", "Unlock") } else { crate::gui::xml::ldb_named(10000, "LockItem", "Lock") };
