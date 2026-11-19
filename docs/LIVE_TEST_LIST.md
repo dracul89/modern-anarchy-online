@@ -997,9 +997,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] Mouse look (2026-11-18): turning speed as the original's at the same sensitivity; hold right, press left, let go of left: the look ends; A/D strafe while a left-button look moves
 - [ ] Window fading (2026-11-18): a window fades two seconds after the mouse leaves it and comes back at once; a pinned one stays; the pin survives a restart; Escape closes a pinned window; "?" on Skills opens its help page
 - [ ] Chat tab drag (2026-11-18): right-click a tab, left-click on another window's tab strip: it moves there before that tab; right-click again and left-click on empty space: a window of its own at the pointer; Escape lets go
-- [ ] Playfield map window (2026-11-18): the control center's Map menu opens it; the ground shows at the original's scale; drag and let go comes back; other players' squares by side; Client settings' own map brings the round map back
+- [ ] Playfield map window (2026-11-18): the control center's Map menu opens it; the ground shows at the original's scale; drag and let go comes back; other players' squares by side; the round corner map is there too (the default), and the client settings turn it off
 - [ ] Mission item (2026-11-18): take "Plant a Bug" on Arete Landing: the recording device is in the inventory and can be used
-
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
