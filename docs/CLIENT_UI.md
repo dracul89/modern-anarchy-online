@@ -7786,3 +7786,7 @@ With the options' mouse wheel set to scroll the side bar (`MouseWheel` 1), the w
 ### The wheel moves only vertical bars (WIN-078)
 
 The original's `ScrollView_c::WheelMoved` (GUI.dll 0x10142820) scrolls only along the vertical: a notch is the view's wheel step (`SetScrollWheelStep`), or with snapping the notches add up and the scroll goes to a whole multiple of the step; a view that cannot scroll (no vertical bar, no step, or its content fits) passes the wheel to its parent. A horizontal bar is never moved by the wheel in the original either, so the client's vertical-only wheel (`gui/scroll.rs`) is the original's, not a simplification.
+
+### Where a click in a text view chooses a link (WIN-012)
+
+The original takes the clicked point to a character of the text (`TextRenderer_c::GetBufferLocation` 0x101622f6, 0x101617f0: the line at the point's height, then the first character whose right edge is past the point) and uses that character's link (`GetHyperLink` 0x10162f14, `FindTextAttrib` 0x1016132a). The client now does the same with each line's spaces and words: a space inside a link is on it, a click left of a line's text is on its first word's link, past a wrapped line's end on the next line's first word's link, and every area is the line's whole height (pictures too). Before, the client stretched a link's words over the gaps between them, with no area beside the line.

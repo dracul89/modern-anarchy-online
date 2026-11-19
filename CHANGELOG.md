@@ -261,6 +261,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Window art from the skin is drawn crisp (unfiltered), as in the original, instead of smoothed when scaled.
 - Reload and perk tiles show their own pictures, as in the original.
 - Selected text in the interface's text views is on the original's light grey.
+- Links in NPC chat and info pages answer clicks over the whole height of their line, beside the line's start, and past the end of a line that wraps into the same link, as in the original.
 
 ### Chat
 

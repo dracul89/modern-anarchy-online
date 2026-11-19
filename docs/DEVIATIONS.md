@@ -4748,7 +4748,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a link's words are stretched over the spaces between them so a click anywhere in an NPC answer chooses it
 - A player notices: bigger click targets
 - Where: `docs/CLIENT_UI.md:1562`; `crates/mao-client/src/gui/controls.rs:818`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original's link hit test was read: TextRenderer_c::GetHyperLink (0x10162f14) takes the point to a character of the text (GetBufferLocation 0x101622f6: the line at the point's height; 0x101619d8 / 0x101617f0: the first character whose right edge is past the point, the line's end past its text) and returns the link of that character's text attribute (FindTextAttrib 0x1016132a, inclusive range). So the spaces inside a link are on it, a point left of a line's text is on its first character, and past a line's end it is on the next line's first character when the line was wrapped (else the new line, outside the link). The client's own stretching of a link's words is replaced by this: each line's spaces and pieces with their links, every area the line's full height (`line_links` in gui/controls.rs). Test: `link_areas_are_the_characters_under_the_point`. Not covered: a new line inside a link (the client has no style for the new line itself; taken as no link).
 - Looked at, left (2026-11-19, overnight): How the original's text view hit-tests a link (only the words' boxes or the line between them) was not read; stretching the words is the client's guess. Left until `TextView_c`'s link hit test is read.
 
 #### `WIN-013` Mail without a recipient or subject is not sent

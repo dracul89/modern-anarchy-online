@@ -688,6 +688,34 @@ impl TextView {
     }
 }
 
+/// A line's link areas (`TextRenderer_c::GetHyperLink` 0x10162f14): the point is taken to a character of the text
+/// (`GetBufferLocation` 0x101622f6: the line at its height, then the first character whose right edge is past it, 0x101617f0)
+/// and the link is that character's text's (`FindTextAttrib` 0x1016132a). So the white space inside a link is on it,
+/// left of the line's text is its first character, and past its end the next line's first character when this line
+/// was wrapped before it (`next`), else the new line's, taken as none. `segments` are the line's spaces and pieces left
+/// to right (x from, x to, link), in `row`'s units; every area is the line's whole height.
+pub fn line_links(segments: &[(f32, f32, Option<String>)], next: Option<String>, row: egui::Rect) -> Vec<(egui::Rect, String)> {
+    let area = |x0: f32, x1: f32| egui::Rect::from_min_max(egui::pos2(x0, row.min.y), egui::pos2(x1, row.max.y));
+    let mut out = Vec::new();
+    if let Some((x0, _, Some(link))) = segments.first()
+        && *x0 > row.min.x
+    {
+        out.push((area(row.min.x, *x0), link.clone()));
+    }
+    for (x0, x1, link) in segments {
+        if let Some(link) = link {
+            out.push((area(*x0, *x1), link.clone()));
+        }
+    }
+    let end = segments.last().map_or(row.min.x, |s| s.1);
+    if let Some(link) = next
+        && end < row.max.x
+    {
+        out.push((area(end, row.max.x), link));
+    }
+    out
+}
+
 /// The height markup takes word-wrapped to `width` in `font` (what [`markup`] draws).
 pub fn markup_height(ctx: &egui::Context, text: &str, font: FontId, width: f32) -> f32 {
     let measure = Measure { ctx: Some(ctx.clone()) };
@@ -847,11 +875,16 @@ impl Control for TextView {
                 4 => x += ((width - line.width) * 0.5).floor(),
                 _ => {}
             }
+            // (the line's characters, white space too, with their links: `TextRenderer_c::GetHyperLink` 0x10162f14)
+            let mut segments: Vec<(f32, f32, Option<String>)> = Vec::new();
             for (k, w) in words[line.first..line.end].iter().enumerate() {
                 // (a wrapped line starts at its first word's text)
                 let space = if line.wrapped && k == 0 { 0.0 } else { w.space };
                 if reading && k > 0 && space > 0.0 {
                     shown.push(' ');
+                }
+                if space > 0.0 && !hidden {
+                    segments.push((x, x + space, w.space_style.as_ref().and_then(|s| s.link.clone())));
                 }
                 if let Some(s) = w.space_style.as_ref().filter(|s| (s.underline || s.link_look) && space > 0.0 && !hidden) {
                     let colour = if s.link_look { LINK_COLOUR & 0xff_ffff } else if s.colour == DEFAULT_COLOUR { u32::from(view_colour.r()) << 16 | u32::from(view_colour.g()) << 8 | u32::from(view_colour.b()) } else { s.colour };
@@ -872,10 +905,8 @@ impl Control for TextView {
                         if let Some((texture, size)) = super::pictures::picture(clip.ctx(), src) {
                             let at = egui::Rect::from_min_size(egui::pos2(x.round(), top.round()), size);
                             clip.image(texture, at, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-                            if let Some(link) = &piece.style.link {
-                                links.push((at.translate(-p.rect.min.to_vec2()), link.clone()));
-                            }
                         }
+                        segments.push((x, x + piece.width, piece.style.link.clone()));
                         x += piece.width;
                         continue;
                     }
@@ -919,23 +950,16 @@ impl Control for TextView {
                         // (`_RenderString`: a line a pixel high two above the glyphs' bottom)
                         clip.rect_filled(egui::Rect::from_min_max(egui::pos2(x, y + h - 2.0), egui::pos2(x + piece.width, y + h - 1.0)), 0.0, c);
                     }
-                    if let Some(link) = &piece.style.link {
-                        let r = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(piece.width, h)).translate(-p.rect.min.to_vec2());
-                        // (a link's words are pieces of their own, with the spaces between them belonging to nobody: the
-                        // word before is stretched to this one, so that a click between two words of a link is on it.
-                        // Seen live 2026-11-10: an NPC's answer clicked on a space did nothing)
-                        if let Some((last, href)) = links.last_mut()
-                            && href == link
-                            && last.max.x <= r.min.x
-                            && last.max.y > r.min.y
-                            && r.max.y > last.min.y
-                        {
-                            last.max.x = r.min.x;
-                        }
-                        links.push((r, link.clone()));
-                    }
+                    segments.push((x, x + piece.width, piece.style.link.clone()));
                     x += piece.width;
                 }
+            }
+            if !hidden {
+                // (past the line's end the point is on the next line's first character when this line was wrapped
+                // before it, else on the new line: taken as no link)
+                let next = lines.get(n + 1).filter(|l| l.wrapped).and_then(|l| words.get(l.first)).and_then(|w| w.pieces.first()).and_then(|pc| pc.style.link.clone());
+                let row = egui::Rect::from_min_max(egui::pos2(p.rect.left(), top), egui::pos2(p.rect.right(), top + line.height)).translate(-p.rect.min.to_vec2());
+                links.extend(line_links(&segments.iter().map(|s| (s.0 - p.rect.left(), s.1 - p.rect.left(), s.2.clone())).collect::<Vec<_>>(), next, row));
             }
         }
         if reading {
@@ -1094,6 +1118,24 @@ mod slider_tests {
         assert_eq!(t.mouse(Mouse::Down, Point::new(15.0, 5.0)), Some(Signal::Link("chatcmd:///x".into())));
         assert_eq!(t.mouse(Mouse::Up { inside: true }, Point::new(15.0, 5.0)), None);
         assert_eq!(t.mouse(Mouse::Down, Point::new(5.0, 5.0)), None);
+    }
+
+    /// WIN-012: a link's white space is on it, left of a line is its first character's link, and past a wrapped line's
+    /// end the next line's first character's.
+    #[test]
+    fn link_areas_are_the_characters_under_the_point() {
+        let a = Some("a".to_string());
+        let row = egui::Rect::from_min_max(egui::pos2(0.0, 10.0), egui::pos2(100.0, 24.0));
+        let segs = vec![(5.0, 20.0, a.clone()), (20.0, 24.0, a.clone()), (24.0, 40.0, a.clone()), (40.0, 44.0, None), (44.0, 60.0, None)];
+        let hit = |links: &[(egui::Rect, String)], x: f32, y: f32| links.iter().find(|(r, _)| r.contains(egui::pos2(x, y))).map(|(_, l)| l.clone());
+        let links = line_links(&segs, None, row);
+        assert_eq!(hit(&links, 22.0, 23.0).as_deref(), Some("a"));
+        assert_eq!(hit(&links, 2.0, 12.0).as_deref(), Some("a"));
+        assert_eq!(hit(&links, 50.0, 12.0), None);
+        assert_eq!(hit(&links, 80.0, 12.0), None);
+        let links = line_links(&segs, Some("b".into()), row);
+        assert_eq!(hit(&links, 80.0, 12.0).as_deref(), Some("b"));
+        assert_eq!(hit(&links, 50.0, 12.0), None);
     }
 
     /// WIN-121: in a view that does not edit, a press off the links begins a selection of the drawn text and a drag
