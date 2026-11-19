@@ -1801,7 +1801,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the corpse name is the first plausible length-prefixed string of letters after the stats; fallback "Remains of <name>" when none is found
 - A player notices: a corpse's name could be wrong or missing on odd messages
 - Where: `crates/mao-client/src/net.rs:119`; `crates/mao-client/src/net.rs:3383`; `docs/CLIENT_UI.md:2722`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The reader was found through CorpseFullUpdateIIR_t's vtable (Gamecode 0x10167a9c, slot +0x1c = FUN_1009fa4c): a version word (8), then FUN_1009f88a → FUN_100a0c87 → FUN_100a1661, which reads the dynel's version word, its identity (FUN_1013d2f9), seven floats (place and turn) when the identity's first word is 0, a word, an identity, two bytes, the stats (FUN_1002e7d9: a count word (n + 1) × 0x3f1 and n pairs), then a length word and that many bytes kept raw at +0x6c — the name, zero-terminated; the spells, the dead one's identity, clothes and textures follow. `corpse_name` in net.rs now walks those fields (from the byte after the message's leading byte, the offsets corpse_look already uses) instead of scanning for the first plausible length-prefixed string; the client's "Remains of <name>" stays only for a message too short to hold the name. Test: `a_corpse_names_itself` (the captured corpse's name, and a cut message gives none).
 - Looked at, left (2026-11-19, overnight): The corpse's name sits in the CorpseFullUpdate after its stats; the original's reader of that message (the corpse's full update exec) was not read tonight, so the client's scan for the first length-prefixed name stays. Needs the reader, as NPC-018 did for creatures.
 
 #### `NPC-023` Mission terminal "need team" error box: signal slot not found

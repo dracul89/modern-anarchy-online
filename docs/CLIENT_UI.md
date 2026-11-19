@@ -7830,3 +7830,7 @@ The original's tab strip (`TopBorderView_c`, FUN_10147438) gives each tab a leas
 ### The pet window's options on its frame's menu (NPC-004)
 
 The original's pet window (`PetWindow_c`, FUN_1007e9d7) puts its options on the frame's icon menu, built each time it opens (FUN_1007e75e): "Show buttons", "Fixed Pet Buttons" and "Remember Pet Names", each ticked as it stands. The client had its own menu button with check boxes inside the window; the options are now on the frame's icon menu as in the original, followed by "Close Window".
+
+### A corpse's name read from its announcement's fields (NPC-022)
+
+The original reads a corpse's announcement (`CorpseFullUpdateIIR_t`, Gamecode FUN_1009fa4c through FUN_100a1661) field by field: the dynel's identity, its place and turn, a word, an identity, two bytes, the stats, then the name as a length and its bytes. The client found the name by scanning the message for the first string that looked like one; it now reads it at its place.

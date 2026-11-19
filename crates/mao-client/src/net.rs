@@ -123,15 +123,26 @@ const PATH_SPEED: f32 = WALK_SPEED;
 /// `DAT_10161ad8` = 16), the distance taken in three dimensions.
 const CHASE_NEAR: f32 = 4.0;
 
-/// The name a `CorpseFullUpdate` carries ("Remains of Leet"): a big-endian length, then that many bytes, the last a zero.
-/// Found live (after the corpse's stats); read as the first such string of letters.
+/// The name a `CorpseFullUpdate` carries ("Remains of Leet"), read in the order of Gamecode's reader of
+/// `CorpseFullUpdateIIR_t` (FUN_1009fa4c → FUN_1009f88a → FUN_100a0c87 → FUN_100a1661): after the byte before the stream,
+/// the corpse's version word and the dynel's, its identity, the place and turn (seven floats) when the identity's type
+/// word is 0, a word, an identity, two bytes and the stats (FUN_1002e7d9: a count word, `(n + 1) × 0x3f1`, and n pairs of
+/// words) comes a length word and that many bytes (+0x6c), the name up to its zero. None when the message is shorter.
 fn corpse_name(data: &[u8]) -> Option<String> {
-    (0..data.len().saturating_sub(4)).find_map(|i| {
-        let length = u32::from_be_bytes(data[i..i + 4].try_into().ok()?) as usize;
-        let text = data.get(i + 4..i + 4 + length)?;
-        let (last, name) = text.split_last()?;
-        (*last == 0 && name.len() >= 3 && name[0].is_ascii_uppercase() && name.iter().all(|b| b.is_ascii_graphic() || *b == b' ')).then(|| String::from_utf8_lossy(name).into_owned())
-    })
+    let word = |at: usize| data.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize);
+    let mut at = 9;
+    let placed = word(at)? == 0;
+    at += 8;
+    if placed {
+        at += 28;
+    }
+    at += 4 + 8 + 2;
+    let pairs = (word(at)? / 0x3f1).checked_sub(1)?;
+    at += 4 + 8 * pairs;
+    let length = word(at)?;
+    let text = data.get(at + 4..at + 4 + length)?;
+    let name = text.split(|&b| b == 0).next().unwrap_or_default();
+    Some(String::from_utf8_lossy(name).into_owned())
 }
 
 /// `MAO_TRACE=1`: print the server messages that matter for zoning and
@@ -15650,6 +15661,8 @@ mod movement_tests {
         let hex = "00000000080000000b000000000000000042449be54167ab1442b70037000000003ec6fc78000000003f6be00f0020d97c0000000000000000006f000046f200000000001818050000001700000000000002bd00000000000002be00000000000002bf000000000000019c00000001000001680000005a000000df000000000000003b00000001000000040000000600000059000000010000019f0000c350000001a07b15cf090000002a000058f50000003d000000010000000800004650000000220000003c0000001d52656d61696e73206f6620566976697061726f7573204c697a617264000000000200000032000003f100000003000007e20000cf273a4acb800000000400000000000000010000000000000000000000000000000000000000000001f600000001000000040000590a000000000000c3507b15cf09000017a600000000000000000000000000000001000000000000000000000002000000000000000000000003000000000000000000000004000000000000000000000000";
         let data: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
         assert_eq!(corpse_name(&data).as_deref(), Some("Remains of Viviparous Lizard"));
+        // (NPC-022: read field by field, a message too short has none)
+        assert_eq!(corpse_name(&data[..120]), None);
         assert_eq!(corpse_name(&[0, 0, 0, 2, b'x', 0]), None);
     }
 
