@@ -258,8 +258,8 @@ pub struct Update {
     pub specials: Option<Vec<crate::actions::Special>>,
     /// The perk records and the owned ranks, when the ranks change.
     pub perk_list: Option<crate::perks::PerkState>,
-    /// The container (corpse, bag) the character opened: `Some(None)` when it closed.
-    pub loot: Option<Option<crate::loot::LootView>>,
+    /// The containers (corpses, chests, the bank, ...) the character has open, when that changes.
+    pub loot: Option<Vec<crate::loot::LootView>>,
     /// One's own open backpacks, when one opens or its contents change.
     pub bags: Option<Vec<crate::loot::LootView>>,
     /// The running nano programs, when the list changes (the NCU window).
@@ -1792,9 +1792,6 @@ impl ApplicationHandler for App {
                             }
                         }
                         if let Some(loot) = u.loot.take() {
-                            if let Some(ui) = w.ui.as_mut() {
-                                ui.loot.open = loot.is_some();
-                            }
                             self.hud.loot = loot;
                         }
                         if let Some(bags) = u.bags.take() {
@@ -3057,7 +3054,7 @@ impl ApplicationHandler for App {
                             crate::loot::Take::One { handle, place } => {
                                 self.keys.take = (self.keys.take.0.wrapping_add(1), handle, place);
                                 // (the item leaves its window at once: the shared one's, or a backpack's by the handle)
-                                if let Some(loot) = self.hud.loot.as_mut().filter(|l| l.handle == handle) {
+                                if let Some(loot) = self.hud.loot.iter_mut().find(|l| l.handle == handle) {
                                     loot.items.retain(|i| i.slot != place);
                                 }
                                 if let Some(bag) = self.hud.bags.iter_mut().find(|b| b.handle == handle) {
@@ -3078,7 +3075,7 @@ impl ApplicationHandler for App {
                             }
                             crate::loot::Take::All { handle } => {
                                 self.keys.take = (self.keys.take.0.wrapping_add(1), handle, u32::MAX);
-                                if let Some(loot) = self.hud.loot.as_mut() {
+                                if let Some(loot) = self.hud.loot.iter_mut().find(|l| l.handle == handle) {
                                     loot.items.clear();
                                 }
                             }

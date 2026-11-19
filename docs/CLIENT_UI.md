@@ -6708,3 +6708,31 @@ Left:
   weapon holder's +0x84) is of something the reload sets, and it refuses without a word.
 
 Tests: `a_special_reaches_by_its_items_range`, `a_special_needs_a_weapon_that_lets_it`.
+
+### One window per container (WIN-023)
+
+Corpses, chests, the bank, the overflow and the organization's contract shared one window named "loot", so a second corpse
+replaced the first. GUI.dll's `InventoryGUIModule_c::SlotContainerOpened` (0x100c7bef) keeps one view per container
+identity:
+
+- **The same container opened again keeps its window**; another gets one of its own. There is no limit.
+- **The names are the original's** (`InventoryView_c`, FUN_100ccefe): one's own backpack `Container_%ux%u`, the bank
+  `bank_window`, and any other (a corpse, a chest, the overflow, the organization's) `TempContainer_%u`.
+- **A `TempContainer` window's number** is the lowest that no other container window up has (FUN_100cb7f9), and it is given
+  back when the window goes (FUN_100cade8). A window's place is kept by its name, as the original keeps it per number.
+- **The client keeps every open container** (`World::loots`), each window by its container in `Ui::bag_windows` beside the
+  backpacks. A window shut comes up again when its container is opened anew.
+- **Escape** closes a corpse's window by `esc_corpses` and a chest's by `esc_chests`, each by its own name.
+- **This client's own choices:** a new `TempContainer` window starts 30 px down and right per number, as the original's
+  first place was not found. The bank's window is `bank_window` now, so the place the old "loot" window had is not carried
+  over.
+
+Not ported:
+
+- the window's X sending `N3Msg_UseItem(container, false)` (its bytes were not traced);
+- the list mode kept per number (`TempContainer_<n>.xml`: here one for all, as before);
+- a chest closing when the character walks away (Gamecode FUN_1003f8fc).
+
+The "Take all" button is this client's own: GUI.dll has none.
+
+Test: `a_backpack_has_its_own_window_and_name`. The network tests now keep the containers as a list.

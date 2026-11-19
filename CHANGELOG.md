@@ -72,6 +72,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Creatures' eyes, lamps and other lights glow from their textures, and see-through parts of characters are see-through.
 - The Action window lists only what your character has, in the original's order. The Sit/Stand, Walk/Run, Sneak, combat and
   Suspended Animation tiles change with what you are doing, on the shortcut bars as well.
+- Each corpse, chest or other container opens in a window of its own, as in the original, instead of one shared window.
 
 ### Items
 

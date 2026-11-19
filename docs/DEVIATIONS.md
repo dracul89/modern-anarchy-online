@@ -4251,7 +4251,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Corpses, chests, bank and overflow use one shared window name "loot" rebuilt for the container shown.
 - A player notices: Only one corpse/chest/bank window at a time, sharing a remembered position.
 - Where: `crates/mao-client/src/loot.rs:105`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): one window per container identity (SlotContainerOpened 0x100c7bef), named as the original names them: `bank_window`, `TempContainer_<n>` by the lowest free number (FUN_100cb7f9), own backpacks `Container_<type>x<instance>`; the client keeps every open container (`World::loots`). Not ported: the X's `N3Msg_UseItem(container, false)` (bytes not traced), the list mode per number, a chest closing when walked away from. The 'Take all' button is the client's own.
 
 #### `WIN-024` Stat bonuses are summed by the client from items, perks, nanos and organization
 

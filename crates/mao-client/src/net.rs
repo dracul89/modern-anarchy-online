@@ -465,8 +465,11 @@ struct World {
     damage: Vec<(u32, i64, u32)>,
     /// Lines the server's game messages made (damage, healing, "You successfully perform ..."), for the chat window.
     game_lines: Vec<crate::chatwindow::Line>,
-    /// The container (corpse, bag) the character opened, and whether that changed.
-    loot: Option<Loot>,
+    /// The containers (corpses, chests, the bank, the overflow, the organization's) the character has open, each in a window
+    /// of its own (GUI.dll's `SlotContainerOpened`, 0x100c7bef: one view per container identity), and whether that changed.
+    loots: Vec<Loot>,
+    /// How many times each container was opened: a window shut comes up again when its container is opened anew.
+    loot_opened: BTreeMap<(u32, u32), u32>,
     loot_changed: bool,
     /// One's own backpacks that are open (a bag of the inventory the character used), by the bag's identity, and
     /// whether any changed.
@@ -1499,7 +1502,7 @@ impl World {
         if self.bags.values().any(|b| b.handle == handle && there(&b.entries)) {
             return Some((0x6b, handle << 16 | (place & 0xffff)));
         }
-        let loot = self.loot.as_ref().filter(|l| l.handle == handle && there(&l.entries))?;
+        let loot = self.loots.iter().find(|l| l.handle == handle && there(&l.entries))?;
         match loot.identity.0 {
             crate::loot::ORGANIZATION => None,
             crate::loot::BANK => Some((0x69, place)),
@@ -1522,7 +1525,7 @@ impl World {
                     bag.entries.retain(|e| e.slot != place);
                     self.bags_changed |= bag.entries.len() != before;
                 }
-                if let Some(loot) = self.loot.as_mut().filter(|l| l.handle == handle && !matches!(l.identity.0, crate::loot::BANK | crate::loot::OVERFLOW)) {
+                if let Some(loot) = self.loots.iter_mut().find(|l| l.handle == handle && !matches!(l.identity.0, crate::loot::BANK | crate::loot::OVERFLOW)) {
                     let before = loot.entries.len();
                     loot.entries.retain(|e| e.slot != place);
                     self.loot_changed |= loot.entries.len() != before;
@@ -1530,7 +1533,7 @@ impl World {
             }
             kind => {
                 let of = if kind == 0x69 { crate::loot::BANK } else { crate::loot::OVERFLOW };
-                if let Some(loot) = self.loot.as_mut().filter(|l| l.identity.0 == of) {
+                if let Some(loot) = self.loots.iter_mut().find(|l| l.identity.0 == of) {
                     let before = loot.entries.len();
                     loot.entries.retain(|e| e.slot != item.1);
                     self.loot_changed |= loot.entries.len() != before;
@@ -3132,7 +3135,7 @@ impl World {
                         self.inventory = Some(self.worn.clone());
                         self.mods_dirty = true;
                     }
-                    if kind == 0x6b && self.loot.as_ref().is_some_and(|l| l.handle == instance >> 16) {
+                    if kind == 0x6b && self.loots.iter().any(|l| l.handle == instance >> 16) {
                         self.loot_changed = true;
                     }
                     if kind == 0x6b && self.bags.values().any(|b| b.handle == instance >> 16) {
@@ -3508,8 +3511,8 @@ impl World {
                     } else if identity.1 == self.own && handle == crate::loot::OVERFLOW {
                         eprintln!("items: the server's list of the overflow, {} items", entries.len());
                         self.overflow = entries;
-                        if self.loot.as_ref().is_none_or(|l| l.identity.0 != crate::loot::OVERFLOW) {
-                            self.loot = Some(Loot { identity: (crate::loot::OVERFLOW, self.own), handle: crate::loot::OVERFLOW, entries: Vec::new() });
+                        if !self.loots.iter().any(|l| l.identity.0 == crate::loot::OVERFLOW) {
+                            self.open_loot(Loot { identity: (crate::loot::OVERFLOW, self.own), handle: crate::loot::OVERFLOW, entries: Vec::new() });
                             self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_InventoryOverflowed")));
                         }
                         self.overflow_changed();
@@ -3520,8 +3523,8 @@ impl World {
                     self.bags.insert(identity, Loot { identity, handle, entries });
                     self.bags_changed = true;
                 } else if entries.is_empty() && identity.0 != 0xc76a && identity.0 != 0xc749 {
-                    if self.loot.as_ref().is_some_and(|l| l.identity == identity) {
-                        self.loot = None;
+                    if self.loots.iter().any(|l| l.identity == identity) {
+                        self.loots.retain(|l| l.identity != identity);
                         self.loot_changed = true;
                     }
                 } else if identity.0 != 0 {
@@ -3533,8 +3536,7 @@ impl World {
                     if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                         eprintln!("combat: container ({:#x}, {:#x}) handle {handle:#x} opened with {} items", identity.0, identity.1, entries.len());
                     }
-                    self.loot = Some(Loot { identity, handle, entries });
-                    self.loot_changed = true;
+                    self.open_loot(Loot { identity, handle, entries });
                 }
             }
         }
@@ -3546,8 +3548,7 @@ impl World {
                 if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                     eprintln!("bank: {} items ({} bytes) {:?}", entries.len(), m.data.len(), entries.iter().take(4).map(|e| (e.slot, e.container, e.low_id)).collect::<Vec<_>>());
                 }
-                self.loot = Some(Loot { identity: (crate::loot::BANK, 0), handle: 0, entries });
-                self.loot_changed = true;
+                self.open_loot(Loot { identity: (crate::loot::BANK, 0), handle: 0, entries });
             }
         }
         // Items that come to the inventory: `AddTemplate` (`052e2f0c`: bought in a shop, a reward) at once, and a
@@ -3788,10 +3789,11 @@ impl World {
                     }
                 }
                 // `(0x68, place)` into the open container: an item went in from the backpack (the bank by its type alone)
-                if source.0 == 0x68 && self.loot.as_ref().is_some_and(|l| l.identity == target || (l.identity.0 == crate::loot::BANK && target.0 == crate::loot::BANK)) {
+                let into = |l: &Loot| l.identity == target || (l.identity.0 == crate::loot::BANK && target.0 == crate::loot::BANK);
+                if source.0 == 0x68 && self.loots.iter().any(into) {
                     if let Some(at) = self.worn.iter().position(|e| e.slot == source.1) {
                         let mut entry = self.worn.remove(at);
-                        if let Some(loot) = self.loot.as_mut() {
+                        if let Some(loot) = self.loots.iter_mut().find(|l| into(l)) {
                             // (into the bank: its first free place, as aosharp's `Bank` takes the next available slot)
                             entry.slot = if loot.identity.0 == crate::loot::BANK {
                                 (0..).find(|p| !loot.entries.iter().any(|e| e.slot == *p)).unwrap_or(0)
@@ -3806,10 +3808,12 @@ impl World {
                 }
                 // `(0x6b, handle << 16 | place)`: an item came out of the open container into the backpack (out of the bank: the
                 // item's identity as the bank named it)
-                let bank_item = self.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK).and_then(|l| l.entries.iter().find(|e| e.container == source || (source.0 == 0x69 && e.slot == source.1)).map(|e| e.slot));
+                let bank_item = self.loots.iter().find(|l| l.identity.0 == crate::loot::BANK).and_then(|l| l.entries.iter().find(|e| e.container == source || (source.0 == 0x69 && e.slot == source.1)).map(|e| e.slot));
                 if bag_key.is_none() && (source.0 == 0x6b || bank_item.is_some()) {
                     let place = bank_item.unwrap_or(source.1 & 0xffff);
-                    if let Some(loot) = self.loot.as_mut() {
+                    // (out of the bank, or out of the container of the handle the item's identity names)
+                    let from = |l: &Loot| if bank_item.is_some() { l.identity.0 == crate::loot::BANK } else { l.handle == source.1 >> 16 };
+                    if let Some(loot) = self.loots.iter_mut().find(|l| from(l)) {
                         if let Some(at) = loot.entries.iter().position(|e| e.slot == place) {
                             #[allow(unused_mut)]
                             let mut entry = loot.entries.remove(at);
@@ -3830,8 +3834,8 @@ impl World {
         if m.kind == 0x485e7202 && m.identity.1 == self.own && m.data.len() >= 5 {
             self.inventory = Some(self.worn.clone());
         }
-        if m.kind == 0x36510078 && self.loot.as_ref().is_some_and(|l| l.identity == m.identity) {
-            self.loot = None;
+        if m.kind == 0x36510078 && self.loots.iter().any(|l| l.identity == m.identity) {
+            self.loots.retain(|l| l.identity != m.identity);
             self.loot_changed = true;
         }
         if m.kind == DOOR_STATUS && std::env::var("MAO_TRACE").is_ok_and(|v| v == "1") {
@@ -4250,7 +4254,7 @@ impl World {
                 if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                     eprintln!("organization contract: ({:#x}, {:#x}) with {} items {:?}", organization.0, organization.1, entries.len(), entries.iter().map(|e| (e.slot, e.low_id, e.high_id, e.quality)).collect::<Vec<_>>());
                 }
-                self.loot = Some(Loot { identity: organization, handle: 0, entries });
+                self.open_loot(Loot { identity: organization, handle: 0, entries });
                 self.loot_changed = true;
             }
         }
@@ -4793,9 +4797,20 @@ impl World {
         None
     }
 
+    /// A container opened, or its list sent anew: shown in its own window (GUI.dll's `SlotContainerOpened`, 0x100c7bef: a
+    /// container already shown keeps its window, another gets one of its own).
+    fn open_loot(&mut self, loot: Loot) {
+        *self.loot_opened.entry(loot.identity).or_default() += 1;
+        match self.loots.iter_mut().find(|l| l.identity == loot.identity) {
+            Some(l) => *l = loot,
+            None => self.loots.push(loot),
+        }
+        self.loot_changed = true;
+    }
+
     /// The overflow's list changed: its window, when it is up, shows the new one.
     fn overflow_changed(&mut self) {
-        if let Some(l) = self.loot.as_mut().filter(|l| l.identity.0 == crate::loot::OVERFLOW) {
+        if let Some(l) = self.loots.iter_mut().find(|l| l.identity.0 == crate::loot::OVERFLOW) {
             l.entries = self.overflow.clone();
             self.loot_changed = true;
         }
@@ -8299,8 +8314,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // (the overflow goes with the character's object, made anew empty in the new playfield, and its
                     // window with the other containers', FUN_1005aa4f)
                     state.overflow.clear();
-                    if state.loot.as_ref().is_some_and(|l| l.identity.0 == crate::loot::OVERFLOW) {
-                        state.loot = None;
+                    if state.loots.iter().any(|l| l.identity.0 == crate::loot::OVERFLOW) {
+                        state.loots.retain(|l| l.identity.0 != crate::loot::OVERFLOW);
                         state.loot_changed = true;
                     }
                     // (a new playfield makes the characters anew: their spell queues go and their state flags start again from
@@ -8816,7 +8831,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         }
                     }
                     "loot" => {
-                        if let Some(l) = state.loot.as_ref() {
+                        if let Some(l) = state.loots.last() {
                             eprintln!("autoplay: taking {} things", l.entries.len());
                             for e in &l.entries {
                                 let _ = connection.send(&n3::take_from_container(own, l.handle, e.slot));
@@ -9272,7 +9287,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // seconds), so that the item finder knows it while another character is played.
             if index_checked.elapsed() > Duration::from_secs(3) {
                 index_checked = Instant::now();
-                let bank = state.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK);
+                let bank = state.loots.iter().find(|l| l.identity.0 == crate::loot::BANK);
                 let signature = {
                     use std::hash::{Hash, Hasher};
                     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -9845,12 +9860,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if keys.take.0 != take_seen {
                 take_seen = keys.take.0;
                 let (_, handle, place) = keys.take;
-                let places: Vec<u32> = if place == u32::MAX { state.loot.iter().flat_map(|l| l.entries.iter().map(|e| e.slot)).collect() } else { vec![place] };
+                let places: Vec<u32> = if place == u32::MAX { state.loots.iter().filter(|l| l.handle == handle).take(1).flat_map(|l| l.entries.iter().map(|e| e.slot)).collect() } else { vec![place] };
                 // (the bank's items by its own way of naming them: only when it is the bank's window that asks, handle 0)
-                let bank = state.loot.as_ref().filter(|l| l.identity.0 == crate::loot::BANK && l.handle == handle).map(|l| l.entries.clone());
+                let bank = state.loots.iter().find(|l| l.identity.0 == crate::loot::BANK && l.handle == handle).map(|l| l.entries.clone());
                 // (out of the overflow: `N3Msg_MoveItemToInventory((0x6e, place), 1, 0x6f)`, Gamecode 0x10027bac; nothing
                 // moves here until the server's `ContainerAddItem` comes, and with a full inventory nothing is sent)
-                let overflow = state.loot.as_ref().is_some_and(|l| l.identity.0 == crate::loot::OVERFLOW && l.handle == handle);
+                let overflow = state.loots.iter().any(|l| l.identity.0 == crate::loot::OVERFLOW && l.handle == handle);
                 // (`N3Msg_MoveItemToInventory`, Gamecode 0x10027bac: with no free place in the inventory from 0x40 on the
                 // game says `Feedback_InventoryFull` and nothing is sent, whatever the item comes out of: a corpse, a
                 // chest, the bank, the overflow. Until 2026-11-15 a corpse's item was asked for all the same.)
@@ -11291,7 +11306,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     chat_lines: chat_lines_now,
                     friends: friends_now,
                     loot: std::mem::take(&mut state.loot_changed).then(|| {
-                        state.loot.as_ref().map(|l| crate::loot::LootView { own: false, title: state.names.get(&l.identity.1).map(|n| n.0.clone()).filter(|n| !n.starts_with("Object ")).unwrap_or_else(|| crate::loot::title(l.identity.0).to_string()), identity: l.identity, handle: l.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &l.entries, state.stats.get(&0x36).copied().unwrap_or(1)) })
+                        state.loots.iter().map(|l| crate::loot::LootView { own: false, opened: state.loot_opened.get(&l.identity).copied().unwrap_or(0), title: state.names.get(&l.identity.1).map(|n| n.0.clone()).filter(|n| !n.starts_with("Object ")).unwrap_or_else(|| crate::loot::title(l.identity.0).to_string()), identity: l.identity, handle: l.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &l.entries, state.stats.get(&0x36).copied().unwrap_or(1)) }).collect()
                     }),
                     bags: std::mem::take(&mut state.bags_changed).then(|| {
                         // (a bag that left the inventory has no window any more)
@@ -11306,7 +11321,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 // (titled with the bag's own name: the item's)
                                 let item = state.worn.iter().find(|e| e.container == bag.identity).cloned();
                                 let title = item.and_then(|e| crate::gear::from_entries(&gear_db, &gear_textures, &[e], level).pop()).map_or_else(|| crate::loot::title(bag.identity.0).to_string(), |g| g.name);
-                                crate::loot::LootView { own: true, title, identity: bag.identity, handle: bag.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &bag.entries, level) }
+                                crate::loot::LootView { own: true, opened: 0, title, identity: bag.identity, handle: bag.handle, items: crate::gear::from_entries(&gear_db, &gear_textures, &bag.entries, level) }
                             })
                             .collect()
                     }),
@@ -12956,7 +12971,7 @@ mod door_tests {
         w.worn.push(entry(inventory::BACKPACK_FIRST, bag, 100));
         w.worn.push(entry(inventory::BACKPACK_FIRST + 1, (0, 0), 200));
         w.bags.insert(bag, Loot { identity: bag, handle: 0x71, entries: vec![entry(0, (0, 0), 300)] });
-        w.loot = Some(Loot { identity: (0xc76a, 5), handle: 0x70, entries: vec![entry(0, (0, 0), 400)] });
+        w.loots = vec![Loot { identity: (0xc76a, 5), handle: 0x70, entries: vec![entry(0, (0, 0), 400)] }];
         // (`(0x68, 0x41)` into the bag `(0xc749, 0x4d)`: the item takes the bag's first free place)
         w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("0000000068000000410000c7490000004d00000000") }.frame(1));
         assert_eq!(w.bags[&bag].entries.iter().map(|e| (e.slot, e.low_id)).collect::<Vec<_>>(), [(0, 300), (1, 200)]);
@@ -12966,7 +12981,7 @@ mod door_tests {
         w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006b007100000000c3507b1a00210000006f") }.frame(1));
         assert_eq!(w.bags[&bag].entries.iter().map(|e| e.low_id).collect::<Vec<_>>(), [200]);
         assert_eq!(w.worn.last().map(|e| (e.slot, e.low_id)), Some((inventory::BACKPACK_FIRST + 1, 300)));
-        assert!(w.bags_changed && w.loot.as_ref().is_some_and(|l| l.entries.len() == 1));
+        assert!(w.bags_changed && w.loots.first().is_some_and(|l| l.entries.len() == 1));
     }
 
     /// The raid's answers for one's own character are said in the chat: the raid made (type 0) and the lock list
@@ -13037,20 +13052,20 @@ mod door_tests {
         assert_eq!((w.delete_target(0x82, 9, 7, 7), w.delete_target(0x83, 9, 0x35488, 0x35488), w.delete_target(0x82, 5, 7, 7)), (None, None, None));
         // (the bank's, the overflow's, a corpse's; not the organization's contract)
         for (kind, handle, wanted) in [(crate::loot::BANK, 0, Some((0x69, 3))), (crate::loot::OVERFLOW, crate::loot::OVERFLOW, Some((0x6e, 3))), (crate::loot::CORPSE, 0x70, Some((0x6b, 0x70 << 16 | 3))), (crate::loot::ORGANIZATION, 0x71, None)] {
-            w.loot = Some(Loot { identity: (kind, 5), handle, entries: vec![entry(3, 11)] });
+            w.loots = vec![Loot { identity: (kind, 5), handle, entries: vec![entry(3, 11)] }];
             assert_eq!(w.delete_target(handle, 3, 11, 11), wanted, "{kind:#x}");
         }
         // (nothing is taken out until the server says so: its answer, the same action and target)
-        w.loot = Some(Loot { identity: (crate::loot::CORPSE, 5), handle: 0x70, entries: vec![entry(9, 1)] });
+        w.loots = vec![Loot { identity: (crate::loot::CORPSE, 5), handle: 0x70, entries: vec![entry(9, 1)] }];
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000070000000000000006b0082000900000000000000000000") }.frame(1));
         assert_eq!(w.bags[&bag].entries.iter().map(|e| e.slot).collect::<Vec<_>>(), [2]);
-        assert!(w.bags_changed && !w.loot_changed && w.loot.as_ref().is_some_and(|l| l.entries.len() == 1));
+        assert!(w.bags_changed && !w.loot_changed && w.loots.first().is_some_and(|l| l.entries.len() == 1));
         // (a corpse's item by its handle; the bank's by its place)
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000070000000000000006b0070000900000000000000000000") }.frame(1));
-        assert!(w.loot_changed && w.loot.as_ref().is_some_and(|l| l.entries.is_empty()));
-        w.loot = Some(Loot { identity: (crate::loot::BANK, 5), handle: 0, entries: vec![entry(3, 11), entry(4, 12)] });
+        assert!(w.loot_changed && w.loots.first().is_some_and(|l| l.entries.is_empty()));
+        w.loots = vec![Loot { identity: (crate::loot::BANK, 5), handle: 0, entries: vec![entry(3, 11), entry(4, 12)] }];
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("000000007000000000000000690000000300000000000000000000") }.frame(1));
-        assert_eq!(w.loot.as_ref().map(|l| l.entries.iter().map(|e| e.slot).collect::<Vec<_>>()), Some(vec![4]));
+        assert_eq!(w.loots.first().map(|l| l.entries.iter().map(|e| e.slot).collect::<Vec<_>>()), Some(vec![4]));
     }
 
     /// A pet's name: the server's name change renames it here and, for a pet of one's own with a place, keeps the
@@ -13818,16 +13833,16 @@ mod door_tests {
         let entry = |slot: u32| inventory::Entry { slot, flags: 0, count: 1, container: (0, 0), low_id: 1, high_id: 1, quality: 1, extra: 0 };
         let mut w = World { own, ..World::default() };
         w.worn = (inventory::BACKPACK_FIRST..inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS - 1).map(entry).collect();
-        w.loot = Some(Loot { identity: (0xc76a, 0x1052004), handle: 0x71, entries: vec![entry(0), entry(1)] });
+        w.loots = vec![Loot { identity: (0xc76a, 0x1052004), handle: 0x71, entries: vec![entry(0), entry(1)] }];
         // (the user's log of 2026-11-15: from the container of handle 0x71, place 1, to the character, no place named)
         w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006b007100010000c3504deb97f90000006f") }.frame(1));
         assert_eq!(w.worn.len() as u32, crate::gear::PACK_SLOTS);
         assert_eq!(w.worn.last().map(|e| e.slot), Some(inventory::BACKPACK_FIRST + crate::gear::PACK_SLOTS - 1));
-        assert_eq!(w.loot.as_ref().map(|l| l.entries.len()), Some(1));
+        assert_eq!(w.loots.first().map(|l| l.entries.len()), Some(1));
         // (the backpack is full now: the next one leaves the corpse and is not taken in)
         w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex("000000006b007100000000c3504deb97f90000006f") }.frame(1));
         assert_eq!(w.worn.len() as u32, crate::gear::PACK_SLOTS);
-        assert_eq!(w.loot.as_ref().map(|l| l.entries.len()), Some(0));
+        assert_eq!(w.loots.first().map(|l| l.entries.len()), Some(0));
     }
 
     /// A city's signals (made up to the original's readers: no capture has one): the controller's session opens with
@@ -13943,14 +13958,14 @@ mod door_tests {
         w.worn = vec![entry(64), entry(65)];
         let list = |handle: &str| hex(&format!("010000005e00000003000007e200000006000200010000c74a25f1e6f40001dae30001dae300000001000000000000c3507b1a0021{handle}00000000"));
         w.add(&Message { kind: INVENTORY_UPDATE, identity: (0xc350, own), data: list("00000068") }.frame(1));
-        assert!(w.loot.is_none() && !w.loot_changed);
+        assert!(w.loots.is_empty() && !w.loot_changed);
         assert_eq!(w.worn.len(), 1);
         assert_eq!(w.inventory.as_ref().map(Vec::len), Some(1));
         // (the overflow's list leaves the inventory alone and opens its own window, with the game's line for it)
         w.worn = vec![entry(64), entry(65)];
         w.add(&Message { kind: INVENTORY_UPDATE, identity: (0xc350, own), data: list("0000006e") }.frame(1));
         assert_eq!(w.worn.len(), 2);
-        assert_eq!(w.loot.as_ref().map(|l| (l.identity, l.entries.len())), Some(((crate::loot::OVERFLOW, own), 1)));
+        assert_eq!(w.loots.first().map(|l| (l.identity, l.entries.len())), Some(((crate::loot::OVERFLOW, own), 1)));
         assert!(w.loot_changed && w.game_lines.len() == 1);
         // (nothing is worn meanwhile; the server's move of the item, named by its place there, brings it in)
         let place = w.overflow[0].slot;
@@ -13958,7 +13973,7 @@ mod door_tests {
         w.add(&Message { kind: CONTAINER_ADD_ITEM, identity: (0xc350, own), data: hex(&format!("000000006e{place:08x}0000006e{own:08x}0000006f")) }.frame(1));
         assert!(w.overflow.is_empty());
         assert_eq!(w.worn.len(), 3);
-        assert_eq!(w.loot.as_ref().map(|l| l.entries.len()), Some(0));
+        assert_eq!(w.loots.first().map(|l| l.entries.len()), Some(0));
     }
 
     /// The 16:55 capture's sale: `InventoryUpdated` to the shop and to the character; only the character's refreshes the inventory.
@@ -14840,13 +14855,13 @@ mod movement_tests {
         assert!(w.socials.contains_key(&0x4bc82));
         // (the 08:42 capture's 0x92 naming the item used out of the open container of handle 0x70: that container refreshed;
         // any 0x92 ends the item use timer)
-        w.loot = Some(Loot { identity: (0xc76a, 5), handle: 0x70, entries: Vec::new() });
+        w.loots = vec![Loot { identity: (0xc76a, 5), handle: 0x70, entries: Vec::new() }];
         w.timers.add(500, 0, crate::timers::ITEM, 0x40);
         assert!(w.timers.has(crate::timers::ITEM));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x4bc82), data: hex("000000009200000000000000000000000000000000000000000000") }.frame(1));
         assert!(!w.loot_changed && !w.timers.has(crate::timers::ITEM));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x4bc82), data: hex("0000000092000000000000006b0070000100000000000000000000") }.frame(1));
-        assert!(w.loot_changed && w.loot.is_some());
+        assert!(w.loot_changed && !w.loots.is_empty());
     }
 }
 

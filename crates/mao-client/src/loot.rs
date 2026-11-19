@@ -66,6 +66,8 @@ pub struct LootView {
     pub items: Vec<GearItem>,
     /// One's own backpack (a bag in the inventory): a window of its own.
     pub own: bool,
+    /// How many times the container has been opened: a window shut comes up again when it is opened anew.
+    pub opened: u32,
 }
 
 impl LootView {
@@ -140,10 +142,23 @@ pub fn set_bag_name(identity: (u32, u32), name: Option<&str>) {
     });
 }
 
-/// A container window's name: one's own backpack's by its identity (the original's `Container_%ux%u`), the others'
-/// the one shared window.
-pub fn window_name(view: &LootView) -> String {
-    if view.own { format!("Container_{}x{}", view.identity.0, view.identity.1) } else { "loot".to_string() }
+/// A container window's name (GUI.dll's `InventoryView_c`, FUN_100ccefe): one's own backpack's by its identity
+/// (`Container_%ux%u`), the bank's `bank_window`, any other's `TempContainer_%u` by its number (`temp`): the lowest no other
+/// container window has (FUN_100cb7f9, given back when the window goes, FUN_100cade8).
+pub fn window_name(view: &LootView, temp: Option<u32>) -> String {
+    if view.own {
+        format!("Container_{}x{}", view.identity.0, view.identity.1)
+    } else if view.identity.0 == BANK {
+        "bank_window".to_string()
+    } else {
+        format!("TempContainer_{}", temp.unwrap_or(0))
+    }
+}
+
+/// The lowest number no other container window has (FUN_100cb7f9).
+pub fn free_number(taken: impl Iterator<Item = u32>) -> u32 {
+    let taken: Vec<u32> = taken.collect();
+    (0..).find(|n| !taken.contains(n)).unwrap_or(0)
 }
 
 /// The identity type of a corpse.
@@ -346,8 +361,12 @@ pub struct LootWindow {
     pub dropped_out: Option<u32>,
     /// An inventory item in hand right-clicked on an item here, to be used on it: (its place, the place here).
     pub used_on: Option<(u32, u32)>,
-    /// The handle the window was last shown for: a backpack opened again comes with a new one and shows again.
-    pub handle_seen: Option<u32>,
+    /// The handle and opening the window was last shown for: a backpack or a container opened again shows again.
+    pub handle_seen: Option<(u32, u32)>,
+    /// A container window's number (`TempContainer_%u`), while it is up.
+    pub temp: Option<u32>,
+    /// One's own backpack's window.
+    pub own: bool,
     /// A backpack's menu (`PopupMenu_c`'s look) and the name being typed in its rename box.
     popup: Option<crate::gui::popup::PopupMenu>,
     renaming: Option<String>,
@@ -606,9 +625,9 @@ impl LootWindow {
         let rows_shown = if view.identity.0 == BANK { 6 } else if view.own { BAG_PLACES / cols } else { view.items.len().div_ceil(cols).clamp(1, 6) };
         let size = egui::vec2(cols as f32 * crate::gui::multilist::grid::STEP + 2.0 * crate::gui::multilist::grid::BORDER + 32.0, crate::gui::multilist::grid::size(rows_shown * cols, cols).1 + if view.identity.0 == BANK || view.own { 0.0 } else { 26.0 });
         // (a backpack's window by its identity, titled with the name the player gave it or the bag's own)
-        let name = window_name(view);
+        let name = window_name(view, self.temp);
         let title = if view.own { bag_name(view.identity).unwrap_or_else(|| view.title.clone()) } else { view.title.clone() };
-        let at = if view.own { egui::pos2(420.0 + (view.identity.1 % 5) as f32 * 30.0, 160.0 + (view.identity.1 % 4) as f32 * 30.0) } else { egui::pos2(380.0, 140.0) };
+        let at = if view.own { egui::pos2(420.0 + (view.identity.1 % 5) as f32 * 30.0, 160.0 + (view.identity.1 % 4) as f32 * 30.0) } else { egui::pos2(380.0 + self.temp.unwrap_or(0) as f32 * 30.0, 140.0 + self.temp.unwrap_or(0) as f32 * 30.0) };
         let mut menu_at = None;
         let mut used_on = None;
         let tip = |item: &GearItem| {
@@ -1059,9 +1078,12 @@ mod tests {
 
     #[test]
     fn a_backpack_has_its_own_window_and_name() {
-        let bag = LootView { title: "Backpack".into(), identity: (BAG, 77), handle: 0x71, items: Vec::new(), own: true };
-        let chest = LootView { title: "Chest".into(), identity: (BAG, 78), handle: 0x72, items: Vec::new(), own: false };
-        assert_eq!((window_name(&bag).as_str(), window_name(&chest).as_str()), ("Container_51017x77", "loot"));
+        let bag = LootView { title: "Backpack".into(), identity: (BAG, 77), handle: 0x71, items: Vec::new(), own: true, opened: 0 };
+        let chest = LootView { title: "Chest".into(), identity: (BAG, 78), handle: 0x72, items: Vec::new(), own: false, opened: 0 };
+        let bank = LootView { title: "Bank".into(), identity: (BANK, 0), handle: 0, items: Vec::new(), own: false, opened: 0 };
+        assert_eq!((window_name(&bag, None).as_str(), window_name(&chest, Some(2)).as_str(), window_name(&bank, None).as_str()), ("Container_51017x77", "TempContainer_2", "bank_window"));
+        // (WIN-023: a container window takes the lowest number no other has)
+        assert_eq!((free_number([].into_iter()), free_number([0, 1, 3].into_iter()), free_number([1].into_iter())), (0, 2, 0));
         // (21 places for one's own, as many as there are for a chest or corpse, the bank's 102)
         assert_eq!((max_items(BAG, true), max_items(BAG, false), max_items(BANK, false)), (21, -1, 102));
         // (the names' file: a line a bag, a name may have spaces; a line without a name is none)
@@ -1112,8 +1134,8 @@ mod tests {
         let (keys, entries) = arrange_menu(Some((0, 0)), Arrange::Own);
         assert_eq!((keys[2].as_str(), entries[0].mark, entries[2].mark, entries.last().unwrap().enabled), ("by:0", Some(false), Some(true), false));
         // (the bank is placed by hand as one's own backpack is, in its 102 cells)
-        let bank = LootView { title: "Bank".into(), identity: (BANK, 1), handle: 0, items: Vec::new(), own: false };
-        let chest = LootView { title: "Chest".into(), identity: (BAG, 78), handle: 0x72, items: Vec::new(), own: false };
+        let bank = LootView { title: "Bank".into(), identity: (BANK, 1), handle: 0, items: Vec::new(), own: false, opened: 0 };
+        let chest = LootView { title: "Chest".into(), identity: (BAG, 78), handle: 0x72, items: Vec::new(), own: false, opened: 0 };
         assert_eq!((bank.placed(), bank.room(), chest.placed()), (true, 102, false));
         // (a column only when it is not the one already; the order kept, but for the unsorted; the order turned)
         assert_eq!(arrange_choice("by:2", Some((1, 1))), Some(Some((2, 1))));

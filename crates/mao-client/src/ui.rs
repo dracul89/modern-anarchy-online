@@ -102,7 +102,7 @@ pub struct Hud {
     /// The perk records and the ranks the character owns (the perk window's lists).
     pub perk_state: crate::perks::PerkState,
     /// The open container (corpse, bag).
-    pub loot: Option<crate::loot::LootView>,
+    pub loot: Vec<crate::loot::LootView>,
     /// One's own open backpacks.
     pub bags: Vec<crate::loot::LootView>,
     pub loot_preview: std::sync::Mutex<Option<crate::loot::LootWindow>>,
@@ -378,8 +378,7 @@ pub struct Ui {
     pub control_center: Option<crate::gui::controlcenter::ControlCenter>,
     /// The skin's option panel (`OptionPanel/Root.xml`).
     pub option_panel: crate::gui::options::OptionPanel,
-    pub loot: crate::loot::LootWindow,
-    /// One's own backpacks' windows, by the bag's identity.
+    /// The containers' windows, by the container's identity: one's own backpacks' and every other open container's.
     pub bag_windows: std::collections::BTreeMap<(u32, u32), crate::loot::LootWindow>,
     pub chat: crate::chatwindow::ChatWindow,
     gear: crate::gear::GearWindow,
@@ -619,7 +618,7 @@ impl Ui {
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), Some(gpu.device.limits().max_texture_dimension_2d as usize));
         // (the widest picture the card takes, not egui's own 2048: on a screen of two pixels to the point a skin's long strip, GFX_GUI_CONTROLCENTER_WING_LEFT, is 6000 across, and egui stops the program over a wider one)
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), loot: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -706,12 +705,21 @@ impl Ui {
             Some(_) => store.is_some_and(|s| s.get_bool(name)),
             None => esc_default(name),
         };
-        for name in escape_closes(self.loot.kind(), self.shop.partner.is_some(), &esc, crate::chrome::pinned) {
+        for name in escape_closes(None, self.shop.partner.is_some(), &esc, crate::chrome::pinned) {
             crate::chrome::close_soon(name);
+        }
+        // (the containers' windows, each by its own name: a corpse's by `esc_corpses`, a chest's by `esc_chests`)
+        for window in self.bag_windows.values().filter(|w| w.open && !w.own) {
+            if let (Some(Some(option)), Some(temp)) = (escape_option("loot", window.kind(), false), window.temp) {
+                let name = format!("TempContainer_{temp}");
+                if esc(option) && !crate::chrome::pinned(&name) {
+                    crate::chrome::close_soon(&name);
+                }
+            }
         }
         // (one's own backpacks, each a window of its own: `esc_backpacks`, FUN_100ccefe)
         if esc("esc_backpacks") {
-            for (identity, _) in self.bag_windows.iter().filter(|(_, w)| w.open) {
+            for (identity, _) in self.bag_windows.iter().filter(|(_, w)| w.open && w.own) {
                 let name = format!("Container_{}x{}", identity.0, identity.1);
                 if !crate::chrome::pinned(&name) {
                     crate::chrome::close_soon(&name);
@@ -890,7 +898,9 @@ impl Ui {
             self.planet.open = false;
             self.mail.open = false;
             self.automap.overlay = false;
-            self.loot.open = false;
+            for window in self.bag_windows.values_mut().filter(|w| !w.own) {
+                window.open = false;
+            }
             self.extras.close_all();
             return true;
         }
@@ -909,8 +919,10 @@ impl Ui {
         }
         // (`/bank close`: the container window while it shows the bank; nothing opens it by name)
         if name == "bank" {
-            if !open && self.loot.kind() == Some(crate::loot::BANK) {
-                self.loot.open = false;
+            if !open {
+                for window in self.bag_windows.values_mut().filter(|w| w.kind() == Some(crate::loot::BANK)) {
+                    window.open = false;
+                }
             }
             return !open;
         }
@@ -931,6 +943,15 @@ impl Ui {
                 self.browser.show_page(crate::browser::request(mode));
             } else if !open && self.browser.showing(mode) {
                 self.browser.open = false;
+            }
+            return true;
+        }
+        // (the containers' windows: each is shut by name; nothing opens one)
+        if matches!(name.as_str(), "loot" | "container") {
+            if !open {
+                for window in self.bag_windows.values_mut().filter(|w| !w.own) {
+                    window.open = false;
+                }
             }
             return true;
         }
@@ -964,7 +985,6 @@ impl Ui {
             "automap" | "overlay" => &mut self.automap.overlay,
             "chat" => &mut self.chat.open,
             "whompah" | "whom-pah" | "travel" => &mut self.whompah_open,
-            "loot" | "container" => &mut self.loot.open,
             "optionpanel" | "option panel" => &mut self.option_panel.open,
             "options" | "client settings" => &mut self.options_open,
             _ => return false,
@@ -1063,7 +1083,7 @@ impl Ui {
         let faction_window = &mut self.faction;
         let extras = &mut self.extras;
         let (raid_window, lft_window, knowledge_window) = (&mut self.raid, &mut self.lft, &mut self.knowledge);
-        let (friends_window, programs_window, perks_window, loot_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.loot, &mut self.help);
+        let (friends_window, programs_window, perks_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.help);
         let info_view = &mut self.info;
         let tips = &mut self.tips;
         let npc_chat = &mut self.npc_chat;
@@ -1195,41 +1215,16 @@ impl Ui {
             for url in chat_window.links.drain(..) {
                 info_view.show_url(&url);
             }
-            if let (true, Some(view)) = (loot_window.open, hud.loot.as_ref()) {
-                if let Some(take) = loot_window.show(&ctx, view, palette) {
-                    requests.loot_take = Some(take);
+            // (one's own backpacks and the other containers, each in a window of its own: shown when opened, and again when
+            // opened anew; another's container numbered by the lowest number no other window up has, FUN_100cb7f9)
+            bag_windows.retain(|identity, _| hud.bags.iter().chain(hud.loot.iter()).any(|b| b.identity == *identity));
+            for view in hud.bags.iter().chain(hud.loot.iter()) {
+                if bag_windows.get(&view.identity).is_none_or(|w| w.handle_seen != Some((view.handle, view.opened))) {
+                    let temp = (!view.own && view.identity.0 != crate::loot::BANK).then(|| crate::loot::free_number(bag_windows.iter().filter(|(id, w)| w.open && **id != view.identity).filter_map(|(_, w)| w.temp)));
+                    let window = bag_windows.entry(view.identity).or_default();
+                    (window.handle_seen, window.open, window.temp, window.own) = (Some((view.handle, view.opened)), true, temp, view.own);
                 }
-                for url in loot_window.infos.drain(..) {
-                    info_view.show_url(&url);
-                }
-                requests.feedback.append(&mut loot_window.feedback);
-                for link in loot_window.references.drain(..) {
-                    chat_window.add_text(&link);
-                }
-                // (an inventory item in hand right-clicked on an item of the container: used on it)
-                if let Some((from, place)) = loot_window.used_on.take() {
-                    let onto = if view.identity.0 == crate::loot::BANK { (0x69, place) } else { (0x6b, view.handle << 16 | (place & 0xffff)) };
-                    requests.item_use_ons.push((mao_net::inventory::place_identity(from), onto));
-                }
-                if let (Some(place), Some(at)) = (loot_window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
-                    let k = ctx.pixels_per_point();
-                    requests.use_on = Some(((0x6b, view.handle << 16 | (place & 0xffff)), (at.x * k, at.y * k)));
-                    if let Some(i) = view.items.iter().find(|i| i.slot == place) {
-                        crate::dropitem::let_go(crate::dropitem::Held { identity: (0x6b, view.handle << 16 | (place & 0xffff)), place: None, name: i.name.clone(), low: i.item_id, high: i.high_id, flags: i.flags, can: i.can });
-                    }
-                }
-            }
-            // (one's own backpacks, each in its window: shown when opened, and again when opened anew)
-            bag_windows.retain(|identity, _| hud.bags.iter().any(|b| b.identity == *identity));
-            for view in &hud.bags {
-                let window = bag_windows.entry(view.identity).or_default();
-                if window.handle_seen != Some(view.handle) {
-                    window.handle_seen = Some(view.handle);
-                    window.open = true;
-                }
-                if !window.open {
-                    continue;
-                }
+                let Some(window) = bag_windows.get_mut(&view.identity).filter(|w| w.open) else { continue };
                 if let Some(take) = window.show(&ctx, view, palette) {
                     requests.loot_take = Some(take);
                 }
@@ -1947,7 +1942,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             }
             // (MAO_UI_PREVIEW=assistant: the help assistant's window, `helpwindow.rs`)
             crate::helpwindow::show(&ctx, &palette);
-            if let (Some(window), Some(view)) = (preview_loot.as_mut(), hud.loot.as_ref()) {
+            if let (Some(window), Some(view)) = (preview_loot.as_mut(), hud.loot.first()) {
                 window.show(&ctx, view, &palette);
             }
             if let Some(window) = preview_perks.as_mut() {
