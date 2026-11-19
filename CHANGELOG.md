@@ -124,6 +124,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Character creation: the far suns, the stars and the intro's shuttle move, and the character being made stands
   breathing and fidgeting instead of frozen. A short or tall character is shown at the original's size, and the
   heads offered are the original's list (more of them with Shadowlands, a few odd ones gone).
+- The dimension list marks a dimension newer or older than your game, and PLAY becomes PATCH (it tells you to patch with Funcom's launcher).
+- The game's licence is shown once, until you accept it.
 
 ### Targeting and clicks
 

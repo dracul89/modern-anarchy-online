@@ -6970,3 +6970,14 @@ fed the name, the slots left and the slots in all, and Yes logs in, Cancel close
 only text 10000 `CharacterSlotsExhausted` comes, with OK, and nothing is sent. Slots not known (-1) ask as with one free
 (the client's own rule). Test: `play_asks_for_an_inactive_character`. The limbo window (system message 0x4e, a countdown
 before login) is not ported: no capture of the message, and the client closes its connection after the list.
+
+### The launcher's version check and licence (LCH-036)
+
+Anarchy.exe compares the game folder's version with each dimension's (0x4126d6): a newer dimension is marked as needing a
+patch, an older one as an old server. The launcher's list now says so after the name (in the client's own words), and
+PLAY takes the original's PATCH pictures (bitmaps 183-185) while the chosen dimension is newer. The original then starts
+`AnarchyPatcher.exe`; this client has no patcher and does not start Funcom's, so PATCH says to patch with the game's own
+launcher. An older server is refused with a line, as the original's click check (0x40b60f) refuses it. The licence
+(`anarchy.eula`, dialog 152) is shown until it is accepted; I decline ends the launcher. Where the original remembers the
+acceptance was not found, so the client keeps it as `eula = accepted` in `launcher.ini` (its own rule). Tests:
+`versions_compare_by_their_numbers`, `the_licence_is_remembered`.

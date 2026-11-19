@@ -1000,6 +1000,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Playfield map window (2026-11-18): the control center's Map menu opens it; the ground shows at the original's scale; drag and let go comes back; other players' squares by side; the round corner map is there too (the default), and the client settings turn it off
 - [ ] Mission item (2026-11-18): take "Plant a Bug" on Arete Landing: the recording device is in the inventory and can be used
 - [ ] Inactive character (2026-11-19): Play on an inactive character opens the activation question; Cancel closes it
+- [ ] Launcher licence (2026-11-19): the first start shows the licence; I accept goes on and it does not come again
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

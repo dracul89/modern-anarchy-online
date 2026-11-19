@@ -8353,6 +8353,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the game cannot be patched from the launcher; no licence prompt
 - Where: `crates/mao-client/src/launchwindow.rs:52`; `docs/ORIGINAL_AUDIT.md:25`; `docs/CLIENT_UI.md:1517`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): Version compare with labels in the list, PLAY becomes PATCH (bitmaps 183-185) and says to patch with Funcom's launcher, an older server is refused with a line, and the anarchy.eula licence is asked until accepted (kept in launcher.ini, the client's own rule). Running AnarchyPatcher.exe is left: Funcom's servers and the game folder at stake, its arguments guessed.
 
 #### `LCH-037` The picked character and the hall's figures cannot be turned or animated
 

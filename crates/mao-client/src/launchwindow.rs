@@ -93,6 +93,8 @@ struct Pictures {
     /// This client's night sky in the background's place: what is drawn over it.
     sky: Option<Sky>,
     play: ButtonPictures,
+    /// PLAY's place when the dimension needs a patch (Anarchy.exe's bitmaps 183-185, 0x40b2ec).
+    patch: ButtonPictures,
     settings: ButtonPictures,
 }
 
@@ -161,6 +163,7 @@ fn load_pictures(ctx: &egui::Context, game: &Path, prefs: &Prefs) -> Pictures {
             bitmaps.iter().find(|(i, _)| *i == id).map(|(_, b)| ctx.load_texture(format!("launcher-button-{id}"), egui::ColorImage::from_rgba_unmultiplied([b.width as usize, b.height as usize], &b.rgba), egui::TextureOptions::LINEAR))
         };
         pictures.play = [texture(176), texture(178), texture(187)];
+        pictures.patch = [texture(183), texture(184), texture(185)];
         pictures.settings = [texture(181), texture(182), texture(186)];
     }
     pictures
@@ -730,6 +733,10 @@ struct Launch {
     /// `MAO_LAUNCH_QUIT=<seconds>`: the window closes by itself (for pictures of it).
     quit_after: Option<f32>,
     play_after: Option<f32>,
+    /// The game's licence text while it waits to be accepted (`anarchy.eula`, dialog 152 of Anarchy.exe).
+    eula: Option<String>,
+    /// The licence was declined: the launcher ends.
+    declined: bool,
 }
 
 impl Launch {
@@ -779,7 +786,7 @@ impl Launch {
         let k = screen.width() / WIDTH;
         let at = |r: [f32; 4]| egui::Rect::from_min_size(screen.min + egui::vec2(r[0], r[1]) * k, egui::vec2(r[2], r[3]) * k);
         let whole = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        let enabled = self.dialog.is_none();
+        let enabled = self.dialog.is_none() && self.eula.is_none();
         let mut open_settings = false;
         egui::Area::new(egui::Id::unique("launcher")).order(egui::Order::Background).fixed_pos(screen.min).show(ctx, |ui| {
             ui.set_min_size(screen.size());
@@ -833,8 +840,21 @@ impl Launch {
             if button(ui, "launcher-settings", SETTINGS_BUTTON, &pictures.settings, enabled, "SETTINGS") {
                 open_settings = true;
             }
-            if button(ui, "launcher-play", PLAY_BUTTON, &pictures.play, enabled && self.game_ok && self.dimension().is_some(), "PLAY") {
-                self.play = true;
+            // (PLAY is PATCH while the dimension is newer than the game; the original then starts its patcher, which
+            // this client does not have: it says to patch with the game's own launcher. An older server is refused, as
+            // the original's click check 0x40b60f does.)
+            let state = self.dimension().map_or(dimensions::VersionState::Same, |d| dimensions::version_state(&self.local_version, &d.version));
+            let (faces, label) = if state == dimensions::VersionState::NeedPatch { (&pictures.patch, "PATCH") } else { (&pictures.play, "PLAY") };
+            if button(ui, "launcher-play", PLAY_BUTTON, faces, enabled && self.game_ok && self.dimension().is_some(), label) {
+                match state {
+                    dimensions::VersionState::Same => self.play = true,
+                    dimensions::VersionState::NeedPatch => {
+                        self.status = format!("{} runs a newer version ({}) than this game folder ({}). Patch the game with Funcom's own launcher, then start this one again.", self.dimension().map_or("", |d| d.name.as_str()), self.dimension().map_or("", |d| d.version.as_str()), self.local_version);
+                    }
+                    dimensions::VersionState::OldServer => {
+                        self.status = format!("{} runs an older version ({}) than this game folder ({}).", self.dimension().map_or("", |d| d.name.as_str()), self.dimension().map_or("", |d| d.version.as_str()), self.local_version);
+                    }
+                }
             }
             // (the dimensions: a plain white list box as the original's)
             let list = at(LIST);
@@ -851,16 +871,45 @@ impl Launch {
                     w.weak_bg_fill = egui::Color32::WHITE;
                     w.bg_fill = egui::Color32::WHITE;
                 }
-                let shown = self.dimension().map_or_else(|| "(no dimension)".to_string(), |d| d.name.clone());
+                let local = self.local_version.clone();
+                let named = |d: &Dimension| format!("{}{}", d.name, dimensions::version_label(dimensions::version_state(&local, &d.version)));
+                let shown = self.dimension().map_or_else(|| "(no dimension)".to_string(), named);
                 egui::ComboBox::from_id_salt("launcher-dimensions").selected_text(shown).width(list.width()).show_ui(ui, |ui| {
                     for (i, d) in self.dimensions.iter().enumerate() {
-                        ui.selectable_value(&mut self.selected, i, &d.name);
+                        ui.selectable_value(&mut self.selected, i, named(d));
                     }
                 });
             });
         });
         if open_settings {
             self.dialog = Some(Dialog::new(&self.settings, &self.prefs, monitor()));
+        }
+        // (the licence: I Accept goes on, I Decline ends the launcher, as dialog 152 does)
+        if let Some(text) = &self.eula {
+            let mut answer = None;
+            egui::Window::new("End User License Agreement").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).fixed_size(egui::vec2(screen.width().min(560.0) - 40.0, screen.height().min(480.0) - 90.0)).show(ctx, |ui| {
+                egui::ScrollArea::vertical().max_height(screen.height().min(480.0) - 150.0).show(ui, |ui| {
+                    ui.label(text.as_str());
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("I accept").clicked() {
+                        answer = Some(true);
+                    }
+                    if ui.button("I decline").clicked() {
+                        answer = Some(false);
+                    }
+                });
+            });
+            match answer {
+                Some(true) => {
+                    self.eula = None;
+                    self.prefs.eula = true;
+                    self.prefs.save();
+                }
+                Some(false) => self.declined = true,
+                None => {}
+            }
         }
         if let Some(dialog) = self.dialog.as_mut() {
             match dialog.show(ctx) {
@@ -887,7 +936,7 @@ impl Launch {
         }
         // (the page is a window of its own over the top: away while the settings are open over it, and when the
         // launcher's settings leave it out)
-        self.dialog.is_none() && self.prefs.page
+        self.dialog.is_none() && self.eula.is_none() && self.prefs.page
     }
 }
 
@@ -1075,7 +1124,7 @@ impl Launch {
                 if self.play_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) && self.list.is_none() && self.game_ok {
                     self.play = true;
                 }
-                if self.play || self.restart || self.quit_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) {
+                if self.play || self.restart || self.declined || self.quit_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) {
                     gfx.window.set_visible(false);
                     event_loop.exit();
                 } else {
@@ -1207,6 +1256,9 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         started: Instant::now(),
         quit_after: std::env::var("MAO_LAUNCH_QUIT").ok().and_then(|v| v.parse().ok()),
         play_after: std::env::var("MAO_LAUNCH_PLAY").ok().and_then(|v| v.parse().ok()),
+        // (the licence until it is accepted; read as the bytes are, one character each)
+        eula: if prefs.eula { None } else { std::fs::read(mao_formats::files::find(&Path::new(game).join("anarchy.eula"))).ok().map(|b| b.iter().map(|&c| c as char).collect::<String>().replace('\r', "")) },
+        declined: false,
     };
     // (the list kept from before until the server's comes; with neither, the one dimension the client knows itself)
     launch.set_list(&std::fs::read_to_string(dimensions::cache_path()).unwrap_or_default());

@@ -113,12 +113,15 @@ pub struct Prefs {
     pub background: String,
     /// The game's news page over the launcher's top.
     pub page: bool,
+    /// The game's licence (`anarchy.eula`) was accepted (the client's own rule: the original's place for this was not
+    /// found, so the launcher asks once).
+    pub eula: bool,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
         // (the original's own defaults: its Connection page, `GeneralNetworkTimeout` and `DimensionNetworkTimeout`)
-        Prefs { dimension: String::new(), network_timeout: 90, dimension_timeout: 30, background: crate::launchskin::GAME.into(), page: true }
+        Prefs { dimension: String::new(), network_timeout: 90, dimension_timeout: 30, background: crate::launchskin::GAME.into(), page: true, eula: false }
     }
 }
 
@@ -137,6 +140,7 @@ impl Prefs {
                 "dimension_timeout" => p.dimension_timeout = value.parse().unwrap_or(p.dimension_timeout).clamp(2, 300),
                 "background" if !value.is_empty() => p.background = value.to_string(),
                 "page" => p.page = !matches!(value.to_ascii_lowercase().as_str(), "off" | "false" | "no" | "0"),
+                "eula" => p.eula = matches!(value.to_ascii_lowercase().as_str(), "accepted" | "on" | "yes" | "1"),
                 _ => {}
             }
         }
@@ -144,7 +148,11 @@ impl Prefs {
     }
 
     pub fn to_text(&self) -> String {
-        format!("dimension = {}\nnetwork_timeout = {}\ndimension_timeout = {}\nbackground = {}\npage = {}\n", self.dimension, self.network_timeout, self.dimension_timeout, self.background, if self.page { "on" } else { "off" })
+        let mut text = format!("dimension = {}\nnetwork_timeout = {}\ndimension_timeout = {}\nbackground = {}\npage = {}\n", self.dimension, self.network_timeout, self.dimension_timeout, self.background, if self.page { "on" } else { "off" });
+        if self.eula {
+            text.push_str("eula = accepted\n");
+        }
+        text
     }
 
     pub fn load() -> Prefs {
@@ -160,9 +168,65 @@ impl Prefs {
     }
 }
 
+/// How the game folder's version stands to a dimension's (Anarchy.exe 0x4126d6 compares the two versions' numbers): the
+/// dimension newer needs a patch, older is an old server. A version not known is taken as the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionState {
+    Same,
+    NeedPatch,
+    OldServer,
+}
+
+pub fn version_state(local: &str, dimension: &str) -> VersionState {
+    let numbers = |v: &str| -> Option<Vec<u32>> {
+        let v = v.trim().split('_').next().unwrap_or("");
+        if v.is_empty() {
+            return None;
+        }
+        let mut n: Vec<u32> = v.split('.').map(|p| p.trim().parse().unwrap_or(0)).collect();
+        n.resize(4, 0);
+        Some(n)
+    };
+    match (numbers(local), numbers(dimension)) {
+        (Some(l), Some(d)) if d > l => VersionState::NeedPatch,
+        (Some(l), Some(d)) if d < l => VersionState::OldServer,
+        _ => VersionState::Same,
+    }
+}
+
+/// The words after a dimension's name in the list (the original's " (Need patch)" and " (Old server)").
+pub fn version_label(state: VersionState) -> &'static str {
+    match state {
+        VersionState::Same => "",
+        VersionState::NeedPatch => " (needs a patch)",
+        VersionState::OldServer => " (older server)",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn versions_compare_by_their_numbers() {
+        assert_eq!(version_state("18.8.62", "18.8.62"), VersionState::Same);
+        assert_eq!(version_state("18.8.62_EP1", "18.8.62"), VersionState::Same);
+        assert_eq!(version_state("18.8.62", "18.8.63"), VersionState::NeedPatch);
+        assert_eq!(version_state("18.8.62", "18.10.1"), VersionState::NeedPatch);
+        assert_eq!(version_state("18.8.62", "18.8.9"), VersionState::OldServer);
+        assert_eq!(version_state("18.8", "18.8.0.1"), VersionState::NeedPatch);
+        assert_eq!(version_state("", "18.8.62"), VersionState::Same);
+        assert_eq!(version_state("18.8.62", ""), VersionState::Same);
+    }
+
+    #[test]
+    fn the_licence_is_remembered() {
+        let mut p = Prefs::from_text("");
+        assert!(!p.eula);
+        p.eula = true;
+        assert!(Prefs::from_text(&p.to_text()).eula);
+        assert!(!Prefs::from_text(&Prefs::default().to_text()).eula);
+    }
 
     #[test]
     fn a_list_gives_its_dimensions() {
@@ -194,7 +258,7 @@ mod tests {
 
     #[test]
     fn the_launchers_file_keeps_the_dimension_and_the_time_outs() {
-        let p = Prefs { dimension: "Second World".into(), network_timeout: 120, dimension_timeout: 10, background: "stars".into(), page: false };
+        let p = Prefs { dimension: "Second World".into(), network_timeout: 120, dimension_timeout: 10, background: "stars".into(), page: false, eula: false };
         assert_eq!(Prefs::from_text(&p.to_text()), p);
         // (a picture's path with a drive's colon and spaces in it is kept whole; the page is on unless it says off)
         let own = Prefs::from_text("background = D:/My Pictures/sky one.png\npage = on\n");
