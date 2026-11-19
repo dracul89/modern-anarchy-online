@@ -96,7 +96,7 @@ pub enum Action {
     InventoryWindow,
     /// The wear window, a window of its own (the original's `WINDOW_WEAR`).
     WearWindow,
-    /// Sit down (which starts the 30 s logout countdown) or stand up (which cancels it).
+    /// Sit down on the ground or stand up (`N3Msg_SitToggle`; `/camp` is the logout).
     SitStand,
     /// Use the targeted thing (talk to an NPC, open a door).
     Use,

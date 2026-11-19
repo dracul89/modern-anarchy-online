@@ -58,7 +58,6 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("befriend <name>", "put a character on your friends list (L shows it)"),
     ("ignore [name|list]", "hide a character's tells and channel lines (again: show them; alone: the target; list: who is ignored)"),
     ("camp", "sit down to log out (stand up or move to cancel)"),
-    ("sit", "sit down, or stand up (the X key)"),
     ("follow", "walk after the target (again, or any movement key: stop)"),
     ("inspect", "the target's info page"),
     ("open <window>", "show a window (inventory, stats, skills, ncu, friends, programs, perks, help, map, ...)"),
@@ -191,8 +190,6 @@ pub enum Parsed {
     SetOption { name: String, value: String },
     /// `/camp`: sit down to log out.
     Camp,
-    /// `/sit`: sit down or stand up, as the X key.
-    Sit,
     /// `/perf`: the performance overlay shown or hidden.
     Perf,
     /// `/pet [<pet> ...|all] <command> [<argument>]` (Gamecode FUN_100542ad): `pet_line`.
@@ -279,9 +276,9 @@ pub fn suggest_with(input: &str, scripts: &[String]) -> Vec<String> {
 }
 
 /// The command with this name (any case), as the original writes it.
-/// Commands of this client's own, beyond the original's list: `/sit` (the X key's sit and stand).
+/// Commands of this client's own, beyond the original's list.
 /// `/pet` is Gamecode's own (FUN_100542ad), not in the input line's list, but the control center's Pets menu runs it.
-pub const EXTRA: &[&str] = &["befriend", "sit", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk", "crafting", "craft"];
+pub const EXTRA: &[&str] = &["befriend", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk", "crafting", "craft"];
 
 /// `/pet`'s commands that take no argument and their `PetCommand` numbers (Gamecode FUN_100542ad's first table).
 pub const PET_COMMANDS: &[(&str, u32)] = &[
@@ -473,7 +470,6 @@ pub fn parse(line: &str) -> Parsed {
         "ignore" => Parsed::Ignore { name: text.to_string() },
         "camp" => Parsed::Camp,
         "stuck" | "anon" | "list" | "shop" => Parsed::Server { text: rest.to_string() },
-        "sit" => Parsed::Sit,
         "perf" => Parsed::Perf,
         // (this client's own tool windows: `extras.rs`)
         "damage" | "dps" => Parsed::Window { name: "damage".to_string(), open: true },
@@ -798,7 +794,8 @@ mod tests {
         assert_eq!(parse("/stuck"), Parsed::Server { text: "stuck".into() });
         assert_eq!(parse("/list doctor"), Parsed::Server { text: "list doctor".into() });
         assert_eq!(parse("/pet Terminate"), pet(&[], 10, 0, ""));
-        assert_eq!(parse("/sit"), Parsed::Sit);
+        // (no `/sit` in the original's list: a script's name, as any unknown word)
+        assert_eq!(parse("/sit"), Parsed::Unknown("sit".into()));
         assert_eq!(parse("/follow"), Parsed::Follow);
         // (FUN_100b280d: alone nothing; the word read by strtoul, 0 for a name)
         assert_eq!(parse("/inspect"), Parsed::Nothing);

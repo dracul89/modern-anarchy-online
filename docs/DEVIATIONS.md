@@ -818,7 +818,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: /sit and X sit the character on the ground or stand it up and no longer log out; /camp while seated logs out without sitting again
 - A player notices: an extra sit command; X does not log out
 - Where: `docs/CLIENT_UI.md:2739`; `crates/mao-client/src/chat_commands.rs:60`; `crates/mao-client/src/chat_commands.rs:250`; `crates/mao-client/src/net.rs:7765`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The `/sit` command is removed (chat_commands.rs: its parse, `Parsed::Sit`, its /help line and its place in the client's EXTRA list; chatwindow.rs `Out::Sit`; viewer.rs; net.rs's match). The original's command list has no /sit (GUI.dll FUN_100bb3e0 registers the chat commands, FUN_100b2ac9 the text commands; neither has it), so "/sit" is now an unknown word, which the client treats as a script's name as the original does (FUN_100b1517). Sitting and standing stay on the X key (`N3Msg_SitToggle`, 0x10028fcb), and `/camp` stays the logout; the stale settings comment saying X starts the logout countdown is corrected. Tests: `chat` filter (the parse test now expects `Parsed::Unknown("sit")`), 33 pass. No new warnings (69).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the original's command list has no /sit (GUI.dll's command table FUN_100b2ac9 and the text interpreter list none); the X key (N3Msg_SitToggle) does the same thing the original's way, so the command only adds a way the original lacks.
 
 #### `MOV-030` Auto-run key

@@ -7480,3 +7480,7 @@ The client's own line telling that the nano programs are free again after a long
 ### NPC chat: no "given back" line; answers go after a click (NPC-040)
 
 The client's own "N item(s) given back." line in the NPC chat window was removed: the original's window (GUI.dll) has no handler for the items an NPC gives back, which only return to the inventory. A clicked answer is still told at once as the player's line, which is the original's own echo (FUN_10059504 → FUN_10058ee7 kind 2); as there, the answer list is now emptied until the NPC gives new answers.
+
+### No /sit command (MOV-029)
+
+The client's own `/sit` command was removed: the original has none, and typing it now does what any unknown command does (it is taken for a script's name). The X key sits down and stands up as the original's `N3Msg_SitToggle` does, and `/camp` logs out.

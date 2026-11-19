@@ -2912,9 +2912,8 @@ impl ApplicationHandler for App {
                     ui.pointer(event_loop, &w.window, frame.cursor);
                     for out in requests.chat.drain(..) {
                         match out {
-                            // (these two are for the client itself)
+                            // (this one is for the client itself)
                             crate::chatwindow::Out::Camp => self.keys.camp = self.keys.camp.wrapping_add(1),
-                            crate::chatwindow::Out::Sit => self.keys.commands[5] = self.keys.commands[5].wrapping_add(1),
                             crate::chatwindow::Out::Pet(line) => crate::net::pet_line(line),
                             crate::chatwindow::Out::Duel(what) => {
                                 self.keys.duel = (self.keys.duel.0.wrapping_add(1), what);

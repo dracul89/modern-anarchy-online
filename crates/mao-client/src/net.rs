@@ -7761,7 +7761,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                         chat.send(&mao_net::chat::lookup_packet(&name))?;
                                     }
                                 },
-                                Out::Camp | Out::Sit | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::RaidCommand { .. } | Out::RolePlay | Out::ViewDist(_) | Out::CharDist(_) => {}
+                                Out::Camp | Out::Perf | Out::Pet(_) | Out::Duel(_) | Out::PetDuel(_) | Out::Server(_) | Out::FxScript(_) | Out::Quit | Out::Follow | Out::Inspect | Out::Window { .. } | Out::ToggleWindow { .. } | Out::Assist { .. } | Out::Waypoint { .. } | Out::SelectSelf | Out::SetOption { .. } | Out::DValue { .. } | Out::TextCommand { .. } | Out::OrgCommand { .. } | Out::RaidCommand { .. } | Out::RolePlay | Out::ViewDist(_) | Out::CharDist(_) => {}
                                 Out::Befriend { name } => match ids.get(&name.to_lowercase()) {
                                     Some(&id) => {
                                         chat.send(&mao_net::chat::buddy_add_packet(id, false))?;
@@ -9208,7 +9208,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     continue;
                 }
                 if slot == 5 {
-                    // X (`/sit`): sit down on the ground (`SwitchToSit`; a fight of one's own stops first), or stand up
+                    // X: sit down on the ground (`SwitchToSit`; a fight of one's own stops first), or stand up
                     // (`LeaveSit`), which also gives up a `/camp` under way. Sleeping or lounging (`WaitState` 0xf, 0x10),
                     // `N3Msg_SitToggle` (0x10028fcb) sends `CharacterAction` 0x57 instead, which only sits the character up.
                     if sitting && state.resting.remove(&own).is_some() {

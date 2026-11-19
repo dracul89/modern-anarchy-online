@@ -144,8 +144,6 @@ pub enum Out {
     PrivateLeave { name: String },
     /// Sit down to log out / leave the client (handled by the window, not sent to the chat server).
     Camp,
-    /// Sit down or stand up (`/sit`, as X).
-    Sit,
     /// Show or hide the performance overlay (`/perf`).
     Perf,
     /// A command to the pets (`/pet`, `chat_commands::pet_line`).
@@ -1211,7 +1209,6 @@ impl ChatWindow {
             },
             Parsed::Voice { line } => Some(Out::Voice { line }),
             Parsed::Camp => Some(Out::Camp),
-            Parsed::Sit => Some(Out::Sit),
             Parsed::Pet { mut line } => {
                 line.text = self.expand(&line.text);
                 Some(Out::Pet(line))
@@ -2177,7 +2174,6 @@ mod tests {
         w.push(Line { kind: Kind::Tell, text: "Zed tells you: back".into(), from: Some("Zed".into()), markup: None, group: String::new(), at: None });
         assert!(w.lines.last().unwrap().text.contains("back"));
         assert_eq!(w.run("/camp"), Some(Out::Camp));
-        assert_eq!(w.run("/sit"), Some(Out::Sit));
         assert_eq!(w.run("/quit"), Some(Out::Quit));
     }
 
