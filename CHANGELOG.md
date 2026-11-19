@@ -72,6 +72,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Brought back by another player's resurrection (from level 15), your character is in resurrection shock: skills
   and abilities are lowered, by half at first, and recover over about six minutes.
 
+### Combat
+
+- The special attacks shown are confirmed to be built the way the original builds them (the server's three plus
+  what each weapon in a hand gives); two small corner cases of it were made the original's.
+
 ## 0.1.6 (2026-11-18)
 
 ### The launcher

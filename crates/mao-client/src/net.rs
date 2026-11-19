@@ -1091,6 +1091,13 @@ pub fn org_command(command: u8, targeted: bool, text: String) {
 /// 7.8 seconds until its own `0x98`.
 pub static INPUT_STOPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// A weapon's rounds after an attack has told how many are left (Gamecode FUN_1006ae3c for a plain attack,
+/// FUN_10068869 for a special one): taken only while the stored number is above -1. A weapon that takes no
+/// ammunition, -1, keeps that.
+fn rounds_after(stored: i64, told: i64) -> i64 {
+    if stored > -1 { told } else { stored }
+}
+
 /// The original's `LockEquipment` value (a character's preference, false in the game's `CharPrefs.xml`), which the
 /// interface keeps up to date: while it is on nothing is put on or taken off (`equipment_locked`).
 pub static LOCK_EQUIPMENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -2653,7 +2660,7 @@ impl World {
                     }
                 }
                 if let Some(e) = self.weapon_energy.get_mut(&(m.identity.1, slot as u8)) {
-                    *e = int("AmmoCount");
+                    *e = rounds_after(*e, int("AmmoCount"));
                 }
                 // (the hit is remembered for its victim: the `Stat` that follows with the new health would else tell the
                 // same loss a second time, as nanobots of unknown damage; seen live in a duel between two players)
@@ -2697,7 +2704,7 @@ impl World {
                 let amount = p.value.get("Amount").and_then(mao_net::schema::Value::as_int).unwrap_or(0);
                 let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 if let (Some(e), Some(left)) = (self.weapon_energy.get_mut(&(m.identity.1, slot as u8)), p.value.get("AmmoCount").and_then(mao_net::schema::Value::as_int)) {
-                    *e = left;
+                    *e = rounds_after(*e, left);
                 }
                 if amount > 0 {
                     let hit = self.recent_hits.entry(target).or_insert((0, Instant::now()));
@@ -2773,7 +2780,8 @@ impl World {
         }
         // `SpecialAttackWeapon`: the special attacks of a character, each an item, a stat and a four-letter code (the
         // plain attack 100 "MAAT", Dimach 144 "DIIT", Brawl 142 "BRAW" in the captures). One's own make the Action
-        // window's special attacks (Gamecode FUN_1006b14c).
+        // window's special attacks (Gamecode FUN_1006b14c), which adds each stat that is not there yet and takes none
+        // away. What a wielded weapon adds is the client's own doing in the original too: `special_numbers`.
         if m.kind == SPECIAL_ATTACK_WEAPON && m.identity.1 == self.own && std::env::var_os("MAO_COMBAT_LOG").is_some() {
             eprintln!("combat: the server's special attacks: {}", m.data.iter().map(|b| format!("{b:02x}")).collect::<String>());
         }
@@ -2783,8 +2791,10 @@ impl World {
                     Some(mao_net::schema::Value::List(list)) => list.iter().filter_map(|s| s.get("Unknown3").and_then(mao_net::schema::Value::as_int)).map(|s| s as u32).collect(),
                     _ => Vec::new(),
                 };
-                if self.specials.as_ref() != Some(&stats) {
-                    self.specials = Some(stats);
+                let mut held = self.specials.clone().unwrap_or_default();
+                held.extend(stats.iter().copied().filter(|s| !self.specials.as_ref().is_some_and(|h| h.contains(s))));
+                if self.specials.as_ref() != Some(&held) {
+                    self.specials = Some(held);
                     self.specials_changed = true;
                 }
             }
@@ -12687,6 +12697,8 @@ mod door_tests {
         assert_eq!(w.special_numbers(), None);
         w.specials = Some(vec![100, 144, 142]);
         assert_eq!(w.special_numbers(), Some(vec![100, 144, 142, 148, 110]));
+        // (an attack's rounds left are taken by a weapon that has rounds, not by one that takes none)
+        assert_eq!((rounds_after(12, 11), rounds_after(0, 30), rounds_after(-1, 7)), (11, 30, -1));
         // (two pistols: the one with burst and fling shot is in the left hand; an item elsewhere gives nothing)
         w.worn = vec![entry(6, 0x3e2a9), entry(8, 0x3ca17), entry(3, 0x251db), entry(inventory::BACKPACK_FIRST, 0x251db)];
         assert_eq!(w.special_numbers(), Some(vec![100, 144, 142, 148, 150, 110]));

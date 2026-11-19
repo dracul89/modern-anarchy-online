@@ -775,7 +775,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: adds each wielded weapon's attacks and Reload to the server's list from item templates, drops Reload when the server says no ammunition, adds Backstab only after a server flag
 - A player notices: the specials bar can differ from the original's
 - Where: `crates/mao-client/src/net.rs:11380`; `crates/mao-client/src/net.rs:1121`; `docs/LIVE_TEST_LIST.md:758`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-18): not a guess any more. The original builds the list the same way: the server's `SpecialAttackWeapon` adds its three, and `WeaponItem_t` (Gamecode FUN_1009e84b) adds each wielded weapon's attacks by its stat 30 bits, Reload when stat 26 is not -1 and Backstab by the server's flag. Two small differences were made the original's: the server's list is added to and not put in the old one's place, and a weapon's rounds are taken from an attack only while the stored number is above -1. `CLIENT_UI.md` "The special attacks' list is the original's".
 
 #### `CMB-016` Creature with weapon points but no weapon swings the unarmed swing
 

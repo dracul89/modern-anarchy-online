@@ -6272,3 +6272,30 @@ The use of such an item from a hotbar slot or by dropping it on the world still 
 Looked at offscreen: `MAO_UI_PREVIEW=laser`, `=battlestation`, `=towerbuild` (with `MAO_CAPTURE=<net.log>` for an
 item and `MAO_TOWER_FLAGS=<hex>` for the answer). Tests: `mao_net::notum`'s four, `laser`'s, `battlestation`'s
 two, `towerbuild`'s three.
+
+## The creation scenes that move, weapon specials, the shop by one click (2026-11-18)
+
+The user: "LCH-034,CMB-015,NPC-014,INV-001". Three readers on a smaller model read the original, each told to
+name the file of every rule; what a port rests on was checked here against the decompile and the captures
+before it was written. None of it was seen in the live game.
+
+### The special attacks' list is the original's (CMB-015: no longer a guess)
+
+The source of a gun's attacks in the original's window is traced now, and the client's rule is the same one.
+The window (GUI.dll `SpecialActionView_c`, FUN_100dc9b1) shows the list the game keeps, and two things write it:
+
+- the server's `SpecialAttackWeapon` (`1d3c0f1c`; Gamecode FUN_10079de3 to FUN_1006a166), which in the captures
+  always names the same three (Martial Arts' attack, Dimach, Brawl) and is **added**, never taken away;
+- **the client itself, as a weapon is put on** (`WeaponItem_t`, FUN_1009e84b): one attack for each of seven bits
+  of the weapon's stat 30 (0x800 Burst, 0x1000 Fling Shot, 0x2000 Full Auto, 0x4000 Aimed Shot, 0x8000 the bow's,
+  0x20000 Sneak Attack, 0x40000 Fast Attack), Reload when its ammunition stat 26 is not -1, and Backstab beside
+  Sneak Attack for a character the server has allowed it. Taking the weapon off (FUN_1009d39a) removes what the
+  other hand's weapon does not give.
+
+That is what `special_numbers` does. Two small things differed and are the original's now:
+
+- the server's list **replaced** the client's copy of it; it is added to (`SPECIAL_ATTACK_WEAPON`'s handler);
+- a weapon's rounds were taken from every attack's word; the original takes them only while the stored number is
+  above -1 (FUN_1006ae3c, FUN_10068869: `net::rounds_after`), so a weapon without ammunition stays one.
+
+Test: the specials test's `rounds_after` line.
