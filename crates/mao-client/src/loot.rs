@@ -3,7 +3,7 @@
 //! `item_position_map` places them three to a row, 21 places), titled with the container's name; a corpse or chest that
 //! is empty closes a second later (its `EventTimer_c` started for 1 000 000 µs). An item is taken by a click (the
 //! list's pick-up signal, which a container that is not one's own answers with `MoveItemToInventory`: FUN_100cc6e8),
-//! by a right click, or all of them at once. In one's own backpack and the bank a click takes the item up instead
+//! by a right click (not on a corpse), or all of them at once. In one's own backpack and the bank a click takes the item up instead
 //! (the same function's `BeginDrag`): it stays on the pointer until the next click, which over the inventory window
 //! takes it out. Shift+click shows an item's info.
 //!
@@ -45,9 +45,9 @@
 //! original puts the item on the reference board, the Knowledge window, and makes a chat link only of what is
 //! dropped on the chat's line). The organization's contract has the first two entries only. The Looter entry and,
 //! in a raid, its teams are sub-menus (`gui::popup`, since 2026-11-18; they took the menu's place before). A plain
-//! right click is left as it was: it takes the item, which
-//! is the original's for the bank, a chest and the overflow, where the original uses an item of one's own backpack
-//! out of the bag and does nothing on a corpse.
+//! right click takes the item, which is the original's for the bank, a chest and the overflow (the original uses an
+//! item of one's own backpack out of the bag); on a corpse it does nothing, as the corpse's list has the feature flag
+//! 0x400 that silences button 2 (FUN_100ce55d, FUN_1004141b).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -417,6 +417,12 @@ fn shut(was_up: bool, window: Option<bool>) -> bool {
     was_up && window == Some(false)
 }
 
+/// Whether a plain right click on an item of a container takes it (FUN_1004141b's button 2, the use signal): not on a
+/// corpse, whose list FUN_100ce55d gives the feature flag 0x400.
+pub fn right_click_takes(kind: u32) -> bool {
+    kind != CORPSE
+}
+
 /// The identity type of the reclaim terminal's list.
 pub const RECLAIM: u32 = 0xdeae;
 
@@ -712,14 +718,16 @@ impl LootWindow {
                 // (the cell under the pointer, with an item or not: where an item of the backpack is put by hand)
                 hovered_cell = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::cell_at(tree, list, response.rect.min, at)).map(|(x, y)| y * grid_columns + x).filter(|c| hand && *c < view.room());
                 hovered_item = hovered.map(|slot| slot as u32);
-                // (a right click takes the item: the list's use signal, FUN_1004141b's button 2; not with an inventory
-                // item in hand, whose right click is a use of it on another; and not the letting go that ends the
-                // held button's menu)
+                // (a right click takes the item: the list's use signal, FUN_1004141b's button 2; not on a corpse, whose
+                // list has the feature flag 0x400 (FUN_100ce55d) that makes button 2 do nothing there (the container
+                // lists never set +0x319, the new mouse's own branch); not with an inventory item in hand, whose right
+                // click is a use of it on another; and not the letting go that ends the held button's menu)
                 if let Some(slot) = hovered
                     && !menu_up
                     && ui.input(|i| i.pointer.secondary_clicked())
                 {
                     match crate::gear::held() {
+                        None if !right_click_takes(view.identity.0) => {}
                         None => take = Some(Take::One { handle: view.handle, place: slot as u32 }),
                         // (the item in hand is used on the one clicked, FUN_100cc855's right button: not a split, and
                         // not with Shift, which is the inventory's combine and ends the drag anywhere else.)
@@ -1100,6 +1108,13 @@ pub fn title(kind: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_1004141b with FUN_100ce55d's flag 0x400: a right click takes from a chest or the bank, not from a corpse.
+    #[test]
+    fn a_right_click_takes_but_not_from_a_corpse() {
+        assert!(!right_click_takes(CORPSE));
+        assert!(right_click_takes(BAG) && right_click_takes(BANK));
+    }
 
     /// FUN_100ca891: the bank's window going down is told; one that was not up, or that is gone, is not.
     #[test]

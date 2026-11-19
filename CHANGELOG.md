@@ -113,6 +113,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Starting a trade with a player too far away says the target is out of range, as the original does.
 - Wear and use checks now judge requirements written "on self" instead of letting them through.
 - Breed and sex requirements in item tips and pages read as names instead of numbers.
+- A right click on a corpse's item no longer takes it, as in the original; click it instead.
 
 ### The launcher
 

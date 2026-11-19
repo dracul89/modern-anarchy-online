@@ -2105,7 +2105,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A right click on an item in any container takes it.
 - A player notices: Right click loots a corpse where the original ignores it.
 - Where: `crates/mao-client/src/loot.rs:316`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): A plain right click on a corpse's item now does nothing: GUI.dll FUN_100ce55d gives a corpse's (0xc76a) list the feature flag 0x400, and the list's button up FUN_1004141b does nothing for button 2 with that flag (the container lists never set +0x319, which only the nano, mission, special action and hotbar lists set through FUN_10041248, so the old-mouse branch is taken). Chests, the bank and the overflow still take the item; the held button's menu and a use with an item in hand are unchanged. `loot::right_click_takes`, test `loot::tests::a_right_click_takes_but_not_from_a_corpse`.
 
 #### `INV-008` Splitting a stack asks by a number box
 

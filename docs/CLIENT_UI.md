@@ -7261,3 +7261,7 @@ Gamecode's requirement evaluator (FUN_100065d8) has four operators that compare 
 ### Requirement lines name the breed and sex (INV-058)
 
 Gamecode's `ConvertCriteria` writes a breed or sex requirement by its name ("Solitus", "Female"), with "not" before an unequal one. The client did "Breed exactly 1"; it now writes the name, taken from the game's text database. Special criteria (items, perks, places) are still written as plain stat lines.
+
+### No right click loot on corpses (INV-007)
+
+In the original a corpse's item list ignores a plain right click (GUI.dll FUN_100ce55d sets its feature flag 0x400, which FUN_1004141b tests): items are taken by a click or the item's menu. The client now does the same; a chest, the bank and the overflow still take an item on a right click.

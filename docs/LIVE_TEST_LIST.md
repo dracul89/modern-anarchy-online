@@ -1050,6 +1050,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Use another player from more than about 6 m away: "out of range for trade" and no trade window; walk closer and use them: the trade opens.
 - [ ] Wear an item whose requirements start with "On Self" (shown in its tip) without meeting them: the original's refusal lines, and the item stays where it was.
 - [ ] Open the info of an item limited to one breed or sex: the requirement reads as the breed's or sex's name.
+- [ ] Open a corpse, right click an item: nothing; left click it: it is taken. Right click an item in a chest: it is taken.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
