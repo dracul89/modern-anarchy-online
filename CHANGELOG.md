@@ -154,6 +154,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Damage and healing numbers no longer float over characters; the fight is told in the chat's combat lines, as in the original.
 - A special attack at an item is sent as at that item (it was sent as at a character), and an item that cannot be attacked says so, as in the original.
 - The attack key now refuses as the original does: characters that cannot be attacked, surrendering NPCs, dead targets, and items that are not attackable or whose requirements are not met.
+- Tab targeting now counts team mates' pets as friendly and skips characters that are still zoning in.
 
 ### Launcher
 

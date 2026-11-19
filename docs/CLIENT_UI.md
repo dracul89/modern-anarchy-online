@@ -7554,3 +7554,7 @@ Besides the end of the spell list that began it, the original takes a character 
 ### The attack key reads the target's own stats (CMB-003, TGT-004)
 
 FUN_10069a9f, the check behind the attack key and Ctrl + click, also looks at the target. Its state flag 0x20000000 refuses with "Feedback_CantbeAttacked" (Arete's newcomers carry it). Its flag 0x80000000 with its stat 215 lets anyone attack it. A dead target that still has health is refused without a word. An NPC surrendering (stats 449/451) is refused with the surrender lines; "You accepted surrender" is said when it surrendered to oneself. An item standing in the world is judged by its flag 0x10000000 and its requirements for action 11, whose lines come first. The client now holds other characters' stats as the server's Stat messages set them, and does all of this. Not done: the suppression gas line (it only tells), the stat 673 test at the start (its map keys are unidentified), and the team check's +0x1f0 exception.
+
+### Tab: others' pets and characters not yet in play (TGT-005)
+
+N3Msg_GetCloseTarget (0x1001c49a) counts a creature as a friend when its master (stat 196) is oneself or a member of the own team or raid. It passes over any character not in play (stat 194). That flag comes from the announcement's flags bit 1 (FUN_1007803b) and is set later by the CharInPlay message (FUN_10072b96). The client now does both, taking other pets' masters from the server's Stat messages. Not yet: a master known only from the announcement, and the battlestation's own side stat.

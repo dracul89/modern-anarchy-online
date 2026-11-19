@@ -305,6 +305,10 @@ struct World {
     /// Other characters' stats as the server's `Stat` messages set them (FUN_100a2006 sets each on the dynel, which its
     /// full update did not: stat 224 `Features`, 215, 449 and 451 are what the attack check reads of a target, FUN_10069a9f).
     others_stats: BTreeMap<u32, BTreeMap<u32, i64>>,
+    /// Each other character's `InPlay` (stat 194): set from its first full update's flags, bit 1 (the creation callback
+    /// FUN_1007803b), set later by `CharInPlay` (`CharInPlayIIR_t`, FUN_10072b96) or a `Stat`. The targeting keys pass
+    /// over one not in play (`N3Msg_GetCloseTarget`).
+    in_play: BTreeMap<u32, bool>,
     /// The character's pets by their place in the pet window (`PetWindowModule_c`'s map: `AddPet` 0x1007f0f9 puts a new pet
     /// in the first free place from 1, `GetFreePetSlot` 0x1007ee0d), from the server's `AddPet` and `RemovePet`; a new
     /// playfield starts the list again, as the original's new client character does (its pets come again after it).
@@ -2738,6 +2742,7 @@ impl World {
                 self.spell_queue.forget((crate::requirements::CHARACTER, id));
                 self.state_flags.remove(&id);
                 self.others_stats.remove(&id);
+                self.in_play.remove(&id);
                 self.flying.remove(&id);
                 self.crafts.remove(&id);
                 self.others_nanos.remove(&id);
@@ -3310,6 +3315,10 @@ impl World {
                 0xac => self.end_flight(m.identity.1),
                 _ => {}
             }
+        }
+        // `CharInPlay` (0x570c2039, `CharInPlayIIR_t`'s FUN_10072b96): the character is in play, its stat 194 set to 1.
+        if m.kind == 0x570c2039 {
+            self.in_play.insert(m.identity.1, true);
         }
         // A character's social action (a dance, a bow): the last word of the message is the action's number.
         if m.kind == 0x3b290771 && m.data.len() >= 13 {
@@ -4548,6 +4557,9 @@ impl World {
                     for i in items {
                         if let (Some(stat), Some(value)) = (i.get("Item1").and_then(mao_net::schema::Value::as_int), i.get("Item2").and_then(mao_net::schema::Value::as_int)) {
                             held.insert(stat as u32, value);
+                            if stat == 194 {
+                                self.in_play.insert(m.identity.1, value != 0);
+                            }
                         }
                     }
                     // (a thing's `AnimPlay` or `AnimPos` told: its model plays from now, `prop_anim_time`)
@@ -4698,6 +4710,8 @@ impl World {
             }
             let player = info.is_player();
             self.names.insert(m.identity.1, (info.name.clone(), player));
+            // (stat 194 is set only as the dynel is made: a full update again for one already here leaves it)
+            self.in_play.entry(m.identity.1).or_insert(info.flags & 2 != 0);
             self.infos.insert(m.identity.1, info);
         }
         if let Some((kind, q, _)) = m.movement() {
@@ -5026,10 +5040,24 @@ impl World {
     }
 
     /// Whether `N3Msg_GetCloseTarget` takes a character for one of one's own side (0x1001c6db): a player in the own team
-    /// or raid; a creature whose master (stat 196) is oneself (the only masters the client knows: its own pets) or such a
-    /// member.
+    /// or raid; a creature whose master (stat 196, as the server's `Stat` set it, not 0) is oneself or such a member
+    /// (FUN_10065d65, FUN_10065dab), and one's own pets, whose master is oneself.
     fn close_target_mate(&self, id: u32, player: bool) -> bool {
-        if player { Self::team_mate(id) } else { self.pets.values().any(|p| p.1 == id) }
+        if player {
+            return Self::team_mate(id);
+        }
+        if self.pets.values().any(|p| p.1 == id) {
+            return true;
+        }
+        match self.others_stats.get(&id).and_then(|m| m.get(&196)).copied() {
+            Some(master) if master != 0 => master as u32 == self.own || Self::team_mate(master as u32),
+            _ => false,
+        }
+    }
+
+    /// `N3Msg_GetCloseTarget`'s candidates are only those in play (stat 194 not 0); one never announced counts as in play.
+    fn in_play(&self, id: u32) -> bool {
+        self.in_play.get(&id).copied().unwrap_or(true)
     }
 
     fn special_refusal(&self, number: u32, target: Option<u32>, sight: &dyn Fn([f32; 3], [f32; 3]) -> bool) -> Option<Vec<String>> {
@@ -8728,6 +8756,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.spell_queue = Default::default();
                     state.state_flags.clear();
                     state.others_stats.clear();
+                    state.in_play.clear();
                     // (and their movement starts in its plain mode: whether the server runs a flyer's list again in the new
                     // playfield was not seen; the running program or the worn item keeps one's own character flying)
                     state.flying.clear();
@@ -9461,7 +9490,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let list: Vec<crate::combat::Candidate> = state
                     .infos
                     .iter()
-                    .filter(|(id, _)| **id != own && !state.dead.contains_key(id))
+                    .filter(|(id, _)| **id != own && !state.dead.contains_key(id) && state.in_play(**id))
                     .filter_map(|(id, i)| {
                         Some(crate::combat::Candidate { id: *id, position: state.entities.get(id)?.0, side: i.side, mate: state.close_target_mate(*id, i.is_player()) })
                     })
@@ -13961,6 +13990,31 @@ mod door_tests {
         assert!(!w.own_stunned());
         w.spell_outcomes(vec![(me, crate::spelllist::Outcome::SetStat { stat: 689, value: 3 }), ((crate::requirements::CHARACTER, 5), crate::spelllist::Outcome::SetStat { stat: 690, value: 1 })]);
         assert_eq!((w.stats.get(&689), w.stats.get(&690)), (Some(&3), None));
+    }
+
+    /// TGT-005: a creature whose master (stat 196, from the server's `Stat`) is oneself is a friend for the targeting keys;
+    /// one whose master is a stranger, or 0, is not. A character not in play (stat 194) is passed over until `CharInPlay`.
+    #[test]
+    fn another_pets_master_and_in_play() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let mut w = World { own: 0x4bc80, ..World::default() };
+        let pet = 0x7b1e6d64;
+        assert!(!w.close_target_mate(pet, false));
+        // (its master told as oneself, then 0: the original takes 0 for none)
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, pet), data: hex("0000000001000000c40004bc80") }.frame(1));
+        assert!(w.close_target_mate(pet, false));
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, pet), data: hex("0000000001000000c400000000") }.frame(1));
+        assert!(!w.close_target_mate(pet, false));
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, pet), data: hex("0000000001000000c47b1e0001") }.frame(1));
+        assert!(!w.close_target_mate(pet, false));
+        // (in play: never announced counts as in play; announced out of play until `CharInPlay`)
+        assert!(w.in_play(9));
+        w.in_play.insert(9, false);
+        assert!(!w.in_play(9));
+        w.add(&Message { kind: 0x570c2039, identity: (0xc350, 9), data: hex("00") }.frame(1));
+        assert!(w.in_play(9));
+        w.add(&Message { kind: 0x2b333d6e, identity: (0xc350, 9), data: hex("0000000001000000c200000000") }.frame(1));
+        assert!(!w.in_play(9));
     }
 
     /// What ends fly mode besides the list's ending (FUN_10045020): the state flag 0x2000000 coming on (FUN_10044aac), a
