@@ -4095,7 +4095,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a sender whose name is not known yet is shown as its id in hex
 - A player notices: some chat lines show a number instead of a name
 - Where: `crates/mao-client/src/net.rs:6182`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The original never shows an id: the chat library fills a vicinity or group message's sender name from its id-to-name map with `operator[]` (GUI.dll FUN_10014b93), which gives an empty name for an id it has not been told yet, and S2C_GROUP_MESSAGE uses "" outright for sender 0 (FUN_1016d6f4). The chat window's line writer FUN_1009bc20 makes the `user://` name link only when the name is not empty, and adds the name and its ": " only when that link is not empty, so the line is the text alone in vicinity, and the group link and the text in a group. The client's vicinity and group handlers now do the same (no name, no "from", instead of the hex id). No unit test (the network loop's handlers).
 - Looked at, left (2026-11-19, overnight): Original not stated: what HandleVicinity/Group/PrivateMessage show for a sender whose name is not known yet was not read (FUN_10086075's lookup); the hex id stands in. Left.
 
 ### Chat and commands: the original was not read: inferred or measured (16)

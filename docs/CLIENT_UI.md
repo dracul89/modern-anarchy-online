@@ -7858,3 +7858,7 @@ The chat window draws a line's markup with the port of HTMLParser_c; the plain c
 ### Filling the game's texts (CHT-027)
 
 LDBformat::Feed prints each `%` piece of a game text with snprintf and the piece as the format, and Dump joins the pieces with the leading spaces dropped and each run of spaces made one (the ldb drop-in's format.rs). The client now does the same: widths, flags, precision, hex, characters, floats (msvcr100's three-digit exponent) and times (" 1 day 2 hours ..."), a number in a `%s` as `int_value<n>`, and the spaces collapsed. Only a text fed into a number's place still prints the text, where the original would print its address.
+
+### A speaker whose name is not known yet (CHT-028)
+
+The chat library's id-to-name map gives an empty name for a character it has not been told about (GUI.dll FUN_10014b93), and the line writer FUN_1009bc20 then writes neither name nor ": ". The client now shows such a vicinity line as its text alone and a group line as the group and the text, instead of the speaker's id in hex.

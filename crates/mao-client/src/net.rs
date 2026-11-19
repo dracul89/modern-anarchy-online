@@ -8009,9 +8009,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             }
                             Some(Packet::Vicinity { sender, text, blob }) => {
                                 let text = unpacked(text);
-                                let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
+                                // (a sender whose name the chat library has not been told yet has the empty name its
+                                // map gives [FUN_10014b93], and FUN_1009bc20 then writes no name and no ": ", only the text)
+                                let who = names.get(&sender).cloned().unwrap_or_default();
                                 crate::voices::vicinity_message(&mut voices, &who, &blob);
-                                Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup(&format!("{}: ", crate::chatwindow::name_link(&who)), &text))
+                                if who.is_empty() {
+                                    Some(Line { kind: Kind::Channel, text: mao_net::chat::plain(&text), from: None, markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup("", &text))
+                                } else {
+                                    Some(Line { kind: Kind::Channel, text: format!("{who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: crate::chatgroups::VICINITY.to_string(), at: None }.with_markup(&format!("{}: ", crate::chatwindow::name_link(&who)), &text))
+                                }
                             }
                             // (`HandlePrivateMessage` shows only a tell whose blob begins with the kind 0, 2 or 6: one with
                             // an empty blob or of another kind makes nothing. Kind 2's script files, `/command assist` and
@@ -8039,12 +8045,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             Some(Packet::Message { channel, blob, .. }) if channel_flags.get(&channel.1).is_some_and(|f| f & 0x40 != 0) && crate::voices::parse(&blob).0.is_some_and(|v| !v.line.is_empty()) => None,
                             Some(Packet::Message { channel, sender, text, blob }) => {
                                 let text = unpacked(text);
-                                let who = names.get(&sender).cloned().unwrap_or_else(|| format!("{sender:x}"));
+                                // (a sender of id 0, or one whose name is not known yet, has an empty name [the chat
+                                // library's S2C_GROUP_MESSAGE, FUN_1016d6f4 → FUN_10014b93], and FUN_1009bc20 writes the
+                                // group and the text with no name)
+                                let who = names.get(&sender).cloned().unwrap_or_default();
                                 let place = channels.get(&channel.1).map(|c| c.1.clone()).unwrap_or_default();
                                 // (its voice line, if it carries one: `HandleGroupMessage` → FUN_1008cdb3, by the group's kind)
                                 let kind = channels.get(&channel.1).map_or(channel.0, |c| c.0);
                                 crate::voices::group_message(&mut voices, &who, kind, &blob);
-                                Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: place.clone(), at: None }.with_markup(&format!("[{}] {}: ", crate::chatwindow::group_link(&place), crate::chatwindow::name_link(&who)), &text))
+                                if who.is_empty() {
+                                    Some(Line { kind: Kind::Channel, text: format!("[{place}] {}", mao_net::chat::plain(&text)), from: None, markup: None, group: place.clone(), at: None }.with_markup(&format!("[{}] ", crate::chatwindow::group_link(&place)), &text))
+                                } else {
+                                    Some(Line { kind: Kind::Channel, text: format!("[{place}] {who}: {}", mao_net::chat::plain(&text)), from: Some(who.clone()), markup: None, group: place.clone(), at: None }.with_markup(&format!("[{}] {}: ", crate::chatwindow::group_link(&place), crate::chatwindow::name_link(&who)), &text))
+                                }
                             }
                             Some(Packet::Buddy { id, online, kind }) => {
                                 let mut buddies = BUDDIES.lock().unwrap();
