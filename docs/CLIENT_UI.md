@@ -6989,3 +6989,7 @@ The original's water is the playfield's own water triangles and nothing else. Th
 ### Player body table (RND-028)
 
 FUN_10057a2e picks the body and head by breed and sex: Solitus, Opifex and Nanomage male and female, Atrox neuter, each its `<breed>_<sex>.cir` body and `head_<...>01.abiff` head; breed 5 neuter the `unfinished-breed.cir` body with no head; any other pair nothing (the stats Mesh 12 and HeadMesh 64 are only set while still 0). The client follows the same table.
+
+### Statel effects to the view distance (RND-124)
+
+A statel's own effects (a campfire's fire, chimney smoke, a lamp's halo) run with the statel in the original (_EffectHandler_t::EnableEffect 0x100ce0dd); no distance limit of their own was found. The client used to make them only within 150 units of the eye; it now makes them out to the view distance, where the fog has hidden everything. Their start times are still staggered per place, the client's own.

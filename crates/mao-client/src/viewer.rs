@@ -2475,13 +2475,15 @@ impl ApplicationHandler for App {
                     // (the waterfalls' feet: the fall effect at each, an environment effect, hidden past 80 units from the eye as
                     // its mode is)
                     // (the statels' own effects: environment effects; each place a little apart in time so that they do not
-                    // flicker as one, and only those within 150 units of the eye, a limit of this client's)
+                    // flicker as one. The original sets no distance of its own for them; those past the view distance, where
+                    // the fog has hidden everything, are not made)
                     if crate::prefs::effect_category_active(crate::prefs::ENVIRONMENT) {
                         let eye = w.camera.eye();
+                        let reach = self.settings.view_distance;
                         for (began, visual, places) in &self.statel_effects {
                             let age = began.elapsed().as_secs_f32();
                             for (i, at) in places.iter().enumerate() {
-                                if (at[0] - eye.x).powi(2) + (at[1] - eye.y).powi(2) + (at[2] - eye.z).powi(2) < 150.0 * 150.0 {
+                                if (at[0] - eye.x).powi(2) + (at[1] - eye.y).powi(2) + (at[2] - eye.z).powi(2) < reach * reach {
                                     sparks.extend(crate::effects::placed_particles(visual, *at, age + (i % 16) as f32 * 0.37, [eye.x, eye.y, eye.z]));
                                 }
                             }

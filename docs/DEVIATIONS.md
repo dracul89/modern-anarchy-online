@@ -7219,7 +7219,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a statel's own effect (campfire, chimney smoke, lamp halo) is drawn only within 150 units of the eye; start times are also the client's
 - A player notices: far fires and lamps show no sparks or smoke
 - Where: `crates/mao-client/src/viewer.rs:2344`; `docs/ORIGINAL_AUDIT.md:47`; `crates/mao-client/src/viewer.rs:2343`; `docs/CLIENT_UI.md:3434`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): Removed the client's 150-unit limit: the original's statel effects run with the statel's visual (_EffectHandler_t::EnableEffect 0x100ce0dd, reached from N3 through n3EngineClientAnarchy_t::EnableEffect 0x10016906) and no distance of their own is set for them in Gamecode. The client now makes them out to its view distance (the fog's end, past which nothing shows). The start times staggered per place remain the client's own. viewer.rs only; no unit test (a draw loop), built clean.
 
 #### `RND-125` Bone tree depth cut at 64
 
