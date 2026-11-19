@@ -471,9 +471,35 @@ fn command_text(name: &str) -> String {
         "ChatCmdFeedback_AllMatchingGroupsAreReadOnly" => "None of the groups that begin so takes lines.",
         "ChatCmdFeedback_O_YouAreNotMemberOfAnOrganizaion" => "You are not in an organization.",
         "ChatCmdFeedback_T_YouAreNotMemberOfATeam" => "You are not in a team.",
+        "ChatCmdFeedback_Ignore_IgnoringCharacter" => "%s is ignored now.",
+        "ChatCmdFeedback_Ignore_UnignoringCharacter" => "%s is not ignored any more.",
+        "ChatCmdFeedback_Ignore_CantIgnoreYourself" => "You cannot ignore your own character.",
+        "ChatCmdFeedback_Ignore_NoTargetOrNick" => "Name a character, or select one, to ignore.",
+        "ChatCmdFeedback_Ignore_ToManyArguments" => "Name one character only.",
         _ => name,
     };
     crate::gui::xml::ldb_named(10001, name, own)
+}
+
+/// What `/ignore` asks for (GUI.dll FUN_100bafeb): more than one word is too many; `list` the list; a word the
+/// character so named; nothing the selected target, or nobody to ignore. (The original also takes a character's number
+/// and refuses a target that is not a character, which the chat window cannot tell here.)
+#[derive(Debug, PartialEq, Eq)]
+pub enum IgnoreRequest {
+    TooMany,
+    List,
+    Toggle(String),
+    NoTarget,
+}
+
+pub fn ignore_request(text: &str, names: &chat_commands::Names) -> IgnoreRequest {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    match words[..] {
+        [] => names.target.clone().filter(|t| !t.is_empty()).map_or(IgnoreRequest::NoTarget, IgnoreRequest::Toggle),
+        ["list"] => IgnoreRequest::List,
+        [name] => IgnoreRequest::Toggle(name.to_string()),
+        _ => IgnoreRequest::TooMany,
+    }
 }
 
 /// A text of the chat window's menus (text.mdb 10001 by name), or this client's own words.
@@ -986,15 +1012,20 @@ impl ChatWindow {
 
     /// `/ignore <name>` and the name menu's entry: the character's lines hidden, or shown again.
     pub fn toggle_ignore(&mut self, name: &str) {
+        // (`/ignore` FUN_100bafeb: not the player's own character; then ignored or no longer, said with the name)
+        if !self.names.own.is_empty() && name.eq_ignore_ascii_case(&self.names.own) {
+            self.push(Line::new(Kind::System, command_text("ChatCmdFeedback_Ignore_CantIgnoreYourself")));
+            return;
+        }
         let key = name.to_lowercase();
         let text = if self.ignored.remove(&key) {
-            format!("{name} is no longer ignored.")
+            command_text("ChatCmdFeedback_Ignore_UnignoringCharacter")
         } else {
             self.ignored.insert(key);
-            format!("{name} is ignored: their tells and channel lines are hidden.")
+            command_text("ChatCmdFeedback_Ignore_IgnoringCharacter")
         };
         save_ignored(&self.ignored);
-        self.push(Line::new(Kind::System, text));
+        self.push(Line::new(Kind::System, text.replace("%s", name)));
     }
 
     /// Carries out a typed line: what to send (if anything), and the lines it adds to the window.
@@ -1393,13 +1424,19 @@ impl ChatWindow {
                 self.push(Line::new(Kind::System, "Usage: /viewdist <200 to 4000>"));
                 None
             }
-            Parsed::Ignore { name } if name.is_empty() => {
-                let list = if self.ignored.is_empty() { "nobody".to_string() } else { self.ignored.iter().cloned().collect::<Vec<_>>().join(", ") };
-                self.push(Line::new(Kind::System, format!("Ignoring: {list}.")));
-                None
-            }
             Parsed::Ignore { name } => {
-                self.toggle_ignore(&name);
+                match ignore_request(&name, &self.names) {
+                    IgnoreRequest::TooMany => self.push(Line::new(Kind::System, command_text("ChatCmdFeedback_Ignore_ToManyArguments"))),
+                    IgnoreRequest::NoTarget => self.push(Line::new(Kind::System, command_text("ChatCmdFeedback_Ignore_NoTargetOrNick"))),
+                    IgnoreRequest::List => {
+                        // (a line of the program's own, then a line for each)
+                        self.push(Line::new(Kind::System, "The characters you ignore:".to_string()));
+                        for ignored in self.ignored.clone() {
+                            self.push(Line::new(Kind::System, ignored));
+                        }
+                    }
+                    IgnoreRequest::Toggle(name) => self.toggle_ignore(&name),
+                }
                 None
             }
             Parsed::Befriend { name } => {
@@ -2123,6 +2160,17 @@ mod tests {
         assert!(w.away.is_away() && w.away.dialog.is_some());
     }
 
+    /// `/ignore`'s words: one name, `list`, the target when none, and no more than one.
+    #[test]
+    fn ignore_takes_one_name_the_list_or_the_target() {
+        let names = chat_commands::Names { own: "Me".into(), target: Some("Zed".into()), fighting: None };
+        assert_eq!(ignore_request("Abc", &names), IgnoreRequest::Toggle("Abc".into()));
+        assert_eq!(ignore_request("list", &names), IgnoreRequest::List);
+        assert_eq!(ignore_request("", &names), IgnoreRequest::Toggle("Zed".into()));
+        assert_eq!(ignore_request("Abc Def", &names), IgnoreRequest::TooMany);
+        assert_eq!(ignore_request(" ", &chat_commands::Names::default()), IgnoreRequest::NoTarget);
+    }
+
     #[test]
     fn local_commands_only_add_lines() {
         let mut w = ChatWindow::default();
@@ -2149,7 +2197,7 @@ mod tests {
         w.push(Line { kind: Kind::Channel, text: "[OOC] Zed: yo".into(), from: Some("Zed".into()), markup: None, group: String::new(), at: None });
         w.push(Line::new(Kind::System, "still shown"));
         let shown: Vec<&str> = w.lines.iter().map(|l| l.text.as_str()).collect();
-        assert_eq!(shown, vec!["Zed is ignored: their tells and channel lines are hidden.", "still shown"]);
+        assert_eq!(shown, vec![command_text("ChatCmdFeedback_Ignore_IgnoringCharacter").replace("%s", "Zed").as_str(), "still shown"]);
         assert_eq!(w.run("/ignore zed"), None);
         w.push(Line { kind: Kind::Tell, text: "Zed tells you: back".into(), from: Some("Zed".into()), markup: None, group: String::new(), at: None });
         assert!(w.lines.last().unwrap().text.contains("back"));

@@ -7085,3 +7085,7 @@ The original's game clock starts at midnight of day 0 (Gamecode `GameTime_t::Gam
 ### The creation's choices are kept between runs (LCH-013)
 
 The original keeps the breed, profession, head, height, build and name chosen in a character creation among its preferences (`CCSelected...`, read back by `CharCreateModule_t::InitialiseMessage` 0x1011bdaa) and starts afresh only after a character has been made (`WasCharacterCreated`). The client keeps them in `creation.ini` beside its settings: a creation left with Back starts with the same choices the next time the launcher runs, and making a character resets them.
+
+### /ignore as the original's (SET-028)
+
+The original's `/ignore` (GUI.dll FUN_100bafeb) takes one name, `list`, or nothing for the selected target; more words are refused, the player's own character cannot be ignored, and the toggle is said with the game's own texts ("Ignoring character ..." / "Unignoring character ...", text.mdb 10001). The client now follows those rules and texts; `/ignore` alone ignores the target instead of printing the list, which `/ignore list` shows. The list is still kept by name in the client's ignore.ini.

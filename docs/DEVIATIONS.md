@@ -8958,6 +8958,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: ignoring is local to this client and not shared with the original
 - Where: `crates/mao-client/src/chatwindow.rs:267`; `docs/CLIENT_UI.md:1834`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): Read the original's `/ignore` (GUI.dll FUN_100bafeb, registered by FUN_100bb3e0; `IgnoreSystem_t` keeps the list in `IgnoreList.bin` by character identity): more than one word is `ChatCmdFeedback_Ignore_ToManyArguments`; `list` prints a line of its own and one per ignored character; a number is a character's id; no word takes the selected target, else `ChatCmdFeedback_Ignore_NoTargetOrNick`; a target that is not a character is `CanOnlyIgnoreCharacters`; the own character `CantIgnoreYourself`; otherwise it toggles and says `IgnoringCharacter` / `UnignoringCharacter` with the name (text.mdb 10001, read at run time). Ported: `chatwindow::ignore_request` (the words: too many, `list`, a name, the target or nobody; test `chatwindow::tests::ignore_takes_one_name_the_list_or_the_target`) and `toggle_ignore`'s texts and the own-character refusal (test `an_ignored_character_is_not_shown_and_the_command_toggles` updated). Left: ignoring by character id (the client's list is by name, and the window has no ids), the target's kind check, and keeping the list in the original's `IgnoreList.bin` (SET-001's matter).
 
 ### Settings and files: a guard or fallback the original lacks (1)
 

@@ -56,7 +56,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("emote <name>", "do an emote (also /<name>: /wave, /bow, /dance-like ones such as /disco; sleep and lounge sitting)"),
     ("voice <sound name>", "speak a voice line (heal, help, inc, no, run, yes) to the people around"),
     ("befriend <name>", "put a character on your friends list (L shows it)"),
-    ("ignore [name]", "hide a character's tells and channel lines (again: show them; alone: the list)"),
+    ("ignore [name|list]", "hide a character's tells and channel lines (again: show them; alone: the target; list: who is ignored)"),
     ("camp", "sit down to log out (stand up or move to cancel)"),
     ("sit", "sit down, or stand up (the X key)"),
     ("follow", "walk after the target (again, or any movement key: stop)"),
@@ -109,7 +109,8 @@ pub enum Parsed {
     PetDuel { what: Option<u32> },
     /// `/befriend <name>`: a character to put on the friends list.
     Befriend { name: String },
-    /// `/ignore <name>` (or `/ignore` alone: the list): hide a character's tells and channel lines.
+    /// `/ignore <name>`, `/ignore list`, or `/ignore` alone for the target (FUN_100bafeb): hide a character's tells
+    /// and channel lines.
     Ignore { name: String },
     /// `/viewdist [n]`: how far the world is seen (alone: the setting).
     ViewDist { distance: Option<u32> },
