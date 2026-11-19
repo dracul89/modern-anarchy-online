@@ -203,6 +203,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - /ignore follows the original: /ignore alone ignores your target, /ignore list shows who is ignored, and the messages are the game's own.
 - /tell with no name does nothing, as in the original (it no longer opens a window for the target).
 - /inspect alone no longer describes the target; it takes a character's number, as in the original.
+- Fight lines about your own pet go to the "Your pet hit by other" and "Your pet hit by nano" chat groups, as in the original.
 
 ### Movement
 

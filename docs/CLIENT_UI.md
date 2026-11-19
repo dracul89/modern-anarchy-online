@@ -7357,3 +7357,7 @@ A running creature goes at the characters' speed rule (Gamecode FUN_1006f9eb, mo
 ### A creature's walking speed (NPC-019)
 
 A creature walking a path goes at 1.5 a second: the original's vehicle sets every character's walking speed (mode 2) to that constant (Gamecode FUN_1006f9eb, `_DAT_1015e7ac`), which the client uses, where it had the same number from measuring wandering creatures.
+
+### Fight lines of one's pet (CHT-016)
+
+The original queues a fight line of one's own pet as its own kind: a hit between others where the pet is hit or hits (Gamecode FUN_1009b6b7 0x21, a special FUN_1006af0e 0x33), and damage to the pet (FUN_100a0611 0x1c, even when oneself is the source), which the formatter FUN_10012c3e puts in the chat groups "Your pet hit by other" and "Your pet hit by nano". The client does the same for the pets the server gave it, so these lines follow those groups in the chat windows.

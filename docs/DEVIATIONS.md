@@ -3986,7 +3986,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: does not know, takes the other group
 - A player notices: some fight lines (pet fights) land in the wrong combat group and so the wrong chat tab
 - Where: `crates/mao-client/src/chatgroups.rs:206`; `docs/CLIENT_UI.md:291`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The groups are not picked by the formatter but by the event kind the handlers queue: a weapon hit between others is 0x21 when the one hit or the attacker is the client's pet (an NPC with flag 0x8000000 in the client's pet list, FUN_10052907), else 0x20 (FUN_1009b6b7); a special attack the same, 0x33 / 0x31 (FUN_1006af0e); damage to the client's pet is 0x1c, checked before the client's own 0x40, else 0x1b (FUN_100a0611); FUN_10012c3e then gives 0x21 / 0x33 the group 0x42000009 "Your pet hit by other" (0x20 / 0x31: 0x4200000a) and 0x1c 0x42000003 "Your pet hit by nano" (0x1b: 0x42000004), with the 0x1b texts (so the pet hurt by the client is told with the client's name as the source). The client now does the same with its pet list (World::is_own_pet, feedback::of_pet). The other half of the entry, whether the attacker is a player, was already right where it can matter: the hit on the client is 0x1e for a player attacker (Feedback_PlayerHit..., group 0x42000007), and the shield and absorb lines on the client are queued with no source, which FUN_10012c3e takes as 0x42000006. Not known to the client: another player's stat 224 bit 0x800000 that makes FUN_10058f4c count a player as a monster. Test feedback::tests (the pet groups added to the fight lines test).
 
 #### `CHT-017` /inspect on objects and booths shows the client's own text
 

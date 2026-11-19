@@ -26,6 +26,24 @@ pub fn take_group() -> Option<u32> {
     GROUP.take()
 }
 
+/// The line just made is of the client's own pet: FUN_10012c3e's pet groups for it. A hit between others where the one
+/// hit or the attacker is the client's pet is queued as 0x21 (FUN_1009b6b7) or 0x33 (a special, FUN_1006af0e), "Your
+/// pet hit by other" (0x42000009) where 0x20 / 0x31 are 0x4200000a; damage to the pet is 0x1c (FUN_100a0611, even when
+/// the client is the source), "Your pet hit by nano" (0x42000003) where 0x1b is 0x42000004. The pet is an NPC with the
+/// 0x8000000 flag in the client's pet list (FUN_10052907); the client's list is its `AddPet` pets.
+pub fn of_pet() {
+    GROUP.set(GROUP.get().map(pet_group));
+}
+
+/// A group as it is for a line of the client's pet (see [`of_pet`]).
+fn pet_group(group: u32) -> u32 {
+    match group {
+        0x4200_0004 => 0x4200_0003,
+        0x4200_000a => 0x4200_0009,
+        g => g,
+    }
+}
+
 /// The feedback text of a name, filled in order.
 fn line(name: &str, args: &[Arg]) -> String {
     if let Some(group) = crate::chatgroups::feedback_group(name) {
@@ -507,6 +525,18 @@ mod tests {
         assert_eq!(attack(Who::You, Who::Named("Bob", true), 8, 90, 2).unwrap(), "Player Bob hit you for 8 points of projectile damage. Glancing hit.");
         assert_eq!(attack(rat, Who::Named("Bob", true), 8, 90, 3).unwrap(), "Bob hit Rollerrat for 8 points of projectile damage.");
         assert_eq!(attack(Who::You, Who::Unknown, 8, 90, 3).unwrap(), "You were hit for 8 points of damage.");
+        // (CHT-016: a hit between others that one's pet is in goes to "Your pet hit by other", damage to it by nano to
+        // "Your pet hit by nano"; the client's own lines keep their groups)
+        let _ = take_group();
+        attack(Who::Named("Pet", false), rat, 8, 90, 3).unwrap();
+        of_pet();
+        assert_eq!(take_group(), Some(0x4200_0009));
+        health(Who::Named("Pet", false), rat, -8, 90, None).unwrap();
+        of_pet();
+        assert_eq!(take_group(), Some(0x4200_0003));
+        attack(Who::You, rat, 8, 90, 3).unwrap();
+        of_pet();
+        assert_eq!(take_group(), Some(0x4200_0006));
         assert_eq!(attack(rat, Who::Unknown, 8, 90, 3), None);
         assert_eq!(attack(rat, Who::You, 0, 90, 3), None);
         assert_eq!(weapon_damage_type(Some(95)), 95);

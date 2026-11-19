@@ -1982,6 +1982,11 @@ impl World {
         crate::damage::record(crate::damage::Event { attacker: self.fighter(attacker), victim, amount: amount.abs(), heal, hit, source: source.to_string() });
     }
 
+    /// Whether a character is one of the client's own pets (FUN_10052907: in the client character's pet list).
+    fn is_own_pet(&self, id: u32) -> bool {
+        self.pets.values().any(|p| p.1 == id)
+    }
+
     fn who(&self, id: u32) -> crate::feedback::Who<'_> {
         if id == self.own {
             crate::feedback::Who::You
@@ -2853,6 +2858,10 @@ impl World {
                     self.metered(m.identity.1, target, int("Amount"), false, crate::damage::Hit::of_type(int("HitType")), "Weapon");
                 }
                 if let Some(line) = crate::feedback::attack(self.who(target), self.who(m.identity.1), int("Amount"), kind, int("HitType")) {
+                    // (one's pet the one hit or the attacker, neither being oneself: the pets' group, FUN_1009b6b7's 0x21)
+                    if target != self.own && m.identity.1 != self.own && (self.is_own_pet(target) || self.is_own_pet(m.identity.1)) {
+                        crate::feedback::of_pet();
+                    }
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
                 // (the hit that kills names what the target died of, the word after the target, `Unk1`: FUN_1009f257 and
@@ -2891,6 +2900,10 @@ impl World {
                     self.metered(m.identity.1, target, amount, false, crate::damage::Hit::Normal, &crate::gui::criteria::stat_name(stat));
                 }
                 if let Some(line) = crate::feedback::special(self.who(target), self.who(m.identity.1), amount, &crate::gui::criteria::stat_name(stat)) {
+                    // (FUN_1006af0e's 0x33 for others' where one's pet is in it)
+                    if target != self.own && m.identity.1 != self.own && (self.is_own_pet(target) || self.is_own_pet(m.identity.1)) {
+                        crate::feedback::of_pet();
+                    }
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
             }
@@ -3573,7 +3586,18 @@ impl World {
                 } else if amount > 0 {
                     self.metered(if source == 0 { target } else { source }, target, amount, true, crate::damage::Hit::Normal, nano.as_deref().unwrap_or("Healing"));
                 }
-                if let Some(line) = crate::feedback::health(self.who(target), self.who(source), amount, stat, nano.as_deref()) {
+                // (damage to one's pet is FUN_100a0611's 0x1c, before its 0x40 for damage by oneself: told as another's,
+                // with one's own name as the source)
+                let pet = amount < 0 && target != self.own && self.is_own_pet(target);
+                let own_name = self.names.get(&self.own).map(|n| n.0.clone());
+                let source_who = match &own_name {
+                    Some(name) if pet && source == self.own => crate::feedback::Who::Named(name, true),
+                    _ => self.who(source),
+                };
+                if let Some(line) = crate::feedback::health(self.who(target), source_who, amount, stat, nano.as_deref()) {
+                    if pet {
+                        crate::feedback::of_pet();
+                    }
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                 }
             }
