@@ -7614,3 +7614,7 @@ The original shows no loading screen at a zoning: `FlowControlModule_t::Teleport
 ### AutoCloseWindows and the menus' activate actions (SET-003)
 
 A window entry of the control center's menus runs its `on_activate` actions when its window comes on and `on_deactivate` when it goes off, as GUI.dll's `CCMenuEntry_c` value callback (FUN_10065dd0) does. The game's menus use this for `AutoCloseWindows` (false in CharPrefs.xml): with it on, opening one of the character's windows from the menu closes the others.
+
+### Item cells keep their column and row (INV-019)
+
+The original keeps each item's cell in a container as a column and a row (`item_pos`, an IPoint: GUI.dll FUN_100ccefe reads it, FUN_100cac66 writes it; `MultiListView_c::AddItem` 0x10135c61, `MoveItem` 0x10136fd5), and a grid that is not auto-arranged is as wide as its view or as the cells used reach (`RecalcUsedSlotExtents` 0x10134009, `RecalcVirtualSize` 0x10134944); a new item takes the first free cell along the rows of the view's columns, no fewer than three (`GetFirstFreePos` 0x10133940). The client now does the same: `places.ini` keeps a column and a row per item (per character), an item stays in its column when the inventory, bank or bag window is made narrower (the grid scrolls sideways) or wider, and older one-number lines are read in the columns each window opens with.

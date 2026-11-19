@@ -11,11 +11,13 @@
 //! the drag.
 //!
 //! Here the cells are kept in `places.ini` beside `mao.ini`, a line an item: `<character> <type> <instance> <place>
-//! <cell>`, the character whose they are (the original's files are in the character's own folder,
+//! <column> <row>`, the character whose they are (the original's files are in the character's own folder,
 //! `InventoryGUIModule_c::GetInventoryConfigPath`), the container's identity (zeros for the inventory), the item's
-//! place in it as the server numbers it, and its cell. A line of an older file without the character is kept as
-//! character 0's (no character's). A cell is counted along the rows (this client's grids take as many columns as their
-//! window is wide, and show the cells in that order), where the original keeps a column and a row.
+//! place in it as the server numbers it, and its cell, a column and a row as the original's `item_pos` (an `IPoint`):
+//! a cell does not move when the window is made narrower or wider (`MultiListView_c` without auto arrange keeps each
+//! item's `IPoint`, and its grid is as wide as the view or the cells used, `RecalcVirtualSize` 0x10134944). The lines
+//! of older files, with one number for the cell counted along the rows (with the character, or without it: character
+//! 0's, no character's), are read in the columns the window opens with ([`opening_columns`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
@@ -24,8 +26,11 @@ use std::sync::Mutex;
 pub type Key = (u32, u32);
 pub const INVENTORY: Key = (0, 0);
 
+/// A grid cell: its column and row (`IPoint`).
+pub type Cell = (usize, usize);
+
 /// A container's cells: each item's place and the cell it stands in.
-pub type Cells = BTreeMap<u32, usize>;
+pub type Cells = BTreeMap<u32, Cell>;
 
 /// The cells of every character's containers, by character and container.
 pub type Places = BTreeMap<(u32, Key), Cells>;
@@ -46,21 +51,40 @@ fn kept() -> bool {
     !cfg!(test) && std::env::var_os("MAO_NO_LAYOUT").is_none() && std::env::var_os("MAO_UI_PREVIEW").is_none()
 }
 
-/// `places.ini`: a line an item, `<character> <type> <instance> <place> <cell>` (an older line without the character:
-/// character 0's).
+/// The columns a container's window opens with (the inventory five, the bank eight, the rest three:
+/// `loot::columns`), in which the one-number cells of an older file were counted.
+pub fn opening_columns(key: Key) -> usize {
+    if key == INVENTORY {
+        5
+    } else if key.0 == crate::loot::BANK {
+        8
+    } else {
+        3
+    }
+}
+
+/// `places.ini`: a line an item, `<character> <type> <instance> <place> <column> <row>` (an older line with one number
+/// for the cell, with the character or without it: character 0's).
 pub fn parse(text: &str) -> Places {
     let mut out: Places = BTreeMap::new();
     for line in text.lines() {
         let words: Vec<&str> = line.split_whitespace().collect();
         let (character, words) = match words.len() {
-            5 => (words[0].parse().ok(), &words[1..]),
+            5 | 6 => (words[0].parse().ok(), &words[1..]),
             4 => (Some(0), &words[..]),
             _ => (None, &words[..]),
         };
-        if let (Some(character), [kind, instance, place, cell]) = (character, words)
-            && let (Ok(kind), Ok(instance), Ok(place), Ok(cell)) = (kind.parse(), instance.parse(), place.parse(), cell.parse())
-        {
-            out.entry((character, (kind, instance))).or_default().insert(place, cell);
+        let number = |w: &&str| w.parse::<usize>().ok();
+        let (Some(character), [kind, instance, place, cell @ ..]) = (character, words) else { continue };
+        let (Ok(kind), Ok(instance), Ok(place)) = (kind.parse(), instance.parse(), place.parse()) else { continue };
+        let key = (kind, instance);
+        let cell = match cell {
+            [x, y] => number(x).zip(number(y)),
+            [k] => number(k).map(|k| (k % opening_columns(key), k / opening_columns(key))),
+            _ => None,
+        };
+        if let Some(cell) = cell {
+            out.entry((character, key)).or_default().insert(place, cell);
         }
     }
     out
@@ -69,7 +93,7 @@ pub fn parse(text: &str) -> Places {
 pub fn render(places: &Places) -> String {
     places
         .iter()
-        .flat_map(|((character, (kind, instance)), cells)| cells.iter().map(move |(place, cell)| format!("{character} {kind} {instance} {place} {cell}\n")))
+        .flat_map(|((character, (kind, instance)), cells)| cells.iter().map(move |(place, (x, y))| format!("{character} {kind} {instance} {place} {x} {y}\n")))
         .collect()
 }
 
@@ -95,11 +119,11 @@ fn change<R>(key: Key, f: impl FnOnce(&mut Cells) -> R) -> R {
     })
 }
 
-/// The cells of a container's items (their places, in order), `room` cells in all: the remembered ones kept, those of
-/// items no longer there forgotten, the rest given the first free cells ([`assign`]); remembered from then on.
-pub fn arrange(key: Key, items: &[u32], room: usize, awaited: Option<(u32, usize)>) -> Cells {
+/// The cells of a container's items (their places, in order) in a view `columns` wide: the remembered ones kept, those
+/// of items no longer there forgotten, the rest given the first free cells ([`assign`]); remembered from then on.
+pub fn arrange(key: Key, items: &[u32], columns: usize, awaited: Option<(u32, Cell)>) -> Cells {
     change(key, |cells| {
-        assign(cells, items, room, awaited);
+        assign(cells, items, columns, awaited);
         cells.clone()
     })
 }
@@ -139,7 +163,7 @@ pub fn remembered(key: Key) -> Cells {
 }
 
 /// Puts the item of a place into a cell ([`move_to`]).
-pub fn put(key: Key, place: u32, cell: usize) {
+pub fn put(key: Key, place: u32, cell: Cell) {
     change(key, |cells| move_to(cells, place, cell));
 }
 
@@ -148,18 +172,25 @@ pub fn exchange(key: Key, a: u32, b: u32) {
     change(key, |cells| swap(cells, a, b));
 }
 
-/// Gives every item a cell (FUN_100ce25d): an item keeps the cell remembered for its place (unless that is past the
-/// container's `room`, or another item has it already); the cell of a place that holds nothing any more is forgotten;
-/// a new item at the `awaited` place takes the cell awaited for it (the cell a drop or a split named) when that is
-/// free; every other new item takes the first free cell, in the places' order. Whether anything changed.
-pub fn assign(cells: &mut Cells, items: &[u32], room: usize, awaited: Option<(u32, usize)>) -> bool {
+/// The first free cell (`MultiListView_c::GetFirstFreePos` 0x10133940, without auto arrange): counted along the rows
+/// of the columns the view's width holds, no fewer than three.
+pub fn first_free(taken: &BTreeSet<Cell>, columns: usize) -> Cell {
+    let columns = columns.max(3);
+    (0..).map(|k| (k % columns, k / columns)).find(|c| !taken.contains(c)).unwrap_or((0, 0))
+}
+
+/// Gives every item a cell (FUN_100ce25d, `MultiListView_c::AddItem` 0x10135c61): an item keeps the cell remembered for
+/// its place (unless another item has it already: then it is placed as a new one); the cell of a place that holds
+/// nothing any more is forgotten; a new item at the `awaited` place takes the cell awaited for it (the cell a drop or a
+/// split named) when that is free; every other new item takes the first free cell ([`first_free`] in a view `columns`
+/// wide), in the places' order. Whether anything changed.
+pub fn assign(cells: &mut Cells, items: &[u32], columns: usize, awaited: Option<(u32, Cell)>) -> bool {
     let before = cells.clone();
     let mut taken = BTreeSet::new();
-    cells.retain(|place, cell| items.contains(place) && *cell < room && taken.insert(*cell));
+    cells.retain(|place, cell| items.contains(place) && taken.insert(*cell));
     if let Some((place, cell)) = awaited
         && items.contains(&place)
         && !cells.contains_key(&place)
-        && cell < room
         && taken.insert(cell)
     {
         cells.insert(place, cell);
@@ -168,8 +199,7 @@ pub fn assign(cells: &mut Cells, items: &[u32], room: usize, awaited: Option<(u3
     new.sort_unstable();
     new.dedup();
     for place in new {
-        // (past the container's room when it holds more than it should: the grid grows a row)
-        let free = (0..).find(|c| !taken.contains(c)).unwrap_or(0);
+        let free = first_free(&taken, columns);
         taken.insert(free);
         cells.insert(place, free);
     }
@@ -177,7 +207,7 @@ pub fn assign(cells: &mut Cells, items: &[u32], room: usize, awaited: Option<(u3
 }
 
 /// The item of a place put into an empty cell (`MultiListView_c::MoveItem`); nothing when another item stands there.
-pub fn move_to(cells: &mut Cells, place: u32, cell: usize) {
+pub fn move_to(cells: &mut Cells, place: u32, cell: Cell) {
     if !cells.iter().any(|(p, c)| *c == cell && *p != place) {
         cells.insert(place, cell);
     }
@@ -193,7 +223,7 @@ pub fn swap(cells: &mut Cells, a: u32, b: u32) {
 }
 
 /// The item whose cell this is.
-pub fn at(cells: &Cells, cell: usize) -> Option<u32> {
+pub fn at(cells: &Cells, cell: Cell) -> Option<u32> {
     cells.iter().find(|(_, c)| **c == cell).map(|(p, _)| *p)
 }
 
@@ -311,68 +341,74 @@ pub fn join_entries(entries: &mut Vec<mao_net::inventory::Entry>, onto: u32, hel
 mod tests {
     use super::*;
 
-    fn cells(list: &[(u32, usize)]) -> Cells {
+    fn cells(list: &[(u32, Cell)]) -> Cells {
         list.iter().copied().collect()
     }
 
     #[test]
     fn items_keep_their_cells_and_new_ones_take_the_first_free() {
-        // (nothing remembered: the cells in the places' order, as the grid packed them before)
+        // (nothing remembered: the cells along the rows of the view's five columns, in the places' order)
         let mut c = Cells::new();
-        assert!(assign(&mut c, &[66, 64, 65], 30, None));
-        assert_eq!(c, cells(&[(64, 0), (65, 1), (66, 2)]));
-        // (65 put into cell 7 stays there; 64 gone: its cell is forgotten, and 66 does not move up; a new item takes
-        // the first free cell)
-        move_to(&mut c, 65, 7);
-        assert!(assign(&mut c, &[65, 66, 70], 30, None));
-        assert_eq!(c, cells(&[(65, 7), (66, 2), (70, 0)]));
-        // (nothing changed: nothing to save)
-        assert!(!assign(&mut c, &[65, 66, 70], 30, None));
+        assert!(assign(&mut c, &[66, 64, 65], 5, None));
+        assert_eq!(c, cells(&[(64, (0, 0)), (65, (1, 0)), (66, (2, 0))]));
+        // (65 put into the third column of the second row stays there; 64 gone: its cell is forgotten, and 66 does not
+        // move up; a new item takes the first free cell)
+        move_to(&mut c, 65, (2, 1));
+        assert!(assign(&mut c, &[65, 66, 70], 5, None));
+        assert_eq!(c, cells(&[(65, (2, 1)), (66, (2, 0)), (70, (0, 0))]));
+        // (nothing changed: nothing to save; nor when the view is narrower or wider, the cells stay where they are)
+        assert!(!assign(&mut c, &[65, 66, 70], 5, None));
+        assert!(!assign(&mut c, &[65, 66, 70], 1, None));
+        assert!(!assign(&mut c, &[65, 66, 70], 9, None));
         // (a new item awaited in a cell takes it when it comes, if the cell is free; not an item that was there already)
-        assert!(assign(&mut c, &[65, 66, 70, 71], 30, Some((71, 12))));
-        assert_eq!(c.get(&71), Some(&12));
-        assert!(assign(&mut c, &[65, 66, 70, 71, 72, 73], 30, Some((72, 7))));
-        assert_eq!((c.get(&72), c.get(&73), c.get(&65)), (Some(&1), Some(&3), Some(&7)));
-        assert!(!assign(&mut c, &[65, 66, 70, 71, 72, 73], 30, Some((66, 20))));
-        // (a file's cell past the container's room, and one two items claim: the first keeps it, the others are placed)
-        let mut c = cells(&[(64, 40), (65, 3), (66, 3)]);
-        assign(&mut c, &[64, 65, 66], 30, None);
-        assert_eq!(c, cells(&[(64, 0), (65, 3), (66, 1)]));
-        // (more items than cells: past the room, never on another)
-        let mut c = Cells::new();
-        assign(&mut c, &[1, 2, 3], 2, None);
-        assert_eq!(c, cells(&[(1, 0), (2, 1), (3, 2)]));
+        assert!(assign(&mut c, &[65, 66, 70, 71], 5, Some((71, (7, 4)))));
+        assert_eq!(c.get(&71), Some(&(7, 4)));
+        assert!(assign(&mut c, &[65, 66, 70, 71, 72, 73], 5, Some((72, (2, 1)))));
+        assert_eq!((c.get(&72), c.get(&73), c.get(&65)), (Some(&(1, 0)), Some(&(3, 0)), Some(&(2, 1))));
+        assert!(!assign(&mut c, &[65, 66, 70, 71, 72, 73], 5, Some((66, (4, 4)))));
+        // (a file's cell far out is kept, as the original keeps any `item_pos`; one two items claim: the first keeps it,
+        // the other is placed)
+        let mut c = cells(&[(64, (40, 2)), (65, (0, 1)), (66, (0, 1))]);
+        assign(&mut c, &[64, 65, 66], 5, None);
+        assert_eq!(c, cells(&[(64, (40, 2)), (65, (0, 1)), (66, (0, 0))]));
+        // (the first free cell is counted in no fewer than three columns, `GetFirstFreePos`)
+        let mut c = cells(&[(1, (0, 0))]);
+        assign(&mut c, &[1, 2, 3, 4], 1, None);
+        assert_eq!(c, cells(&[(1, (0, 0)), (2, (1, 0)), (3, (2, 0)), (4, (0, 1))]));
     }
 
     #[test]
     fn a_move_takes_an_empty_cell_and_a_swap_changes_two() {
-        let mut c = cells(&[(64, 0), (65, 1)]);
-        move_to(&mut c, 64, 9);
-        assert_eq!(c, cells(&[(64, 9), (65, 1)]));
+        let (a, b, nine) = ((0, 0), (1, 0), (4, 1));
+        let mut c = cells(&[(64, a), (65, b)]);
+        move_to(&mut c, 64, nine);
+        assert_eq!(c, cells(&[(64, nine), (65, b)]));
         // (not onto another item; onto its own cell is nothing)
-        move_to(&mut c, 64, 1);
-        move_to(&mut c, 65, 1);
-        assert_eq!(c, cells(&[(64, 9), (65, 1)]));
+        move_to(&mut c, 64, b);
+        move_to(&mut c, 65, b);
+        assert_eq!(c, cells(&[(64, nine), (65, b)]));
         swap(&mut c, 64, 65);
-        assert_eq!(c, cells(&[(64, 1), (65, 9)]));
-        assert_eq!((at(&c, 9), at(&c, 1), at(&c, 2)), (Some(65), Some(64), None));
+        assert_eq!(c, cells(&[(64, b), (65, nine)]));
+        assert_eq!((at(&c, nine), at(&c, b), at(&c, (2, 0))), (Some(65), Some(64), None));
         // (an item with no cell swaps with nothing)
         swap(&mut c, 64, 99);
-        assert_eq!(c, cells(&[(64, 1), (65, 9)]));
+        assert_eq!(c, cells(&[(64, b), (65, nine)]));
     }
 
     #[test]
     fn the_file_is_a_line_an_item() {
         let mut places: Places = BTreeMap::new();
-        places.insert((7, INVENTORY), cells(&[(64, 3), (70, 0)]));
-        places.insert((7, (51017, 77)), cells(&[(2, 20)]));
-        places.insert((9, INVENTORY), cells(&[(64, 5)]));
+        places.insert((7, INVENTORY), cells(&[(64, (3, 0)), (70, (0, 2))]));
+        places.insert((7, (51017, 77)), cells(&[(2, (2, 6))]));
+        places.insert((9, INVENTORY), cells(&[(64, (0, 1))]));
         let text = render(&places);
-        assert_eq!(text, "7 0 0 64 3\n7 0 0 70 0\n7 51017 77 2 20\n9 0 0 64 5\n");
+        assert_eq!(text, "7 0 0 64 3 0\n7 0 0 70 0 2\n7 51017 77 2 2 6\n9 0 0 64 0 1\n");
         assert_eq!(parse(&text), places);
-        // (a line of an older file, without the character: no character's)
-        assert_eq!(parse("0 0 64 3\n"), [((0, INVENTORY), cells(&[(64, 3)]))].into_iter().collect());
-        assert!(parse("junk\n0 0 64\n0 0 x 1\n1 0 0 64 3 9\nx 0 0 64 3\n").is_empty());
+        // (lines of older files, one number counted along the rows of the columns the window opens with: the
+        // inventory's five, the bank's eight, a bag's three; without the character: no character's)
+        assert_eq!(parse("0 0 64 7\n"), [((0, INVENTORY), cells(&[(64, (2, 1))]))].into_iter().collect());
+        assert_eq!(parse("7 57005 1 3 9\n7 51017 77 2 20\n"), [((7, (57005, 1)), cells(&[(3, (1, 1))])), ((7, (51017, 77)), cells(&[(2, (2, 6))]))].into_iter().collect());
+        assert!(parse("junk\n0 0 64\n0 0 x 1\n1 0 0 64 3 9 9\nx 0 0 64 3\n7 0 0 64 x 1\n").is_empty());
     }
 
     #[test]

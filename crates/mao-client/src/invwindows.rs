@@ -143,7 +143,7 @@ pub struct ItemWindows {
     split_box: Option<(u32, String)>,
     /// A backpack place about to get an item (a split's new stack, an item taken off), the cell it was let go on,
     /// and since when: the item is shown there when it comes (the original's `+0x150`, FUN_100ce25d).
-    awaited: Option<(u32, usize, std::time::Instant)>,
+    awaited: Option<(u32, crate::places::Cell, std::time::Instant)>,
     /// The wear pages' labels over their items or under them (`WearView_c`'s menu, FUN_100e20d6: "Labels On Top",
     /// kept as `WearViewConfig`'s `labels_on_top`; on at first), once read from what is kept; and the menu while it
     /// is up.
@@ -558,18 +558,20 @@ impl ItemWindows {
             }
             self.inv_keeper.before("InventoryConfig", &mut view.tree, view.list, (!in_list).then(|| arranged.unwrap_or((0, 0))));
             multilist::update(&mut view.tree, view.list);
-            // (each item at its own cell, counted along the rows the window's width makes: the one it was put in by
-            // hand, the one awaited for it, else the first free one; before the items have come nothing is forgotten)
-            let columns = multilist::grid_columns(&view.tree, view.list).unwrap_or(5).max(1);
+            // (each item at its own cell, a column and a row: the one it was put in by hand, the one awaited for it, else
+            // the first free one along the rows of the view's columns; before the items have come nothing is forgotten;
+            // the slots are counted along the rows of the grid's columns, no fewer than the cells reach)
+            let view_columns = multilist::grid_view_columns(&view.tree, view.list).unwrap_or(5).max(1);
             let places: Vec<u32> = pack.iter().map(|i| i.slot).collect();
-            let cells = if items.is_empty() { crate::places::Cells::new() } else { crate::places::arrange(crate::places::INVENTORY, &places, PACK_PLACES as usize, self.awaited.map(|a| (a.0, a.1))) };
+            let cells = if items.is_empty() { crate::places::Cells::new() } else { crate::places::arrange(crate::places::INVENTORY, &places, view_columns, self.awaited.map(|a| (a.0, a.1))) };
             // (kept until the item comes, as the original keeps +0x150 for the next item added, FUN_100ce25d: no time-out)
             if self.awaited.is_some_and(|(place, _, _)| by_slot.contains_key(&place)) {
                 self.awaited = None;
             }
-            let mut hovered_cell: Option<usize> = None;
-            let rows: Vec<(&GearItem, Option<(usize, usize)>)> = pack.iter().map(|i| (*i, cells.get(&i.slot).map(|c| (c % columns, c / columns)))).collect();
+            let mut hovered_cell: Option<crate::places::Cell> = None;
+            let rows: Vec<(&GearItem, Option<(usize, usize)>)> = pack.iter().map(|i| (*i, cells.get(&i.slot).copied())).collect();
             fill(view, &rows, textures, ctx, true);
+            let columns = multilist::grid_columns(&view.tree, view.list).unwrap_or(5).max(1);
             let (w, h) = multilist::grid::size(PACK_PLACES as usize, 5);
             let (tree, root, list) = (&mut view.tree, view.root, view.list);
             let shown = crate::chrome::window(ctx, palette, "Inventory", "Inventory", &mut is_open, |w2| w2.default_pos(crate::layout::pos("Inventory", egui::pos2(40.0, 70.0))).default_size(egui::vec2(w + 32.0, h.min(4.0 * multilist::grid::STEP + 12.0))).resizable(true), |ui| {
@@ -580,7 +582,7 @@ impl ItemWindows {
                     hovered_item = Some((slot as u32, String::new()));
                 }
                 // (the cell under the pointer, with an item or not: where what is in hand is let go)
-                hovered_cell = pointer.and_then(|at| multilist::cell_at(tree, list, response.rect.min, at)).map(|(x, y)| y * columns + x).filter(|c| hand && *c < PACK_PLACES as usize);
+                hovered_cell = pointer.and_then(|at| multilist::cell_at(tree, list, response.rect.min, at)).filter(|(x, y)| hand && y * columns + x < PACK_PLACES as usize);
                 // (the window's menu, FUN_100cbace: the right button beside the items; the original's is the frame's
                 // menu button)
                 if hovered_item.is_none()
@@ -614,10 +616,11 @@ impl ItemWindows {
                     }
                     // (and the empty cells in view, for a script's placing by hand)
                     let free: Vec<String> = (0..PACK_PLACES as usize)
+                        .map(|c| (c % columns, c / columns))
                         .filter(|c| crate::places::at(&cells, *c).is_none())
-                        .filter_map(|c| multilist::cell_rect(tree, list, response.rect.min, (c % columns, c / columns)).map(|r| (c, r.center())))
+                        .filter_map(|c| multilist::cell_rect(tree, list, response.rect.min, c).map(|r| (c, r.center())))
                         .filter(|(_, at)| rect.contains(*at))
-                        .map(|(c, at)| format!("{c} at {:.0};{:.0}", at.x * k, at.y * k))
+                        .map(|(c, at)| format!("{},{} at {:.0};{:.0}", c.0, c.1, at.x * k, at.y * k))
                         .collect();
                     let id = egui::Id::unique("item-trace-free-cells");
                     if ui.ctx().data(|d| d.get_temp::<Vec<String>>(id)).as_ref() != Some(&free) {
@@ -653,14 +656,14 @@ impl ItemWindows {
                 } else if onto.is_some_and(|o| crate::gear::locked(o.slot)) {
                     // (let go on an item that waits on the city's map: told, and nothing done, FUN_100cc855)
                     events.feedback.push("DroppedItemWasLocked");
-                } else if let (Some(cell), Some(held)) = (hovered_cell.or((!hand).then_some(0)), by_slot.get(&from).copied()) {
+                } else if let (Some(cell), Some(held)) = (hovered_cell.or((!hand).then_some((0, 0))), by_slot.get(&from).copied()) {
                     use crate::places::Placing;
                     match (crate::places::placing(&stack(held), split, onto.map(stack).as_ref()), onto) {
                         // (an empty cell takes the item: `MultiListView_c::MoveItem`, the client's own matter)
                         (Placing::Move, _) if hand => {
                             crate::places::put(crate::places::INVENTORY, from, cell);
                             if crate::gear::traced() {
-                                eprintln!("items: place {from} put into cell {cell}");
+                                eprintln!("items: place {from} put into cell {cell:?}");
                             }
                         }
                         // (two stacks of a kind: the one in hand goes into the other, `N3Msg_JoinItems(the other, the held)`)
@@ -678,7 +681,7 @@ impl ItemWindows {
                             }
                             crate::places::exchange(crate::places::INVENTORY, from, other.slot);
                             if crate::gear::traced() {
-                                eprintln!("items: places {from} and {} change cells: place {from} into cell {cell}, the other in hand", other.slot);
+                                eprintln!("items: places {from} and {} change cells: place {from} into cell {cell:?}, the other in hand", other.slot);
                             }
                             crate::gear::pick_up(other.slot);
                             dragged = Some(other.slot);
@@ -692,7 +695,7 @@ impl ItemWindows {
                                 events.splits.push((from, split));
                                 self.awaited = free.filter(|_| hand).map(|place| (place, cell, std::time::Instant::now()));
                                 if crate::gear::traced() {
-                                    eprintln!("items: {split} of place {from} split off into cell {cell}");
+                                    eprintln!("items: {split} of place {from} split off into cell {cell:?}");
                                 }
                             }
                         },
@@ -723,8 +726,9 @@ impl ItemWindows {
                 } else if let Some(new) = crate::loot::arrange_choice(chosen, arranged) {
                     // (`SetAutoArrange(false)`: each item stays in the cell the arranging had it in)
                     if new.is_none() {
+                        let columns = multilist::grid_view_columns(&view.tree, view.list).unwrap_or(5).max(1);
                         for (cell, id) in multilist::order(&view.tree, view.list).into_iter().enumerate() {
-                            crate::places::put(crate::places::INVENTORY, id as u32, cell);
+                            crate::places::put(crate::places::INVENTORY, id as u32, (cell % columns, cell / columns));
                         }
                     }
                     self.inv_sort = Some(new);

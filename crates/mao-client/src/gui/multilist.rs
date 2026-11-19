@@ -161,11 +161,14 @@ pub struct GridMode {
     /// window is exactly as wide as three of them, while here the window is as wide as its tabs or its rollup page, and
     /// the user asked for the squares to fill it (2026-11-11).
     pub scale: f32,
+    /// The columns the items' own cells reach (`RecalcUsedSlotExtents` 0x10134009, `+0x2c8`): without auto arrange the
+    /// grid is no narrower (`RecalcVirtualSize` 0x10134944), so a cell keeps its column in a narrower window.
+    pub used_columns: usize,
 }
 
 impl GridMode {
     pub fn new(max_items: i32, columns: usize) -> GridMode {
-        GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items, spacing: (grid::SPACING, grid::SPACING), columns: None, labels: Vec::new(), labels_on_top: true, auto_arrange: true, background: None, cell: (grid::CELL, grid::CELL), slot: grid::SLOT.to_string(), scale: 1.0 }
+        GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items, spacing: (grid::SPACING, grid::SPACING), columns: None, labels: Vec::new(), labels_on_top: true, auto_arrange: true, background: None, cell: (grid::CELL, grid::CELL), slot: grid::SLOT.to_string(), scale: 1.0, used_columns: 0 }
     }
 
     /// `SetGridIconSize`.
@@ -191,8 +194,13 @@ impl GridMode {
     fn cell_px(&self) -> (f32, f32) {
         ((self.cell.0 * self.scale).floor(), (self.cell.1 * self.scale).floor())
     }
-    fn cols(&self) -> usize {
+    /// The columns the view's width holds (`RecalcCellCount` 0x10134ad2, `+0x23c`), or the fixed number.
+    fn view_cols(&self) -> usize {
         self.columns.unwrap_or_else(|| ((self.width / self.step().0).floor() as usize).max(1))
+    }
+    /// The grid's columns: the view's, and without auto arrange no fewer than the items' own cells reach.
+    fn cols(&self) -> usize {
+        if self.columns.is_some() || self.auto_arrange { self.view_cols() } else { self.view_cols().max(self.used_columns) }
     }
     /// Where the first column starts. The original puts it `BORDER` in from the left whatever the width
     /// (`GridPosToViewPos`), which leaves what the width holds beyond whole columns at the right: up to a cell's worth of
@@ -729,11 +737,17 @@ pub fn cell_at(tree: &Tree, id: Id, origin: egui::Pos2, at: egui::Pos2) -> Optio
     tree.control::<Rows>(rows)?.grid.as_ref()?.cell_at(Point::new(at.x - r.min.x, at.y - r.min.y))
 }
 
-/// The columns a grid's cells stand in at its width now (`RecalcCellCount`), for a window that counts its cells along
-/// the rows.
+/// The columns a grid's cells stand in now: the view's width's (`RecalcCellCount`), and without auto arrange no fewer
+/// than its items' cells reach (`RecalcVirtualSize`); the slots are counted along their rows.
 pub fn grid_columns(tree: &Tree, id: Id) -> Option<usize> {
     let (_, _, rows) = parts(tree, id)?;
     Some(tree.control::<Rows>(rows)?.grid.as_ref()?.cols())
+}
+
+/// The columns a grid's view is wide (`RecalcCellCount`, `+0x23c`): where `GetFirstFreePos` counts.
+pub fn grid_view_columns(tree: &Tree, id: Id) -> Option<usize> {
+    let (_, _, rows) = parts(tree, id)?;
+    Some(tree.control::<Rows>(rows)?.grid.as_ref()?.view_cols())
 }
 
 /// A grid cell's rectangle on screen (the window's content at `origin`): `GridPosToViewPos`.
@@ -953,6 +967,10 @@ pub fn set_items(tree: &mut Tree, id: Id, items: Vec<Item>) {
             r.selected = None;
         }
         r.items = items;
+        let used = r.items.iter().filter_map(|i| i.pos).map(|(x, _)| x + 1).max().unwrap_or(0);
+        if let Some(g) = r.grid.as_mut().or(r.stash.as_mut()) {
+            g.used_columns = used;
+        }
     }
     sort(tree, id);
     tree.relayout = true;
@@ -1108,6 +1126,24 @@ mod tests {
         g.labels = vec![((2, 4), String::new())];
         let r = Rows::new(Some(g.clone()));
         assert_eq!(r.grid_size(&g, None), Point::new(20.0 + 3.0 * 105.0 - 21.0, 20.0 + 5.0 * 102.0 - 18.0));
+    }
+
+    #[test]
+    fn a_grid_not_arranged_keeps_its_items_columns() {
+        // (`RecalcVirtualSize`: without auto arrange the grid is as wide as the view, or as the items' cells reach; an
+        // item in the fifth column stays there in a view three columns wide)
+        let mut g = GridMode::new(21, 3);
+        g.auto_arrange = false;
+        let mut r = Rows::new(Some(g.clone()));
+        r.items = vec![Item { pos: Some((4, 1)), ..item(1, "a") }];
+        g.used_columns = 5;
+        assert_eq!((g.view_cols(), g.cols()), (3, 5));
+        assert_eq!(r.item_cell(&g, 0), (4, 1));
+        assert_eq!(r.grid_size(&g, None).x, 12.0 + 5.0 * 58.0 - 11.0);
+        assert_eq!(g.cell_at(Point::new(6.0 + 4.0 * 58.0 + 1.0, 6.0 + 58.0 + 1.0)), Some((4, 1)));
+        // (arranged, the view's own columns)
+        g.auto_arrange = true;
+        assert_eq!(g.cols(), 3);
     }
 
     #[test]

@@ -131,6 +131,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Item requirements "on target" are judged against the selected target: with nothing selected such an item is refused, as in the original.
 - More item and nano requirements are judged by the client: wielding a given item, having or running a nano, a perk lock, free backpack space.
 - Requirement lines in item and nano descriptions read as in the original for items, nanos, perks, pets, teams and places.
+- Items placed by hand in the inventory, bank and bags keep their column and row when the window is resized, as in the original.
 
 ### The launcher
 

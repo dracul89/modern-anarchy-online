@@ -375,9 +375,9 @@ pub struct LootWindow {
     /// How many of the stack taken up are in hand (a split to be made; 0: the whole item).
     split: u32,
     /// The place a split's new stack will take and the cell it was let go on, until it is there.
-    awaited: Option<(u32, usize, std::time::Instant)>,
+    awaited: Option<(u32, crate::places::Cell, std::time::Instant)>,
     /// The bank's cell an item put in was let go on, and since when: the next item that comes takes it.
-    awaited_cell: Option<(usize, std::time::Instant)>,
+    awaited_cell: Option<(crate::places::Cell, std::time::Instant)>,
     /// Feedback lines to be said, by their names (a stack that may not be split, stacks of another level).
     pub feedback: Vec<&'static str>,
     /// The item the right button went down on, and when: its menu comes 0.3 s later.
@@ -590,7 +590,7 @@ impl LootWindow {
         }
         self.keeper.before(&format!("{key}Config"), tree, list, (!in_list).then(|| arranged.unwrap_or((0, 0))));
         crate::gui::multilist::update(tree, list);
-        let grid_columns = crate::gui::multilist::grid_columns(tree, list).unwrap_or(3).max(1);
+        let view_columns = crate::gui::multilist::grid_view_columns(tree, list).unwrap_or(3).max(1);
         // (one's own backpack's cells are kept and counted whatever the view shows, so that "unsorted" is their order
         // and switching the arranging off finds them)
         // (an item dropped into the bank on a cell: the server gives it a place of its choosing, so the cell waits for
@@ -607,11 +607,11 @@ impl LootWindow {
         if awaited.is_some() && self.awaited.is_none() {
             self.awaited_cell = None;
         }
-        let cells = if view.placed() { crate::places::arrange(view.identity, &slots, view.room(), awaited) } else { crate::places::Cells::new() };
+        let cells = if view.placed() { crate::places::arrange(view.identity, &slots, view_columns, awaited) } else { crate::places::Cells::new() };
         if self.awaited.is_some_and(|(place, _, _)| items.iter().any(|i| i.slot == place)) {
             self.awaited = None;
         }
-        let now: Vec<(u32, u16, Option<u32>, Option<(usize, usize)>)> = items.iter().map(|i| (i.slot, i.count, i.icon.as_ref().map(|c| c.id), cells.get(&i.slot).filter(|_| hand).map(|c| (c % grid_columns, c / grid_columns)))).collect();
+        let now: Vec<(u32, u16, Option<u32>, Option<(usize, usize)>)> = items.iter().map(|i| (i.slot, i.count, i.icon.as_ref().map(|c| c.id), cells.get(&i.slot).filter(|_| hand).copied())).collect();
         if self.shown != now {
             let rows: Vec<crate::gui::multilist::Item> = items
                 .iter()
@@ -628,7 +628,7 @@ impl LootWindow {
                         (4, crate::gui::multilist::CellView::Text(i.quality.to_string())),
                     ],
                     keys: vec![
-                        (0, format!("{:08}", cells.get(&i.slot).map_or(i.slot as usize, |c| *c))),
+                        (0, cells.get(&i.slot).map_or_else(|| format!("{:08}", i.slot), |(x, y)| format!("{y:04}{x:04}"))),
                         (1, i.name.to_lowercase()),
                         (2, format!("{:010}", i.count.max(1))),
                         (4, format!("{:010}", i.quality)),
@@ -642,7 +642,9 @@ impl LootWindow {
             crate::gui::multilist::set_items(tree, list, rows);
             self.shown = now;
         }
-        let mut hovered_cell: Option<usize> = None;
+        // (the slots are counted along the rows of the grid's columns, no fewer than the items' cells reach)
+        let grid_columns = crate::gui::multilist::grid_columns(tree, list).unwrap_or(3).max(1);
+        let mut hovered_cell: Option<crate::places::Cell> = None;
         let mut hovered_item: Option<u32> = None;
         // (a menu or a question about an item of another container, or of an item no longer there, goes)
         if self.item_menu.as_ref().is_some_and(|m| !m.0.still(view)) {
@@ -715,7 +717,7 @@ impl LootWindow {
                 }
                 let hovered = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::item_at(tree, list, response.rect.min, at));
                 // (the cell under the pointer, with an item or not: where an item of the backpack is put by hand)
-                hovered_cell = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::cell_at(tree, list, response.rect.min, at)).map(|(x, y)| y * grid_columns + x).filter(|c| hand && *c < view.room());
+                hovered_cell = ui.input(|i| i.pointer.hover_pos()).and_then(|at| crate::gui::multilist::cell_at(tree, list, response.rect.min, at)).filter(|(x, y)| hand && y * grid_columns + x < view.room());
                 hovered_item = hovered.map(|slot| slot as u32);
                 // (a right click takes the item: the list's use signal, FUN_1004141b's button 2; not on a corpse, whose
                 // list has the feature flag 0x400 (FUN_100ce55d) that makes button 2 do nothing there (the container
@@ -827,14 +829,14 @@ impl LootWindow {
                     && let Some(held) = view.items.iter().find(|i| i.slot == place)
                 {
                     use crate::places::Placing;
-                    let cell = hovered_cell.unwrap_or(0);
+                    let cell = hovered_cell.unwrap_or((0, 0));
                     let stack = |i: &GearItem| crate::places::Stack { place: i.slot, low: i.item_id, high: i.high_id, quality: i.quality, can: i.can, count: i.count as u32 };
                     let onto = if hand { crate::places::at(&cells, cell).and_then(|p| view.items.iter().find(|i| i.slot == p)) } else { hovered_item.filter(|p| *p != place).and_then(|p| view.items.iter().find(|i| i.slot == p)) };
                     match (crate::places::placing(&stack(held), split, onto.map(stack).as_ref()), onto) {
                         (Placing::Move, _) if hand => {
                             crate::places::put(view.identity, place, cell);
                             if crate::gear::traced() {
-                                eprintln!("items: the container's place {place} put into cell {cell}");
+                                eprintln!("items: the container's place {place} put into cell {cell:?}");
                             }
                         }
                         // (not in the bank: how its stacks' joining goes on the wire is not known here, so an item let
@@ -851,7 +853,7 @@ impl LootWindow {
                             }
                             crate::places::exchange(view.identity, place, other.slot);
                             if crate::gear::traced() {
-                                eprintln!("items: the container's places {place} and {} change cells: place {place} into cell {cell}, the other in hand", other.slot);
+                                eprintln!("items: the container's places {place} and {} change cells: place {place} into cell {cell:?}, the other in hand", other.slot);
                             }
                             self.dragging = Some(other.slot);
                             self.taken_up = ctx.cumulative_frame_nr();
@@ -866,7 +868,7 @@ impl LootWindow {
                                     take = Some(Take::Split { handle: view.handle, place, count: split });
                                     self.awaited = free.filter(|_| hand).map(|free| (free, cell, std::time::Instant::now()));
                                     if crate::gear::traced() {
-                                        eprintln!("items: {split} of the container's place {place} split off into cell {cell}");
+                                        eprintln!("items: {split} of the container's place {place} split off into cell {cell:?}");
                                     }
                                 }
                             }
@@ -996,8 +998,9 @@ impl LootWindow {
                     if let Some(new) = arrange_choice(other, arranged) {
                         // (`SetAutoArrange(false)`: each item stays in the cell the arranging had it in)
                         if new.is_none() && view.placed() {
+                            let columns = crate::gui::multilist::grid_view_columns(tree, list).unwrap_or(3).max(1);
                             for (cell, id) in crate::gui::multilist::order(tree, list).into_iter().enumerate() {
-                                crate::places::put(view.identity, id as u32, cell);
+                                crate::places::put(view.identity, id as u32, (cell % columns, cell / columns));
                             }
                         }
                         self.grid_sort = Some(new);
