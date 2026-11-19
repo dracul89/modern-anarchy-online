@@ -102,6 +102,13 @@ fn line_shows(line: &Line, pane: Option<&Pane>, only: Option<&str>) -> bool {
     }
 }
 
+/// Whether a tell from or to a character counts as one not read (FUN_100a7394): not when the character's tell window
+/// is open (it is written there), nor when a chat window that is up has shown it (the `param_2` FUN_100a681d and
+/// FUN_100a5f39 pass).
+fn counts_unread(window_open: bool, shown: bool) -> bool {
+    !window_open && !shown
+}
+
 /// Something to send on the chat connection.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Out {
@@ -200,6 +207,8 @@ enum Menu {
     Solid,
     /// The right button on a character's name (FUN_1008e5ea): ignore, open the tell window, start a tell.
     Name,
+    /// A chat window's menu from the friends list (FUN_100a8a69): its entries this client has no other menu for.
+    Window,
 }
 
 /// An entry of an open menu with what choosing it means: the menu it is of, its key there, and its sub-menu's.
@@ -303,6 +312,9 @@ pub struct ChatWindow {
     /// The tell windows open: each one's place among them (its window and input bar go by it, so a layout is kept for
     /// the first, the second, not for every character ever told) and its character.
     tells: Vec<(usize, String)>,
+    /// Each character's tells not read yet, by the name in lower case: the original's `FriendListNode_c` +0x34, which
+    /// the friends list shows by a flashing row and a red folder ([`ChatWindow::unread`]).
+    unread: std::collections::BTreeMap<String, u32>,
     /// The character whose tell window's input bar is being drawn: a plain line typed there is a tell.
     telling: Option<String>,
     /// The name menu's character, and the frame whose input bar "Send Tell" types into (`None`: the chat window's).
@@ -345,7 +357,7 @@ pub struct ChatWindow {
 
 impl Default for ChatWindow {
     fn default() -> Self {
-        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), start_pending: None, outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0, away: Default::default(), scripts: Default::default(), filter: crate::chatfilter::Filter::load(), macro_made: None, unkept: false, carried: None, strips: Vec::new() }
+        ChatWindow { open: true, log: false, lines: Vec::new(), panes: chatgroups::defaults(), loaded_for: None, tab: 0, shown: Default::default(), menu_pane: 0, inputs: Default::default(), focus_frame: None, born: Vec::new(), fade_times: (8.0, 0.3), menu: None, popup: None, config: Default::default(), invite_action: 1, warn_unshown: true, invites: Vec::new(), start_pending: None, outs: Vec::new(), demo: None, names: Default::default(), tells: Vec::new(), unread: Default::default(), telling: None, menu_name: Default::default(), raise: None, focus_tries: 0, demo_name: None, input: String::new(), selected: 0, focus_next: false, last_tell: None, scroll_to_end: true, keep_list: false, ignored: load_ignored(), history: Vec::new(), recalled: None, links: Vec::new(), tip_of_the_day: 0, away: Default::default(), scripts: Default::default(), filter: crate::chatfilter::Filter::load(), macro_made: None, unkept: false, carried: None, strips: Vec::new() }
     }
 }
 
@@ -527,6 +539,15 @@ fn menu_text(name: &str) -> String {
         "IgnoreUser" => "Ignore",
         "OpenChat" => "Open chat",
         "SendTell" => "Send tell",
+        "EnableClickthrough" => "Clicks go through",
+        "ChatWindowMenu_DeactivateOnSend" => "Stop typing once sent",
+        "ChatWindowMenu_DefaultWindow" => "Default window",
+        "ShowChatWindow" => "Show the window",
+        "ShowLogWindow" => "Show the message log",
+        "LogMessages" => "Log messages",
+        "RenameX" => "Rename %s",
+        "DeleteX" => "Delete %s",
+        "CloneX" => "Copy %s",
         "own:detach" => "Move to a window of its own",
         "own:attach" => "Move into the window of %s",
         _ => name,
@@ -673,6 +694,55 @@ impl ChatWindow {
         main
     }
 
+    /// The chat windows' names, in their order (the friends list's "Chat Windows").
+    pub fn window_names(&self) -> Vec<String> {
+        self.panes.iter().map(|p| p.name.clone()).collect()
+    }
+
+    /// A chat window's menu as the friends list's right button opens it (FUN_100a8a69): "Visual" (the window menu's own,
+    /// FUN_1009a00d), a separator, "Enable Click-through", "Disable Text Input", "Deactivate On Send", a separator,
+    /// "Default Window", "Auto Subscribe Channels", a separator, "Show Chat Window", "Show Log Window", "Log Messages",
+    /// a separator, "Rename %s", "Delete %s", "Clone %s" with the window's name and "New Window" (FUN_1009b901). The
+    /// click-through, deactivating on send, the default window and the log window are not in this client: their
+    /// entries are drawn and cannot be chosen.
+    fn window_menu_tree(&self) -> Vec<Node> {
+        use crate::gui::popup::Entry;
+        let Some(pane) = self.panes.get(self.menu_pane) else { return Vec::new() };
+        let named = |label: &str| menu_text(label).replace("%s", &pane.name);
+        let not_here = |label: &str| Node::leaf(Menu::Window, "", Entry::marked(menu_text(label), false, false));
+        let mut nodes: Vec<Node> = self.menu_tree().into_iter().take(1).collect();
+        nodes.extend([
+            Node::separator(Menu::Window),
+            not_here("EnableClickthrough"),
+            Node::leaf(Menu::Visual, "noinput", Entry::marked(menu_text("DisableTextInput"), true, !pane.look.input)),
+            not_here("ChatWindowMenu_DeactivateOnSend"),
+            Node::separator(Menu::Window),
+            not_here("ChatWindowMenu_DefaultWindow"),
+            Node::leaf(Menu::Main, "auto", Entry::marked(menu_text("ChatWindowMenu_AutoSubscribeChannels"), true, pane.auto)),
+            Node::separator(Menu::Window),
+            Node::leaf(Menu::Window, "show", Entry::marked(menu_text("ShowChatWindow"), true, self.open)),
+            not_here("ShowLogWindow"),
+            Node::leaf(Menu::Window, "log", Entry::marked(menu_text("LogMessages"), true, self.log)),
+            Node::separator(Menu::Window),
+            Node::leaf(Menu::Main, "rename", Entry::text(named("RenameX"), true)),
+            Node::leaf(Menu::Main, "delete", Entry::text(named("DeleteX"), self.panes.len() > 1)),
+            Node::leaf(Menu::Window, "clone", Entry::text(named("CloneX"), true)),
+            Node::leaf(Menu::Main, "new", Entry::text(menu_text("NewWindow"), true)),
+        ]);
+        nodes
+    }
+
+    /// Opens a chat window's menu (FUN_100a8a69) at a place: the friends list's right button on the window's row.
+    pub fn window_menu(&mut self, ctx: &egui::Context, pane: usize, at: egui::Pos2) {
+        if pane >= self.panes.len() {
+            return;
+        }
+        self.menu_pane = pane;
+        let nodes = self.window_menu_tree();
+        self.popup = Some(crate::chrome::menu_of(ctx, at, popup_entries(&nodes)));
+        self.menu = Some((nodes, at));
+    }
+
     /// Opens the window's menu at a place, with one of its sub-menus up when one is named.
     fn open_menu(&mut self, ctx: &egui::Context, at: egui::Pos2, sub: Option<Menu>) {
         let nodes = self.menu_tree();
@@ -703,6 +773,17 @@ impl ChatWindow {
         let tab = self.menu_pane.min(self.panes.len().saturating_sub(1));
         match (menu, key) {
             (Menu::Main, "config") => self.config.open = !self.config.open,
+            // (FUN_100a8a69's own: the window shown or hidden, its lines logged or not, a copy of it in a frame of its
+            // own as the chat configuration's "Clone Window" makes)
+            (Menu::Window, "show") => self.open = !self.open,
+            (Menu::Window, "log") => self.log = !self.log,
+            (Menu::Window, "clone") => {
+                if let Some(mut pane) = self.panes.get(tab).cloned() {
+                    pane.name = chatgroups::free_name(&self.panes);
+                    pane.frame = pane.name.clone();
+                    self.panes.push(pane);
+                }
+            }
             (Menu::Main, "rename") => self.config.rename(tab, &self.panes),
             // (always behind and always on top are the frame's: every window in it)
             (Menu::Visual, "behind" | "top") => {
@@ -796,6 +877,15 @@ impl ChatWindow {
             if let Some(from) = &line.from {
                 self.last_tell = Some(from.clone());
             }
+        }
+        // (a tell from or to a character, FUN_100a681d and FUN_100a5f39, is kept with the character, FUN_100a7394: with
+        // its tell window up it goes there; else it is one more not read, unless a chat window that is up shows the
+        // tells' group, FUN_1008543d(1))
+        if matches!(line.kind, Kind::Tell | Kind::Own | Kind::AwayReply)
+            && let Some(who) = &line.from
+            && counts_unread(self.tell_open(who), self.group_up(&group))
+        {
+            *self.unread.entry(who.to_lowercase()).or_default() += 1;
         }
         self.lines.push(line);
         self.born.push(std::time::Instant::now());
@@ -958,8 +1048,24 @@ impl ChatWindow {
         self.tells.iter().map(|t| t.1.as_str()).collect()
     }
 
+    /// Whether a character's tell window is open (FUN_100a74bc, which selects its row in the friends list).
+    pub fn tell_open(&self, name: &str) -> bool {
+        self.tells.iter().any(|t| t.1.eq_ignore_ascii_case(name))
+    }
+
+    /// How many of a character's tells are not read yet (`FriendListNode_c` +0x34).
+    pub fn unread(&self, name: &str) -> u32 {
+        self.unread.get(&name.to_lowercase()).copied().unwrap_or(0)
+    }
+
+    /// Whether a chat window that is up shows a group (FUN_1008543d with 1: a window whose frame is there, +0xd0, and
+    /// that shows the group). Every frame of chat windows is up while the chat window is.
+    fn group_up(&self, group: &str) -> bool {
+        self.open && self.panes.iter().any(|p| p.selected.contains(group))
+    }
+
     /// Opens the tell window for a character (`ChatGUIModule_c::OpenTellWindow`), or brings up the one open, and
-    /// starts typing in it.
+    /// starts typing in it. Its tells are read then: FUN_100a7ca7 sets the count back to 0 as it opens the window.
     pub fn open_tell(&mut self, name: &str) {
         let slot = match self.tells.iter().find(|t| t.1.eq_ignore_ascii_case(name)) {
             Some(t) => t.0,
@@ -967,11 +1073,21 @@ impl ChatWindow {
                 let slot = (0..).find(|s| !self.tells.iter().any(|t| t.0 == *s)).unwrap_or(0);
                 self.tells.push((slot, name.to_string()));
                 self.focus_tries = 2;
+                self.unread.remove(&name.to_lowercase());
                 slot
             }
         };
         self.raise = Some(slot);
         self.focus_frame = Some(Self::tell_frame(slot));
+    }
+
+    /// Closes a character's tell window (FUN_100a7ca7 with false: the friends list's press on the row of a character
+    /// whose window is open).
+    pub fn close_tell(&mut self, name: &str) {
+        if let Some(slot) = self.tells.iter().find(|t| t.1.eq_ignore_ascii_case(name)).map(|t| t.0) {
+            self.tells.retain(|t| t.0 != slot);
+            self.inputs.remove(&Self::tell_frame(slot));
+        }
     }
 
     /// Asks for the tell window of a character: the chat server is asked for the name first (FUN_1008a2c1 opens the
@@ -1743,8 +1859,9 @@ impl ChatWindow {
         for name in chatgroups::take_tells() {
             self.open_tell(&name);
         }
-        // (the tell windows are windows of their own: they stay when the chat window is closed)
-        if !self.open && self.tells.is_empty() {
+        // (the tell windows are windows of their own: they stay when the chat window is closed; so does a chat window's
+        // menu the friends list opened)
+        if !self.open && self.tells.is_empty() && self.popup.is_none() {
             return None;
         }
         let mut out = None;
@@ -2216,6 +2333,61 @@ mod tests {
         assert_eq!(w.run("/s HEY"), Some(Out::Vicinity { kind: 2, text: "HEY".into() }));
         w.panes[0].output = "System".into();
         assert_eq!(w.run("hello"), Some(Out::Vicinity { kind: 0, text: "hello".into() }));
+    }
+
+    /// When a character's tells count as not read (FUN_100a7394) and when reading them clears the count (FUN_100a7ca7).
+    #[test]
+    fn tells_not_read_are_counted_until_the_tell_window_opens() {
+        let mut w = ChatWindow::default();
+        let tell = |from: &str| Line { kind: Kind::Tell, text: format!("[{from}]: hi"), from: Some(from.into()), markup: None, group: String::new(), at: None };
+        // (a chat window that is up shows the tells: none counts)
+        w.push(tell("Zed"));
+        assert_eq!(w.unread("zed"), 0);
+        // (with the chat window shut, each one counts, the echo of one sent too)
+        w.open = false;
+        w.push(tell("Zed"));
+        w.push(tell("ZED"));
+        w.send_tell("Zed".into(), "back".into());
+        assert_eq!(w.unread("Zed"), 3);
+        // (with the window up but no window showing the tells' group, they count too)
+        w.open = true;
+        for p in &mut w.panes {
+            p.selected.remove(chatgroups::TELLS);
+        }
+        w.push(tell("Abe"));
+        assert_eq!(w.unread("abe"), 1);
+        // (opening the tell window reads them; while it is open, none count)
+        w.open_tell("zed");
+        assert_eq!(w.unread("Zed"), 0);
+        w.push(tell("Zed"));
+        assert_eq!(w.unread("Zed"), 0);
+        // (shut again, they count again)
+        w.close_tell("Zed");
+        assert!(!w.tell_open("zed"));
+        w.push(tell("Zed"));
+        assert_eq!((w.unread("Zed"), w.unread("Abe")), (1, 1));
+        assert!(counts_unread(false, false) && !counts_unread(true, false) && !counts_unread(false, true));
+    }
+
+    /// The friends list's menu of a chat window (FUN_100a8a69): the original's entries in its order, those this client
+    /// cannot carry out drawn but not to be chosen.
+    #[test]
+    fn a_chat_windows_menu_from_the_friends_list() {
+        let mut w = ChatWindow::default();
+        w.menu_pane = 1;
+        let nodes = w.window_menu_tree();
+        let keys: Vec<(String, bool)> = nodes.iter().map(|n| (n.key.clone(), n.entry.enabled)).collect();
+        let want = [("visual", true), ("", true), ("", false), ("noinput", true), ("", false), ("", true), ("", false), ("auto", true), ("", true), ("show", true), ("", false), ("log", true), ("", true), ("rename", true), ("delete", true), ("clone", true), ("new", true)];
+        assert_eq!(keys, want.iter().map(|(k, e)| (k.to_string(), *e)).collect::<Vec<_>>());
+        assert!(nodes[13].entry.label.contains("Combat"));
+        // (its own entries: the window shown or not, logged or not, copied into a frame of its own)
+        let ctx = egui::Context::default();
+        w.choose(&ctx, Menu::Window, "show", egui::Pos2::ZERO);
+        w.choose(&ctx, Menu::Window, "log", egui::Pos2::ZERO);
+        w.choose(&ctx, Menu::Window, "clone", egui::Pos2::ZERO);
+        assert!(!w.open && w.log);
+        assert_eq!(w.panes.len(), 3);
+        assert_eq!((w.panes[2].selected.clone(), w.panes[2].frame.clone()), (w.panes[1].selected.clone(), w.panes[2].name.clone()));
     }
 
     #[test]

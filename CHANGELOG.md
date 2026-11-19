@@ -255,6 +255,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - /macro, /waypoint, /befriend, /viewdist, /chardist, /char&viewdist and /bug no longer add a confirmation line in chat.
 - The NPC chat window no longer says how many items were given back, and its answers disappear once one is clicked, as in the original.
 - /version asks the server for its version, as the original client does, instead of printing this client's version.
+- The friends list flashes a character's row while their tells are unread, turns its folder's label red, and selects the row while their tell window is open; a press on the row opens or closes the tell window.
+- The friends list's "Chat Windows" lists every chat window; right-click one for its menu (show, log, rename, delete, copy, new window).
+- A channel's name in a chat line is a link: press it to talk in that channel, or Shift/Ctrl+press to start a /group line.
 
 ### Movement
 

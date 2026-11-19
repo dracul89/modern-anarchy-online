@@ -2001,9 +2001,11 @@ fn run(args: &[String]) -> Result<(), String> {
                             .split(',')
                             .enumerate()
                             .filter_map(|(i, e)| {
-                                // (`name:1` online, `name:0` offline, `name:r` one of the recent messages)
+                                // (`name:1` online, `name:0` offline, `name:r` one of the recent messages; marks after it
+                                // are the preview's, `ui.rs`)
                                 let (name, online) = e.split_once(':')?;
-                                Some(friends::Friend { id: i as u32 + 1, name: name.trim().to_string(), online: online.trim() == "1", recent: online.trim() == "r" })
+                                let online = online.trim();
+                                Some(friends::Friend { id: i as u32 + 1, name: name.trim().to_string(), online: online.starts_with('1'), recent: online.starts_with('r') })
                             })
                             .collect();
                         let mut window = friends::FriendsWindow::default();

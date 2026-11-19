@@ -1277,7 +1277,15 @@ impl Ui {
             }
             if friends_window.open {
                 let (outs, acts) = {
-                    let around = crate::friends::Around { ignored: &|name| chat_window.is_ignored(name), mail: mail.open, chat_open: chat_window.open };
+                    let around = crate::friends::Around {
+                        ignored: &|name| chat_window.is_ignored(name),
+                        mail: mail.open,
+                        chat_open: chat_window.open,
+                        unread: &|name| chat_window.unread(name),
+                        tell_open: &|name| chat_window.tell_open(name),
+                        invited: &|_| false,
+                        windows: chat_window.window_names(),
+                    };
                     friends_window.show(&ctx, &hud.friends, &around, palette)
                 };
                 requests.chat.extend(outs);
@@ -1285,6 +1293,9 @@ impl Ui {
                     match act {
                         // (FUN_100a7ca7: the character's tell window)
                         crate::friends::Act::Tell(name) => chat_window.ask_tell(&name),
+                        crate::friends::Act::CloseTell(name) => chat_window.close_tell(&name),
+                        crate::friends::Act::Invitation(_) => {}
+                        crate::friends::Act::WindowMenu(pane, at) => chat_window.window_menu(&ctx, pane, at),
                         crate::friends::Act::Ignore(name) => chat_window.toggle_ignore(&name),
                         crate::friends::Act::Mail(name) => mail.message.compose(&name, ""),
                         crate::friends::Act::ChatWindow(open) => chat_window.open = open,
@@ -1970,7 +1981,20 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 window.show(&ctx, &hud.programs, &palette);
             }
             if let Some(window) = preview_friends.as_mut() {
-                window.show(&ctx, &hud.friends, &crate::friends::Around { ignored: &|name| name == "Ignored", mail: true, chat_open: true }, &palette);
+                // (`MAO_FRIENDS=Name:1u`: a character with a tell not read, `Name:1o` one whose tell window is open, `Name:ri` one
+                // whose invitation waits)
+                let marks = |mark: char| -> Vec<String> { std::env::var("MAO_FRIENDS").unwrap_or_default().split(',').filter_map(|e| e.split_once(':')).filter(|(_, m)| m.contains(mark)).map(|(n, _)| n.trim().to_string()).collect() };
+                let (unread, open, invited) = (marks('u'), marks('o'), marks('i'));
+                let around = crate::friends::Around {
+                    ignored: &|name| name == "Ignored",
+                    mail: true,
+                    chat_open: true,
+                    unread: &|name| u32::from(unread.iter().any(|n| n == name)),
+                    tell_open: &|name| open.iter().any(|n| n == name),
+                    invited: &|name| invited.iter().any(|n| n == name),
+                    windows: vec!["Default Window".to_string(), "Combat".to_string()],
+                };
+                window.show(&ctx, &hud.friends, &around, &palette);
             }
             if let Some(view) = preview_info.as_mut() {
                 view.show(&ctx, &palette);

@@ -1133,6 +1133,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] Enter playfield 4221 (a generated-building template; its first room) and 1186: the room props stand where the walls are, none floating or missing.
 - [ ] Cast a nano with a cast time of a second or more: the sparkle streaks come from both hands and follow them through the casting animation.
 - [ ] A hit effect on a target (stars or lightning of a nuke) and a running buff's sparkles sit at the body part (head, chest, hands) rather than at fixed heights; check on a small and a large body.
+- [ ] With the chat window shut (or no window showing Tell Messages), receive a tell: the sender's row in the friends list flashes and its folder label turns red; opening the tell window stops it.
+- [ ] Right-click a chat window under "Chat Windows" in the friends list: the menu comes up and Show/Log/Rename/Delete/Copy/New work.
+- [ ] Press a channel's name in a chat line: the window now talks to that channel; with Shift, "/group <name> " is typed.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
