@@ -4833,7 +4833,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: a menu entry's value is a window's open flag; only Inventory, Skills, Stats, Nano, NCU, Missions, Friends, Map, Actions, Mail and Options open client windows
 - A player notices: other menu entries do nothing
 - Where: `docs/CLIENT_UI.md:182`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The game's own ActionMenu scripts (cd_image/gui/Default/ActionMenu, read by ControlMenu_c FUN_10071d7d) name 25 windows; three the client has were not tied to their menu values: `team_view` (RightMenu.xml's Team entry) now opens the team window, `mechselect_window` (LeftMenu.xml's Vehicle entry) the vehicle window, `chat_group_window` (Windows.xml's Chat Config) the chat configuration window (gui/controlcenter.rs WINDOWS; ui.rs window_open/set_window learn "team", "vehicles", "chatconfig"). Every `*_window` and `team_view` the game's menus name is now a client window. Test: gui::controlcenter::tests::the_games_menus_open_the_clients_windows (MAO_GAME).
 
 #### `WIN-032` Option panel pages come from an AOU skin's Root.xml, not the original's built-in pages
 

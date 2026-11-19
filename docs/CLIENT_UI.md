@@ -7169,3 +7169,7 @@ The original makes the inventory (`SlotInventoryActivated` 0x100c766b) and the w
 ### Mission selection window texts (WIN-029)
 
 The original's mission window (GUI.dll FUN_100d10fc) labels its seven sliders' ends with text.mdb 10000's QuestSel_* texts and its buttons with RequestMissions, AcceptMission and MsgBox_Cancel. The client reads the same texts; the window's layout is still the client's own.
+
+### Every window of the game's menus opens (WIN-031)
+
+The game's control-center menu scripts (ActionMenu/*.xml, ControlMenu_c FUN_10071d7d) name each window by its distributed value. The client now ties all of them to its windows, including the Team menu's Team entry (`team_view`), the Vehicle entry (`mechselect_window`) and Chat Config (`chat_group_window`) in the Help/Windows menu.

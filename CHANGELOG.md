@@ -91,6 +91,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A character the original client never played no longer starts with another character's window layout: its windows open at their own places.
 - The wear window is a window of its own again: Ctrl+1 and the Wear icon open it, I opens only the inventory.
 - The mission booth window's slider labels and buttons use the game's own texts.
+- The control center's Team > Team, Vehicle and Windows > Chat Config entries open their windows.
 
 ### Items
 

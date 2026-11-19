@@ -42,6 +42,9 @@ pub const WINDOWS: &[(&str, &str)] = &[
     ("pet_window", "pets"),
     ("raid_window", "raid"),
     ("lft_window", "lft"),
+    ("team_view", "team"),
+    ("mechselect_window", "vehicles"),
+    ("chat_group_window", "chatconfig"),
     ("knowledge_window", "knowledge"),
     ("tradeskill_window", "tradeskill"),
     ("research_window", "research"),
@@ -540,6 +543,28 @@ fn tip(ui: &egui::Ui, env: &Env, response: &egui::Response, e: &Entry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `MAO_GAME`: every window the game's own menus name (`*_window` and the Team menu's `team_view`, in
+    /// `cd_image/gui/Default/ActionMenu`) is one of the client's windows.
+    #[test]
+    fn the_games_menus_open_the_clients_windows() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let dir = std::path::Path::new(&game).join("cd_image/gui/Default/ActionMenu");
+        let mut names = std::collections::BTreeSet::new();
+        for f in std::fs::read_dir(&dir).unwrap().flatten().filter(|f| f.path().extension().is_some_and(|e| e == "xml")) {
+            let text = std::fs::read_to_string(f.path()).unwrap();
+            for part in text.split("name=\"").skip(1) {
+                let name = &part[..part.find('"').unwrap()];
+                if name.ends_with("_window") || name == "team_view" {
+                    names.insert(name.to_string());
+                }
+            }
+        }
+        assert!(names.len() > 20);
+        for name in names {
+            assert!(WINDOWS.iter().any(|(dv, _)| *dv == name), "{name}");
+        }
+    }
 
     /// The bundled AOU skins' control centers: their menu rows show (the values from the game's Default and the skin's
     /// LoginPrefs) and hold their scripts' buttons. Needs `MAO_GAME` for the Default values.
