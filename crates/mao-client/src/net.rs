@@ -240,8 +240,6 @@ struct World {
     levels: BTreeMap<u32, u8>,
     /// The organization name of the characters an `OrgInfoPacket` told about.
     orgs: BTreeMap<u32, String>,
-    /// Nano programs that landed: (target, nano id), to be drawn as glows.
-    landed: Vec<(u32, u32)>,
     /// Casts to show the cast effect of: (caster, nano program).
     cast_bursts: Vec<(u32, u32, u32, f32)>,
     /// When a character last cast a nano on itself, by (character, nano): the server repeats an aura's cast every few seconds.
@@ -3074,24 +3072,6 @@ impl World {
         if (m.kind == 0x25192476 || m.kind == 0x1c3a4f77) && m.data.len() >= 17 {
             self.died_of(m.identity.1, u32::from_be_bytes(m.data[13..17].try_into().unwrap()) as i64);
         }
-        // `AreaFormula` (`3129233b`): an area nano landing on the characters listed. `AreaFormulaIIR_t` reads (FUN_100721dc) a
-        // byte, the characters (an `x3f1` list of identities), the nano (`0xcf1b` id: 0x3e380, 0x18762) and its source; the
-        // apply (FUN_1007212d → FUN_100a9a99) runs the nano on each listed character the client has (its nano holder +0x1c0,
-        // FUN_10051c98, as a cast landing: FUN_1005141d).
-        if m.kind == 0x3129233b && m.data.len() >= 5 {
-            let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
-            let count = (word(1) / 0x3f1).saturating_sub(1) as usize;
-            let end = 5 + count * 8;
-            if m.data.len() >= end + 12 {
-                let nano = word(end);
-                for i in 0..count {
-                    let target = word(5 + i * 8 + 4);
-                    if target == self.own || self.entities.contains_key(&target) || self.names.contains_key(&target) {
-                        self.landed.push((target, nano));
-                    }
-                }
-            }
-        }
         // A nano cast: told when it is the character's own or is cast on it.
         if m.kind == 0x25314d6d {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -3115,7 +3095,6 @@ impl World {
                     }
                     let plays = self.nano_casts.cast(caster, target, nano, &|n, s| nano_stat(n, s));
                     self.cast_sounds.extend(plays.into_iter().map(|(id, delay, volume)| (caster, id, delay, volume)));
-                    self.landed.push((target, nano));
                     self.shots_pending.push((caster, target, nano));
                     // The caster plays its casting animation (at itself or at someone), when the nano takes time to cast.
                     // (one's own by its time with the initiative and the aggression setting taken off, `cast_seconds`;
@@ -11441,15 +11420,6 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         .into_iter()
                         .filter_map(|(id, at)| Some(([at[0], at[2], at[1]], mao_formats::gfx::Flare::read(gfx.as_ref()?.get(id)?)?)))
                         .collect(),
-                    glows: std::mem::take(&mut state.landed)
-                        .into_iter()
-                        .filter_map(|(id, nano)| {
-                            let at = if id == own { position } else { state.entities.get(&id)?.0 };
-                            let data = gear_db.get(mao_formats::resource::Id { kind: 0xfde85, instance: nano }).ok().flatten()?;
-                            let t = mao_formats::item::Item::parse(&data)?;
-                            Some(([at[0], at[2], at[1] + 1.2], crate::ui::glow_color(t.stat(460), t.stat(461), t.stat(462), t.stat(405).unwrap_or(0))))
-                        })
-                        .collect(),
                     floaters: std::mem::take(&mut state.damage)
                         .into_iter()
                         .filter(|(_, amount, _)| *amount != 0)
@@ -14055,21 +14025,6 @@ mod door_tests {
         assert_eq!(w.game_lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), vec!["You have been detected by Patrolling Guard!"]);
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("00000000a200000000000000000000000000000000000000000000") }.frame(1));
         assert!(w.sneaking.contains(&own));
-    }
-
-    /// The 16:55 capture's area nanos: one landing on the character (from 0x7b1b1847), one on two others.
-    #[test]
-    fn an_area_formula_lands_on_each_listed_character() {
-        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
-        let own = 0x7b1a0021;
-        let mut w = World { own, ..World::default() };
-        w.add(&Message { kind: 0x3129233b, identity: (0xc350, own), data: hex("00000007e20000c3507b1a00210003e3800000c3507b1b1847") }.frame(1));
-        assert_eq!(w.landed, vec![(own, 0x3e380)]);
-        w.landed.clear();
-        w.names.insert(0x7b1ab833, ("A".into(), false));
-        w.names.insert(0x7b1abca9, ("B".into(), false));
-        w.add(&Message { kind: 0x3129233b, identity: (0xc350, 0x7b1a00b3), data: hex("0000000bd30000c3507b1ab8330000c3507b1abca9000187620000c3507b1a00b3") }.frame(1));
-        assert_eq!(w.landed, vec![(0x7b1ab833, 0x18762), (0x7b1abca9, 0x18762)]);
     }
 
     /// A special attack is refused as the original refuses it: one not in the list, one whose skill the server has

@@ -32,25 +32,6 @@ pub struct Floater {
     pub born: Instant,
 }
 
-/// A soft coloured burst over a point of the world (a nano program landing on someone).
-pub struct Glow {
-    pub world: Vec3,
-    pub color: [u8; 3],
-    pub born: Instant,
-}
-
-/// How long a glow lives, in seconds.
-pub const GLOW_LIFE: f32 = 1.1;
-
-/// The colour of a nano program's glow: its own effect colour stats when it has them, else one of a few by its school.
-pub fn glow_color(red: Option<u32>, green: Option<u32>, blue: Option<u32>, school: u32) -> [u8; 3] {
-    if let (Some(r), Some(g), Some(b)) = (red, green, blue) {
-        return [r.min(255) as u8, g.min(255) as u8, b.min(255) as u8];
-    }
-    const BY_SCHOOL: [[u8; 3]; 6] = [[120, 200, 255], [255, 170, 90], [150, 255, 150], [220, 140, 255], [255, 120, 140], [255, 235, 130]];
-    BY_SCHOOL[school as usize % BY_SCHOOL.len()]
-}
-
 /// How long a floating number lives, in seconds.
 pub const FLOATER_LIFE: f32 = 1.6;
 
@@ -85,7 +66,6 @@ pub struct Hud {
     pub lc_district: Option<(String, i32, i32)>,
     /// Numbers rising over the fight.
     pub floaters: Vec<Floater>,
-    pub glows: Vec<Glow>,
     /// The names floating over the characters and creatures near.
     pub nameplates: Vec<crate::nametag::Tag>,
     pub labels: Vec<Label>,
@@ -2594,21 +2574,6 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     crate::whiteout::draw(ctx, &painter, screen);
     // (no tags over the Whom-Pah booths: each booth's own sign says where it leads, and the tags stood over them on
     // top of everything. The booths' labels still fill the Whom-Pah window and the corner map's dots.)
-    // A nano program landing: rings that widen and fade around the target.
-    for g in &hud.glows {
-        let age = g.born.elapsed().as_secs_f32() / GLOW_LIFE;
-        if age >= 1.0 {
-            continue;
-        }
-        let Some([x, y]) = project(g.world) else { continue };
-        let at = egui::pos2(screen.left() + x * screen.width(), screen.top() + y * screen.height());
-        for (k, scale) in [1.0f32, 0.62, 0.3].into_iter().enumerate() {
-            let radius = (14.0 + age * 46.0) * scale;
-            let alpha = ((1.0 - age) * (60.0 + 40.0 * k as f32)) as u8;
-            painter.circle_filled(at, radius, egui::Color32::from_rgba_unmultiplied(g.color[0], g.color[1], g.color[2], alpha / 2));
-            painter.circle_stroke(at, radius, egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(g.color[0], g.color[1], g.color[2], alpha)));
-        }
-    }
     // The numbers of the fight: they rise and fade.
     for f in &hud.floaters {
         let age = f.born.elapsed().as_secs_f32();
@@ -3002,17 +2967,6 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
         });
     });
     *open = is_open && !close;
-}
-
-#[cfg(test)]
-mod glow_tests {
-    use super::*;
-
-    #[test]
-    fn a_glow_takes_its_own_colour_or_one_by_school() {
-        assert_eq!(glow_color(Some(10), Some(300), Some(5), 0), [10, 255, 5]);
-        assert_eq!(glow_color(None, Some(1), None, 7), glow_color(None, None, None, 1));
-    }
 }
 
 #[cfg(test)]

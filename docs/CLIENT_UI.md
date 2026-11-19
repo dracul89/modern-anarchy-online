@@ -7424,3 +7424,7 @@ The client no longer tells the server its walk or run mode on entering each play
 ### No backpack count heading (INV-082)
 
 The "Backpack 12/30" count described earlier is not in the client: the inventory window shows no such heading, as the original.
+
+### Nano landing glow removed (NAN-056)
+
+The client's own landing glow (three coloured rings widening round the target's chest for about a second, coloured by the program's effect colour stats or, without them, one of six colours by school) is gone. As in the original, a landing nano shows only its own effect from gfxtweak.bin (the program's HitEffectType, drawn with the cast). Area nanos (`AreaFormula`) draw nothing of their own yet: the original runs the nano's landing on each listed character (Gamecode FUN_1007212d -> FUN_1005141d), not ported.

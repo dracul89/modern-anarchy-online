@@ -1078,6 +1078,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Log in with an account that has no characters: the character screen comes up and New Character works.
 - [ ] With a character lacking Shadowlands, step into a Jobe booth: no box, no teleport.
 - [ ] Zone a few times running, and after a session that ended in walk mode: the server does not pull the running character back (no rubber-band).
+- [ ] Cast a nano on yourself and on a target: no coloured rings, the program's own hit effect still shows.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a
