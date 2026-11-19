@@ -455,7 +455,6 @@ impl SkillWindow {
                 if !raises.is_empty() {
                     crate::skills::push_raises(raises);
                     crate::tips::trigger("OnAcceptingSkillChanges", "");
-                    self.status = "Changes sent.".into();
                 }
                 self.pending.clear();
             } else if name == "Quit" {
@@ -476,7 +475,6 @@ impl SkillWindow {
                         Some(stat) => drop(self.pending.remove(&stat)),
                         None => self.pending.clear(),
                     }
-                    self.status = "Reset asked for.".into();
                 }
                 self.asking = None;
             }

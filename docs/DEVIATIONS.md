@@ -6396,7 +6396,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Own status texts such as "This skill has been disabled and can not be increased.", "Changes sent.", "Reset asked for."
 - A player notices: Extra text under the skills window.
 - Where: `crates/mao-client/src/skillwindow.rs:553`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): Removed the skills window's own "Changes sent." (after Accept) and "Reset asked for." (after a reset's Yes): GUI.dll's skill view has no such lines. Kept, as the original has a line at those points: "This skill has been disabled and can not be increased." (the original's own literal, FUN_100fe968), the IP refusal from text.mdb `Skill_LackIP` (category 502, FUN_100fe550), and the cap refusal (the original's is `N3Msg_SkillMaxFeedback`, FUN_100fdf13; the client's words "X cannot be raised further now." stand in until that text is ported). Tests: `skill` (20 pass).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE the client's own status texts where the original says nothing, keeping text.mdb's (Skill_LackIP) where it does; "Changes sent." and "Reset asked for." have no counterpart.
 
 #### `WIN-176` The client can build planet maps of its own and list any map folder

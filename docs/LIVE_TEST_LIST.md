@@ -1074,6 +1074,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Open a corpse and the overflow: no "Take all" row; a click takes one item.
 - [ ] Open a mail terminal and send a mail: no line under the inbox list, "n/30" still shown.
 - [ ] Inspect another player: the title reads "Inspect"; a right press on an item opens Look At / Create Reference, and both work.
+- [ ] Raise a skill and Accept: no "Changes sent." line; try a disabled skill: its line still shows.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

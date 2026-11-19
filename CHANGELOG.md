@@ -97,6 +97,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The mail inbox remembers its column widths and sort order.
 - The mail window no longer shows its own status line ("Sending ...", "Mail sent.", inbox count text); the "n/30" inbox size remains, as in the original.
 - The Inspect window is titled "Inspect" as in the original, and right-clicking an item opens its menu (Look At, Create Reference) instead of its info page.
+- The skills window no longer shows "Changes sent." or "Reset asked for."; refusals (disabled skill, cap, not enough IP) still show.
 
 ### Items
 

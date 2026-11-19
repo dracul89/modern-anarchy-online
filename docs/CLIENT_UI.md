@@ -7405,3 +7405,7 @@ The Inspect window is titled "Inspect" for everyone inspected, as the original's
 ### No "Trade complete." status in the shop (WIN-173)
 
 The client's own shop status text ("Trade complete.", "No open trade to buy in/sell in.") is gone; it was never shown. As the original's `TradeView_c`, the trade window says nothing of its own when a trade ends.
+
+### Skills window: no own confirmations (WIN-175)
+
+The skills window no longer writes "Changes sent." after Accept or "Reset asked for." after a reset; the original's skill view says nothing then. Its refusals stay: the disabled skill's line (GUI.dll FUN_100fe968), the IP line from text.mdb (`Skill_LackIP`, FUN_100fe550) and the cap's line (the original's `N3Msg_SkillMaxFeedback`, FUN_100fdf13; still the client's words here).
