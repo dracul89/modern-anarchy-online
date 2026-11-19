@@ -6993,3 +6993,7 @@ FUN_10057a2e picks the body and head by breed and sex: Solitus, Opifex and Nanom
 ### Statel effects to the view distance (RND-124)
 
 A statel's own effects (a campfire's fire, chimney smoke, a lamp's halo) run with the statel in the original (_EffectHandler_t::EnableEffect 0x100ce0dd); no distance limit of their own was found. The client used to make them only within 150 units of the eye; it now makes them out to the view distance, where the fog has hidden everything. Their start times are still staggered per place, the client's own.
+
+### Effects on the body's bones (RND-139)
+
+An effect's attach point 1000-1018 is a bone of the posed body in the original (FUN_10105e6d, table at 0x102c63a8: pelvis, spine to spine3, neck, head, upper arms, forearms, thighs, calves, feet, hands, each `Bip01 <name>_ac`), the head attractor when the body lacks it. The client now keeps the bones' posed frames with the attractors and places effect meshes and trails on them; before, such effects were not shown. The weapon (3000) and the mesh's attractor (3001) are not given yet.

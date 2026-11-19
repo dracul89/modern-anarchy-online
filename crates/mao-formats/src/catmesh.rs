@@ -491,6 +491,16 @@ impl CatMesh {
         self.groups.iter().flat_map(|g| &g.attractors).map(|a| (a.name.clone(), self.attractor_matrix(bones, a))).collect()
     }
 
+    /// Every bone of the body with its posed matrix (a row-vector matrix in the mesh's space, Y up), as
+    /// `RCATMesh_t::GetBoneMatrix` hands it out by the bone's whole name (`Bip01 Head_ac` and the like).
+    pub fn bone_frames(&self, bones: &[BoneMatrix]) -> Vec<(String, crate::model::Matrix)> {
+        self.bones
+            .iter()
+            .zip(bones)
+            .map(|(b, m)| (b.name.clone(), [m[0], m[1], m[2], 0.0, m[3], m[4], m[5], 0.0, m[6], m[7], m[8], 0.0, m[9], m[10], m[11], 1.0]))
+            .collect()
+    }
+
     /// A static mesh (`piece`, such as a head, a helmet or a weapon) held at
     /// an attractor: its vertices put through the attractor's placement
     /// (a position, a quaternion x y z w and a scale, in the bone's space)

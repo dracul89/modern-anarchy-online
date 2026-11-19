@@ -972,6 +972,29 @@ pub const ATTRACTOR_NAMES: [&str; 24] = [
     "Attractor30_beam",
 ];
 
+/// The bones of locators 1000–1018, in order (the name table at 0x102c63a8 in Gamecode.dll that FUN_10105e6d reads).
+pub const BONE_NAMES: [&str; 19] = [
+    "Bip01 Pelvis_ac",
+    "Bip01 Spine_ac",
+    "Bip01 Spine1_ac",
+    "Bip01 Spine2_ac",
+    "Bip01 Spine3_ac",
+    "Bip01 Neck_ac",
+    "Bip01 Head_ac",
+    "Bip01 L UpperArm_ac",
+    "Bip01 R UpperArm_ac",
+    "Bip01 L Forearm_ac",
+    "Bip01 R Forearm_ac",
+    "Bip01 L Thigh_ac",
+    "Bip01 R Thigh_ac",
+    "Bip01 L Calf_ac",
+    "Bip01 R Calf_ac",
+    "Bip01 L Foot_ac",
+    "Bip01 R Foot_ac",
+    "Bip01 L Hand_ac",
+    "Bip01 R Hand_ac",
+];
+
 impl Locator {
     /// The dynel's own frame: its feet (world, Z up) facing `heading`.
     pub fn feet(feet: [f32; 3], heading: f32) -> Locator {
@@ -991,12 +1014,16 @@ impl Locator {
         Locator { origin: [m[12], m[14], m[13]], axes: [unit(row(0)), unit(row(1)), unit(row(2))], scale: length(row(0)).max(1e-6) }
     }
 
-    /// The locator of attach point `attach` on a body whose attractors (by name, their frames in the server's frame) are
-    /// `attractors`, as FUN_10105e6d finds it: 2000–2023 the attractor of that name (`ATTRACTOR_NAMES`), else the head's
-    /// (`Attractor01_head`), else none (the control is then not shown). The bones (1000–1018), the weapon (3000) and the
-    /// mesh's own attractors (3001) are not given here.
+    /// The locator of attach point `attach` on a body whose attractors and bones (by name, their frames in the server's
+    /// frame) are `attractors`, as FUN_10105e6d finds it: 1000–1018 the posed bone of that name (`BONE_NAMES`, the whole
+    /// name as `RCATMesh_t::GetBoneMatrix` compares it), 2000–2023 the attractor of that name (`ATTRACTOR_NAMES`), either
+    /// else the head's (`Attractor01_head`), else none (the control is then not shown). The weapon (3000) and the mesh's
+    /// own attractors (3001) are not given here.
     pub fn attractor(attach: i32, attractors: &[(String, mao_formats::model::Matrix)]) -> Option<Locator> {
-        let name = ATTRACTOR_NAMES.get(usize::try_from(attach.checked_sub(2000)?).ok()?)?;
+        let name = match attach {
+            1000..=1018 => BONE_NAMES[(attach - 1000) as usize],
+            _ => ATTRACTOR_NAMES.get(usize::try_from(attach.checked_sub(2000)?).ok()?)?,
+        };
         let find = |wanted: &str| attractors.iter().find(|(n, _)| n == wanted).map(|(_, m)| Locator::from_matrix(m));
         find(name).or_else(|| find("Attractor01_head"))
     }
@@ -4405,9 +4432,15 @@ mod tests {
         let place = Locator::attractor(2006, &board).unwrap();
         assert_eq!(place.origin, [3.0, 0.5, 1.0]);
         assert!((place.scale - 1.2).abs() < 1e-5 && (place.axes[0][2] + 1.0).abs() < 1e-5);
-        // (a missing attractor falls back to the head's; the bones and the weapon are not given)
+        // (a missing attractor falls back to the head's, as does a missing bone; the weapon is not given)
         assert_eq!(Locator::attractor(2007, &board).unwrap().origin, [0.0, 0.0, 1.8]);
-        assert!(Locator::attractor(1006, &board).is_none() && Locator::attractor(3000, &board).is_none());
+        assert_eq!(Locator::attractor(1013, &board).unwrap().origin, [0.0, 0.0, 1.8]);
+        assert!(Locator::attractor(3000, &board).is_none() && Locator::attractor(999, &board).is_none() && Locator::attractor(1019, &board).is_none());
+        assert!(Locator::attractor(1006, &[("Attractor07_special".to_string(), special)]).is_none());
+        // (a bone by its whole name: 1014 the right calf)
+        let calf = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.1, 0.4, -0.2, 1.0];
+        let with_bones = vec![("Attractor01_head".to_string(), head), ("Bip01 L Calf_ac".to_string(), head), ("Bip01 R Calf_ac".to_string(), calf)];
+        assert_eq!(Locator::attractor(1014, &with_bones).unwrap().origin, [0.1, -0.2, 0.4]);
         let found = visual_meshes(&Visual::EffectMesh(fan.clone()), feet, 0.5, &|a| Locator::attractor(a, &board));
         assert_eq!(found.len(), 1);
         // the triangle a unit along x: grown 9.5 (and 1.2 by the body with 0x200), turned by the frame onto the server's −z

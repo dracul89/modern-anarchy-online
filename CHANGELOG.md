@@ -144,6 +144,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - A few playfields without water of their own (the Uturn and Foundry playfields among them) no longer show a flat sheet of water over their low ground.
 - Far campfires, chimneys and lamps keep their fire, smoke and halo out to the view distance instead of only within 150 m.
+- Effect meshes and trails attached to a body part (an arm, a leg, the spine) now show there.
 
 ## 0.1.6 (2026-11-18)
 

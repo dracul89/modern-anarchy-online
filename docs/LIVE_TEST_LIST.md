@@ -1003,6 +1003,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Launcher licence (2026-11-19): the first start shows the licence; I accept goes on and it does not come again
 - [ ] Uturn Canyon (6550) or Foundry of Nightmares: no water sheet over the low ground; a playfield with real water (Arete Landing coast) still shows it.
 - [ ] In a city with many lamps or fires, the far ones show their effects; check the frame rate stays fine.
+- [ ] Cast or watch a nano whose effect hangs on a limb (an effect mesh or trail on an arm or leg): it shows on the moving limb.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

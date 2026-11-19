@@ -7362,6 +7362,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: effects attached to a bone, weapon or mesh attractor do not show or sit elsewhere; vehicle effect meshes not toggled
 - Where: `crates/mao-client/src/effects.rs:996`; `crates/mao-client/src/effects.rs:1856`; `docs/ORIGINAL_AUDIT.md:302`
 - Decision: [ ] port  [ ] leave
+- Done in part (2026-11-19, overnight): The bone locators are ported: FUN_10105e6d (Gamecode) resolves 1000-1018 by the names at 0x102c63a8 (`Bip01 Pelvis_ac` ... `Bip01 R Hand_ac`, whole name, RCATMesh_t::GetBoneMatrix), falling back to `Attractor01_head`. The characters' frames (net.rs, three places) now carry each bone's posed matrix (new CatMesh::bone_frames) beside the attractors, and effects::Locator::attractor looks 1000-1018 up there (BONE_NAMES), so effect meshes and trails on a bone are drawn at it instead of not at all. Left: 3000 (the weapon's frame, FUN_1009c337 on a WeaponItem_t), 3001 (the mesh's attractor 0), the effect meshes' lighting and depth writes, the 0x200 body scale at the feet, the vehicle flags 0x2000/0x4000 and the mesh animation 0x1000 (catalogued separately as RND-152..154). The buff rings still use the client's own figures (RND-022). Test: effects::tests (the attractor test now checks a bone, the head fallback for a missing bone and 1019 refused).
 
 #### `RND-140` Statel zones of the second layout are not read
 
