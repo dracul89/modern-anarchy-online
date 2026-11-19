@@ -38,36 +38,36 @@ client does today, what a player notices, and where it is in the code.
 <!-- status: made by status.py; run it again after marking entries -->
 ## Where it stands
 
-Counted from the entries' own marks on 2026-11-18. "Open" is not looked at yet; "looked at, left" was read and not ported for a reason its entry gives; "left by decision" is your call to keep the client's way.
+Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; "looked at, left" was read and not ported for a reason its entry gives; "left by decision" is your call to keep the client's way.
 
-| | all | done | part done | looked at, left | left by decision | open |
-|---|---:|---:|---:|---:|---:|---:|
-| **high** | 54 | 46 | 5 | 0 | 1 | **2** |
-| **medium** | 158 | 6 | 4 | 0 | 0 | **148** |
-| **low** | 725 | 14 | 10 | 8 | 0 | **693** |
-| **all** | 937 | 66 | 19 | 8 | 1 | **843** |
+| | all | done | part done | looked at, left | left by decision | your call | open |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **high** | 54 | 46 | 7 | 0 | 1 | 0 | **0** |
+| **medium** | 158 | 6 | 4 | 0 | 0 | 0 | **148** |
+| **low** | 725 | 14 | 10 | 8 | 0 | 0 | **693** |
+| **all** | 937 | 66 | 21 | 8 | 1 | 0 | **841** |
 
 ### By area
 
-| Area | all | done | part done | looked at, left | left by decision | open |
-|---|---:|---:|---:|---:|---:|---:|
-| Movement (`MOV`) | 33 | 4 | 1 | 0 | 0 | **28** |
-| Combat (`CMB`) | 38 | 1 | 2 | 1 | 0 | **34** |
-| Targeting and mouse (`TGT`) | 17 | 2 | 0 | 0 | 1 | **14** |
-| Death and revival (`DTH`) | 14 | 2 | 0 | 0 | 0 | **12** |
-| NPCs and creatures (`NPC`) | 40 | 5 | 4 | 1 | 0 | **30** |
-| Inventory and items (`INV`) | 84 | 12 | 3 | 4 | 0 | **65** |
-| Nano programs (`NAN`) | 60 | 2 | 2 | 0 | 0 | **56** |
-| Zoning and playfields (`ZON`) | 28 | 2 | 0 | 1 | 0 | **25** |
-| Chat and commands (`CHT`) | 80 | 4 | 0 | 0 | 0 | **76** |
-| Windows and interface (`WIN`) | 180 | 16 | 5 | 1 | 0 | **158** |
-| Camera (`CAM`) | 13 | 1 | 0 | 0 | 0 | **12** |
-| Rendering and world (`RND`) | 194 | 7 | 1 | 0 | 0 | **186** |
-| Sound and music (`SND`) | 17 | 1 | 0 | 0 | 0 | **16** |
-| Launcher, login, character creation (`LCH`) | 51 | 2 | 0 | 0 | 0 | **49** |
-| Settings and files (`SET`) | 54 | 3 | 0 | 0 | 0 | **51** |
-| Network and protocol (`NET`) | 13 | 1 | 0 | 0 | 0 | **12** |
-| Other (`OTH`) | 21 | 1 | 1 | 0 | 0 | **19** |
+| Area | all | done | part done | looked at, left | left by decision | your call | open |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Movement (`MOV`) | 33 | 4 | 1 | 0 | 0 | 0 | **28** |
+| Combat (`CMB`) | 38 | 1 | 2 | 1 | 0 | 0 | **34** |
+| Targeting and mouse (`TGT`) | 17 | 2 | 0 | 0 | 1 | 0 | **14** |
+| Death and revival (`DTH`) | 14 | 2 | 0 | 0 | 0 | 0 | **12** |
+| NPCs and creatures (`NPC`) | 40 | 5 | 4 | 1 | 0 | 0 | **30** |
+| Inventory and items (`INV`) | 84 | 12 | 3 | 4 | 0 | 0 | **65** |
+| Nano programs (`NAN`) | 60 | 2 | 2 | 0 | 0 | 0 | **56** |
+| Zoning and playfields (`ZON`) | 28 | 2 | 0 | 1 | 0 | 0 | **25** |
+| Chat and commands (`CHT`) | 80 | 4 | 0 | 0 | 0 | 0 | **76** |
+| Windows and interface (`WIN`) | 180 | 16 | 5 | 1 | 0 | 0 | **158** |
+| Camera (`CAM`) | 13 | 1 | 0 | 0 | 0 | 0 | **12** |
+| Rendering and world (`RND`) | 194 | 7 | 1 | 0 | 0 | 0 | **186** |
+| Sound and music (`SND`) | 17 | 1 | 0 | 0 | 0 | 0 | **16** |
+| Launcher, login, character creation (`LCH`) | 51 | 2 | 2 | 0 | 0 | 0 | **47** |
+| Settings and files (`SET`) | 54 | 3 | 0 | 0 | 0 | 0 | **51** |
+| Network and protocol (`NET`) | 13 | 1 | 0 | 0 | 0 | 0 | **12** |
+| Other (`OTH`) | 21 | 1 | 1 | 0 | 0 | 0 | **19** |
 
 ### High weight not finished
 
@@ -76,8 +76,8 @@ Counted from the entries' own marks on 2026-11-18. "Open" is not looked at yet; 
 - `WIN-112` Several character action tiles do nothing (MISSING) - part done
 - `WIN-114` Window chrome: no "?" help button, docking, auto-fade, original titles or art (MISSING) - part done
 - `RND-137` Statels of generated buildings and rendering effects get no effects (MISSING) - part done
-- `LCH-035` No account activation window and no limbo window (MISSING)
-- `LCH-036` Patching and licence dialog not done (MISSING)
+- `LCH-035` No account activation window and no limbo window (MISSING) - part done
+- `LCH-036` Patching and licence dialog not done (MISSING) - part done
 
 ### Medium weight not finished, by area
 
@@ -284,6 +284,11 @@ Counted from the entries' own marks on 2026-11-18. "Open" is not looked at yet; 
 - `OTH-006` Tradeskill guide is a reading of prose, not a recipe table (GUESS)
 - `OTH-018` Help assistant: a small language model run inside the client (ADDITION)
 
+### Additions waiting for your call
+
+"Your call": a client addition read overnight; its entry recommends keeping or removing it.
+
+
 Low weight: see the counts above and each area's lists below.
 <!-- /status -->
 
@@ -394,8 +399,8 @@ The `high` entries that are not additions, by area. The full entries are below u
 **Launcher, login, character creation**
 
 - [x] `LCH-034` Character creation: figures and ships do not animate, no selection glow, no expansion rules (MISSING) **(done)**
-- [ ] `LCH-035` No account activation window and no limbo window (MISSING)
-- [ ] `LCH-036` Patching and licence dialog not done (MISSING)
+- [ ] `LCH-035` No account activation window and no limbo window (MISSING) **(part done)**
+- [ ] `LCH-036` Patching and licence dialog not done (MISSING) **(part done)**
 - [x] `LCH-037` The picked character and the hall's figures cannot be turned or animated (MISSING) **(done)**
 
 **Settings and files**
