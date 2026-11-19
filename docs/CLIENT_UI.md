@@ -7333,3 +7333,7 @@ The original's attack key calls `N3Msg_DefaultAttack(selection, false)` (Gamecod
 ### Friends for the targeting keys (TGT-005)
 
 `N3Msg_GetCloseTarget` (Gamecode 0x1001c49a) counts a character as a friend when its side (stat 33, or 668 on battle stations) is one's own, and takes that side as one's own for a player in the own team (FUN_10065d65) or in any team of the own raid (FUN_10065dab), and for a creature whose master (stat 196) is oneself or such a member. The client now does the same for players and for its own pets (`combat::friend`); the pets of the other team members are not known to it.
+
+### The white at one's own death (DTH-007)
+
+When one's own death has played out, `CharDie_t` (Gamecode FUN_1007bad5) makes effect 3000, which `gfxtweak.bin` has as a `_GfxControlWhiteOut_t` (kind 1015, FUN_101052b2): a white sprite over the world whose alpha is its age over the template's time (FUN_1010509a); template 3000 gives no time, so the world is wholly white at once, and stays so (life -1) until the revival deletes the effect (FUN_1003ec1f → FUN_1003e61c), when it is gone at once. The client does the same (`whiteout.rs`): no rise and no fading out, the windows and the chat drawn over it as before.

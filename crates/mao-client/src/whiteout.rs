@@ -1,96 +1,53 @@
-//! The white the world fades to while one's own character lies dead, gone again once the server has set it down where
-//! it comes back to life.
+//! The white the world turns while one's own character lies dead, gone again once it lives.
 //!
-//! From the user's description of the original (2026-11-11: "the screen fades to white then you teleport to spawn",
-//! when dying). The original's `CharDie_t` (its frame, Gamecode FUN_1007bad5) makes an effect, 3000, on the client's
-//! own character when its death's animation has played out, and three seconds later tells the server, which sets the
-//! character down where it comes back to life (`net.rs`, `OwnDeath`). That the effect is the white is a guess (the
-//! effect itself was not read); so the white begins when the death has played out and rises over those three seconds
-//! ([`RISE`]), and clears over [`CLEAR`] after the arrival, this client's own time. Only the world goes white: the
-//! windows and the chat stay as they are.
+//! The original's `CharDie_t` (its frame, Gamecode FUN_1007bad5) makes the effect 3000 on the client's own character
+//! when its death's animation has played out (and three seconds later tells the server, which sets the character down
+//! where it comes back to life: `net.rs`, `OwnDeath`). Template 3000 of `gfxtweak.bin` is of kind 1015, which
+//! `_EffectHandler_t::CreateGfxControl` (0x100ce912) makes a `_GfxControlWhiteOut_t` (FUN_101052b2): a sprite over the
+//! world (no depth test, no lighting: FUN_10105186), its life -1 (`_DAT_10156dd0`: until deleted), whose frame
+//! (FUN_1010509a) colours it white with an alpha of its age over the template's first word, clamped to 0..1. Template
+//! 3000 has no words, so that time is 0 and the white is whole at once. The effect is deleted (FUN_1003e61c, from the
+//! revival FUN_1003ec1f, which the character's alive message FUN_10076f06 calls) the moment the character lives again:
+//! the white goes at once. Only the world goes white: the windows and the chat stay as they are.
 
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-/// How long the white takes to cover the world: the three seconds between the death played out and the word to the
-/// server. (It was a minute until 2026-11-15: the minute the server left a character lying that never sent the word.)
-pub const RISE: Duration = Duration::from_secs(3);
-/// How long it takes to clear once the character is alive again.
-pub const CLEAR: Duration = Duration::from_millis(1500);
+static WHITE: AtomicBool = AtomicBool::new(false);
 
-#[derive(Clone, Copy, Debug)]
-struct Fade {
-    began: Instant,
-    /// When the character was alive again, and how white the world was then.
-    cleared: Option<(Instant, f32)>,
-}
-
-static FADE: Mutex<Option<Fade>> = Mutex::new(None);
-
-fn fade() -> std::sync::MutexGuard<'static, Option<Fade>> {
-    FADE.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-/// One's own character died: the white begins (a death while it is already rising changes nothing).
+/// One's own character's death has played out: the white effect is made.
 pub fn begin() {
-    let mut f = fade();
-    if f.is_none_or(|f| f.cleared.is_some()) {
-        *f = Some(Fade { began: Instant::now(), cleared: None });
-    }
+    WHITE.store(true, Ordering::Relaxed);
 }
 
-/// Alive again. `arrived` when the server set the character down somewhere (the world is wholly white as it arrives,
-/// however long it lay); otherwise (health given back where it lies) the white clears from what it had reached.
-pub fn clear(arrived: bool) {
-    if let Some(f) = fade().as_mut() {
-        if f.cleared.is_none() {
-            let now = Instant::now();
-            f.cleared = Some((now, if arrived { 1.0 } else { level(f, now).unwrap_or(0.0) }));
-        }
-    }
+/// Alive again (set down somewhere, or given health where it lies): the effect is deleted.
+pub fn clear() {
+    WHITE.store(false, Ordering::Relaxed);
 }
 
-/// How white the world is now (0 to 1); none once it has cleared.
-fn level(f: &Fade, now: Instant) -> Option<f32> {
-    match f.cleared {
-        None => Some((now.duration_since(f.began).as_secs_f32() / RISE.as_secs_f32()).min(1.0)),
-        Some((at, from)) => {
-            let left = 1.0 - (now.duration_since(at).as_secs_f32() / CLEAR.as_secs_f32()).min(1.0);
-            (left > 0.0).then_some(from * left)
-        }
-    }
+/// How white the world is (`_GfxControlWhiteOut_t`'s frame FUN_1010509a: the age over the template's time, 0 for 3000,
+/// clamped to 0..1; the alpha `round(level * 255 - 0.49999)`).
+fn alpha(time: f32, age: f32) -> u8 {
+    let level = (age / time).clamp(0.0, 1.0);
+    (level * 255.0 - 0.49999).round() as u8
 }
 
 /// Paints the white over the world (under everything else the painter draws after it).
-pub fn draw(ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect) {
-    let Some(f) = *fade() else { return };
-    let Some(level) = level(&f, Instant::now()) else {
-        *fade() = None;
-        return;
-    };
-    ctx.request_repaint();
-    painter.rect_filled(screen, 0.0, egui::Color32::from_white_alpha((level * 255.0) as u8));
+pub fn draw(_ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect) {
+    if WHITE.load(Ordering::Relaxed) {
+        painter.rect_filled(screen, 0.0, egui::Color32::from_white_alpha(alpha(0.0, 1.0)));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// DTH-007: template 3000's time is 0, so the white is whole from the first frame it has an age.
     #[test]
-    fn the_white_rises_while_dead_and_clears_after() {
-        let began = Instant::now();
-        let dead = Fade { began, cleared: None };
-        assert_eq!(level(&dead, began), Some(0.0));
-        assert_eq!(level(&dead, began + RISE / 2), Some(0.5));
-        assert_eq!(level(&dead, began + RISE * 3), Some(1.0));
-        // (set down at the place of return after 20 s: white as it arrives, then clearing)
-        let at = began + Duration::from_secs(20);
-        let back = Fade { began, cleared: Some((at, 1.0)) };
-        assert_eq!(level(&back, at), Some(1.0));
-        assert_eq!(level(&back, at + CLEAR / 2), Some(0.5));
-        assert_eq!(level(&back, at + CLEAR), None);
-        // (given health where it lay, a third of the way up: clears from there)
-        let healed = Fade { began, cleared: Some((at, 1.0 / 3.0)) };
-        assert!((level(&healed, at + CLEAR / 2).unwrap() - 1.0 / 6.0).abs() < 1e-6);
+    fn the_white_is_whole_at_once() {
+        assert_eq!(alpha(0.0, 0.016), 255);
+        assert_eq!(alpha(0.0, 100.0), 255);
+        // (a template with a time would rise over it)
+        assert_eq!(alpha(2.0, 1.0), 127);
     }
 }

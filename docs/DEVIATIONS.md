@@ -1600,7 +1600,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: from the user's description, the world fades to white over three seconds (RISE) once the death has played out (an older note said over the minute the body lies; the code now says three seconds, a minute until 2026-11-15)
 - A player notices: the white screen on death may differ in look and timing from the original's
 - Where: `crates/mao-client/src/whiteout.rs:7`; `crates/mao-client/src/net.rs:4304`; `docs/CLIENT_UI.md:4123`; `docs/CLIENT_UI.md:1541`; `docs/ORIGINAL_AUDIT.md:50`; `docs/ORIGINAL_AUDIT.md:77`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, overnight): The guess is confirmed and the timing corrected. CharDie_t's frame (Gamecode FUN_1007bad5) makes effect 3000 with _EffectHandler_t::CreateEffect2; gfxtweak.bin's template 3000 is of kind 1015 with no words, which CreateGfxControl (0x100ce912) makes a _GfxControlWhiteOut_t (FUN_101052b2): a sprite with no depth test and no lighting (FUN_10105186), life -1 (_DAT_10156dd0, until deleted), whose frame FUN_1010509a colours it white with alpha = age / the template's first word clamped to 0..1 (round(x*255 - 0.49999)). The template has no first word, so the time is 0 and the white is whole from the first frame. The effect is deleted by FUN_1003e61c from the revival FUN_1003ec1f (called by the alive message FUN_10076f06), so it goes at once. The client's three-second rise and 1.5 s clearing fade are gone: whiteout.rs now turns the world wholly white when the death has played out and clears it at once when the character lives (set down or given health). Test whiteout::tests::the_white_is_whole_at_once.
 
 #### `DTH-008` Corpse naming a dead creature moves its body to the corpse's place
 

@@ -1062,6 +1062,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] A character with original Prefs and no place in shortcutbars.ini: its bars appear where the original client showed them
 - [ ] Attack key on a team mate: "not allowed to attack team members" and "Unable to attack target"; on oneself: both lines; while swimming: "can't attack in this state".
 - [ ] In a team with a player of another side: the friendly Tab key picks the mate, the hostile one skips it; one's own pet likewise.
+- [ ] Die: the world goes white at once after the death animation, the windows stay visible; on arrival at the reclaim point the white is gone at once.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

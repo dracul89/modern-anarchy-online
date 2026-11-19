@@ -2394,7 +2394,7 @@ impl World {
             // (set down where it comes back to life: the white of its death clears, and nothing of the death is left on
             // it: it is no dead body, and its health is what the server tells from here on)
             if std::mem::take(&mut self.own_dead) {
-                crate::whiteout::clear(true);
+                crate::whiteout::clear();
                 let own = self.own;
                 self.dead.remove(&own);
                 self.bodies.remove(&own);
@@ -8660,7 +8660,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if state.own_dead && state.stats.get(&27).is_some_and(|&h| h > state.dead_health.max(0)) {
                 state.own_dead = false;
                 state.dead.remove(&own);
-                crate::whiteout::clear(false);
+                crate::whiteout::clear();
             }
             // (the death's course: the white once the death has played out, and three seconds on the word to the server,
             // which sets the character down where it comes back to life)
