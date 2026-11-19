@@ -208,6 +208,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The original-style shortcut bars start where the original client had them for the character, when it has a layout for it.
 - The camera's rotate and zoom keys go at the original's speeds and follow the mouse turn and zoom speed settings.
 - Talking to an NPC asks it once, as the original does; the client no longer re-asks a silent NPC after two seconds.
+- Choosing a camera mode no longer prints a "Camera: ..." line.
 
 ### Chat
 

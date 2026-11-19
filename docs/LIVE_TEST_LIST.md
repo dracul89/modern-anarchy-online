@@ -1088,6 +1088,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] Send an item through Deposit to Market: no client line appears.
 - [ ] /inspect a player: the info page opens and no line appears in chat.
 - [ ] `/viewdist 1000` and `/macro test /say hi` change the distance and put the macro on the pointer without any chat line.
+- [ ] Pick another third-person camera mode in the menu: it changes and nothing is printed.
 - [ ] An item is judged before anything is taken off (2026-11-18): a right click on the mission belt (Belt
   Component Platform, quality 30) with too little Computer Literacy says "Your Computer Literacy is required to be
   at least 76!" and the worn belt stays on; with enough (the skill window's number) it is swapped. A weapon or a

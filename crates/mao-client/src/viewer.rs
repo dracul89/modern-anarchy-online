@@ -3085,8 +3085,8 @@ impl ApplicationHandler for App {
                             _ => {
                                 self.settings.camera_mode = ["lock", "rubber", "trail"][(which as usize - 4).min(2)].to_string();
                                 self.settings.save();
+                                // (changed without a word: the game's texts have none for it)
                                 self.steering.set_mode(camera_mode(&self.settings.camera_mode));
-                                self.hud.say(format!("Camera: third person {}.", match self.settings.camera_mode.as_str() { "lock" => "locked", "trail" => "trailing (free)", _ => "rubber" }));
                             }
                         }
                         if let Some(live) = &self.live {

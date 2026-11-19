@@ -6597,7 +6597,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: choosing a third-person camera mode in the interface says "Camera: third person locked/trailing (free)/rubber"
 - A player notices: a status line the original may not print
 - Where: `crates/mao-client/src/viewer.rs:2954`
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
+- Done (2026-11-19, overnight): The "Camera: third person locked/trailing (free)/rubber." line when a third-person camera mode is chosen in the interface is removed (viewer.rs); the mode is set and saved as before. The game's texts have no such line (text.mdb's camera texts are the menu's labels and tips only; "third person" and "Camera:" are nowhere in it), so the original changes the mode silently. No new warnings (69).
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE: the game's texts have no such line (text.mdb's camera texts are the menu's labels and tips only), so the original changes the mode silently.
 
 ## Rendering and world

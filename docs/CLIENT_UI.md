@@ -7468,3 +7468,7 @@ The client's own chat line with the inspected character's name, level, professio
 ### Commands confirm nothing (CHT-078)
 
 The client's own confirmation lines for /macro, /waypoint, /befriend, /viewdist, /chardist, /char&viewdist and /bug were removed. As in the original (FUN_100b8c82, FUN_100b9966, FUN_100b69a7, FUN_100b68dc, FUN_100b6a54, FUN_100b6019), these commands do their work silently; /reply with nobody to answer and /ignore keep the lines the original has.
+
+### Camera mode changes silently (CAM-013)
+
+The client's own "Camera: third person ..." line was removed; choosing a camera mode in the interface sets it without a word, as the original's menu does.
