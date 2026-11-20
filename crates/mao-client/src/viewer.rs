@@ -1085,6 +1085,14 @@ fn camera_mode(name: &str) -> crate::camera::Mode {
     }
 }
 
+/// Whether a key pressed passes while the game takes no input (the own character dead): `InputConfig_t::FrameProcess`
+/// (GUI.dll 0x1001b253) keeps of the frame's inputs only 0x8002a and 0xe002f, the original's key numbers with Shift
+/// 0x20000, Ctrl 0x40000 and Alt 0x80000: Alt+F4 and Shift+Ctrl+Alt+F9, with no other of the three held.
+fn passes_input_stop(key: PhysicalKey, modifiers: winit::keyboard::ModifiersState) -> bool {
+    let held = (modifiers.shift_key(), modifiers.control_key(), modifiers.alt_key());
+    matches!((key, held), (PhysicalKey::Code(KeyCode::F4), (false, false, true)) | (PhysicalKey::Code(KeyCode::F9), (true, true, true)))
+}
+
 /// Where a line (from `from`, along the unit `dir`) first meets an upright cylinder standing at `feet` (Z up), as a
 /// distance along it; none when it misses or meets it behind the start.
 impl ApplicationHandler for App {
@@ -1244,7 +1252,15 @@ impl ApplicationHandler for App {
             w.window.set_cursor_visible(!stopped);
         }
         if stopped && matches!(event, WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. } | WindowEvent::CursorMoved { .. } | WindowEvent::Ime(_)) {
-            return;
+            // (the program still hands it to `AddUserInput`, for being away: a press, not a release)
+            if matches!(&event, WindowEvent::KeyboardInput { event: k, .. } if k.state == ElementState::Pressed) || matches!(event, WindowEvent::MouseInput { state: ElementState::Pressed, .. } | WindowEvent::MouseWheel { .. } | WindowEvent::CursorMoved { .. }) {
+                crate::afk::INPUT_WHILE_STOPPED.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            // (two key chords are let through, pressed: `FrameProcess` keeps the inputs 0x8002a and 0xe002f)
+            let chord = matches!(&event, WindowEvent::KeyboardInput { event: k, .. } if k.state == ElementState::Pressed && passes_input_stop(k.physical_key, self.modifiers));
+            if !chord {
+                return;
+            }
         }
         if let Some(ui) = w.ui.as_mut() {
             // The key the options window waits for goes to it, not to the interface.
@@ -3408,6 +3424,19 @@ impl ApplicationHandler for App {
 #[cfg(test)]
 mod camera_tests {
     use super::*;
+
+    /// Dead, only Alt+F4 and Shift+Ctrl+Alt+F9 pass (`InputConfig_t::FrameProcess` 0x1001b253).
+    #[test]
+    fn only_two_chords_pass_the_input_stop() {
+        use winit::keyboard::ModifiersState as M;
+        let f = |k| PhysicalKey::Code(k);
+        assert!(passes_input_stop(f(KeyCode::F4), M::ALT));
+        assert!(passes_input_stop(f(KeyCode::F9), M::ALT | M::CONTROL | M::SHIFT));
+        assert!(!passes_input_stop(f(KeyCode::F4), M::ALT | M::SHIFT));
+        assert!(!passes_input_stop(f(KeyCode::F4), M::empty()));
+        assert!(!passes_input_stop(f(KeyCode::F9), M::ALT | M::CONTROL));
+        assert!(!passes_input_stop(f(KeyCode::KeyW), M::ALT));
+    }
 
     /// The game camera's planes: the front 0.2, the back the view distance, never nearer than 50.2 (FUN_1001fc91).
     #[test]

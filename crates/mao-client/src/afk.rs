@@ -42,6 +42,12 @@ pub const AUTO_MESSAGE: &str = "Auto-away";
 /// vicinity then.
 pub static SNEAKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// An input the player gave while the game takes none (the own character dead, `net::INPUT_STOPPED`): the viewer drops
+/// it before the interface sees it, but it counts here, as the original's program hands every input to
+/// `InputConfig_t::AddUserInput` (0x1001b115), which restarts the timer and brings the character back, before the
+/// frame (`FrameProcess` 0x1001b253) looks at the stop. Taken by [`crate::chatwindow::ChatWindow::away_input`].
+pub static INPUT_WHILE_STOPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// A text of the away commands (text.mdb 10001 by name), or this client's own words.
 pub fn text(name: &str) -> String {
     let own = match name {
@@ -103,6 +109,8 @@ pub struct Away {
     /// The last input, and whether the timer it started has run out since.
     last_input: Option<Instant>,
     ran_out: bool,
+    /// The game's input is off (the own character dead), as last seen by [`Away::input_off`].
+    off: bool,
 }
 
 impl Away {
@@ -186,6 +194,18 @@ impl Away {
         }
         self.message.clear();
         Did { lines: vec![text("ChatCmdFeedback_AFK_AFKOff")], emote: (!sneaking).then(|| text("ChatCmdFeedback_AFK_IsBack")) }
+    }
+
+    /// Whether the game takes input, each frame: when it is turned off (`DisableUserInputMessage` 0x100286e2) the
+    /// timer of going away by itself is stopped, and when it is on again (`InputConfig_t::EnableUserInput`
+    /// 0x1001a127) started anew. (Input given meanwhile still restarts it: [`INPUT_WHILE_STOPPED`].)
+    pub fn input_off(&mut self, off: bool, now: Instant) {
+        if off == self.off {
+            return;
+        }
+        self.off = off;
+        self.last_input = (!off).then_some(now);
+        self.ran_out = false;
     }
 
     /// Each frame: the box's count running out takes its text, and the timer of the last input running out puts the
@@ -291,6 +311,26 @@ mod tests {
         assert_eq!(a.tick(true, false, false, IDLE, t + Duration::from_secs(29)), Did::default());
         assert_eq!(a.tick(true, false, false, IDLE, t + Duration::from_secs(30)).lines.len(), 1);
         assert!(a.dialog.is_none() && a.message() == "typed");
+    }
+
+    #[test]
+    fn the_input_stopped_stops_the_timer_and_its_end_starts_it() {
+        let t = Instant::now();
+        let mut a = Away::default();
+        a.input(true, false, false, t);
+        // (dead: no going away by itself while nothing is pressed)
+        a.input_off(true, t + Duration::from_secs(100));
+        assert_eq!(a.tick(true, false, false, IDLE, t + Duration::from_secs(1000)), Did::default());
+        assert!(!a.is_away());
+        // (alive again: three minutes from then)
+        a.input_off(false, t + Duration::from_secs(1000));
+        a.input_off(false, t + Duration::from_secs(1100));
+        assert_eq!(a.tick(true, false, false, IDLE, t + Duration::from_secs(1179)), Did::default());
+        assert_eq!(a.tick(true, false, false, IDLE, t + Duration::from_secs(1180)).emote, Some(text("ChatCmdFeedback_AFK_IsAFK")));
+        // (input while dead still counts: the timer runs again from it)
+        a.input_off(true, t + Duration::from_secs(1200));
+        assert!(!a.input(true, false, false, t + Duration::from_secs(1200)).lines.is_empty());
+        assert_eq!(a.tick(true, false, false, IDLE, t + Duration::from_secs(1380)).emote, Some(text("ChatCmdFeedback_AFK_IsAFK")));
     }
 
     #[test]

@@ -1109,10 +1109,15 @@ impl ChatWindow {
     pub fn away_input(&mut self, ctx: &egui::Context, auto: bool, game_master: bool) {
         // (a key or button going down, the mouse moved; a release is not input: FUN_00404a66 marks it and
         // `AddUserInput` passes it by)
-        let input = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. } | egui::Event::PointerButton { pressed: true, .. } | egui::Event::PointerMoved(_) | egui::Event::MouseMoved(_) | egui::Event::MouseWheel { .. } | egui::Event::Text(_))));
+        // (dead, the game takes no input: the timer stops, and starts again when it takes input again; what is
+        // pressed meanwhile still counts, `afk::INPUT_WHILE_STOPPED`)
+        let now = std::time::Instant::now();
+        self.away.input_off(crate::net::INPUT_STOPPED.load(std::sync::atomic::Ordering::Relaxed), now);
+        let stopped_input = crate::afk::INPUT_WHILE_STOPPED.swap(false, std::sync::atomic::Ordering::Relaxed);
+        let input = stopped_input || ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. } | egui::Event::PointerButton { pressed: true, .. } | egui::Event::PointerMoved(_) | egui::Event::MouseMoved(_) | egui::Event::MouseWheel { .. } | egui::Event::Text(_))));
         if input {
             let sneaking = crate::afk::SNEAKING.load(std::sync::atomic::Ordering::Relaxed);
-            let did = self.away.input(auto, game_master, sneaking, std::time::Instant::now());
+            let did = self.away.input(auto, game_master, sneaking, now);
             let out = self.away_did(did);
             self.outs.extend(out);
         }
