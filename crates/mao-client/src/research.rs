@@ -49,8 +49,8 @@
 //! Escape closes it by `esc_research`; `MAO_UI_PREVIEW=research` (`MAO_RESEARCH_TAB` 0 to 2) shows it on the 2026-10-30
 //! capture's data.
 //!
-//! Left out: the "got_tech" distributed value the window clears on opening (the control center's research blink, which
-//! this client never sets), and the window's `ResearchConfig` placement. Whether the server answers `SetStat` 265 / 266 with the stat was not captured; the window
+//! The "got_tech" value the window clears on opening is the new level's notice button (`notices.rs`, which clears it
+//! when this window opens). Left out: the window's `ResearchConfig` placement. Whether the server answers `SetStat` 265 / 266 with the stat was not captured; the window
 //! keeps its own choice until the stat changes.
 
 use std::collections::{BTreeMap, HashSet};

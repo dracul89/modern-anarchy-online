@@ -99,6 +99,7 @@ mod houses;
 mod places;
 mod nanoprograms;
 mod perks;
+mod notices;
 mod requirements;
 // (the web page itself is WebView2, Windows only: elsewhere the window says so and the page's helpers go unused)
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]

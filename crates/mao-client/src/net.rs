@@ -648,6 +648,8 @@ struct World {
     info_urls: Vec<String>,
     /// Windows to open (by `Ui::set_window` name), until taken.
     open_windows: Vec<&'static str>,
+    /// A new level's notices set (`notices::IP` ...), until taken.
+    notices: Vec<usize>,
     /// The game server's id: the source of its messages (`Client_t`'s +0xac, the `X-Anarchy-ServerID` of the web pages).
     server_id: u32,
     /// A web page to open (the market terminal's), until taken.
@@ -3041,8 +3043,9 @@ impl World {
         // (54), the experience (52), the points to spend (53), the experience the level began at (57) and the next takes
         // (350), and the range of levels that give experience (275). No `Stat` message tells the last two, so the
         // experience bar had nothing to show after a level (seen live 2026-11-10). The client's own character is told
-        // its level, and below level 4 that there are points to spend. Not ported: the line for the reset points gained
-        // (with the level's title), the `got_ip`, `got_perk` and `got_tech` hints.
+        // its level, and below level 4 that there are points to spend, and the notice buttons are set (`notices.rs`:
+        // `got_ip`, `got_perk`, `got_tech`). Not ported: at level 10, with stat 660's bit 2, a text handed to a global
+        // signal (0x10076301).
         if m.kind == 0x7f405a16 && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 let field = |name: &str| p.value.get(name).and_then(mao_net::schema::Value::as_int);
@@ -3064,6 +3067,7 @@ impl World {
                     if level < 4 {
                         self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_YouHaveReceivedIncreasePoints")));
                     }
+                    self.notices.extend(crate::notices::new_level(level, self.stats.get(&389).copied().unwrap_or(0)));
                 }
                 // (a new title: the word the schema calls `IpResetPointsGained` is, by the code's use of it, the new
                 // title level (0x100761de: above 0, `GetTitleStr(profession, it)`, text category 1060 at profession *
@@ -3078,6 +3082,10 @@ impl World {
                     }
                 }
             }
+        }
+        // (a new shadow level of one's own: the skill and perk notices, `ShadowLevel` FUN_10077ae7)
+        if m.kind == 0x3c1e4e03 && m.identity.1 == self.own {
+            self.notices.extend(crate::notices::shadow_level());
         }
         // The jingles: a new level (`NewLevel`, FUN_10075f55: `SM_Sandy_Game_Level_Complete`), a new shadow level
         // (`ShadowLevel`, FUN_10077ae7: `..._Neutral`, `..._Clan` or `..._Omni` by the side, stat 33) and a mission done
@@ -12587,6 +12595,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }),
                     info_urls: std::mem::take(&mut state.info_urls),
                     open_windows: std::mem::take(&mut state.open_windows),
+                    notices: std::mem::take(&mut state.notices),
                     browser: state.browser.take(),
                     chat_lines: chat_lines_now,
                     friends: friends_now,

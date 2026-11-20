@@ -372,6 +372,8 @@ pub struct Ui {
     pub help: crate::help::HelpWindow,
     /// Tips (`tips.rs`).
     pub tips: crate::tips::Tips,
+    /// The notice buttons of a new level (`notices.rs`).
+    pub notices: crate::notices::Notices,
     /// The info view (GUI.dll's `InfoView_c`): item pages and help texts.
     pub info: crate::gui::infoview::InfoView,
     /// The in-game web page's window (the market's).
@@ -637,7 +639,7 @@ impl Ui {
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), Some(gpu.device.limits().max_texture_dimension_2d as usize));
         // (the widest picture the card takes, not egui's own 2048: on a screen of two pixels to the point a skin's long strip, GFX_GUI_CONTROLCENTER_WING_LEFT, is 6000 across, and egui stops the program over a wider one)
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), shortcut_bars: crate::shortcutbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), notices: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), shortcut_bars: crate::shortcutbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -897,6 +899,13 @@ impl Ui {
         true
     }
 
+    /// A new level's notice set (`notices.rs`, `notices::IP` ...): its button shows unless the preference
+    /// `ShowIPPerkbutton` is off (or, for research, the research window is open).
+    pub fn notice(&mut self, which: usize) {
+        let shown = self.control_center.as_ref().and_then(|cc| cc.store.get("ShowIPPerkbutton")).is_none_or(|v| v.as_bool());
+        self.notices.set(which, shown, self.research.open);
+    }
+
     /// Shows or hides a window by name (`/open`, `/close`); an empty name with `open` false hides them all. False for an unknown name.
     pub fn set_window(&mut self, name: &str, open: bool) -> bool {
         let name = name.trim().to_lowercase();
@@ -1114,6 +1123,7 @@ impl Ui {
         let (friends_window, programs_window, perks_window, help_window) = (&mut self.friends, &mut self.programs, &mut self.perks, &mut self.help);
         let info_view = &mut self.info;
         let tips = &mut self.tips;
+        let notices = &mut self.notices;
         let npc_chat = &mut self.npc_chat;
         let (mission_log, planet) = (&mut self.mission_log, &mut self.planet);
         let browser = &mut self.browser;
@@ -1314,6 +1324,10 @@ impl Ui {
             tips.watch(&hud.location, *gear_open, skills_window.open, shop.open, hud.stats.get(&60).copied().unwrap_or(0) as i64);
             for url in tips.show(&ctx, palette, dt) {
                 info_view.show_url(&url);
+            }
+            // (a new level's notice buttons; a click opens its window, as the menus' values do)
+            if let Some(window) = notices.frame(&ctx, [skills_window.open, perks_window.open, research_window.open]) {
+                cc_windows.push((window, true));
             }
             info_view.show(&ctx, palette);
             for command in info_view.take_commands() {

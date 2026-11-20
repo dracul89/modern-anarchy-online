@@ -232,6 +232,8 @@ pub struct Update {
     pub browser: Option<crate::browser::Request>,
     /// Windows to open (a mail terminal or mission booth used).
     pub open_windows: Vec<&'static str>,
+    /// A new level's notices set (`notices::IP` ...).
+    pub notices: Vec<usize>,
     /// The current target (name and distance), for the target frame.
     pub target: Option<String>,
     /// The selected target's id (`Hud::selected`).
@@ -1804,6 +1806,9 @@ impl ApplicationHandler for App {
                             }
                             for url in std::mem::take(&mut u.info_urls) {
                                 ui.info.show_url(&url);
+                            }
+                            for which in std::mem::take(&mut u.notices) {
+                                ui.notice(which);
                             }
                             for name in std::mem::take(&mut u.open_windows) {
                                 match name {
