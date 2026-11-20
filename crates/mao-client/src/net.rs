@@ -7072,8 +7072,16 @@ impl Characters {
         let before = self.drawn.insert(id, weapon.filter(|_| fighting)).flatten();
         let held = weapon;
         let weapon = weapon.filter(|_| fighting);
+        // (a weapon whose map has no start plays `idle-stand`, 0x78, once in its place: FUN_1003cce2)
         let mut flourish = match (before, weapon) {
-            (None, Some((template, slot))) => self.ensure_weapon_action(breed, sex, template, slot, 0x1a),
+            (None, Some((template, slot))) => {
+                let data = self.db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok().flatten();
+                if data.as_deref().is_some_and(|d| mao_formats::item::weapon_actions_as(d, slot, 0x1a, self.crawling).is_empty()) {
+                    self.ensure_action_file(breed, sex, 0x78)
+                } else {
+                    self.ensure_weapon_action(breed, sex, template, slot, 0x1a)
+                }
+            }
             (Some((template, slot)), None) => self.ensure_weapon_action(breed, sex, template, slot, 0x1b),
             _ => None,
         };
