@@ -3361,7 +3361,8 @@ pub fn toggle_passes(flags: u32, mask: u32, places: &[i32], playfield: (u32, u32
 /// toggle whose playfield test passes ([`toggle_passes`] on `playfield`, the current playfield's number and first flag word)
 /// becomes its child started at the toggle's start (0) or, with flag 0x2000, when the vehicle last began to move forward
 /// (`motion.started`, in the effect's time; none before that, and with 0x8000 none while it is not moving); else it is
-/// dropped.
+/// dropped. Without 0x2000 but with 0x400 the child is made again as soon as it ends (FUN_10112952 deletes the finished
+/// child and, with 0x400, keeps running, so its next frame makes a new one): it restarts every life of the child's.
 pub fn resolve_toggles(v: &Visual, age: f32, motion: &Motion, playfield: (u32, u32)) -> Visual {
     match v {
         Visual::Toggle { child, flags, mask, places } => {
@@ -3371,6 +3372,10 @@ pub fn resolve_toggles(v: &Visual, age: f32, motion: &Motion, playfield: (u32, u
                 return Visual::Meta(Vec::new());
             }
             if flags & 0x2000 == 0 {
+                let life = pulse_timing(&child).1;
+                if flags & 0x400 != 0 && life > 0.0 && age >= life {
+                    return Visual::Delayed(Box::new(child), (age / life).floor() * life);
+                }
                 return child;
             }
             match motion.started {
@@ -4910,6 +4915,14 @@ mod tests {
         assert!(toggle_passes(0x800, 0, &[4001], pf) && !toggle_passes(0x800, 0, &[4001], (4001, 0)));
         assert!(!toggle_passes(0x800, 2, &[], pf) && toggle_passes(0x800, 2, &[], (655, 6)));
         assert!(!toggle_passes(0, 0, &[], pf));
+        // (with 0x400 and no 0x2000 the child is made again each time it ends: a one-second sprite restarted at 2 s)
+        let one = Visual::Sprite(Sprite { attach: 0, offset: [0.0; 3], duration: 1.0, material: 8, flags: 0, width: (0.5, 0.5), height: (0.5, 0.5), colour_a: [1.0; 4], colour_b: [1.0; 4], period: 1.0, cycles: -1, pulse: 0.0, pulse_rate: 0.0 });
+        let life = pulse_timing(&one).1;
+        let again = Visual::Toggle { child: Box::new(one.clone()), flags: 0xc00, mask: 0, places: Vec::new() };
+        assert!(matches!(resolve_toggles(&again, 2.5 * life, &still, pf), Visual::Delayed(_, start) if (start - 2.0 * life).abs() < 1e-4));
+        // (without 0x400 the toggle ends with its child: the child as it is, played once)
+        let once = Visual::Toggle { child: Box::new(one.clone()), flags: 0x800, mask: 0, places: Vec::new() };
+        assert_eq!(resolve_toggles(&once, 2.5 * life, &still, pf), one);
     }
 
     #[test]
