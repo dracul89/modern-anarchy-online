@@ -134,8 +134,8 @@ pub struct ChatConfig {
     /// The window whose controls show, once read from the kept choice.
     selected: Option<usize>,
     hide_others: bool,
-    /// The name being typed for the selected window.
-    renaming: Option<String>,
+    /// The name being typed for the selected window, and whether the box says the last one typed was taken.
+    renaming: Option<(String, bool)>,
     /// The private group whose menu is up, and the menu.
     menu: Option<String>,
     popup: Option<crate::gui::popup::PopupMenu>,
@@ -147,13 +147,36 @@ pub struct ChatConfig {
     pub own: String,
 }
 
+/// What a typed new name of a chat window does ([`rename_answer`]).
+#[derive(Debug, PartialEq, Eq)]
+enum Rename {
+    /// Another window has the name: the box asks again, saying so.
+    Taken,
+    /// The window takes the name.
+    Done,
+    /// The same name or none: nothing changes.
+    Nothing,
+}
+
+/// FUN_1009983b's answer to OK: a name another window has asks again ("WindowWithNameExists", FUN_100940a6 finding a
+/// window that is not this one); else FUN_10094950 renames, unless the name is the window's own or empty.
+fn rename_answer(panes: &[Pane], selected: usize, typed: &str) -> Rename {
+    if panes.iter().enumerate().any(|(k, p)| k != selected && p.name == typed) {
+        return Rename::Taken;
+    }
+    match panes.get(selected) {
+        Some(p) if p.name != typed && !typed.is_empty() => Rename::Done,
+        _ => Rename::Nothing,
+    }
+}
+
 impl ChatConfig {
     /// Opens the window on a chat window with the box that asks for its new name (the chat window menu's "Rename
     /// Window").
     pub fn rename(&mut self, pane: usize, panes: &[Pane]) {
         self.open = true;
         self.selected = Some(pane);
-        self.renaming = panes.get(pane).map(|p| p.name.clone());
+        self.renaming = panes.get(pane).map(|p| (p.name.clone(), false));
     }
 
     /// Shows the window; true when the chat windows were changed (to be kept). `tab` is the chat window's shown tab,
@@ -315,38 +338,30 @@ impl ChatConfig {
             changed = true;
         }
         if rename {
-            self.renaming = panes.get(selected).map(|p| p.name.clone());
+            self.renaming = panes.get(selected).map(|p| (p.name.clone(), false));
         }
-        // (the name asked for in a small window of its own, as the original's text input dialog)
-        if let Some(name) = self.renaming.as_mut() {
-            let mut asking = true;
-            let mut answer = None;
-            crate::chrome::window(ctx, palette, "rename-chat-window", &text("RenameWindow"), &mut asking, |w| w.resizable(false).pivot(egui::Align2::CENTER_CENTER).default_pos(ctx.content_rect().center()), |ui| {
-                let field = crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(name).desired_width(180.0));
-                crate::chrome::focus_when_new(ctx, "rename-chat-window", &field);
-                if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    answer = Some(true);
-                }
-                ui.horizontal(|ui| {
-                    if crate::chrome::button(ui, palette, "OK", true).clicked() {
-                        answer = Some(true);
+        // (the name asked for in a text input box, FUN_10099d7a: "EnterWindowName" over "EnterNameOfNewWindow", the window's
+        // name in the field, OK and Cancel; FUN_1009983b takes the answer)
+        if let Some((name, taken)) = self.renaming.as_mut() {
+            let ok = crate::gui::xml::ldb_named(10000, "MsgBox_OK", "OK");
+            let cancel = crate::gui::xml::ldb_named(10000, "MsgBox_Cancel", "Cancel");
+            let prompt = if *taken { crate::gui::xml::ldb_named(10001, "WindowWithNameExists", "A window of that name exists. Enter another name.") } else { crate::gui::xml::ldb_named(10001, "EnterNameOfNewWindow", "Enter the window's name.") };
+            let title = crate::gui::xml::ldb_named(10001, "EnterWindowName", "Window name");
+            let answer = crate::chrome::text_dialog(ctx, palette, "rename-chat-window", &title, &prompt, name, &[&ok, &cancel]);
+            match answer {
+                Some(Some(0)) => match rename_answer(panes, selected, name) {
+                    Rename::Taken => *taken = true,
+                    Rename::Done => {
+                        if let Some(pane) = panes.get_mut(selected) {
+                            pane.name = name.clone();
+                        }
+                        changed = true;
+                        self.renaming = None;
                     }
-                    if crate::chrome::button(ui, palette, "Cancel", true).clicked() {
-                        answer = Some(false);
-                    }
-                });
-            });
-            if answer == Some(true) {
-                let name = name.trim().to_string();
-                if !name.is_empty()
-                    && let Some(pane) = panes.get_mut(selected)
-                {
-                    pane.name = name;
-                    changed = true;
-                }
-            }
-            if answer.is_some() || !asking {
-                self.renaming = None;
+                    Rename::Nothing => self.renaming = None,
+                },
+                Some(_) => self.renaming = None,
+                None => {}
             }
         }
         if !open {
@@ -396,5 +411,17 @@ mod tests {
         assert!(listed(&panes, 0, false).contains(&"You hit other".to_string()));
         let hidden = listed(&panes, 0, true);
         assert!(!hidden.contains(&"You hit other".to_string()) && hidden.contains(&"Vicinity".to_string()) && hidden.contains(&"Other hit by other".to_string()));
+    }
+
+    #[test]
+    fn a_taken_name_asks_again_and_the_same_or_none_does_nothing() {
+        let panes = chatgroups::defaults();
+        let (first, second) = (panes[0].name.clone(), panes[1].name.clone());
+        assert_eq!(rename_answer(&panes, 0, &second), Rename::Taken);
+        assert_eq!(rename_answer(&panes, 0, &first), Rename::Nothing);
+        assert_eq!(rename_answer(&panes, 0, ""), Rename::Nothing);
+        assert_eq!(rename_answer(&panes, 0, "Trade talk"), Rename::Done);
+        // (not trimmed: the original takes the name as typed)
+        assert_eq!(rename_answer(&panes, 0, " "), Rename::Done);
     }
 }

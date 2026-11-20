@@ -381,6 +381,82 @@ pub fn dialog_placed(ctx: &egui::Context, palette: &Palette, name: &'static str,
     }
 }
 
+/// A message box that asks for a text: `DialogBox_c` holding a `TextInputDialogForm_c` (0x1014851a) and no message of its
+/// own. The form is a column of its prompt (a `TextView_c` in font 5 with markup, 10 over the field) and the text field
+/// (`TextInputView_c`, 150 wide, `field` written in it); the buttons are the box's, as [`dialog`] lays them. Enter in the
+/// field answers as the first button does (`SlotEnterPressed` 0x101484a4 emits 0). The prompt is wrapped as a message
+/// box's text is (a guess: the form's `TextView_c` sets no aspect ratio of its own). Answers as [`dialog`].
+pub fn text_dialog(ctx: &egui::Context, palette: &Palette, name: &'static str, title: &str, prompt: &str, field: &mut String, buttons: &[&str]) -> Option<Option<usize>> {
+    debug_assert!(DIALOGS.contains(&name), "{name} is not listed in chrome::DIALOGS");
+    let frame = ctx.cumulative_frame_nr();
+    let fresh = {
+        let mut seen = DIALOG_SEEN.lock().unwrap();
+        let was = seen.iter().find(|s| s.0 == name).map(|s| s.1);
+        seen.retain(|s| s.0 != name);
+        seen.push((name, frame));
+        was.is_none_or(|f| f + 1 < frame)
+    };
+    let pointer = ctx.input(|i| i.pointer.latest_pos());
+    let at = pointer.unwrap_or(ctx.content_rect().center());
+    let font = crate::gui::font::FontId::NORMAL;
+    let width = dialog_width(|w| crate::gui::controls::markup_height(ctx, prompt, font, w)).max(150.0);
+    let mut open = true;
+    let mut answer = None;
+    window(
+        ctx,
+        palette,
+        name,
+        title,
+        &mut open,
+        |w| {
+            let w = w.resizable(false).pivot(egui::Align2::CENTER_CENTER);
+            if fresh || pointer.is_none() { w.current_pos(at) } else { w }
+        },
+        |ui| {
+            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+            ui.add_space(5.0);
+            ui.horizontal(|ui| {
+                ui.add_space(15.0);
+                ui.allocate_ui_with_layout(egui::vec2(width, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.set_width(width);
+                    crate::gui::controls::markup(ui, palette, prompt, font, rgb(palette.text));
+                    ui.add_space(10.0);
+                    let typed = text_edit(ui, palette, egui::TextEdit::singleline(field).desired_width(150.0));
+                    focus_when_new(ctx, name, &typed);
+                    if typed.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        answer = Some(0);
+                    }
+                });
+                ui.add_space(15.0);
+            });
+            ui.add_space(20.0);
+            if buttons.len() == 1 {
+                ui.vertical_centered(|ui| {
+                    if button(ui, palette, buttons[0], true).clicked() {
+                        answer = Some(0);
+                    }
+                });
+            } else {
+                ui.allocate_ui_with_layout(egui::vec2(width + 30.0, 0.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    for (k, label) in buttons.iter().enumerate().rev() {
+                        ui.add_space(8.0);
+                        if button(ui, palette, label, true).clicked() {
+                            answer = Some(k);
+                        }
+                        ui.add_space(8.0);
+                    }
+                });
+            }
+            ui.add_space(5.0);
+        },
+    );
+    match answer {
+        Some(k) => Some(Some(k)),
+        None if !open => Some(None),
+        None => None,
+    }
+}
+
 /// The texts of a yes/no message box's buttons (text.mdb 10000's `MsgBox_Yes` and `MsgBox_No`).
 pub fn yes_no() -> [String; 2] {
     [crate::gui::xml::ldb_named(10000, "MsgBox_Yes", "Yes"), crate::gui::xml::ldb_named(10000, "MsgBox_No", "No")]
