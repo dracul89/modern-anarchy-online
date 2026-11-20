@@ -1,8 +1,12 @@
 //! The performance overlay (`/perf`, or Options > Graphics > Show performance): the frame rate and frame times, the processor
 //! and memory the client and the machine use, and the graphics card's share of the frame. The processor and memory are sampled
-//! once a second (`sysinfo`); the card's time is the renderer's own timestamps (`Renderer::gpu_ms`).
+//! once a second (`sysinfo`) on a thread of their own while the overlay is up: on the frame's thread the process's refresh
+//! took about 10 ms each second, a doubled frame that was itself the overlay's "1% low", and the first sample 0.6 s. The
+//! card's time is the renderer's own timestamps (`Renderer::gpu_ms`).
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::theme::Palette;
@@ -40,21 +44,60 @@ struct Sample {
 /// How far back the frame times go (seconds).
 const WINDOW: f32 = 2.0;
 
+/// How long the sampling thread goes on after the overlay's last frame before it ends.
+const LINGER: Duration = Duration::from_secs(3);
+
+/// What the sampling thread and the overlay share: the last sample, and when the overlay last drew a frame.
+struct Shared {
+    sample: Sample,
+    wanted: Instant,
+}
+
 pub struct Perf {
     /// The frame times of the last couple of seconds (milliseconds).
     frames: VecDeque<f32>,
-    /// (none where the system can't be read)
-    system: Option<sysinfo::System>,
-    pid: Option<sysinfo::Pid>,
-    sampled: Instant,
-    sample: Sample,
+    shared: Arc<Mutex<Shared>>,
+    /// A sampling thread is running.
+    sampling: Arc<AtomicBool>,
     /// The card's frame times, smoothed.
     gpu_ms: Option<f32>,
 }
 
 impl Default for Perf {
     fn default() -> Perf {
-        Perf { frames: VecDeque::new(), system: sysinfo::System::new().ok(), pid: sysinfo::get_current_pid().ok(), sampled: Instant::now() - Duration::from_secs(2), sample: Sample::default(), gpu_ms: None }
+        Perf { frames: VecDeque::new(), shared: Arc::new(Mutex::new(Shared { sample: Sample::default(), wanted: Instant::now() })), sampling: Arc::new(AtomicBool::new(false)), gpu_ms: None }
+    }
+}
+
+/// The sampling thread: a sample a second until the overlay has drawn nothing for [`LINGER`] (none where the system can't be
+/// read).
+fn sample_while_wanted(shared: Arc<Mutex<Shared>>, sampling: Arc<AtomicBool>) {
+    let Ok(mut system) = sysinfo::System::new() else {
+        sampling.store(false, Ordering::Release);
+        return;
+    };
+    let pid = sysinfo::get_current_pid().ok();
+    loop {
+        if shared.lock().unwrap_or_else(|e| e.into_inner()).wanted.elapsed() > LINGER {
+            sampling.store(false, Ordering::Release);
+            return;
+        }
+        system.refresh_cpu_usage();
+        system.refresh_memory();
+        if let Some(pid) = pid {
+            system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[pid]), true, sysinfo::ProcessRefreshKind::nothing().with_cpu().with_memory());
+        }
+        let process = pid.and_then(|p| system.process(p));
+        let sample = Sample {
+            process_cpu: process.map_or(0.0, |p| p.cpu_usage()),
+            system_cpu: system.global_cpu_usage(),
+            cores: system.cpus().len().max(1),
+            process_memory: process.map_or(0, |p| p.memory()),
+            used_memory: system.used_memory(),
+            total_memory: system.total_memory(),
+        };
+        shared.lock().unwrap_or_else(|e| e.into_inner()).sample = sample;
+        std::thread::sleep(Duration::from_secs(1));
     }
 }
 
@@ -72,7 +115,7 @@ pub fn summary(frames: &[f32]) -> (f32, f32, f32) {
 }
 
 impl Perf {
-    /// Notes a frame of `dt` seconds, and samples the processor and memory when a second has passed.
+    /// Notes a frame of `dt` seconds, and keeps the processor and memory sampled (starting the sampling thread when none runs).
     pub fn frame(&mut self, dt: f32, gpu_ms: Option<f32>) {
         self.frames.push_back(dt * 1000.0);
         let mut total: f32 = self.frames.iter().sum();
@@ -82,22 +125,12 @@ impl Perf {
         if let Some(g) = gpu_ms {
             self.gpu_ms = Some(self.gpu_ms.map_or(g, |s| s + (g - s) * 0.1));
         }
-        if let Some(system) = self.system.as_mut().filter(|_| self.sampled.elapsed() >= Duration::from_secs(1)) {
-            self.sampled = Instant::now();
-            system.refresh_cpu_usage();
-            system.refresh_memory();
-            if let Some(pid) = self.pid {
-                system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[pid]), true, sysinfo::ProcessRefreshKind::nothing().with_cpu().with_memory());
+        self.shared.lock().unwrap_or_else(|e| e.into_inner()).wanted = Instant::now();
+        if !self.sampling.swap(true, Ordering::AcqRel) {
+            let (shared, sampling) = (self.shared.clone(), self.sampling.clone());
+            if std::thread::Builder::new().name("perf-sample".into()).spawn(move || sample_while_wanted(shared, sampling)).is_err() {
+                self.sampling.store(false, Ordering::Release);
             }
-            let process = self.pid.and_then(|p| system.process(p));
-            self.sample = Sample {
-                process_cpu: process.map_or(0.0, |p| p.cpu_usage()),
-                system_cpu: system.global_cpu_usage(),
-                cores: system.cpus().len().max(1),
-                process_memory: process.map_or(0, |p| p.memory()),
-                used_memory: system.used_memory(),
-                total_memory: system.total_memory(),
-            };
         }
     }
 
@@ -105,7 +138,7 @@ impl Perf {
     pub fn show(&self, ctx: &egui::Context, gpu: &GpuInfo, palette: &Palette) {
         let frames: Vec<f32> = self.frames.iter().copied().collect();
         let (fps, mean, worst) = summary(&frames);
-        let s = self.sample;
+        let s = self.shared.lock().unwrap_or_else(|e| e.into_inner()).sample;
         let gb = |b: u64| b as f64 / (1u64 << 30) as f64;
         let mb = |b: u64| b as f64 / (1u64 << 20) as f64;
         let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
@@ -175,5 +208,21 @@ mod tests {
         assert!(p.frames.len() <= 201 && p.frames.len() >= 199, "{}", p.frames.len());
         p.frame(0.010, Some(4.0));
         assert_eq!(p.gpu_ms, Some(4.0));
+    }
+
+    /// The sample comes from the thread a frame starts, not from the frame itself, and a second thread is not started while
+    /// one runs.
+    #[test]
+    fn the_sample_is_taken_off_the_frame() {
+        let mut p = Perf::default();
+        let started = Instant::now();
+        p.frame(0.010, None);
+        p.frame(0.010, None);
+        assert!(started.elapsed() < Duration::from_millis(50), "the frame waited {:?}", started.elapsed());
+        assert!(p.sampling.load(Ordering::Acquire));
+        while p.shared.lock().unwrap().sample.cores == 0 && started.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(p.shared.lock().unwrap().sample.cores > 0, "no sample in 10 s");
     }
 }

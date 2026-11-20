@@ -8252,3 +8252,19 @@ The original's switch to fly mode (FUN_1006e4f8) makes effect 2000 at the lifted
 ### Trade and corpse reach inside dungeons by room (INV-055)
 
 The original decides whether a trade partner or an open corpse is in reach inside a dungeon by the rooms the two bodies' sphere centres are in (Gamecode FUN_1005a1e7: `PosToRoom` with the character's room as the hint, `FindDoorIDFromRoomLink`, `IsDoorOpenBetweenRooms`); a point in no room is in reach. The client now uses the same centres and one shared rule (`interior::RoomState::rooms_reach`) for both the trade start and the walk-away check of corpses; before, it looked the rooms up at the feet.
+
+## The performance overlay's own hitch (2026-11-20)
+
+The user's screenshots all read the same: frames of 7.5 to 10 ms, a "1% low" of 18 to 23 ms, the card busy 35 to 41% of
+the frame, and spikes in the graph about a second apart. The overlay (`perf.rs`) sampled the processor and memory on the
+frame's own thread once a second, and timed alone that sample is about 10 ms (sysinfo 0.40's refresh of the one process:
+8.5 to 11.7 ms; the processor and memory 0.2 ms each), the first one 0.64 s. At about 110 frames a second the slowest 1%
+is one frame a second, so the "1% low" was that sample. It now runs on a thread of its own (`perf-sample`), started by
+the overlay's first frame and ending three seconds after its last; the overlay reads the last sample. Test
+`the_sample_is_taken_off_the_frame`. Not measured live: what the frame times are without it, and whether other hitches
+are left.
+
+For finding the rest: `MAO_PROFILE=1` now also prints, every five seconds, the three slowest frames of those seconds stage
+by stage (`slow: 33.6 ms | draw 3.1 | ... | outside 26.2`, `outside` being the time between frames no stage counts: the
+event loop and the system), and `MAO_QUIT_AFTER=<seconds>` closes the window by itself, for a timed run. The offline
+`map` view redraws only when something changes (3 frames in 66 s), so it cannot show stutter; that needs a live run.

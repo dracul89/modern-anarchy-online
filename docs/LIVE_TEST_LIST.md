@@ -1303,3 +1303,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] Die, wait over three minutes without touching anything: no "Auto-away"; alive again, three idle minutes later it goes away as usual.
 - [ ] Level up: the new-IP button stands near the lower right; a click opens the skills window and the button goes.
 - [ ] Take off on a hoverboard/Yalmaha (and watch another player take off): a brief pale burst of streaks fans upward at the body, then is gone.
+
+## The performance overlay's hitch (2026-11-20)
+
+- [ ] **1** With the performance overlay up (`/perf`), the frame graph has no spike every second and the "1% low" sits
+  near the average frame time, not at about twice it. Opening the overlay no longer freezes the game for half a second.

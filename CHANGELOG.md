@@ -63,6 +63,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The inspect, mail, nano programs, maps, signup terminal, teleport target, laser target and mech select windows and the compass first open where the original client left them for the character.
 - The control center's right target button attacks the target, as in the original (it selected the next enemy).
 - A new level shows the game's notice buttons near the lower right: new skill points, and when they come, a new perk or research; a click opens that window.
+- The performance overlay no longer makes a hitch of its own every second: it reads the processor and memory on a thread of its own (it took about 10 ms of every second's frames, and opened with a 0.6 s freeze).
 
 ### World
 
