@@ -2404,7 +2404,7 @@ impl ApplicationHandler for App {
                                 let aura = &resolved;
                                 let c = posed.get_or_insert_with(|| body_at(feet));
                                 if let Some(c) = c {
-                                    shells.extend(crate::effects::visual_shells(aura, &c.surface, c.translation, age));
+                                    shells.extend(crate::effects::visual_shells(aura, &c.surface, c.translation, heading, age));
                                 }
                                 let attractors = c.as_ref().map_or(&[][..], |c| c.attractors.as_slice());
                                 // (an Atrox's hoverbike circles are its own meshes: FUN_1010d457 with the breed 4)
@@ -2561,7 +2561,8 @@ impl ApplicationHandler for App {
                             if landed >= 0.0 {
                                 let c = &target;
                                 if let Some(c) = &c {
-                                    shells.extend(crate::effects::visual_shells(hit, &c.surface, c.translation, landed));
+                                    // (the target's facing is not known here: the shell's model frame unturned, as the hit's meshes)
+                                    shells.extend(crate::effects::visual_shells(hit, &c.surface, c.translation, 0.0, landed));
                                 }
                                 let attractors = c.as_ref().map_or(&[][..], |c| c.attractors.as_slice());
                                 meshes.extend(crate::effects::visual_meshes(hit, crate::effects::Locator::feet(shot.to, 0.0), landed, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, false)));

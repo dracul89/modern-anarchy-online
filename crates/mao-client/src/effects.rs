@@ -814,9 +814,10 @@ fn plasma_particles(colour_a: [f32; 4], colour_b: [f32; 4], material: i32, durat
 /// `GfxVisualShield`'s shell `t` seconds into a `_GfxControlShield_t` (see `mao_formats::gfx::Shield`) over a character's whole
 /// posed mesh (`surface`, world, Z up; `origin` its feet), as FUN_1001c94f builds its vertices: each pushed out along its normal,
 /// its texture coordinates by the mapping, its colour the template's, its alpha the template's times the run's factor times
-/// `sin²` of the fade (from a point or along an axis with flags 0x800 / 0x1000), shimmering with flag 0x2000. The model frame
-/// (Y up, its origin the feet) the mapping, the point and the shimmer are taken in is the world's, unturned by the heading.
-pub fn shield_shell(s: &Shield, surface: &crate::blobshadow::Surface, origin: [f32; 3], t: f32) -> Option<Shell> {
+/// `sin²` of the fade (from a point or along an axis with flags 0x800 / 0x1000), shimmering with flag 0x2000. The mapping, the
+/// point and the shimmer are taken in the model frame (Y up, its origin the feet, turned by the character's `heading`: the
+/// dynel's own frame, [`Locator::feet`]).
+pub fn shield_shell(s: &Shield, surface: &crate::blobshadow::Surface, origin: [f32; 3], heading: f32, t: f32) -> Option<Shell> {
     let (time, factor) = s.time(t)?;
     let n = surface.positions.len().min(surface.normals.len()).min(surface.uvs.len());
     if n == 0 || surface.indices.is_empty() {
@@ -829,12 +830,13 @@ pub fn shield_shell(s: &Shield, surface: &crate::blobshadow::Surface, origin: [f
         let l = (s.axis[0] * s.axis[0] + s.axis[1] * s.axis[1] + s.axis[2] * s.axis[2]).sqrt();
         if l > 0.0 { s.axis.map(|c| c / l) } else { s.axis }
     };
+    let frame = Locator::feet(origin, heading);
     let vertex = |i: usize| {
         let p = surface.positions[i];
         let nrm = surface.normals[i];
         let position = [0, 1, 2].map(|k| p[k] + nrm[k] * s.push);
         // (the model frame: x, y up, z)
-        let m = [p[0] - origin[0], p[2] - origin[2], p[1] - origin[1]];
+        let m = frame.model([p[0] - origin[0], p[2] - origin[2], p[1] - origin[1]]);
         let uv0 = surface.uvs[i];
         let uv = match s.mapping {
             1 => [m[0].atan2(m[2]) * s.scale.0 / std::f32::consts::TAU + b, m[1] * s.scale.1 + b],
@@ -871,9 +873,9 @@ fn shield2_pulse(q: f32) -> f32 {
 /// 1 round the up axis, 2 the position, 3–5 a random place a vertex); its alpha the colour's (0: pulsing with flag 0x800; 1
 /// and 2 by the product of sines of the position and the time by the rate, 2 also by 1.5 the time); the colour and alpha
 /// doubled (the states' `MODULATE2X`); drawn once a pass, each pass scaled one more step of the push (and lowered with flag
-/// 0x1000). The model frame (Y up, its origin the feet) is the world's, unturned by the heading. Not drawn: the EP03 mechs'
-/// meshes (word 20 from 0), the mesh's own material (flag 0x10000), the depth modes.
-pub fn shield2_shell(s: &Shield2, surface: &crate::blobshadow::Surface, origin: [f32; 3], t: f32) -> Option<Shell> {
+/// 0x1000). The model frame (Y up, its origin the feet) is turned by the character's `heading` ([`Locator::feet`]). Not
+/// drawn: the EP03 mechs' meshes (word 20 from 0), the mesh's own material (flag 0x10000), the depth modes.
+pub fn shield2_shell(s: &Shield2, surface: &crate::blobshadow::Surface, origin: [f32; 3], heading: f32, t: f32) -> Option<Shell> {
     // (the run stops it two seconds before its duration and it fades out over those two: it ends at the duration)
     if s.mesh >= 0 || t < 0.0 || (s.duration > 0.0 && t >= s.duration) {
         return None;
@@ -891,11 +893,12 @@ pub fn shield2_shell(s: &Shield2, surface: &crate::blobshadow::Surface, origin: 
     let (b, d) = (s.speed.0 * time, s.speed.1 * time);
     let pulse = if s.flags & 0x800 != 0 { shield2_pulse(s.rate * time * 10.0) } else { 1.0 };
     let tq = time * s.rate;
+    let frame = Locator::feet(origin, heading);
     let vertex = |i: usize| {
         let p = surface.positions[i];
         let nrm = surface.normals[i];
         // (the model frame: x, y up, z)
-        let [x, y, z] = [p[0] - origin[0], p[2] - origin[2], p[1] - origin[1]];
+        let [x, y, z] = frame.model([p[0] - origin[0], p[2] - origin[2], p[1] - origin[1]]);
         let out = match s.wobble {
             1 => (2.0 * x + 3.0 * y + z + 30.0 * time).sin().powi(2) * push,
             _ => push,
@@ -1040,6 +1043,11 @@ impl Locator {
         };
         let find = |wanted: &str| attractors.iter().find(|(n, _)| n == wanted).map(|(_, m)| Locator::from_matrix(m));
         find(name).or_else(|| find("Attractor01_head"))
+    }
+
+    /// An offset `d` from the origin in the server's frame (Y up) in the frame's own axes.
+    fn model(&self, d: [f32; 3]) -> [f32; 3] {
+        self.axes.map(|a| a[0] * d[0] + a[1] * d[1] + a[2] * d[2])
     }
 
     fn shifted(&self, by: [f32; 3]) -> Locator {
@@ -2485,19 +2493,19 @@ pub fn effect_mesh_shells(m: &EffectMesh, model: &mao_formats::model::Model, she
 }
 
 /// The shells a visual draws over a character's posed mesh `t` seconds in: a shield's, a second shield's, or (a scatter) its
-/// child's for each copy alive (on the body: their places unused).
-pub fn visual_shells(v: &Visual, surface: &crate::blobshadow::Surface, origin: [f32; 3], t: f32) -> Vec<Shell> {
+/// child's for each copy alive (on the body: their places unused). `origin` and `heading` are the character's feet and facing.
+pub fn visual_shells(v: &Visual, surface: &crate::blobshadow::Surface, origin: [f32; 3], heading: f32, t: f32) -> Vec<Shell> {
     match v {
-        Visual::Shield(s) => shield_shell(s, surface, origin, t).into_iter().collect(),
-        Visual::Shield2(s) => shield2_shell(s, surface, origin, t).into_iter().collect(),
+        Visual::Shield(s) => shield_shell(s, surface, origin, heading, t).into_iter().collect(),
+        Visual::Shield2(s) => shield2_shell(s, surface, origin, heading, t).into_iter().collect(),
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
             let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
             let t = if *looping { t.rem_euclid(round.max(0.05)) } else { t };
-            children.iter().filter(|(born, _)| t >= *born && t - born < life).flat_map(|(born, _)| visual_shells(child, surface, origin, t - born)).collect()
+            children.iter().filter(|(born, _)| t >= *born && t - born < life).flat_map(|(born, _)| visual_shells(child, surface, origin, heading, t - born)).collect()
         }
-        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_shells(c, surface, origin, t)).collect(),
-        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_shells(child, surface, origin, t - start) } else { Vec::new() },
+        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_shells(c, surface, origin, heading, t)).collect(),
+        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_shells(child, surface, origin, heading, t - start) } else { Vec::new() },
         _ => Vec::new(),
     }
 }
@@ -5148,19 +5156,19 @@ mod tests {
         assert_eq!(s.colour_at(1.5), 0);
         assert!((s.push_at(0.3) - 0.01).abs() < 1e-6);
         let surface = crate::blobshadow::Surface { positions: vec![[0.0, 0.0, 1.0], [0.5, 0.0, 1.0], [0.0, 0.5, 1.2]], normals: vec![[1.0, 0.0, 0.0]; 3], uvs: vec![[0.25, 0.5]; 3], indices: vec![0, 1, 2] };
-        let shell = shield2_shell(&s, &surface, [0.0; 3], 10.0).unwrap();
+        let shell = shield2_shell(&s, &surface, [0.0; 3], 0.0, 10.0).unwrap();
         assert!(shell.additive && shell.vertices.len() == 3);
         let v = shell.vertices[0];
         assert!((v.position[0] - 0.01).abs() < 1e-6);
         // (the texture (uv + speed × time) × scale at half the duration; the colour doubled)
         assert!((v.uv[0] - (0.25 + 1.5) * 2.0).abs() < 1e-5 && (v.uv[1] - (0.5 + 0.5) * 2.0).abs() < 1e-5);
         assert!((v.colour[0] - 2.0).abs() < 1e-6 && v.colour[3] >= 0.0 && v.colour[3] <= 2.0);
-        assert!(shield2_shell(&s, &surface, [0.0; 3], 20.0).is_none());
+        assert!(shield2_shell(&s, &surface, [0.0; 3], 0.0, 20.0).is_none());
         // (a mech's mesh is not drawn; nor past 1000 vertices with flag 0x40000)
-        assert!(shield2_shell(&Shield2 { mesh: 0, ..s.clone() }, &surface, [0.0; 3], 10.0).is_none());
+        assert!(shield2_shell(&Shield2 { mesh: 0, ..s.clone() }, &surface, [0.0; 3], 0.0, 10.0).is_none());
         let big = crate::blobshadow::Surface { positions: vec![[0.0; 3]; 1001], normals: vec![[0.0; 3]; 1001], uvs: vec![[0.0; 2]; 1001], indices: vec![0, 1, 2] };
-        assert!(shield2_shell(&s, &big, [0.0; 3], 10.0).is_none());
-        assert!(shield2_shell(&Shield2 { flags: 0x1400, ..s.clone() }, &big, [0.0; 3], 10.0).is_some());
+        assert!(shield2_shell(&s, &big, [0.0; 3], 0.0, 10.0).is_none());
+        assert!(shield2_shell(&Shield2 { flags: 0x1400, ..s.clone() }, &big, [0.0; 3], 0.0, 10.0).is_some());
     }
 
     #[test]
@@ -5185,7 +5193,7 @@ mod tests {
         // (template 43608: cyan at 0x88, 0.255 out, thin smoke scrolling, in over a second, 3 s, added)
         let s = Shield { flags: 0x400, duration: 3.0, material: 32, colour: 0x8800_ffff, push: 0.255, point: [0.0; 3], axis: [0.0; 3], mapping: 0, scale: (2.0, 2.0), fade: 1.571, distance: 15.0, most: 1.571, speed: (0.05, 0.2), looping: 0, loop_range: (0.0, 0.0), ending: 1, end_time: 0.0, end_from: 0.0 };
         let surface = crate::blobshadow::Surface { positions: vec![[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]], normals: vec![[0.0, 0.0, 1.0]; 3], uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], indices: vec![0, 1, 2] };
-        let at = |t: f32| shield_shell(&s, &surface, [0.0; 3], t);
+        let at = |t: f32| shield_shell(&s, &surface, [0.0; 3], 0.0, t);
         let half = at(0.5).unwrap();
         assert!(half.additive && half.sprite == 32 && half.vertices.len() == 3);
         // pushed out along the normal, cyan, the alpha sin² of the fade times 0x88 / 255
@@ -5201,7 +5209,13 @@ mod tests {
         // a fade-out of mode 1 over a second: half at its middle
         let fading = Shield { end_time: 1.0, ..s.clone() };
         assert!((fading.time(2.5).unwrap().1 - 0.5).abs() < 1e-5 && fading.time(3.1).is_none());
-        assert_eq!(pulse_timing(&Visual::Shield(s)), (600.0, 3.0, 1));
+        assert_eq!(pulse_timing(&Visual::Shield(s.clone())), (600.0, 3.0, 1));
+        // (the mapping is taken in the model frame, turned with the character: mapping 2 runs along the model's x, which
+        // a quarter turn points down the world's y)
+        let planar = Shield { mapping: 2, speed: (0.0, 0.0), scale: (1.0, 1.0), ..s };
+        let u = |heading: f32| shield_shell(&planar, &surface, [0.0; 3], heading, 0.5).unwrap().vertices[1].uv[0];
+        assert!((u(0.0) - 1.0).abs() < 1e-5);
+        assert!(u(std::f32::consts::FRAC_PI_2).abs() < 1e-5);
     }
 
     #[test]
