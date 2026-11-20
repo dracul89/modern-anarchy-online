@@ -1931,6 +1931,12 @@ impl World {
                 // (FUN_100a83d8: an item, nothing; anything not a character, "need a target"; a character that is not an
                 // NPC, nothing; an NPC the caster may attack (its weapon holder's FUN_10069a9f, no lines of its own),
                 // nothing, else "not allowed". Told only when the caster is the client's own character, FUN_10059047.)
+                // (FUN_100a879c: an item is passed over; on anything else the client's own caster is told)
+                crate::spelllist::Outcome::StunNoTarget { caster } => {
+                    if caster == (crate::requirements::CHARACTER, self.own) && !self.item_dynels.contains_key(&on.1) {
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_YouNeedToSelectATargetForProgram")));
+                    }
+                }
                 crate::spelllist::Outcome::AttackCheck { caster } => {
                     if caster != (crate::requirements::CHARACTER, self.own) || self.item_dynels.contains_key(&on.1) {
                         continue;
@@ -14635,6 +14641,12 @@ mod door_tests {
         w.spell_outcomes(vec![((crate::requirements::CHARACTER, 5), crate::spelllist::Outcome::Stun { begin: true, npc: true })]);
         assert!(!w.own_stunned());
         assert!(!w.paths.contains_key(&5));
+        // (CMB-035: a stun run on something not a character tells one's own caster to select a target; another's caster, or an
+        // item in the world, nothing)
+        w.spell_outcomes(vec![((0xc79c, 9), crate::spelllist::Outcome::StunNoTarget { caster: me })]);
+        assert_eq!(w.game_lines.len(), 1);
+        w.spell_outcomes(vec![((0xc79c, 9), crate::spelllist::Outcome::StunNoTarget { caster: (crate::requirements::CHARACTER, 5) })]);
+        assert_eq!(w.game_lines.len(), 1);
         w.spell_outcomes(vec![(me, crate::spelllist::Outcome::SetStat { stat: 689, value: 3 }), ((crate::requirements::CHARACTER, 5), crate::spelllist::Outcome::SetStat { stat: 690, value: 1 })]);
         assert_eq!((w.stats.get(&689), w.stats.get(&690)), (Some(&3), None));
     }

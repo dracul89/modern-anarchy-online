@@ -124,6 +124,9 @@ pub enum Outcome {
     /// 0xcf82 "Stun" (FUN_100a879c) on a character: its state flags (stat 224, [`StateFlags`]) lose 6 and gain 0x400 (an NPC,
     /// +0x21c, also 0x100 and 0x4200) when it begins; the other way when the list ends it.
     Stun { begin: bool, npc: bool },
+    /// 0xcf82 "Stun" on anything but a character or an item (FUN_100a879c, begun or ending alike): the caster, the run's +0x10
+    /// identity, is told `Feedback_YouNeedToSelectATargetForProgram` when it is the client's own character.
+    StunNoTarget { caster: Holder },
     /// 0xcf22 (FUN_100a4f8a): the stat set to the value (vtable +0x40, or +0x44 for a stat the dynel does not have yet).
     SetStat { stat: u32, value: i32 },
     /// 0xcf76 (FUN_100a95c7) on a character: the stat set to the value for as long as the list lasts. Beginning, the value
@@ -255,9 +258,10 @@ pub fn fire(run: &mut Run, scene: &dyn Scene, now: f64) -> Vec<Outcome> {
             let colours = (spell.kind == 0xcfd4).then(|| colours(spell));
             vec![Outcome::Effect { effect: spell.stat(39), seconds: (hundredths != 0).then(|| hundredths as f32 / 100.0), colours }]
         }
-        // (FUN_100a879c: on a character only; on anything else the caster, when it is the client's, is told
-        // "Feedback_YouNeedToSelectATargetForProgram", not ported)
+        // (FUN_100a879c: on a character only; on anything else but an item the caster, when it is the client's, is told
+        // "Feedback_YouNeedToSelectATargetForProgram", [`Outcome::StunNoTarget`])
         0xcf82 if run.on.0 == crate::requirements::CHARACTER => vec![Outcome::Stun { begin: !run.ending, npc: scene.is_npc(run.on).unwrap_or(false) }],
+        0xcf82 => vec![Outcome::StunNoTarget { caster: run.caster }],
         0xcf22 => {
             // (FUN_100a4f8a: stat 0 → the dynel's vtable +0x10 with the value, not known; stats 0x3c, 0x25, 0x2f, 4, 0x3b, 0x16d,
             // 0x1b and 0xd6 are not set as such: on a character (`SimpleChar_t`) 0x2f, the `Fatness`, is set by FUN_1003e464
@@ -714,6 +718,7 @@ mod tests {
                             Outcome::Effect { .. } => "effect",
                             Outcome::Stun { begin: true, .. } => "stun",
                             Outcome::Stun { begin: false, .. } => "stun ends",
+                            Outcome::StunNoTarget { .. } => "stun with no target",
                             Outcome::SetStat { .. } => "stat",
                             Outcome::TempStat { .. } => "stat for a while",
                             Outcome::Text { .. } => "text",
