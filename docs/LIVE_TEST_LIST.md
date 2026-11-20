@@ -1238,6 +1238,8 @@ These were written before this list; some may have been seen working since witho
   click stands up; while swimming it does nothing.
 - [ ] Launcher PATCH (LCH-036, 2026-11-19): only when a dimension really is newer than the game folder (do not fake
   it: the patcher changes the game folder). PATCH opens AnarchyPatcher.exe for that dimension and the launcher closes.
+- [ ] Nano stacking (NAN-041, 2026-11-19): casting a weaker buff of a line already running stronger (on yourself or a
+  team mate) says a better program is running and nothing is cast; recasting the same buff to refresh it still works.
 - [ ] Natural weapons (CMB-016, 2026-11-19): a creature with weapon points that fights with its own weapons (Engineer
   Automatons, cleaning robots at Arete Landing) swings its own attack animation, not the generic unarmed push.
 - [ ] Morphed heads (RND-142, 2026-11-19): a character polymorphed or on a Yalmaha shows its own head on the body's

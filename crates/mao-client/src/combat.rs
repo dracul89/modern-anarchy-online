@@ -288,6 +288,47 @@ pub fn cast_refusal(caster: Caster, cost: i64, modifier: i64) -> Option<(&'stati
     (caster.nano < needed).then_some(("Feedback_YouNeedAtLeastRemainingNano", Some(needed)))
 }
 
+/// What the nano stacking rules read of a nano program's template: its flags (stat 0), its stacking order (stat 0x227, 551),
+/// its strain (stat 0x4b, 75) and the five more lines it belongs to (stats 0x222–0x226, 546–550). A stat the template does not
+/// have is 0 here: read as the original's default 1234567890 every nano would share a line with every other, which the game
+/// does not do.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NanoLine {
+    pub flags: i64,
+    pub order: i64,
+    pub strain: i64,
+    pub lines: [i64; 5],
+}
+
+/// FUN_1004e70e: whether a running nano is of the new one's line in the way asked. Not `replacing` (FUN_1004fb6a): the running
+/// one stacks above (its order higher than the new one's); `replacing` (FUN_1004fb8d): the new one stacks at least as high.
+/// The line: when neither has any of the five more lines, the same strain; else any of the running one's six (strain and
+/// lines) that is not 0 among the new one's six (FUN_10051e9e).
+pub fn same_line(new: &NanoLine, running: &NanoLine, replacing: bool) -> bool {
+    if replacing && new.order < running.order || !replacing && running.order <= new.order {
+        return false;
+    }
+    if running.lines.iter().sum::<i64>() == 0 && new.lines.iter().sum::<i64>() == 0 {
+        return running.strain == new.strain;
+    }
+    let theirs = [running.strain, running.lines[0], running.lines[1], running.lines[2], running.lines[3], running.lines[4]];
+    let ours = [new.strain, new.lines[0], new.lines[1], new.lines[2], new.lines[3], new.lines[4]];
+    theirs.iter().any(|&v| v != 0 && ours.contains(&v))
+}
+
+/// The stacking refusals of FUN_1004fbe4 for a nano at a target running `running` (FUN_1004f8ac over the target's running
+/// list): one of its line stacking above it `Feedback_NCUErrorBetterProgramRunning` (FUN_1004fb6a); a nano with the flag
+/// 0x800000 that would replace one of its line `Feedback_NCUErrorNanoprogramCantReplaceOther` (FUN_1004fb8d).
+pub fn stacking_refusal(new: &NanoLine, running: &[NanoLine]) -> Option<&'static str> {
+    if running.iter().any(|r| same_line(new, r, false)) {
+        return Some("Feedback_NCUErrorBetterProgramRunning");
+    }
+    if new.flags & 0x80_0000 != 0 && running.iter().any(|r| same_line(new, r, true)) {
+        return Some("Feedback_NCUErrorNanoprogramCantReplaceOther");
+    }
+    None
+}
+
 /// FUN_1004fbe4's range for a nano (FUN_1008658e): its stat 0x11f (287) with the caster's stat 0x17d (381) share of it, cut,
 /// at most 40 (as a special's, [`special_range`]); the gap is the distance less both bodies.
 /// `Feedback_TargetOutOfRangeForNanoprogram` when the gap, cut to whole metres, is past it (FUN_1004fbe4);
@@ -333,6 +374,15 @@ mod tests {
         assert_eq!(nano_range_line(12.5, 10, 0), Some("Feedback_TargetIsOutsideRange"));
         assert_eq!(nano_range_line(13.0, 10, 0), Some("Feedback_TargetOutOfRangeForNanoprogram"));
         assert_eq!(nano_range_line(14.9, 10, 30), None);
+        // (NAN-041: the stacking: a better one of the strain running refuses; a weaker one is replaced, unless the new one
+        // has the flag 0x800000; the lines 546-550 tie nanos of other strains)
+        let nano = |order: i64, strain: i64, lines: [i64; 5], flags: i64| NanoLine { flags, order, strain, lines };
+        let new = nano(10, 147, [0; 5], 0);
+        assert_eq!(stacking_refusal(&new, &[nano(20, 147, [0; 5], 0)]), Some("Feedback_NCUErrorBetterProgramRunning"));
+        assert_eq!(stacking_refusal(&new, &[nano(10, 147, [0; 5], 0), nano(5, 147, [0; 5], 0), nano(50, 196, [0; 5], 0)]), None);
+        assert_eq!(stacking_refusal(&nano(10, 147, [0; 5], 0x80_0000), &[nano(10, 147, [0; 5], 0)]), Some("Feedback_NCUErrorNanoprogramCantReplaceOther"));
+        assert_eq!(stacking_refusal(&nano(10, 223, [151, 3, 0, 0, 0], 0), &[nano(20, 151, [0; 5], 0)]), Some("Feedback_NCUErrorBetterProgramRunning"));
+        assert_eq!(stacking_refusal(&nano(10, 223, [151, 0, 0, 0, 0], 0), &[nano(20, 152, [0; 5], 0)]), None);
         assert_eq!(cast_refusal(Caster { moving: true, ..still }, 80, 100), Some(("Feedback_UnableToExecuteProgramsMustStandStill", None)));
         assert_eq!(cast_refusal(Caster { falling: true, ..still }, 80, 100), Some(("Feedback_YouCantExecuteNanoprogramsWhileFalling", None)));
         assert_eq!(cast_refusal(still, 300, 50), Some(("Feedback_YouNeedAtLeastRemainingNano", Some(150))));

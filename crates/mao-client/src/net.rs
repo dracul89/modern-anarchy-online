@@ -5287,6 +5287,7 @@ impl World {
     ///   (its stat 0x296) `Feedback_YouCantUseOnVehicles`;
     /// * a nano that is not hostile at an NPC that is not one's own pet (the caster neither an NPC nor held)
     ///   `Feedback_MolecularStructurePreventsUse`;
+    /// * the stacking against the nanos the target runs (`combat::stacking_refusal`, NAN-041);
     /// * the range (`combat::nano_range_line`: `Feedback_TargetOutOfRangeForNanoprogram`), the line of sight from eyes to
     ///   eyes (FUN_10058e4f, as a special's) `Feedback_TargetNotInLineOfSight`;
     /// * FUN_1004ed2f, for another than oneself: the gap past the range `Feedback_TargetIsOutsideRange`; a hostile nano asks
@@ -5296,7 +5297,7 @@ impl World {
     ///
     /// Not ported: the "nano not in the list" warning (the client casts only from its list), the caster's +0x80 (silent,
     /// not read), the cast waiting on one of the same stat 0x195 (FUN_1004f3d9) and the program not yet ready (FUN_1004f0f9),
-    /// the stacking rules (FUN_1004fb6a `Feedback_NCUErrorBetterProgramRunning`, FUN_1004fb8d: NAN-041), and FUN_1004ed2f's
+    /// the stacking against casts still under way on the target (FUN_1004f8ac's second list), and FUN_1004ed2f's
     /// rules by fight mode (team, raid, battlestation side, `Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`): the
     /// client keeps no fight mode, so it takes neither side's to be 2, which passes.
     fn nano_target_refusal(&self, nano: u32, target: Option<u32>, sight: &dyn Fn([f32; 3], [f32; 3]) -> bool) -> Option<Vec<String>> {
@@ -5327,6 +5328,15 @@ impl World {
         let pet = self.pets.values().any(|p| p.1 == t);
         if !hostile && npc && !self.own_held() && !pet {
             return line("Feedback_MolecularStructurePreventsUse");
+        }
+        // (the stacking against what the target runs, NAN-041: FUN_1004fb6a, FUN_1004fb8d)
+        let line_of = |n: u32| {
+            let s = |stat: u32| nano_stat(n, stat).unwrap_or(0);
+            crate::combat::NanoLine { flags: s(0), order: s(0x227), strain: s(0x4b), lines: std::array::from_fn(|k| s(0x222 + k as u32)) }
+        };
+        let running: Vec<crate::combat::NanoLine> = if t == self.own { self.nanos.iter().map(|&n| line_of(n)).collect() } else { self.others_nanos.get(&t).map(|m| m.keys().map(|&n| line_of(n)).collect()).unwrap_or_default() };
+        if let Some(name) = crate::combat::stacking_refusal(&line_of(nano), &running) {
+            return line(name);
         }
         if t == self.own {
             return None;

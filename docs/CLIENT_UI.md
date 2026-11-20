@@ -6737,8 +6737,13 @@ pictures `MAO_UI_PREVIEW=actions` and, with every state on, `MAO_ACTION_TOGGLES=
   hostile nano asks the attack check and then says `Feedback_YouAreNotAllowedToExecuteNanoprogram`; a friendly one at a
   monster (side 3) `Feedback_YouAreNotAllowedToExecuteFriendlyOnEnemy`.
 
+The stacking (NAN-041, `combat::stacking_refusal`): a nano of the same line (the same strain, stat 75, or one of the lines
+in stats 546-550 shared) running on the target with a higher stacking order (stat 551) refuses the cast,
+`Feedback_NCUErrorBetterProgramRunning`; a new nano with the flag 0x800000 refuses to replace one of its line it would
+replace, `Feedback_NCUErrorNanoprogramCantReplaceOther`. Running nanos: one's own list, another's from its updates.
+
 Not ported: a cast waiting on one of the same stat 0x195 (FUN_1004f3d9) and a program not ready (FUN_1004f0f9); the
-caster's +0x80; the stacking rules (NAN-041); and the rules by fight mode (team, raid, battlestation, sides:
+caster's +0x80; casts still under way on the target; and the rules by fight mode (team, raid, battlestation, sides:
 `Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`), as the client keeps no fight mode.
 
 ### A special attack's range is checked before it is sent (CMB-022)
