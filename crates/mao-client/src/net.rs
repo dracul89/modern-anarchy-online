@@ -5746,6 +5746,9 @@ struct Characters {
     build: i32,
     /// The robe flag of the body drawn next (FUN_100585bf's +0x208: 1 asks for the `_robe` body).
     robe: i32,
+    /// Whether the body drawn next plays its movement backwards (FUN_1006c370's reverse flag: sneaking backwards); set for
+    /// each character before it is drawn.
+    backwards: bool,
     /// The vehicle body (an NPC template) a vehicle program gives each body, by (program, body CAT mesh).
     vehicles: std::collections::HashMap<(u32, u32), Option<u32>>,
     /// Each character's attractors on its last posed body, by name: frames in its local space (Y up, the body's scale
@@ -6010,6 +6013,13 @@ fn movement_action(mode: Mode, moving: bool, strafe: i8, backing: bool) -> Optio
     }
 }
 
+/// Whether [`movement_action`]'s animation plays backwards: FUN_1006c370, moving against the facing (FUN_10070a37 = 2) in the
+/// sneaking mode, plays the sneak action with its reverse flag set (the fourth argument of the controller's play, +0x18);
+/// the walking and running modes have back animations of their own (0x88, 0xde) and clear it.
+fn movement_backwards(mode: Mode, moving: bool, strafe: i8, backing: bool) -> bool {
+    mode == Mode::Sneak && moving && strafe == 0 && backing
+}
+
 /// One step of the character's vehicle (`Vehicle_t::Run`'s FUN_1000e3d3 with `CharVehicle_t`'s steering FUN_10071537): the
 /// horizontal velocity after `dt` seconds pushed along the facing (`walk` 1 forwards, −1 back) with the force
 /// `2 × mass × top`, kept within `top`; none pushed, or the push turned round since the last step (`pushed`), halts it.
@@ -6188,7 +6198,7 @@ impl Characters {
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
         let head_races = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, name, instance)| (instance, crate::bareskin::race_of_head(name))).collect();
         let head_bodies = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).filter_map(|(_, name, instance)| Some((instance, crate::bareskin::body_of_head(name)?))).collect();
-        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, morph_gear: false, build: 1, robe: 0, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default(), creature_last: Default::default() })
+        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, morph_gear: false, build: 1, robe: 0, backwards: false, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default(), creature_last: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -6727,12 +6737,12 @@ impl Characters {
                 let (loops, range) = match key.1 {
                     0 | 9 => (-1, (0.0, length)),
                     1 => (1, (0.0, start)),
-                    2 => (-1, (start, end)),
+                    2 | 4 => (-1, (start, end)),
                     3 => (1, (end, length)),
                     _ => (1, (0.0, length)),
                 };
-                // (a death, key 9, is held at its end: direction 3)
-                let handle = stack.set_animation(anim, 0, loops, 2, if key.1 == 9 { 3 } else { 0 }, 1.0, total);
+                // (a death, key 9, is held at its end: direction 3; the cycle played backwards, 4, runs in direction 1)
+                let handle = stack.set_animation(anim, 0, loops, 2, match key.1 { 9 => 3, 4 => 1, _ => 0 }, 1.0, total);
                 stack.set_time(handle, range.0, range.1);
                 if let Some(length) = flourish {
                     stack.set_delay(handle, (length - 300.0).max(0.0));
@@ -6956,6 +6966,10 @@ impl Characters {
             None => 1.0,
         };
         let (action, _) = self.motion(id, breed, sex, moving, jumped, rate);
+        // (the cycle played backwards is a segment of its own, 4, so a change of direction sets the animation anew)
+        if self.backwards && self.segment == 2 {
+            self.segment = 4;
+        }
         let custom_head = gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED || (g.0 == 0 && self.head_meshes.contains(&g.1)));
         let name = self.ensure_anim(breed, sex, action);
         // (with a weapon in hand, its movement: in a fight the drawn weapon's idle, FUN_1003cce2 looping class 0x10 of the weapon
@@ -7407,6 +7421,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 Mode::Walk
             };
             let action = movement_action(mode, moving, world.strafing.get(&id).copied().unwrap_or(0), world.backing.get(&id).copied().unwrap_or(false));
+            chars.backwards = movement_backwards(mode, moving, world.strafing.get(&id).copied().unwrap_or(0), world.backing.get(&id).copied().unwrap_or(false));
             // (the `Scale` stat read in mode 3, as the callers of `SetBodyScale` read it: the stored value and what is worn adds)
             let scale = if id == world.own { Some(crate::derived::shown_one(&world.stats, &world.item_mods, 360)).filter(|&s| s > 0).unwrap_or(100) as f32 } else { world.others_scale(id) };
             let jumped = world.jumped.get(&id).map(|t| t.elapsed());
@@ -15631,6 +15646,12 @@ mod movement_tests {
         use mao_formats::appearance::{Action, ATROX, FEMALE, MALE};
         assert_eq!(movement_action(Mode::Sneak, true, 0, false), Some(Action::Sneak));
         assert_eq!(movement_action(Mode::Sneak, true, 0, true), Some(Action::Sneak));
+        // (backwards, the sneak plays reversed; forwards, sidestepping or in another mode it does not)
+        assert!(movement_backwards(Mode::Sneak, true, 0, true));
+        assert!(!movement_backwards(Mode::Sneak, true, 0, false));
+        assert!(!movement_backwards(Mode::Sneak, true, 1, true));
+        assert!(!movement_backwards(Mode::Walk, true, 0, true));
+        assert!(!movement_backwards(Mode::Sneak, false, 0, true));
         assert_eq!(movement_action(Mode::Sneak, false, 0, false), Some(Action::SneakStand));
         assert_eq!(movement_action(Mode::Sneak, true, -1, false), Some(Action::StrafeLeft));
         assert_eq!(movement_action(Mode::Run, true, 0, true), Some(Action::RunBack));
