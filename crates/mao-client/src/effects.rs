@@ -2368,8 +2368,9 @@ fn locator_turn(turn: [f32; 3], reversed: bool) -> [[f32; 3]; 3] {
 /// pose's, with flag 0x800 none within 5 of the camera and
 /// `(d − 5) / 10` to 10. Each vertex of `model` (Y up, the mesh's own root transform kept) is put through that, white at the
 /// opacity, its part's texture by `sheet` (its sheet number), added for the rendering effects 4–6 (`Transparent*DeltaState`:
-/// source alpha onto the scene) and blended for the others. Not: the lighting of the plain effect (0) and its depth writes, the
-/// body's scale at the feet (flag 0x200 there), the vehicle flags (0x2000 / 0x4000: shown while the vehicle moves forward),
+/// source alpha onto the scene) and blended for the others (at the feet the locator carries the body's scale, so flag 0x200
+/// grows the mesh there too: FUN_1010ce9c takes `GetBodyScale` whatever the locator). Not: the lighting of the plain effect
+/// (0) and its depth writes, the vehicle flags (0x2000 / 0x4000: shown while the vehicle moves forward),
 /// the mesh's own animation (0x1000) and its attractor effects (FUN_1010ca78).
 pub fn effect_mesh_shells(m: &EffectMesh, model: &mao_formats::model::Model, sheet: &dyn Fn(u32, u32) -> u16, at: &Locator, camera: Option<[f32; 3]>, t: f32) -> Vec<Shell> {
     let Some(mut pose) = m.pose(t) else { return Vec::new() };
