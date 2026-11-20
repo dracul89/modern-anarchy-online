@@ -281,6 +281,19 @@ pub fn rollup_pages(text: &str) -> Option<Vec<(String, bool, f32)>> {
     Some(file.views.iter().enumerate().map(|(k, v)| (v.clone(), expanded.get(k).is_none_or(|e| *e != "false"), heights.get(k).and_then(|h| h.parse().ok()).unwrap_or(-1.0))).collect())
 }
 
+/// The rollup area file's `scroll_offset` (FUN_10048e92 saves the column's `GetScrollOffset().y`, FUN_100489f9 reads it
+/// back): none in a file of another dock type or without the value.
+pub fn rollup_scroll(text: &str) -> Option<f32> {
+    dock_file(text).filter(|f| f.kind == "RollupController")?;
+    value(text, "scroll_offset")?.parse::<f32>().ok().filter(|v| v.is_finite())
+}
+
+/// The scroll of the character's rollup area in the original's files ([`rollup_scroll`]).
+pub fn rollup_file_scroll(character: u32) -> Option<f32> {
+    let (_, dir) = prefs_dirs(character)?;
+    std::fs::read_dir(dir.join("DockAreas")).ok()?.flatten().filter_map(|e| std::fs::read_to_string(e.path()).ok()).find_map(|t| rollup_scroll(&t))
+}
+
 /// The character's rollup area in the original's files ([`rollup_pages`]); none when the original has not played the
 /// character on this machine.
 pub fn rollup_file(character: u32) -> Option<Vec<(String, bool, f32)>> {
@@ -489,5 +502,8 @@ mod tests {
 </Archive>"#;
         assert_eq!(rollup_pages(text), Some(vec![("ncu_window".to_string(), true, 103.0), ("nano_window".to_string(), false, 205.0)]));
         assert_eq!(rollup_pages(&text.replace("RollupController", "DockTabbedWindow")), None);
+        assert_eq!(rollup_scroll(text), Some(0.0));
+        assert_eq!(rollup_scroll(&text.replace("value=\"0.000000\" />\n    </Archive>\n    <String name=\"dock_type\"", "value=\"64.000000\" />\n    </Archive>\n    <String name=\"dock_type\"")), Some(64.0));
+        assert_eq!(rollup_scroll(&text.replace("RollupController", "DockTabbedWindow")), None);
     }
 }

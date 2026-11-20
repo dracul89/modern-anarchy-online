@@ -270,6 +270,10 @@ pub fn begin_frame() {
         if let Some(pages) = crate::aoprefs::rollup_file(character).and_then(|file| seed_pages(&file)) {
             state.pages = pages;
         }
+        // (and its scroll, the file's `scroll_offset`)
+        if let Some(scroll) = crate::aoprefs::rollup_file_scroll(character) {
+            state.scroll = scroll.max(0.0);
+        }
         save(state);
     }
 }
