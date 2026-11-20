@@ -1238,6 +1238,9 @@ These were written before this list; some may have been seen working since witho
   click stands up; while swimming it does nothing.
 - [ ] Launcher PATCH (LCH-036, 2026-11-19): only when a dimension really is newer than the game folder (do not fake
   it: the patcher changes the game folder). PATCH opens AnarchyPatcher.exe for that dimension and the launcher closes.
+- [ ] Item in hand, right click in the world (2026-11-20): with an item taken up from the inventory, a right click on a
+  character uses it on them, on an object uses it on that, on the ground asks the drop question, exactly as a left click
+  does; the hand is empty after. A right click on another item in the inventory still uses one on the other.
 - [ ] Combat text (CMB-038, 2026-11-20): hits, nano damage, healing and experience float their amount over the character
   at about head height, rising briefly (1.3 s), in the event's colour; your own only in third person. Compare the size,
   height and font with the original's (the font is the client's own here).

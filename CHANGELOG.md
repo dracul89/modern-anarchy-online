@@ -6,6 +6,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Items
+
+- With an item in hand, a right click in the world uses it there as a left click does (on a character, an object, or the
+  ground's question), as in the original. It did nothing.
+
 ### Graphics
 
 - Sky flash cones sized by the body (a negative radius) take the body's real torso size, not a fixed half unit.

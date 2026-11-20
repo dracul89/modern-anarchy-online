@@ -7984,6 +7984,15 @@ Every command GUI.dll registers for a player now has its piece count in the clie
 
 A key bound to several of the original's actions now does them all, as GUI.dll's input (FUN_10018376) does, and only when none takes it does a fixed key act. OK in the Bind Key box with no key pressed binds the original's "no key", a row of its own kept in mao.ini as `Inactive`. The original's team, raid, LFT, research, knowledge, daily login and item shop window keys are actions with the shipped keys (Ctrl+5, Ctrl+Shift+R, Shift+F, Shift+O, Ctrl+3). Mouse buttons as keys and the team, pet, camera-view, reference, switch-target, copy and per-slot shortcut keys are not done yet.
 
+## An item in hand let go over the world by either button (2026-11-20)
+
+The user: "right click when holding an item still doesn't work". GUI.dll's `WindowController_c::HandleMouseUp`
+(0x10157f13), with a drag object in hand and no window under the pointer, tells the drop (its signal +0xc, FUN_100cbcb5:
+use on a character, on an object, or the ground's boxes) on the release of any button, then cancels the drag. The client
+let go only on the left button's release, so a right click over the world did nothing. Now either button does
+(`gear::letting_go_on_world`), and the hand is empty after. Over a window nothing changed: a right click on another item
+is still `UseItemOnItem` (the lists' own handler, FUN_100cae1b).
+
 ## Combat text over characters (2026-11-20, CMB-038 corrected)
 
 The removal of the client's floating numbers (CMB-038, 2026-11-19) rested on a wrong reading: the original does float

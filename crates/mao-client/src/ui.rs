@@ -1657,11 +1657,11 @@ impl Ui {
             crate::docks::end_frame(&ctx, palette);
         });
         crate::chrome::end_frame();
-        // (an inventory item let go over the world, not over a window, is used on what is there)
-        let letting_go = crate::gear::letting_go(&self.ctx);
+        // (an inventory item let go over the world, not over a window, is used on what is there: by either button,
+        // `gear::letting_go_on_world`)
+        let on_world = crate::gear::letting_go_on_world(&self.ctx) && !self.ctx.is_pointer_over_egui();
         if let Some(dragged) = crate::gear::held()
-            && letting_go
-            && !self.ctx.is_pointer_over_egui()
+            && on_world
             && let Some(at) = self.ctx.input(|i| i.pointer.interact_pos())
         {
             let k = self.ctx.pixels_per_point();
@@ -1674,7 +1674,7 @@ impl Ui {
         // (the hand is empty once the item is let go, wherever; Escape puts it back, and so does the inventory
         // window going, which is where the item in hand is drawn. A split in hand the same: it is used on nothing in
         // the world (`letting_go` is not true of it), and let go anywhere but on an empty cell it is given up)
-        if crate::gear::hand_opening(&self.ctx) || self.ctx.input(|i| i.key_pressed(egui::Key::Escape)) || !(self.window_open("inventory") || self.window_open("wear")) {
+        if on_world || crate::gear::hand_opening(&self.ctx) || self.ctx.input(|i| i.key_pressed(egui::Key::Escape)) || !(self.window_open("inventory") || self.window_open("wear")) {
             crate::gear::put_down();
         }
         crate::gear::end_frame();

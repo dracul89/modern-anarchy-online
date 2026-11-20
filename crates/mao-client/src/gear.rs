@@ -212,6 +212,20 @@ pub fn letting_go(ctx: &egui::Context) -> bool {
     split_count() == 0 && hand_opening(ctx)
 }
 
+/// Whether the item in hand is let go over the world this frame, the pointer on no window: GUI.dll's
+/// `WindowController_c::HandleMouseUp` (0x10157f13) drops a drag object over no window on the release of ANY button (its
+/// drop signal +0xc, FUN_100cbcb5, is told no button), then cancels it. So a right click over the world uses the item in
+/// hand as a left click does. Not a split, and not the click that took the item up.
+pub fn letting_go_on_world(ctx: &egui::Context) -> bool {
+    let (left, right) = ctx.input(|i| (i.pointer.button_released(egui::PointerButton::Primary), i.pointer.button_released(egui::PointerButton::Secondary)));
+    world_release(held().is_some(), TAKEN_UP.load(std::sync::atomic::Ordering::Relaxed), split_count(), left, right)
+}
+
+/// [`letting_go_on_world`]'s rule: an item in hand, not a split, not just taken up, and either button let go.
+pub fn world_release(held: bool, taken_up: bool, split: u32, left: bool, right: bool) -> bool {
+    held && !taken_up && split == 0 && (left || right)
+}
+
 /// Whether what is in hand, an item or a split of one, is let go this frame.
 pub fn hand_opening(ctx: &egui::Context) -> bool {
     held().is_some() && !TAKEN_UP.load(std::sync::atomic::Ordering::Relaxed) && ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
@@ -474,6 +488,15 @@ impl GearWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A right click over the world lets the item in hand go as a left click does (`WindowController_c::HandleMouseUp`);
+    /// not the click that took it up, not a split, not with nothing in hand.
+    #[test]
+    fn either_button_lets_an_item_go_over_the_world() {
+        assert!(world_release(true, false, 0, false, true) && world_release(true, false, 0, true, false));
+        assert!(!world_release(true, true, 0, false, true) && !world_release(true, false, 3, false, true) && !world_release(false, false, 0, true, true));
+        assert!(!world_release(true, false, 0, false, false));
+    }
 
     #[test]
     fn requirements_read_as_conditions_met_or_not() {
