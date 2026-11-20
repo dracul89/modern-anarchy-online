@@ -2747,7 +2747,10 @@ impl ApplicationHandler for App {
                     };
                     camera.target += mao_render::glam::Vec3::new(r(1), r(2), r(3)) * self.shake.0;
                 }
-                if let Some((terrain, offset)) = &self.ground {
+                // (not where the camera's vehicle has settled against the playfield's surfaces and tile-map ground, as the
+                // original's does, `Vehicle_t::EnsureSurfaceAlignment`: only where it had none to settle against)
+                let settled = self.hud.position.is_some() && self.zones.is_some();
+                if let Some((terrain, offset)) = self.ground.as_ref().filter(|_| !settled) {
                     for _ in 0..24 {
                         let eye = camera.eye();
                         if eye.z >= terrain.height_at(eye.x, eye.y, terrain.height_scale) + offset + 0.6 || camera.distance < 0.8 {
