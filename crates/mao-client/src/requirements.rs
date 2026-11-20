@@ -144,6 +144,44 @@ pub enum Told {
     Profession(i64),
     /// Text category 100's `FlyingMustMeAllowedOnThePlayfield` (operator 0x70 in a playfield without flying).
     NoFlying,
+    /// `Feedback_TargetSideMustNotBe` (unequal, stat 0x21: category 2005).
+    SideNot(i64),
+    /// `Feedback_ThisEffectCantBeUtilitizedBy` (unequal, stat 0x3c: the profession's name, category 2004).
+    ProfessionNot(i64),
+    /// A feedback line with nothing fed: its name (the equal and unequal comparisons' lines for a team, a fight, sitting,
+    /// combat mode, a controller, the shadowlands, the place behind or before the target, and the weapons that cannot be
+    /// wielded).
+    Plain(&'static str),
+}
+
+/// The plain line of a failed "equal" on a character (FUN_100065d8 case 0, 0x10006a8c on): by the stat and the value
+/// wanted; none for the others (4, 0x21, 0x3b, 0x3c and 0x170 have lines with words fed, [`Told`]; 0x167 one of category
+/// 101 and the rest a debug line).
+fn equal_line(stat: u32, value: i64) -> Option<&'static str> {
+    Some(match (stat, value) {
+        (6, _) => "Feedback_TargetMustNotBeInATeam",
+        (0x18d, _) => "Feedback_WrongTargetSelected",
+        (0x112, 1) | (0x2b2, 1) => "Feedback_YouCanWieldNoWeapons",
+        (0x19a, 0) => "Feedback_TargetCantBeInFight",
+        (0x19a, _) => "Feedback_TargetMustBeFighting",
+        (0x1ae, 2) => "Feedback_TargetMustBeSitting",
+        (0x1b2, 10) => "Feedback_MustBeInCombatMode",
+        (0x1c7, 0x9d) => "Feedback_TargetMustBeAController",
+        (0x1e8, 1) => "Feedback_MustBeBehindTarget",
+        (0x1e8, 2) => "Feedback_MustBeInFrontOfTarget",
+        (0x213, 0) => "Feedback_MustNotBeInShadowlands",
+        _ => return None,
+    })
+}
+
+/// The plain line of a failed "unequal" on a character (FUN_100065d8 case 0x18): a team, combat mode; the side and the
+/// profession have lines with their names fed ([`Told::SideNot`], [`Told::ProfessionNot`]).
+fn unequal_line(stat: u32, value: i64) -> Option<&'static str> {
+    match (stat, value) {
+        (6, _) => Some("Feedback_TargetMustBeInATeam"),
+        (0x1b2, 10) => Some("Feedback_MustNotBeInCombatMode"),
+        _ => None,
+    }
 }
 
 /// FUN_100065d8 on `criteria`, the stats read from `holder`. `Err` when an operator needs what the context does not know.
@@ -192,7 +230,7 @@ fn judge(criteria: &[Criterion], holder: Holder, ctx: &dyn Context, told: &mut V
                         0x21 => told.push(Told::Side(v)),
                         0x3b => told.push(Told::Sex(v)),
                         0x3c | 0x170 => told.push(Told::Profession(v)),
-                        _ => {}
+                        _ => told.extend(equal_line(stat, v).map(Told::Plain)),
                     }
                 }
                 met
@@ -212,8 +250,18 @@ fn judge(criteria: &[Criterion], holder: Holder, ctx: &dyn Context, told: &mut V
                 }
                 met
             }
-            // (0x10006f20) unequal
-            0x18 => get(holder)? != v,
+            // (0x10006f20) unequal; a character's failed one has a line for a few stats
+            0x18 => {
+                let met = get(holder)? != v;
+                if !met && character.is_some() {
+                    match stat {
+                        0x21 => told.push(Told::SideNot(v)),
+                        0x3c => told.push(Told::ProfessionNot(v)),
+                        _ => told.extend(unequal_line(stat, v).map(Told::Plain)),
+                    }
+                }
+                met
+            }
             // (0x10008a26, 0x10008a50, 0x10008a86, 0x10008abc) a stat against another (the value names it): equal, below,
             // above, unequal; the client's own character only, anyone else passes
             0x82..=0x85 => {
@@ -481,6 +529,14 @@ mod tests {
         assert_eq!(evaluate_told(&[(161, 75, 2), (54, 10, 2), (0, 0, 3)], ME, &c), (Ok(true), vec![]));
         // (cut short by an operator outside the table: no line)
         assert_eq!(evaluate_told(&[(161, 75, 2), (0, 0, 86)], ME, &c), (Ok(false), vec![]));
+        // (the equal and unequal comparisons' other lines, 0x10006a8c and 0x10006f20: combat mode wanted (stat 434 at 10)
+        // and not wanted, a profession refused, a stat without a line)
+        assert_eq!(evaluate_told(&[(434, 10, 0)], ME, &c), (Ok(false), vec![Told::Plain("Feedback_MustBeInCombatMode")]));
+        let fighting: BTreeMap<u32, i64> = [(434, 10), (60, 7)].into_iter().collect();
+        let f = own(&fighting, &perks);
+        assert_eq!(evaluate_told(&[(434, 10, 0x18)], ME, &f), (Ok(false), vec![Told::Plain("Feedback_MustNotBeInCombatMode")]));
+        assert_eq!(evaluate_told(&[(60, 7, 0x18)], ME, &f), (Ok(false), vec![Told::ProfessionNot(7)]));
+        assert_eq!(evaluate_told(&[(161, 41, 0)], ME, &c), (Ok(false), vec![]));
         // (someone else's: equality fails for them too, and nothing is told)
         struct Other;
         impl Context for Other {
