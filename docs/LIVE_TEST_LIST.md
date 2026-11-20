@@ -1321,3 +1321,6 @@ These were written before this list; some may have been seen working since witho
 
 - [ ] **1** Hand an NPC a quest item through its trade bar and press V: once the NPC has it, the bar is empty, and the
   reward that comes is in the inventory, not in the bar.
+
+- [ ] **1** Skills window: the eleven group buttons stand one under another (Abilities ... Disabled / Legacy); a press
+  opens a group's rows under its button and another press folds them away again.

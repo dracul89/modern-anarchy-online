@@ -153,9 +153,11 @@ impl SkillWindow {
                     add_xml(&mut tree, list, &row_xml(stat, 0));
                 }
                 // (the list laid out down its rows, `SetLayoutNode(VLayoutNode)`; folded at first, the group's button opening
-                // it: FUN_100f9f70)
+                // it: FUN_100f9f70; `SetFlags(0x100)`, FUN_100fcbac: folded, it takes no room, and the groups' buttons stand
+                // one under the other)
                 tree.get_mut(list).layout = crate::gui::view::Layout::Vertical;
                 tree.get_mut(list).hidden += 1;
+                tree.get_mut(list).flags |= crate::gui::view::FLAG_COLLAPSE;
             }
             if let Some(page) = tree.find(root, &format!("{group}_group")) {
                 // (two columns with a spacer between, the rows alternating)

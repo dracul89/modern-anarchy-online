@@ -8351,11 +8351,15 @@ Not seen live after the change.
 
 ### Seen in the run and left for a decision or a later look
 
-- The skills window's list shows Abilities and Body & Defense with an Abilities-sized empty gap between them and the
-  other groups below sight, where the original's (capture arete-20261030-1655) stacks all eleven group buttons with
-  Reset all skills under them: the folded Abilities list seems to keep its room. Older than today.
-- The missions window opens so small that a mission's name is cut ("Extinguish the Gas F..."). Not compared with the
-  original's size yet.
+- The skills window's list showed Abilities and Body & Defense with an Abilities-sized gap between them and the other
+  groups below sight, where the original's (capture arete-20261030-1655) stacks all eleven group buttons. Fixed the
+  same day: GUI.dll's FUN_100fcbac hides each group's list and gives it `SetFlags(0x100)`, so a folded list takes no
+  room (`gui::view::FLAG_COLLAPSE`); the client hid it without the flag. Seen in the preview
+  (`MAO_UI_PREVIEW=skills`, and `MAO_SKILL=1,152,0` with Body & Defense open).
+- The missions window that opened so small in the run was docked in a small dock area by the run's scratch settings
+  (`docks.ini`: `DockArea4 MissionView`, written by an earlier test). Opened undocked from settings with no entry for
+  it, it comes up at the original's 167 by 112 view grown to its columns: the mission's whole name, the time column and
+  room for about five rows. Not a fault; nothing changed.
 - The client's own walk to a `/waypoint` (MOV-028, kept by decision) that cannot reach its point (on a walkway above
   it) steps back and forth along the rail for as long as it is left, with no end; the original has no such walk.
 - Marcus Stone, while he fights the cleaning robots, opens no chat for a use: the game's own rule (seen before), not a
