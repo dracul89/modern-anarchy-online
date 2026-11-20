@@ -6,6 +6,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Documentation
+
+- The README lists the system requirements: what the client needs, what was measured, and which parts of the minimum
+  are still an estimate.
+
 ### Items
 
 - With an item in hand, a right click in the world uses it there as a left click does (on a character, an object, or the

@@ -11,6 +11,33 @@ it; don't copy its 32-bit, Windows-only scaffolding here.
 Game assets are never committed: the tools take the path of an installed game
 (the folder with `cd_image`).
 
+## System requirements
+
+|        | Minimum | Recommended |
+|--------|---------|-------------|
+| OS     | 64-bit Windows 10, Linux x86-64, or macOS on Apple silicon | Windows 11, a current Linux, any Apple-silicon Mac |
+| CPU    | 4 threads | 6–8 cores |
+| Memory | 4 GB | 8 GB (more with the help assistant's local model) |
+| Graphics | Vulkan, Direct3D 12 or Metal; 2 GB | GTX 1060 / RX 580 class or better |
+| Disk   | an installed Anarchy Online, plus about 50 MB | an SSD |
+
+- The graphics device must meet wgpu's default limits (about the Direct3D 12 /
+  Vulkan 1.1 level): NVIDIA GTX 600, AMD GCN (HD 7000) or Intel HD 500 and
+  newer. Block-compressed textures are used where the device has them; they
+  are not required.
+- Windows needs WebView2 for the in-game web pages (the market terminal). It
+  comes with Windows 11.
+- The game itself is needed: the client reads its `cd_image` and ships no
+  assets.
+- Measured on a desktop with a dedicated card: about 300 MB of memory at login
+  and 330 MB through a 20-minute fight test, 55–175 fps by the view at 2560x1400.
+  Texture decoding uses up to 16 cores, so more cores shorten the hitches when
+  a zone or new characters load.
+- The help assistant's local model (Qwen 2.5 1.5B) is downloaded only when it
+  is turned on and needs about 1 GB more of disk and memory.
+- The minimum is an estimate: the client has not been tried on integrated
+  graphics, an older card, Linux or a Mac yet.
+
 ## What works (the offline world explorer)
 ```
 mao-client <game> list [name]              the playfields (zones), with what's drawable
