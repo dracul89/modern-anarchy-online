@@ -43,9 +43,9 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 54 | 0 | 0 | 0 | 0 | **0** |
-| **medium** | 159 | 64 | 28 | 40 | 27 | 0 | **0** |
+| **medium** | 159 | 64 | 28 | 39 | 28 | 0 | **0** |
 | **low** | 725 | 165 | 39 | 465 | 56 | 0 | **0** |
-| **all** | 938 | 283 | 67 | 505 | 83 | 0 | **0** |
+| **all** | 938 | 283 | 67 | 504 | 84 | 0 | **0** |
 
 ### By area
 
@@ -56,7 +56,7 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | Targeting and mouse (`TGT`) | 17 | 4 | 3 | 10 | 0 | 0 | **0** |
 | Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
 | NPCs and creatures (`NPC`) | 40 | 18 | 6 | 15 | 1 | 0 | **0** |
-| Inventory and items (`INV`) | 84 | 36 | 10 | 34 | 4 | 0 | **0** |
+| Inventory and items (`INV`) | 84 | 36 | 10 | 33 | 5 | 0 | **0** |
 | Nano programs (`NAN`) | 60 | 14 | 5 | 38 | 3 | 0 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 6 | 1 | 17 | 4 | 0 | **0** |
 | Chat and commands (`CHT`) | 80 | 34 | 3 | 37 | 6 | 0 | **0** |
@@ -99,10 +99,9 @@ None.
 - `NPC-015` Built-in machines, doors and mail terminals found by inferred rules (GUESS) - looked at, left
 - `NPC-020` Mission request scope for an unknown terminal kind is a fixed 5 (GUESS) - looked at, left
 
-**Inventory and items** (11)
+**Inventory and items** (10)
 
 - `INV-006` Moves by use go one at a time with a wait (OWN-RULE) - looked at, left
-- `INV-008` Splitting a stack asks by a number box (OWN-RULE) - looked at, left
 - `INV-023` Spell texts: only listed spell types written, some English words fixed (SIMPLIFIED) - part done
 - `INV-038` Using a bag again closes/shows its window locally, sending nothing (GUESS) - looked at, left
 - `INV-051` Client does not send bank use (0x6a), corpse slot action (0x8e), pet command (0x80) (MISSING) - part done
@@ -2089,7 +2088,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Ctrl+click opens a small "Split stack" window where the player types a number, then OK; that many go in hand.
 - A player notices: A different way of choosing how many to split off.
 - Where: `crates/mao-client/src/invwindows.rs:29`; `docs/CLIENT_UI.md:3633`
-- Decision: [ ] port  [ ] leave
+- Decision: [ ] port  [x] leave
+- Kept by decision (2026-11-19, the user): the number box stays; the original's Ctrl-drag split mode is not ported.
 - Looked at, left (2026-11-19, overnight): The original's split mode (GUI.dll FUN_10041926 on Ctrl+left press over a stack of more than one; FUN_10041ca4 on each move) captures the mouse: it keeps putting the pointer back at the press point (WindowController_c +0x48), adds the sideways movement (FUN_10173b80) to the count kept at +0x308, clamped to 1..count-1, and shows it in a small window of its own (`Window` with style 0xd3c and a `TextView_c`); the release raises the pick-up with that count. Doing that here needs pointer warping and a borderless count window, which egui does not give without platform calls; the client's number box ends in the same split. Left as it is.
 
 #### `INV-009` Ctrl+double left click puts an item into the trade, instead of Ctrl+right click
