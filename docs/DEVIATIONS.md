@@ -43,26 +43,26 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 54 | 0 | 0 | 0 | 0 | **0** |
-| **medium** | 158 | 63 | 26 | 42 | 27 | 0 | **0** |
-| **low** | 725 | 164 | 39 | 466 | 56 | 0 | **0** |
-| **all** | 937 | 281 | 65 | 508 | 83 | 0 | **0** |
+| **medium** | 159 | 64 | 28 | 40 | 27 | 0 | **0** |
+| **low** | 725 | 165 | 39 | 465 | 56 | 0 | **0** |
+| **all** | 938 | 283 | 67 | 505 | 83 | 0 | **0** |
 
 ### By area
 
 | Area | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Movement (`MOV`) | 33 | 11 | 1 | 17 | 4 | 0 | **0** |
-| Combat (`CMB`) | 38 | 12 | 3 | 22 | 1 | 0 | **0** |
+| Combat (`CMB`) | 39 | 12 | 5 | 21 | 1 | 0 | **0** |
 | Targeting and mouse (`TGT`) | 17 | 4 | 3 | 10 | 0 | 0 | **0** |
 | Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
 | NPCs and creatures (`NPC`) | 40 | 18 | 6 | 15 | 1 | 0 | **0** |
 | Inventory and items (`INV`) | 84 | 36 | 10 | 34 | 4 | 0 | **0** |
-| Nano programs (`NAN`) | 60 | 13 | 5 | 39 | 3 | 0 | **0** |
+| Nano programs (`NAN`) | 60 | 14 | 5 | 38 | 3 | 0 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 6 | 1 | 17 | 4 | 0 | **0** |
 | Chat and commands (`CHT`) | 80 | 34 | 3 | 37 | 6 | 0 | **0** |
 | Windows and interface (`WIN`) | 180 | 65 | 16 | 76 | 23 | 0 | **0** |
 | Camera (`CAM`) | 13 | 6 | 0 | 7 | 0 | 0 | **0** |
-| Rendering and world (`RND`) | 194 | 32 | 10 | 144 | 8 | 0 | **0** |
+| Rendering and world (`RND`) | 194 | 33 | 10 | 143 | 8 | 0 | **0** |
 | Sound and music (`SND`) | 17 | 4 | 0 | 13 | 0 | 0 | **0** |
 | Launcher, login, character creation (`LCH`) | 51 | 21 | 3 | 21 | 6 | 0 | **0** |
 | Settings and files (`SET`) | 54 | 9 | 3 | 25 | 17 | 0 | **0** |
@@ -81,10 +81,11 @@ None.
 - `MOV-004` Own walking and collision where a playfield has no surfaces (and with noclip) (SIMPLIFIED) - looked at, left
 - `MOV-021` Flight: entering effect and the ways flight ends missing (MISSING) - part done
 
-**Combat** (2)
+**Combat** (3)
 
 - `CMB-003` Attack key checks only the first refusals (SIMPLIFIED) - part done
 - `CMB-016` Creature with weapon points but no weapon swings the unarmed swing (GUESS) - part done
+- `CMB-039` A nano cast's own check lacks most of the original's refusals (MISSING) - part done
 
 **Targeting and mouse** (2)
 
@@ -141,7 +142,7 @@ None.
 - `WIN-120` Playfield map: shadow textures absent, no second patch texture, no rooms' pictures (MISSING) - looked at, left
 - `WIN-121` Text views that are not editable cannot be selected by mouse (MISSING) - part done
 
-**Rendering and world** (15)
+**Rendering and world** (14)
 
 - `RND-001` Client's own sky and light when the scripts give none (OWN-RULE) - looked at, left
 - `RND-002` Plants kept cut out at half alpha instead of blended (OWN-RULE) - looked at, left
@@ -194,7 +195,7 @@ Low weight: see the counts above and each area's lists below.
 | Area | OWN-RULE | SIMPLIFIED | GUESS | SAFETY | MISSING | ADDITION | all | high |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | [Movement](#movement) (`MOV`) | 3 | 9 | 4 | 3 | 7 | 7 | 33 | 1 |
-| [Combat](#combat) (`CMB`) | 2 | 12 | 7 | 0 | 15 | 2 | 38 | 2 |
+| [Combat](#combat) (`CMB`) | 2 | 12 | 7 | 0 | 16 | 2 | 39 | 2 |
 | [Targeting and mouse](#targeting-and-mouse) (`TGT`) | 2 | 8 | 2 | 1 | 3 | 1 | 17 | 3 |
 | [Death and revival](#death-and-revival) (`DTH`) | 5 | 1 | 4 | 2 | 2 | 0 | 14 | 2 |
 | [NPCs and creatures](#npcs-and-creatures) (`NPC`) | 4 | 9 | 14 | 0 | 11 | 2 | 40 | 5 |
@@ -210,7 +211,7 @@ Low weight: see the counts above and each area's lists below.
 | [Settings and files](#settings-and-files) (`SET`) | 22 | 3 | 3 | 1 | 8 | 17 | 54 | 2 |
 | [Network and protocol](#network-and-protocol) (`NET`) | 0 | 2 | 5 | 3 | 1 | 2 | 13 | 0 |
 | [Other](#other) (`OTH`) | 2 | 3 | 4 | 0 | 8 | 4 | 21 | 1 |
-| **all** | 127 | 272 | 140 | 43 | 240 | 115 | 937 | 54 |
+| **all** | 127 | 272 | 140 | 43 | 241 | 115 | 938 | 54 |
 
 ## Start here: what a player notices most
 
@@ -696,6 +697,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no flash on take-off; flight may not end where the original ends it
 - Where: `docs/FLIGHT_ORIGINAL.md:227`; `docs/CLIENT_UI.md:3596`; `crates/mao-client/src/net.rs:8688-8745`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-19, late evening): The entering effect 2000 read further: `_GfxControlFlare1_t`'s words (FUN_100ddf10: 0 flags, 8 duration, 9 material, 10-23 sizes and colours, 24-36 angles, speeds and lengths, 37 the bursts), its run (FUN_100def53: a burst every word 36 seconds while bursts are left, FUN_100de65e) and each burst's 13 streaks (FUN_100de366 into `GfxVisualFlareType0::NewSprite`, four rounds of three at turns of a constant plus one doubled, flags 0x800 jittered and 0x1000 another set of three). The streaks' angles and lengths are a dozen floats in Gamecode's .rdata (0x10156f00, 0x10168ec8, 0x10168fd0, 0x1016cd88-0x1016cdc4, 0x10168570) that the decompile does not show, and FUN_100de366's third argument is lost in it; porting needs those read from the DLL and the argument flow from its assembly. Left for a session that can also look at the flash.
 - Done in part (2026-11-19): The ways out of fly mode are now all ported. FUN_10045020 (character action 0xac through FUN_1005d61f) ends one's own flight whatever gave it: a program or a worn item too, held off (World::flight_cut) until neither gives the flying spell any more, as the original's mode stays left until a new list switches it on. FUN_100450c0, run on every player character's game tick from FUN_1005b55d (not NPCs), ends a flight when a tower site of class 5 is among the four sites nearest it within 40 m; the area tree is LandControl_t's tower list (DAT_102eab98, FUN_1012a2e6 → FUN_1012a2a8 with DAT_101673f0 = 40.0, 3-D distance FUN_1012a644; the found entry's +0x38 is the list node's TowerClass), which the client already keeps from PlayfieldAllTowers (mao_net::landcontrol::class_near, World::tower_flight_ends; the game tick is taken as every pass). The state flag 0x2000000 coming on (FUN_10044aac's changed bits) ends fly mode: the spells that set it, 0xcf4b (FUN_100a7bd4, adds stat 0x49's flags as it begins, takes them away as its list ends) and 0xcf4c (FUN_100a7c79, the other way round), are now run into the state flags (spelllist::Outcome::Flags, StateFlags::add returns the bits that came on). Left: the entering effect 2000 (FUN_1006e4f8: CreateEffect2 at the body, SetColor 0xfff0e0ff). It is a kind-1006 template, _GfxControlFlare1_t (point constructor FUN_100dea3d, words FUN_100ddf10, visual FUN_100de0f8, run FUN_100def53, burst FUN_100de65e/FUN_100de366 into GfxVisualFlareType0::NewSprite): a burst of 13 streaks, each living 0.08 s, starting 0.02 s in. The client draws no kind 1006 at all, so this needs that effect class ported first, with _EffectHandler_t::SetColor (0x100ce34e). Also left: the delayed undoing that 0xcf4b/0xcf4c queue when their stat 0x19 is set (FUN_1002dfc8 → FUN_10059e90's events 0x40/0x80). Tests: net::door_tests::the_ways_flight_ends, landcontrol::tests::a_class_is_looked_for_among_the_four_nearest_within_40_m, spelllist::tests::the_fly_spell / stun_and_set_stat / captured_lists_run.
 - Done in part (2026-11-18, overnight): CharacterAction 0xac ends a flight a spell list began; one's own flight from a worn item ending by it, the other ways out and the entering effect 2000 are not done.
 
