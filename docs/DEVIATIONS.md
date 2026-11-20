@@ -157,7 +157,6 @@ None.
 - `RND-139` Effect locators: bone, weapon and mesh attractors; effect mesh details not drawn (MISSING) - part done
 - `RND-140` Statel zones of the second layout are not read (MISSING) - part done
 - `RND-141` Statels' own matrix (second flag layout) not applied (MISSING) - part done
-- `RND-142` Worn meshes: the original's two hiding modes not ported (MISSING) - looked at, left
 
 **Launcher, login, character creation** (4)
 
@@ -8153,7 +8152,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: shown_meshes follows the flags only; not seen live
 - A player notices: some worn items the original hides may be drawn
 - Where: `crates/mao-net/src/n3.rs:1949`; `docs/CLIENT_UI.md:1058`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-19, late evening, the user's go-ahead): shape 1 is ported as the reader found it. `n3::morphed_meshes` keeps of a character's listed meshes only those at place 0 with flag bit 2 (its own head; the first with bit 1 alone if one has it), from the full update (`EntityInfo::morph_meshes`) and the appearance update alike (`World::morph_equipment`, kept beside `equipment`, whose flags are gone); a body drawn for a `MonsterData` (a polymorph, a craft) hangs them through `creature_parts`, without letting that head choose the body's skin (`Characters::morph_gear`). Shape 2 is never set by Gamecode; shape 0 is `shown_meshes`. Whether the head sits right on each morph and craft body is for the eye (LIVE). Test a_full_updates_meshes_follow_its_clothes.
 - Looked at, left (2026-11-19, overnight): Found the rule: VisualCATMesh_t::SetShape (DisplaySystem, stores +0x74) is called by Gamecode FUN_100590b8 only with 0 or 1: 1 when the character's MonsterData (stat 359) is set (a polymorph or a craft), 0 otherwise; shape 2 is never set by Gamecode. FUN_10073517 (drop-in catrun.rs attach_attractors) then hides, in shape 1, every worn mesh except those at place 0 with flag bit 2 (the character's own head), and in shape 2 every place outside 1..4. The client draws a MonsterData body with no worn meshes at all (net.rs overlay_model, creature_parts with an empty gear list), so the faithful change is to hang the character's own bit-2 head on the creature body's head attractor while it is morphed. Whether that head then sits on (or doubles) the creature's own head on the morph and craft bodies can only be judged by eye, and the gear list the client keeps (World::equipment) has already lost the flags (shown_meshes), so it needs a second list kept from the raw one. Left for a session that can look.
 
 #### `RND-143` Animation rest pose of a frame not used

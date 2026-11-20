@@ -1053,7 +1053,10 @@ helmet's mesh is not loaded yet; glasses come with 0 beside the head; a weapon i
 back pieces with 0. `mao_net::n3::shown_meshes` is that rule, used for the full update's list and the appearance
 update's; a helmet stands in the head's place (`HEAD_REPLACED`) and the body's head is not drawn with it. Checked in
 a picture (`MAO_WEAR=0:9d3a,0:4e5f` against `128:4e5f` on `player 2 2`): the hair's spikes through the helmet are
-gone. The original's two hiding modes (+0x74) are not ported. Not seen live.
+gone. Not seen live. The original's hiding modes (+0x74, `VisualCATMesh_t::SetShape`): Gamecode FUN_100590b8 sets 1 while
+the character's `MonsterData` (stat 359) is set and 0 otherwise. In shape 1 FUN_10073517 hides every listed mesh but the
+character's own head (place 0, flag bit 2), so a polymorphed or riding character's body carries that head on its head
+attractor and nothing else it wears (`n3::morphed_meshes`, 2026-11-19, RND-142); the head does not change the body's skin.
 *A shop's wall gone.* Since the faces turned away are no longer drawn (this morning), every interior's own walls and
 ceilings were gone from inside it and the next room showed through; the floors stayed. The rooms' pieces are put from
 the game's upright frame into the viewer's, which mirrors them, and given as parts in the viewer's own frame, so

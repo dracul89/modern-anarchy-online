@@ -1814,6 +1814,9 @@ mod tests {
         assert_eq!(shown_meshes(&[(4, 0, 40250, 0), (2, 0, 20063, 0), (2, 0, 205110, 0), (4, 0, 40250, 0)]), vec![(HEAD_REPLACED, 205110, 0), (FACE_DONOR, 40250, 0)]);
         // (a helmet with no head listed beside it has no face to borrow)
         assert_eq!(shown_meshes(&[(2, 0, 205110, 0)]), vec![(HEAD_REPLACED, 205110, 0)]);
+        // (RND-142: in another's body only the own head, flag bit 2 at place 0, stays: no helmet, glasses or pads)
+        assert_eq!(morphed_meshes(&[(4, 0, 40250, 0), (2, 0, 205110, 0), (0, 0, 234533, 0), (0, 3, 0x2d27, 0x4a0b1), (4, 0, 40250, 0)]), vec![(0, 40250, 0)]);
+        assert_eq!(morphed_meshes(&[(0, 5, 7, 0)]), vec![]);
         assert_eq!(shown_meshes(&[(0, 5, 7, 0), (0, 5, 7, 0)]), vec![(5, 7, 0)]);
     }
 
@@ -2030,6 +2033,8 @@ pub struct EntityInfo {
     /// announcements (the bytes up to the nano list's count are these and, with flag 0x400, the one fought); and a
     /// creature's fastest runs along the server's paths are `RunSpeed / 275 + 5` within 13, the characters' own rule.
     pub run_speed: Option<u16>,
+    /// The listed meshes drawn while the character's body is another's ([`morphed_meshes`]: its own head alone).
+    pub morph_meshes: Vec<(u8, u32, u32)>,
     /// The update's last byte (the reader FUN_1007916d's +0x32f, the schema's `ScfuTowerUnk`), which the exec FUN_1007835c
     /// copies to a new character's byte +0x21d: set, the character's own special attacks are refused (Gamecode's control
     /// state, fear). 0 in all of the captures' 7165 updates.
@@ -2435,7 +2440,7 @@ pub const FACE_DONOR: u8 = 0x81;
 /// beside the character's own head with 4 (bit 2: attached in the bit-1 mesh's stead while that one is not loaded
 /// yet), glasses with 0 beside the head, a weapon in a hand with 2, shoulder pads and back pieces with 0. Drawn
 /// together, as they were here, the head's hair stood out through the helmet. A bit-1 mesh on the head is given
-/// [`HEAD_REPLACED`] as its position. (The original's two hiding modes, +0x74, are not here.)
+/// [`HEAD_REPLACED`] as its position. (The original's hiding modes, +0x74, are [`morphed_meshes`]: this is mode 0.)
 pub fn shown_meshes(list: &[(u8, u8, u32, u32)]) -> Vec<(u8, u32, u32)> {
     let mut places: std::collections::BTreeMap<u8, (Option<(u32, u32)>, Vec<(u32, u32)>)> = Default::default();
     let mut seen: Vec<(u8, u32)> = Vec::new();
@@ -2478,6 +2483,32 @@ pub fn shown_meshes(list: &[(u8, u8, u32, u32)]) -> Vec<(u8, u32, u32)> {
 /// ([`shown_meshes`]). From the original's capture of 2026-10-30: a player's update ends its five clothes with
 /// `000007e2` and `00 00009d3a 00000000 04`, the head 40250 (`head_opifexmale02`) with flags 4.
 fn cloth_and_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u32, u32)>) {
+    let (clothes, meshes) = cloth_and_listed_meshes(rest);
+    (clothes, shown_meshes(&meshes))
+}
+
+/// Which of a character's listed meshes are drawn while its body is another's (its `MonsterData`, stat 359, is set: a
+/// polymorph or a craft). Gamecode FUN_100590b8 then sets the mesh's shape to 1 (`VisualCATMesh_t::SetShape`, +0x74; 0
+/// otherwise, and 2 never), and FUN_10073517 in shape 1 hides every listed mesh but those at the head's place (0) with
+/// flag bit 2, the character's own head: those are hung on the body's head attractor as in shape 0 (the first with bit 1
+/// alone, when one has it). From (flags, position, mesh, texture) in the list's order.
+pub fn morphed_meshes(list: &[(u8, u8, u32, u32)]) -> Vec<(u8, u32, u32)> {
+    let mut heads: Vec<(u8, u32, u32)> = Vec::new();
+    for &(flags, position, mesh, texture) in list {
+        if position != 0 || flags & 4 == 0 || heads.iter().any(|h| h.1 == mesh) {
+            continue;
+        }
+        heads.push((flags, mesh, texture));
+    }
+    match heads.iter().find(|h| h.0 & 2 != 0) {
+        Some(&(_, mesh, texture)) => vec![(0, mesh, texture)],
+        None => heads.into_iter().map(|(_, mesh, texture)| (0, mesh, texture)).collect(),
+    }
+}
+
+/// The clothes and the listed meshes `(flags, position, mesh, texture)` of a character's full update, as [`cloth_and_meshes`]
+/// finds them.
+fn cloth_and_listed_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u8, u32, u32)>) {
     let int = |at: usize| rest.get(at..at + 4).map(|b| i32::from_be_bytes(b.try_into().unwrap()));
     for start in 0..rest.len().saturating_sub(16) {
         let Some(marker) = int(start) else { break };
@@ -2520,7 +2551,7 @@ fn cloth_and_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u32, u32)>) {
                     m += 10;
                 }
             }
-            return (out, shown_meshes(&meshes));
+            return (out, meshes);
         }
     }
     (Vec::new(), Vec::new())
@@ -2705,7 +2736,8 @@ impl Message {
         let model = if flags & 1 == 0 { u32_at(&mut at) } else { None };
         let tail = &d[at.min(d.len())..];
         let textures = if flags & 0x10 != 0 { texture_overrides(tail) } else { Vec::new() };
-        let (clothes, meshes) = cloth_and_meshes(tail);
+        let (clothes, listed) = cloth_and_listed_meshes(tail);
+        let (meshes, morph_meshes) = (shown_meshes(&listed), morphed_meshes(&listed));
         // (a creature's fields in the reader's order, FUN_1007916d)
         let creature = creature_fields(d, at, flags).filter(|_| flags & 1 != 0);
         let (template, scale) = creature.as_ref().map_or((None, None), |c| (c.template.filter(|&t| t != 0), c.scale));
@@ -2719,7 +2751,7 @@ impl Message {
         let run_speed = creature.as_ref().and_then(|c| c.run_speed);
         let refuses = d.last().is_some_and(|&b| b != 0);
         let (family, pet_type, health) = creature.as_ref().map_or((None, None, None), |c| (Some(c.family), Some(c.pet_type), Some(c.health)));
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, run_speed, refuses })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, run_speed, morph_meshes, refuses })
     }
 }
 

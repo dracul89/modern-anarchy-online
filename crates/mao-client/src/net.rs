@@ -263,6 +263,8 @@ struct World {
     /// The worn meshes of each character from its `AppearanceUpdate`: attachment position, static mesh instance and the texture
     /// instance that replaces the mesh's own (0 for none).
     equipment: BTreeMap<u32, Vec<(u8, u32, u32)>>,
+    /// The worn meshes drawn while a character's body is another's (`n3::morphed_meshes`, the original's shape 1: its own head).
+    morph_equipment: BTreeMap<u32, Vec<(u8, u32, u32)>>,
     /// The creature (NPC template) a character is polymorphed into by a running nano program.
     morphs: BTreeMap<u32, u32>,
     /// The playfield is the Grid (`PlayfieldAnarchy_t::IsGrid`: its first area is named "Grid"): everyone is drawn as
@@ -3186,6 +3188,7 @@ impl World {
                 // (the meshes that are drawn of those listed: a helmet in the head's place, `n3::shown_meshes`)
                 let meshes: Vec<(u8, u8, u32, u32)> = list("Meshes").iter().map(|v| (field(v, "Layer") as u8, field(v, "Position") as u8, field(v, "Id"), field(v, "OverrideTextureId"))).collect();
                 self.equipment.insert(m.identity.1, mao_net::n3::shown_meshes(&meshes));
+                self.morph_equipment.insert(m.identity.1, mao_net::n3::morphed_meshes(&meshes));
             }
         }
         // `SpecialAttackWeapon`: the special attacks of a character, each an item, a stat and a four-letter code (the
@@ -4819,6 +4822,7 @@ impl World {
             // appearance update replaces the list)
             if !info.meshes.is_empty() {
                 self.equipment.insert(m.identity.1, info.meshes.clone());
+                self.morph_equipment.insert(m.identity.1, info.morph_meshes.clone());
             }
             // (the full update's flag bit 21 sets the dynel flag 0x800, FUN_1007835c through vtable +0x18)
             if info.flags & 0x20_0000 != 0 {
@@ -5662,6 +5666,9 @@ struct Characters {
     head_races: std::collections::HashMap<u32, u8>,
     /// The breed and sex the server says the creature drawn next has (a template has neither), for its skin.
     creature_body: Option<(u8, u8)>,
+    /// The next `creature_parts` draws another's body for a character (its `MonsterData`): the gear it is given is the
+    /// character's own head (RND-142), which is hung but does not choose the body's skin.
+    morph_gear: bool,
     /// The breed and sex of each head mesh, by its file name (`bareskin::body_of_head`), for a body the server's word is not at
     /// hand for.
     head_bodies: std::collections::HashMap<u32, (u8, u8)>,
@@ -6113,7 +6120,7 @@ impl Characters {
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
         let head_races = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, name, instance)| (instance, crate::bareskin::race_of_head(name))).collect();
         let head_bodies = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).filter_map(|(_, name, instance)| Some((instance, crate::bareskin::body_of_head(name)?))).collect();
-        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, build: 1, robe: 0, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default(), creature_last: Default::default() })
+        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, morph_gear: false, build: 1, robe: 0, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default(), creature_last: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -6169,6 +6176,7 @@ impl Characters {
     fn creature_parts(&mut self, id: u32, template: u32, action: mao_formats::appearance::Action, _phase: f32, rate: f32, textures: &[(String, u32)], clothes: &[(String, u32)], deform: Option<(&mao_formats::gfx::Deform, f32)>, dying: Option<u32>, swing: Option<(u32, u32, Instant, u32, u32)>, gear: &[(u8, u32, u32)]) -> Option<Vec<Part>> {
         use mao_formats::resource::Id;
         let told_body = self.creature_body.take().filter(|body| (1..=4).contains(&body.0));
+        let morph_gear = std::mem::take(&mut self.morph_gear);
         let db = self.db.clone();
         let entry = self.creatures.entry(template).or_insert_with(|| load_template(&db, template));
         let (record, mesh, head) = entry.as_ref()?;
@@ -6380,7 +6388,7 @@ impl Characters {
         }
         // (a humanoid's skin, for one with a head: its breed and sex as the server tells them, else as its head's file says; the
         // race by the head, else the template's: stats 4, 59, 89 and 64, FUN_100585bf)
-        let head_mesh = gear.iter().find(|g| g.0 == 0 && self.head_races.contains_key(&g.1)).map(|g| g.1).or(Some(record.stat(64)).filter(|&h| h != 0));
+        let head_mesh = gear.iter().filter(|_| !morph_gear).find(|g| g.0 == 0 && self.head_races.contains_key(&g.1)).map(|g| g.1).or(Some(record.stat(64)).filter(|&h| h != 0));
         if let Some(head_mesh) = head_mesh {
             if let Some((breed, sex)) = told_body.or_else(|| self.head_bodies.get(&head_mesh).copied()) {
                 let race = self.head_races.get(&head_mesh).copied().unwrap_or(record.stat(89) as u8);
@@ -7266,7 +7274,11 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 _ if world.runs(id, speed) => Action::Run,
                 _ => Action::Walk,
             };
-            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.held_action(id), None, &[]) {
+            // (a body that is another's, by `MonsterData`: the original's shape 1 keeps the character's own head on it, RND-142;
+            // the grid's body is the client's own and carries nothing)
+            let worn: &[(u8, u32, u32)] = if world.grid { &[] } else { world.morph_equipment.get(&id).map_or(&[], |m| m.as_slice()) };
+            chars.morph_gear = true;
+            if let Some(parts) = chars.creature_parts(id, creature, action, (id % 997) as f32 * 3.0, MORPH_ANIM_RATE, &[], &[], deform, world.held_action(id), None, worn) {
                 let place = match craft {
                     Some((_, scale)) => model::multiply(&craft_scale(scale), &place),
                     None => place,
