@@ -448,6 +448,9 @@ struct World {
     /// Each character's state flags (stat 224) as the spell lists' stuns change them (`spelllist::StateFlags`): one's own
     /// cannot move while neither bit 2 nor 4 is set.
     state_flags: BTreeMap<u32, crate::spelllist::StateFlags>,
+    /// Each character's control state (`spelllist::Control`: fear, the spell 0xcff0) and its byte +0x21d, taken from its full
+    /// update as it is made; one's own special attacks go nowhere while the byte is set.
+    control: BTreeMap<u32, crate::spelllist::Control>,
     /// The lightning's strikes heard (where, seed) and the eye's jolts, for the viewer.
     strikes: Vec<([f32; 3], u32)>,
     jolts: Vec<f32>,
@@ -1856,6 +1859,20 @@ impl World {
                     let start = if on.1 == self.own { self.stats.get(&224).map_or(6, |&v| v as u32) } else { 0 };
                     self.state_flags.entry(on.1).or_insert_with(|| crate::spelllist::StateFlags::new(start)).stun(begin, npc);
                 }
+                crate::spelllist::Outcome::Control { state, begin, told } => {
+                    let start = if on.1 == self.own { self.stats.get(&224).map_or(6, |&v| v as u32) } else { 0 };
+                    let npc = on.1 != self.own && self.names.get(&on.1).is_some_and(|n| !n.1);
+                    let flags = self.state_flags.entry(on.1).or_insert_with(|| crate::spelllist::StateFlags::new(start));
+                    let control = self.control.entry(on.1).or_default();
+                    if begin {
+                        control.enter(state, npc, flags);
+                    } else {
+                        control.leave(state, npc, flags);
+                    }
+                    if told {
+                        self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_FearActivated")));
+                    }
+                }
                 crate::spelllist::Outcome::SetStat { stat, value } => {
                     if on.1 == self.own {
                         self.stats.insert(stat, value as i64);
@@ -2893,6 +2910,7 @@ impl World {
                 self.spell_colours.retain(|k, _| k.0 != id);
                 self.spell_queue.forget((crate::requirements::CHARACTER, id));
                 self.state_flags.remove(&id);
+                self.control.remove(&id);
                 self.others_stats.remove(&id);
                 self.in_play.remove(&id);
                 self.flying.remove(&id);
@@ -4869,6 +4887,8 @@ impl World {
             self.names.insert(m.identity.1, (info.name.clone(), player));
             // (stat 194 is set only as the dynel is made: a full update again for one already here leaves it)
             self.in_play.entry(m.identity.1).or_insert(info.flags & 2 != 0);
+            // (and so is +0x21d, from the update's last byte, FUN_1007835c)
+            self.control.entry(m.identity.1).or_insert_with(|| crate::spelllist::Control::new(info.refuses));
             self.infos.insert(m.identity.1, info);
             if m.identity.1 != self.own && crate::team::with(|t| team_mate(t, m.identity.1)) {
                 self.team_seen.push(m.identity.1);
@@ -5111,8 +5131,10 @@ impl World {
     /// special's own item, the one the server listed it with (`special_items`: Brawl's reaches 3 m, Dimach's 10 m), must
     /// reach it too (`special_reaches`). Last the line of sight (FUN_10058e4f): from the attacker to the target, each
     /// 1.6 above its place (0x10158454), `n3Playfield_t::LineOfSight` must see (`sight`), else `Feedback_NoLineOfSight`; a
-    /// target the client has no place for fails it too, as a target with no dynel does there. (Its skip, both dynels'
-    /// byte +0x21c set outside a dungeon, never happens: no code of the game's sets that byte, only clears it, 0x10058969.)
+    /// target the client has no place for fails it too, as a target with no dynel does there. Before all of the attack's
+    /// checks, the character's byte +0x21d (`spelllist::Control`: feared, or held by the spell 0xcff0) refuses silently.
+    /// (The line of sight's skip, both dynels' byte +0x21c set outside a dungeon, never happens here: +0x21c is the NPC byte,
+    /// FUN_10058932 and FUN_1007803b, and the attacker is one's own player character.)
     /// The "queue of specials not yet swung" the notes named was not found: the check there (FUN_1002a027 on the weapon
     /// holder's +0x84) is of something the reload sets, and refuses without a word.
     /// The lines a refusal says, in order: none for one that says nothing.
@@ -5241,6 +5263,11 @@ impl World {
         let locked = |stat: u32| self.special_locks.get(&stat).map(|until| until.saturating_duration_since(Instant::now()).as_secs_f32()).filter(|left| *left > 0.0);
         if number == crate::actions::RELOAD {
             return None;
+        }
+        // (0x100281fc's first check: the character's byte +0x21d, set while fear or the spell 0xcff0 holds it, refuses
+        // without a word)
+        if number != crate::actions::SEARCH && self.control.get(&self.own).is_some_and(|c| c.refuses) {
+            return Some(Vec::new());
         }
         if number != crate::actions::SEARCH {
             let Some(t) = target else { return Some(Vec::new()) };
@@ -8970,6 +8997,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // stat 224, FUN_1004496c)
                     state.spell_queue = Default::default();
                     state.state_flags.clear();
+                    state.control.clear();
                     state.others_stats.clear();
                     state.in_play.clear();
                     // (and their movement starts in its plain mode: whether the server runs a flyer's list again in the new
@@ -14671,6 +14699,24 @@ mod door_tests {
         assert_eq!(w.special_refusal(148, Some(9), &clear), None);
         assert_eq!(w.special_refusal(148, Some(9), &wall), Some(vec![crate::feedback::plain("Feedback_NoLineOfSight")]));
         assert_eq!(seen.get(), Some(([10.0, 3.6, 20.0], [13.0, 2.6, 20.0])), "from the attacker's eyes to the target's");
+    }
+
+    /// CMB-022: a fear (spell 0xcf81) on one's own character sets its byte +0x21d, and the special attacks go nowhere without
+    /// a word (0x100281fc's first check) until the list ends; the fear's own line is told. Search is not asked about it.
+    #[test]
+    fn a_feared_character_sends_no_special() {
+        let own = 0x4bc80;
+        let mut w = World { own, specials_told: Some(vec![148]), ..World::default() };
+        w.objects.insert(own, [10.0, 2.0, 20.0]);
+        w.objects.insert(9, [13.0, 1.0, 20.0]);
+        let me = (crate::requirements::CHARACTER, own);
+        w.spell_outcomes(vec![(me, crate::spelllist::Outcome::Control { state: 1, begin: true, told: true })]);
+        assert_eq!(w.special_refusal(148, Some(9), &clear), Some(Vec::new()));
+        assert_eq!(w.special_refusal(crate::actions::SEARCH, None, &clear), None);
+        assert!(w.game_lines.iter().any(|l| l.text == crate::feedback::plain("Feedback_FearActivated")));
+        assert!(w.own_stunned() == false, "flag 4 still lets it move");
+        w.spell_outcomes(vec![(me, crate::spelllist::Outcome::Control { state: 1, begin: false, told: false })]);
+        assert_eq!(w.special_refusal(148, Some(9), &clear), None);
     }
 
     /// A special at an item (FUN_10069a9f's `SimpleItem_t` branch): refused unless the item's flags have 0x10000000; the

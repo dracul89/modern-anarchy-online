@@ -6711,6 +6711,22 @@ pictures `MAO_UI_PREVIEW=actions` and, with every state on, `MAO_ACTION_TOGGLES=
 
 ### A special attack's range is checked before it is sent (CMB-022)
 
+**Fear holds the specials back (2026-11-19, evening).** 0x100281fc's first check is the character's byte +0x21d: set, it
+sends nothing and says nothing. Two spells of the server's spell lists set it on a player's character
+(`spelllist::Control`, the object at the character's +0x1f0, FUN_10045a78):
+
+- **Fear, 0xcf81** (FUN_100a86b7 → FUN_10045bdb): state 1. It also takes state flag 2 and gives 0x500 (on any character),
+  and tells `Feedback_FearActivated` when the list's +0x28 identity is one's own character.
+- **The spell 0xcff0** (FUN_100a8741 → FUN_10045ba5): state 5, on a player's character only.
+- **Entering a state** leaves a higher one first (FUN_10045b64), so fear replaces state 5 and not the other way round.
+  The list's end (or the spell's stat 0x42 of 1) leaves only the state the character is in (FUN_10045ab3, FUN_10045a8b).
+- **A character made by its full update** takes the byte from the update's last byte (FUN_1007916d's +0x32f, which
+  FUN_1007835c copies; `EntityInfo::refuses`). It is 0 in every captured update.
+
+Not ported: the two spells also give a player's character an `NPCVehicle_t` (FUN_1005ac62(1)), so that the server moves
+it; the client still moves it as before. States 2-4 (0xcf7e, mind control, daze) are only for NPCs. Nano casting and
+stopping an attack read the same byte (`N3Msg_CastNanoSpell`, `N3Msg_StopAttack`): not ported here.
+
 `N3Msg_SecondarySpecialAttack` (Gamecode 0x100281fc) checks the reach after the weapon's bit (`World::special_refusal`):
 
 - **Each weapon in a hand with the special's bit must reach the target** (the hand of place 8 first, then 6; FUN_10068c44 and
@@ -6730,8 +6746,9 @@ pictures `MAO_UI_PREVIEW=actions` and, with every state on, `MAO_ACTION_TOGGLES=
 `Feedback_NoLineOfSight` when it fails, sending nothing. FUN_10058e4f takes the attacker's place and the target's, each
 raised 1.6 (the float at 0x10158454), and asks `n3Playfield_t::LineOfSight` (N3.dll 0x1000d34c): the rooms
 (`RoomCanSeeFromTo`), then the surface's `GetLineIntersection` from the one to the other and back. A target with no dynel
-fails it. Its skip, when both dynels have byte +0x21c set outside a dungeon, never happens: no code in Gamecode, N3,
-Interfaces, GUI or Vehicle sets that byte, and the only store to it clears it (0x10058969). The client asks the same test
+fails it. Its skip, when both dynels have byte +0x21c set outside a dungeon, never happens for one's own special: +0x21c is
+the NPC byte (flag 0x10000000 coming on sets it, FUN_10058932, and FUN_1007803b gives that flag to every NPC; it was first
+thought never set because that store is written relative to +0xe8), and the attacker is a player. The client asks the same test
 the camera uses (`camera::playfield_line_of_sight`, moved out of the viewer's camera surface) from the network loop,
 with the playfield it holds there: the zones' surfaces and tile-map ground, the props' meshes where there are no
 surfaces, a dungeon's rooms and the rooms shown. A target the client has no place for is refused the same way.

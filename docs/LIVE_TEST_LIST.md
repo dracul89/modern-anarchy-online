@@ -1220,6 +1220,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] A special's line of sight (CMB-022, 2026-11-19): a special attack (Brawl, Fast Attack ...) at a creature in plain
   view goes out as before; at one standing behind a wall, a rock or round a corner of a building, the game's "no line of
   sight" line shows and nothing is sent. Inside a dungeon, one in the next room behind a shut door is refused too.
+- [ ] Feared (CMB-022, 2026-11-19 evening): when a creature or a player fears the character (the game's "fear
+  activated" line shows), a special attack does nothing and says nothing until the fear ends; then specials go out again.
+  New to the client: no capture has a fear.
 - [ ] Pick-Up and Crawl tiles (WIN-112, 2026-11-19): Pick-Up with an item on the ground selected takes it into the
   inventory (with a full inventory the game's "inventory full" line, nothing sent); what the server answers to it is
   new (no capture had the message). Crawl starts crawling (others see it), the tile then shows the stop, and a second

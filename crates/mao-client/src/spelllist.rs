@@ -43,6 +43,11 @@
 //!   later, FUN_1002dfc8 → FUN_10059e90's events 0x40 / 0x80: not ported.)
 //! * 0xcf7d (FUN_100a83d8): the caster's right to attack whom it runs on, told to the client's own caster when it has none.
 //!   Ported: [`Outcome::AttackCheck`].
+//! * 0xcf81 "Fear" (FUN_100a86b7) and 0xcff0 (FUN_100a8741): on a character, its control state (the object at +0x1f0,
+//!   FUN_10058daf) enters state 1 or 5 as the spell begins and leaves it as the list ends. A player's character keeps its
+//!   byte +0x21d set meanwhile, which refuses its own special attacks (`N3Msg_SecondarySpecialAttack`). Ported:
+//!   [`Outcome::Control`], [`Control`]. (Each also hands a player's character to an `NPCVehicle_t`, FUN_1005ac62(1), so
+//!   that the server moves it: not ported.)
 //! * Not ported (rare in the captures): 0xcf44 (FUN_100a7aa2: stat 0x167), 0xcf35 (FUN_100a517a, an item's modify), and
 //!   0xcf16 runs (left out).
 //! * 0xcfff (FUN_100a9af8): its string 0 told in the notification window (`GlobalSignals_c` +0x298), see
@@ -137,6 +142,11 @@ pub enum Outcome {
     /// anything not a character, and on an NPC the caster may not attack (FUN_10069a9f without its own lines), the caster
     /// is told why when it is the client's own: `Feedback_NeedTargetForItem`, `Feedback_NotAllowedToAttackTarget`.
     AttackCheck { caster: Holder },
+    /// 0xcf81 "Fear" (FUN_100a86b7, state 1) or 0xcff0 (FUN_100a8741, state 5) on a character: its [`Control`] enters the state
+    /// when the spell begins and leaves it when its list ends (or the spell's stat 0x42 is 1, which a spell fresh from the message
+    /// never has). A fear begun with the client's own character as the run's +0x10 identity also tells `Feedback_FearActivated`
+    /// (`told`), whether the state was entered or not.
+    Control { state: u8, begin: bool, told: bool },
 }
 
 /// What the spell runner needs to know of the world besides the criteria's stats.
@@ -267,6 +277,13 @@ pub fn fire(run: &mut Run, scene: &dyn Scene, now: f64) -> Vec<Outcome> {
         0xcfff if !run.ending => vec![Outcome::Text { spell: spell.clone() }],
         // (FUN_100a83d8: begun or ending alike)
         0xcf7d => vec![Outcome::AttackCheck { caster: run.caster }],
+        // (FUN_100a86b7 and FUN_100a8741: on a `SimpleChar_t` only, the run's bit 0 of +0x24 or the spell's stat 0x42 of 1
+        // telling the ending; the fear's line goes to the +0x10 identity's dynel when it is the client's own character)
+        0xcf81 | 0xcff0 if run.on.0 == crate::requirements::CHARACTER => {
+            let begin = !run.ending && spell.stat(0x42) != 1;
+            let told = spell.kind == 0xcf81 && begin && run.caster.0 == crate::requirements::CHARACTER && scene.is_own(run.caster);
+            vec![Outcome::Control { state: if spell.kind == 0xcf81 { 1 } else { 5 }, begin, told }]
+        }
         // (FUN_100a8107: on a `SimpleChar_t` only; 0x1d, or 0x27 from an ending list)
         mao_formats::item::FLY_SPELL if run.on.0 == crate::requirements::CHARACTER => vec![Outcome::Fly { begin: !run.ending }],
         // (FUN_100a7bd4 and FUN_100a7c79: on a `SimpleChar_t` only, the run's bit 0 of +0x24 telling the ending)
@@ -416,6 +433,74 @@ impl StateFlags {
     /// Bit 2 or bit 4: the character may move.
     pub fn can_move(&self) -> bool {
         self.bits & 6 != 0
+    }
+}
+
+/// A character's control state (the object FUN_10058daf makes at the character's +0x1f0, FUN_10045a78: the state and the
+/// character), with the character's byte +0x21d that it sets and clears on a player's character (`refuses`, FUN_100592b3 and
+/// FUN_100592c4 leave an NPC's alone, +0x21c). While that byte is set, `N3Msg_SecondarySpecialAttack` (0x100281fc) sends no
+/// special attack and says nothing. A new character takes the byte from its full update (FUN_1007835c copies the reader's
+/// +0x32f, the message's last byte).
+///
+/// The states: 1 fear (0xcf81), 5 the spell 0xcff0; the original's 2 (0xcf7e, FUN_10045c34), 3 (mind control 0xcf87,
+/// FUN_10045cb7) and 4 (daze 0xcf88, FUN_10045cdb) are entered only by NPCs (+0x21c set) and touch no +0x21d: not ported.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Control {
+    pub state: u8,
+    pub refuses: bool,
+}
+
+impl Control {
+    /// A character made by its full update, with the byte the update gave.
+    pub fn new(refuses: bool) -> Control {
+        Control { state: 0, refuses }
+    }
+
+    /// FUN_10045b64: room for `state`: a state above it is left first (a lower one stays); whether none is left.
+    fn room(&mut self, state: u8, npc: bool, flags: &mut StateFlags) -> bool {
+        if state < self.state {
+            self.leave(self.state, npc, flags);
+        }
+        self.state == 0
+    }
+
+    /// FUN_10045bdb (state 1) and FUN_10045ba5 (state 5).
+    pub fn enter(&mut self, state: u8, npc: bool, flags: &mut StateFlags) {
+        match state {
+            1 if self.state != 1 && self.room(1, npc, flags) => {
+                // (FUN_100592b3 and the vehicle, FUN_1005ac62(1), on a player's character; the flags on any)
+                if !npc {
+                    self.refuses = true;
+                }
+                flags.remove(2);
+                flags.add(0x500);
+                self.state = 1;
+            }
+            5 if self.state != 5 && self.room(5, npc, flags) && !npc => {
+                self.refuses = true;
+                self.state = 5;
+            }
+            _ => {}
+        }
+    }
+
+    /// FUN_10045ab3 (state 1) and FUN_10045a8b (state 5): only the state the character is in is left.
+    pub fn leave(&mut self, state: u8, npc: bool, flags: &mut StateFlags) {
+        match (state, self.state) {
+            (1, 1) => {
+                if !npc {
+                    self.refuses = false;
+                }
+                flags.add(2);
+                flags.remove(0x500);
+                self.state = 0;
+            }
+            (5, 5) if !npc => {
+                self.refuses = false;
+                self.state = 0;
+            }
+            _ => {}
+        }
     }
 }
 
@@ -636,6 +721,7 @@ mod tests {
                             Outcome::Flags { add: true, .. } => "flags on",
                             Outcome::Flags { add: false, .. } => "flags off",
                             Outcome::AttackCheck { .. } => "attack check",
+                            Outcome::Control { .. } => "control",
                         })
                         .or_default() += 1;
                 }
@@ -645,6 +731,49 @@ mod tests {
         // (the two flights of the 08:42 capture: a Banshee's and a Wraith's program begun and ended, each with its 0xcf4c;
         // five 0xcf7d attack checks)
         assert_eq!(tally, [("effect", 576), ("stun", 720), ("stun ends", 716), ("stat", 36), ("fly", 2), ("fly ends", 2), ("flags off", 2), ("flags on", 2), ("attack check", 5)].into_iter().collect());
+    }
+
+    /// 0xcf81 (fear) and 0xcff0 put a player's character in state 1 or 5 and set the byte that refuses its special attacks
+    /// (FUN_10045bdb, FUN_10045ba5); the fear takes flag 2 and gives 0x500 on any character; a lower state replaces a higher
+    /// one, not the other way round; only the state one is in is left.
+    #[test]
+    fn fear_and_0xcff0_hold_the_character() {
+        let me = (0xc350, 1);
+        let w = World { own: me, ..Default::default() };
+        let fear = list(vec![spell(0xcf81, 1, 0, 2, &[])], false);
+        assert_eq!(run(&fear, me, &w, &mut Queue::default(), 0.0), vec![(me, Outcome::Control { state: 1, begin: true, told: true })]);
+        // (told only when the list's +0x28 identity is one's own; ending, or stat 0x42 of 1, leaves it)
+        assert_eq!(shown(&fear), vec![Outcome::Control { state: 1, begin: true, told: false }]);
+        assert_eq!(shown(&list(vec![spell(0xcf81, 1, 0, 2, &[])], true)), vec![Outcome::Control { state: 1, begin: false, told: false }]);
+        assert_eq!(shown(&list(vec![spell(0xcf81, 1, 0, 2, &[(0x42, 1)])], false)), vec![Outcome::Control { state: 1, begin: false, told: false }]);
+        assert_eq!(shown(&list(vec![spell(0xcff0, 1, 0, 2, &[])], false)), vec![Outcome::Control { state: 5, begin: true, told: false }]);
+
+        let mut flags = StateFlags::new(6);
+        let mut c = Control::default();
+        c.enter(5, false, &mut flags);
+        assert_eq!(c, Control { state: 5, refuses: true });
+        assert_eq!(flags.bits, 6);
+        // (fear replaces state 5: it is left first, then entered)
+        c.enter(1, false, &mut flags);
+        assert_eq!(c, Control { state: 1, refuses: true });
+        assert_eq!(flags.bits, 0x504);
+        // (state 5 does not replace the fear; leaving 5 while feared does nothing)
+        c.enter(5, false, &mut flags);
+        c.leave(5, false, &mut flags);
+        assert_eq!(c, Control { state: 1, refuses: true });
+        c.leave(1, false, &mut flags);
+        assert_eq!(c, Control { state: 0, refuses: false });
+        assert_eq!(flags.bits, 6);
+        // (an NPC: the fear's flags, no byte; state 5 is not entered)
+        let mut c = Control::default();
+        c.enter(5, true, &mut flags);
+        assert_eq!(c, Control::default());
+        c.enter(1, true, &mut flags);
+        assert_eq!(c, Control { state: 1, refuses: false });
+        // (a character announced with the byte keeps it until a state it is in is left)
+        let mut c = Control::new(true);
+        c.leave(1, false, &mut flags);
+        assert!(c.refuses);
     }
 
     /// 0xcf82 (the duel buffs' "Stun") and 0xcf22.

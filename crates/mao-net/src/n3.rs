@@ -2030,6 +2030,10 @@ pub struct EntityInfo {
     /// announcements (the bytes up to the nano list's count are these and, with flag 0x400, the one fought); and a
     /// creature's fastest runs along the server's paths are `RunSpeed / 275 + 5` within 13, the characters' own rule.
     pub run_speed: Option<u16>,
+    /// The update's last byte (the reader FUN_1007916d's +0x32f, the schema's `ScfuTowerUnk`), which the exec FUN_1007835c
+    /// copies to a new character's byte +0x21d: set, the character's own special attacks are refused (Gamecode's control
+    /// state, fear). 0 in all of the captures' 7165 updates.
+    pub refuses: bool,
 }
 
 /// The dead character a corpse's announcement (`4f474e05` of an object 0xc76a) names: its stats 415 and 416 are that
@@ -2713,8 +2717,9 @@ impl Message {
         };
         let move_mode = creature.as_ref().and_then(|c| c.move_mode).or(player_mode);
         let run_speed = creature.as_ref().and_then(|c| c.run_speed);
+        let refuses = d.last().is_some_and(|&b| b != 0);
         let (family, pet_type, health) = creature.as_ref().map_or((None, None, None), |c| (Some(c.family), Some(c.pet_type), Some(c.health)));
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, run_speed })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, run_speed, refuses })
     }
 }
 
@@ -2889,6 +2894,11 @@ mod entity_tests {
         };
         assert_eq!(read("003a00204ac80020da154561917f42510f5b4444583a00000000bf70e0f5000000003ead5c330000058809414141414141414100001812410001000100000014000000000005000f0006000a00030003000301003c0000000000006e001f000000002a80"), (Some(0), Some(110)));
         assert_eq!(read("003a00004aca0020da15456190fb42510f5b4444b0b4000000003cdfb3c2000000003f7fe790000005880941414141414141410000181241000100010000002e00000000000500120009000d0006000600060100530000000000005a001f000000002a00"), (Some(0), Some(90)));
+        // (the update's last byte becomes the character's +0x21d, FUN_1007835c: 0 here, as in every capture)
+        let mut data = hex("003a00004aca0020da15456190fb42510f5b4444b0b4000000003cdfb3c2000000003f7fe790000005880941414141414141410000181241000100010000002e00000000000500120009000d0006000600060100530000000000005a001f000000002a00");
+        assert!(!Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x1234), data: data.clone() }.entity_info().unwrap().refuses);
+        *data.last_mut().unwrap() = 1;
+        assert!(Message { kind: ENTITY_INFO, identity: (CHARACTER, 0x1234), data }.entity_info().unwrap().refuses);
         assert_eq!(
             read("003a04004ace0020d9764368322242157fff43629101000000003f7fea4e000000003cd2c4940000074908414141414141410000181241000000ab000002cb02a5f892000500be00ca00b800ba00d500ba001de01300144f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f3b03960000000000006e001f000000002a00"),
             (Some(0), Some(110))
