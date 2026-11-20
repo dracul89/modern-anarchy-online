@@ -329,6 +329,11 @@ pub struct Ui {
     /// A test script's `useitem@<place or part of a name>`: the inventory item to use; `wear@<part of a name>;<place>`:
     /// the item to move to a place (a wear place, or 0x6f for any free one of the inventory).
     script_use: Option<String>,
+    /// A test script's `useon@<words>;<kind>;<id>`: an inventory item (by place or name) used on a thing in the world, as a
+    /// right click with the item in hand sends it once the click has found its target.
+    script_use_on: Option<(String, (u32, u32))>,
+    /// A test script's `give@<words>`: the item put in the trade with an NPC, as a drop on its bar.
+    script_give: Option<String>,
     script_move: Option<(String, u32)>,
     /// The duel challenge (`Hud::duel`'s count) already answered, and the one already told in the chat.
     duel_done: u32,
@@ -639,7 +644,7 @@ impl Ui {
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), Some(gpu.device.limits().max_texture_dimension_2d as usize));
         // (the widest picture the card takes, not egui's own 2048: on a screen of two pixels to the point a skin's long strip, GFX_GUI_CONTROLCENTER_WING_LEFT, is 6000 across, and egui stops the program over a wider one)
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), notices: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), shortcut_bars: crate::shortcutbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_use_on: None, script_give: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), notices: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), shortcut_bars: crate::shortcutbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -853,6 +858,20 @@ impl Ui {
             "useobject" => self.script_object = argument.split_once(';').and_then(|(kind, id)| Some((u32::from_str_radix(kind.trim().trim_start_matches("0x"), 16).ok()?, id.trim().parse().ok()?))),
             "cast" => self.script_cast = argument.trim().parse().ok(),
             "useitem" => self.script_use = Some(argument.trim().to_string()),
+            "give" => self.script_give = Some(argument.trim().to_string()),
+            "giveaccept" => {
+                if let Some(t) = self.npc_chat.trade.as_mut() {
+                    t.script_accept = true;
+                }
+            }
+            "useon" => {
+                let number = |t: &str| t.trim().strip_prefix("0x").map_or_else(|| t.trim().parse().ok(), |h| u32::from_str_radix(h, 16).ok());
+                let parts: Vec<&str> = argument.split(';').collect();
+                self.script_use_on = match parts[..] {
+                    [words, kind, id] => number(kind).zip(number(id)).map(|onto| (words.trim().to_string(), onto)),
+                    _ => None,
+                };
+            }
             "wear" => self.script_move = argument.split_once(';').and_then(|(name, to)| Some((name.trim().to_string(), to.trim().parse().ok()?))),
             "teamleave" => crate::team::send(crate::team::Command::Leave),
             // (the answer to a team invitation that is waiting, as its box's Yes or No)
@@ -1094,6 +1113,16 @@ impl Ui {
         };
         if let Some(words) = self.script_use.take() {
             requests.item_uses.extend(named(&words));
+        }
+        if let Some(words) = self.script_give.take() {
+            let slot = named(&words);
+            match self.npc_chat.trade.as_mut() {
+                Some(t) => t.script_give = slot,
+                None => eprintln!("script: no trade with an NPC is open to give {words:?} in"),
+            }
+        }
+        if let Some((words, onto)) = self.script_use_on.take() {
+            requests.item_use_ons.extend(named(&words).map(|slot| (mao_net::inventory::place_identity(slot), onto)));
         }
         if let Some((words, to)) = self.script_move.take() {
             requests.item_moves.extend(named(&words).map(|from| (from, to)));
@@ -1448,9 +1477,11 @@ impl Ui {
                     info_view.show_url(&url);
                 }
             }
+            wt = crate::prof::lap("ui-w-target-ncu", wt);
             if skills_window.open {
                 skills_window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, palette);
             }
+            wt = crate::prof::lap("ui-w-skills", wt);
             team_window.show(&ctx, palette);
             pet_window.show_buttons = settings.pet_buttons;
             crate::pets::set_remembering(settings.remember_pet_names);
@@ -1461,6 +1492,7 @@ impl Ui {
             if let Some(url) = pet_window.info_url.take() {
                 info_view.show_url(&url);
             }
+            wt = crate::prof::lap("ui-w-team-pets", wt);
             faction_window.show(&ctx, &hud.stats, palette);
             for url in extras.show(&ctx, palette) {
                 info_view.show_url(&url);
@@ -1470,7 +1502,7 @@ impl Ui {
             for url in knowledge_window.show(&ctx, gear, &hud.gear, palette) {
                 info_view.show_url(&url);
             }
-            wt = crate::prof::lap("ui-w-skills-team-extras", wt);
+            wt = crate::prof::lap("ui-w-faction-extras", wt);
             if actions.open {
                 actions.show(&ctx, gear, &hud.perk_actions, hud.specials.as_deref(), palette);
                 if let Some(a) = actions.clicked.take() {

@@ -75,6 +75,9 @@ pub struct Trade {
     bar: Option<(Tree, Id, Id)>,
     shown: Vec<multilist::Item>,
     right_since: Option<std::time::Instant>,
+    /// A test script's `give@` (an inventory place put in, as a drop on the bar does) and `giveaccept@` (V pressed).
+    pub script_give: Option<u32>,
+    pub script_accept: bool,
 }
 
 /// The bar's views as FUN_10057d8b builds them, top to bottom in a `BorderView_c`: "GIVE ITEM(S)" (font 5, 5 round it),
@@ -445,7 +448,7 @@ fn trade_window(ctx: &egui::Context, palette: &crate::theme::Palette, t: &mut Tr
     let (mut open, mut right_act, mut tab) = (true, None, 0usize);
     let label = crate::gui::xml::ldb_named(10000, "Trade", "Trade");
     let (put, slots) = (t.items.clone(), t.slots);
-    let mut added = None;
+    let mut added = t.script_give.take().filter(|slot| !put.contains(slot) && (put.len() as u32) < slots);
     crate::chrome::window(ctx, palette, "NPCChatTrade", "", &mut open, |w| w.current_pos(at).movable(false).resizable(false).default_size(min), |ui| {
         crate::chrome::tab_view(ui, palette, &[label.as_str()], &mut tab, |ui, _| {
             let response = crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
@@ -517,6 +520,9 @@ fn trade_window(ctx: &egui::Context, palette: &crate::theme::Palette, t: &mut Tr
             ("Decline", Signal::Clicked) => close = true,
             _ => {}
         }
+    }
+    if std::mem::take(&mut t.script_accept) {
+        commands.push(Command::FinishTrade(npc, 0, true));
     }
     // (X: declined, and the bar goes)
     if close {

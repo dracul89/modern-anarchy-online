@@ -8330,3 +8330,12 @@ afresh twice a frame (the window's default size and `host::show`'s minimum), 5.5
 preferred size until told it changed. `Tree::keep_preferred` now keeps them from one call to the next until the tree is
 to be laid out again (`relayout`) or gains views; only the skills window asks for it, as every change it makes sets
 `relayout`. Measured live after: 0.54 ms, about 160 frames a second with it open.
+
+### Test script steps added for the run
+
+`MAO_CAMERA_SCRIPT` took three new interface steps, so that a script can do what the quests ask: `useon@<item words or
+place>;<kind>;<id>` (an inventory item used on a thing in the world, the identity as `MAO_AUTOPLAY`'s `what` prints it:
+`useon@Suppressant;0xc73d;0x5975d86b`; it sends what a right click with the item in hand sends once the click has found
+its target), `give@<item>` (the item put in the open trade with an NPC, as a drop on its bar does) and `giveaccept@`
+(the bar's V). `MAO_PROFILE`'s `ui-w-skills-team-extras` is now four: `ui-w-target-ncu`, `ui-w-skills`,
+`ui-w-team-pets`, `ui-w-faction-extras`.
