@@ -848,6 +848,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the meter's fight boundaries and rates follow the client's rule
 - Where: `crates/mao-client/src/damage.rs:11`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The damage meter is the client's own window (CMB-037, kept by the user's decision); the original has no meter and no notion of a fight to split (Gamecode FUN_100a0611 tells a HealthDamage as a chat line only), so there is no original rule for the 12-second gap to follow.
 - Looked at, left (2026-11-19, overnight): The damage meter is the client's own (CMB-037); the original has no fights to split, so there is no rule of its to port.
 
 #### `CMB-002` Health loss told only beyond recent hits
@@ -911,6 +912,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: numbers may sit inside tall creatures or too high over small ones
 - Where: `crates/mao-client/src/net.rs:9748`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): IMPORTANT for the morning: the original DOES draw floating combat numbers, so CMB-038's removal rested on a wrong premise ("the original draws no damage numbers"). Gamecode FUN_10012c3e (the feedback formatter for events 0x1a-0x47, the Combat tab's lines) ends, for any non-zero amount (EBX, its param at +0x10), with sprintf("%d") and FUN_10011171(dynel, text, colour), which is _EffectHandler_t::CreateEffect2(0x2f5a, dynel) + SetColor(DAT_10157b08[colour index] | 0xff000000) + SetText: a text effect on the one the event is about, with a colour index per event (0x15, 0x16 ... 0x23 set at the switch's cases). For one's own character it does so only in third-person camera (DAT_102e1640, set by FUN_10011114, the IndependentPrefs "3rdPersonCamera" callback registered in FUN_100113b3); in first person it sends AFCM::Send(0x19, 0x3b, amount, colour) instead (FUN_100044c2, to the GUI). The same FUN_10011171 shows "Sneak Attack!", "Burst!", "Brawl!", "Dimach!", "Backstab!" ... over the attacker (FUN_1003c7a6, FUN_1009d2b2, colour 0xd) and a nano's text (FUN_100a7a12). The client's floaters were removed (commit 7c27cc3), so there is no height to fix; re-adding them the original's way (effect 0x2f5a attached to the dynel, so its height is the effect's own placement, the colour table at 0x10157b08, own numbers only in third person) undoes a decision the user made, so it is left for the user to re-decide.
 - Looked at, left (2026-11-19, overnight): The floating numbers are the client's own (CMB-038, recommended for removal or an option); the original has no such display to take a height from.
 
 #### `CMB-008` Damage meter leaves out what has no source
@@ -921,6 +923,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some damage never appears in the meter
 - Where: `crates/mao-client/src/damage.rs:8`; `docs/CLIENT_UI.md:982`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The meter is the client's own (CMB-037, kept); what it counts has no rule in the original to follow. A loss told only as a new health value has no attacker in the message (the client's CMB-004 line already tells it in chat), and others' pets' owners are not sent to the client, so there is nothing to credit those to.
 - Looked at, left (2026-11-19, overnight): The damage meter is the client's own (CMB-037); what it counts has no original rule to follow. A health loss with no source is now told only when it goes beyond the hits (CMB-004), which the meter still leaves out.
 
 #### `CMB-009` Hit as a creature dies is told with the remains' name
@@ -930,7 +933,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the name is the corpse's by then
 - A player notices: wrong name in the line
 - Where: `docs/CLIENT_UI.md:736`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): In the original the corpse is a dynel of its own (0xc76a) and the dying creature's dynel keeps its name until its own Despawn, so a hit told meanwhile names the creature (Gamecode FUN_10012c3e takes the victim's name from its stat holder). The client renamed the creature's body to the corpse's "Remains of ..." when the corpse came (0.1 to 0.9 s after the death in the captures), so a hit or tick in that window was told with the remains' name. Now the name the body had is kept (World::died_as) and the fight lines (World::who) use it until the creature's own Despawn or a new full update; the body's shown name stays the corpse's. Test: net::door_tests::an_attack_swings_the_weapon_the_server_said_is_held (extended). Commits: 76779a4 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The original names the victim by its dynel's name when it tells the hit (FUN_10012c3e feeds the name from the victim's stat holder, +0x34); the remains are a separate dynel (0xc76a) in the original, so the order of the messages decides the name. Whether the client's corpse linking renames the dying creature too early needs a live log of a kill with the message order; not checkable offline.
 
 #### `CMB-010` Own turn in a fight not sent by itself
@@ -1023,7 +1027,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: English fallback lines for duel and pet duel are the client's own wording (Feedback_Duel* names); `/duel` with no target prints a line in the client's words
 - A player notices: wording of duel messages may differ from the original's
 - Where: `crates/mao-client/src/feedback.rs:80`; `crates/mao-client/src/feedback.rs:81`; `docs/CLIENT_UI.md:520`; `crates/mao-client/src/net.rs:8316`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): The remaining part was /duel with no target. Read GUI.dll's handlers: /duel (FUN_100b8fff) challenges only when the selection is of type 50000, not oneself and not an NPC (N3Msg_IsNpc), else says a "target a player first" line in chat category 0x51; /petduel (FUN_100b8d78) asks only that the selection is of type 50000 (an NPC or oneself pass), with the same line otherwise. The line is a literal in GUI.dll (not in text.mdb), so by the rules the client keeps its own words for it ("A duel needs a player as the target."). The /duel check was already the original's (target not own, infos.is_player). Ported: /petduel now takes any character (by the selection's type) including one's own self, and refuses an object, where it had refused oneself and sent for anything else. Wording of the usage lines is the client's own for the same reason. Build checked; no unit test (the network loop's command branch). Commits: 47136fc (branch nightt, cherry-picked).
 - Done in part (2026-11-19, overnight): Checked: every name the client uses for the duel and pet duel lines (Feedback_DuelAccepted/Refused/Retracted/AutoRefused/Won/Lost/Draw, PetDuelChallenge, ChallengedX2duel, the X*Duel names, NeedDuelPet, UwonPetDuel, OpponentWithdrew ...) is a name in Gamecode's own strings, and feedback::line reads text.mdb by that name first; the English lines are only fallbacks when text.mdb lacks the name. Left: /duel with no target, which prints a line in the client's own words; the original's N3Msg_Duel_Challenge path for no target was not read.
 
 #### `CMB-019` Full Auto uses a stat taken from public tables
@@ -1053,7 +1058,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: an item without the stat is taken as unset (default not traced); sets other than 0,1,2,3,6,7,8 keep the template's own swings
 - A player notices: weapons without the stat may swing the wrong animation
 - Where: `crates/mao-formats/src/item.rs:332`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Traced the default: the item's stat read in FUN_1009d964 (vtable +0x3c) is FUN_10003d90, which jumps to slot +4 of the `StatHolder_t` embedded at +0x34 (built by FUN_1002e4c0 inside the item base constructor FUN_10002cce); that getter, FUN_1002e62b, answers 1234567890 (0x499602d2) for a stat outside its table, and the table itself is filled with 0x499602d2 for 1200 stats (FUN_10009d97 -> FUN_10009e91(0x4b0, 0x499602d2)). FUN_1009d964 returns without touching the animation map for any value but 0-3, 6, 7, 8, so an item without AnimSet keeps the template's own swings, which is what the client's weapon_actions already does (None falls to the template's sets). Only the doc comment in mao-formats item.rs changed to say so; no behaviour change. Commits: 4681afd (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): FUN_1009d964 reads AnimSet with the item's own stat getter (vtable +0x3c, stat 0x161, mode 2), which forwards to the stat holder at +0x34; that holder's default for a missing stat was not traced (the item constructor chain FUN_10082497 / FUN_10002cce does not show it). Until it is, an item without the stat keeps the template's swings.
 
 ### Combat: the original does it, the client does not (15)
@@ -1090,7 +1096,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not done; toggles keep one name
 - A player notices: action window lacks these
 - Where: `docs/CLIENT_UI.md:507`; `docs/GUI_DLL_PARITY.md:83`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): Three parts. (1) The toggles' other names are done since WIN-113 (actions.rs shown_number / pair_looks). (2) The profession action (138/139): FUN_1004326f adds the pair 0x8a/0x8b only when FUN_1003e48a(profession) finds a non-zero entry in the 15 x 8-byte table at 0x102e3fc8; that table lies in the uninitialised tail of Gamecode's .data (raw size 0x10a800, the table at offset 0x125fc8) and no instruction in .text refers to any address from 0x102e3f44 to 0x102e3fc7 or writes 0x102e3fc8/cc (only FUN_1003e48a reads them; 0x102e3f40 is a sprintf buffer, 0x102e3fc0/c4 a TeleportTrier pointer), so in this build the check is always false and the profession action never appears: the client, which never adds it, already matches. (3) Left: the kept places, GUI.dll SpecialActionView_c saving each tile's grid place as item_position_map (item_id, item_pos) in SpecialActions.xml under the inventory config path (FUN_100dc70a saves, FUN_100dc9b1 loads); the client's Action window lays its tiles out in list order with no free grid to move them in, so this needs a grid-placement feature built and judged by eye.
 - Looked at, left (2026-11-19, overnight): SpecialActionView_c's kept places (item_position_map) and the profession action (138/139, FUN_1004326f) are GUI.dll view state and a Gamecode action list not read tonight; the toggles' other names are done since WIN-113 (the pair tile shows the other half's name and icon, actions.rs pair_looks).
 
 #### `CMB-025` Actions with no known message only say so
@@ -1100,7 +1107,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: an action with no known network message shows "<action>: its network message is not captured yet"
 - A player notices: some actions in the action window do nothing
 - Where: `crates/mao-client/src/net.rs:8214`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Nothing is left for a player to see: Use, Walk, Suspended Animation, Start/End Combat, Sit/Stand (2026-11-18, WIN-112) and Pick-Up (N3Msg_GetItem 0x10027d76) and Crawl (N3Msg_CrawlToggle 0x10027a45) (2026-11-19) are all done as the original's N3Msg_PerformSpecialAction (0x10027454 / 0x10027479 -> FUN_10042fc9 / FUN_100427d6) does them, the specials, Reload and Search by their numbers, perks by UsePerk. The one remaining "not captured yet" (net.rs, the action branch's last arm) is an eprintln to the console for a catalogue entry that matches none of these, not a chat line; no tile in the window reaches it by the code's own lists.
 - Done in part (2026-11-18, overnight): the same port as WIN-112: only Pick-Up and Crawl still say so.
 
 #### `CMB-026` Alien-XP level-cap adjustment not done
@@ -1110,7 +1118,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not done
 - A player notices: alien XP lines differ
 - Where: `docs/ORIGINAL_AUDIT.md:89`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Found in Gamecode FUN_100a2006 (the own Stat message's lines): before going through the stats it looks up stat 169 (AlienLevel, 0xa9) in the message's map (FUN_10084e6e) and, when the told level is above the held one, the alien experience's line (stat 40, feedback 0x45) tells the change plus the held stat 178 (0xb2, the experience the level took; 40 comes before 178 in the map, so 178 is still the held value). Ported as net::alien_level_extra, added to the stat-40 change in the own Stat branch; a level not held counts as no level-up (the original's missing-stat value 1234567890 is never below), a held 178 the client lacks counts as 0. Also the lines' order now follows the map's key order (27, 40, 52, 573) as the original's loop does; the client had 52 before 40. Test: net::door_tests::an_alien_level_up_adds_what_the_level_took. Commits: fb5d8e2 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The alien-XP level-cap adjustment by stat 169 is not described beyond its stat in the notes, and the code that applies it was not located tonight.
 
 #### `CMB-027` Attack swing ignores the target's height
@@ -1120,7 +1129,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not followed
 - A player notices: none stated
 - Where: `crates/mao-client/src/net.rs:4892`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): The entry rests on a misreading: FUN_1006a782's param_3 is not the target's height. Its two callers pass a flag, FUN_1006af0e (a special attack) 1 and FUN_1006ae3c (an AttackInfo hit) 0 (the pushes at 0x1006af38), and FUN_1006a782 hands it to FUN_1006a014 as its param_4 (pushed at 0x1006a7d2), which with it set and the character's queued special (+0x9c) swings the special's class from FUN_1003c7a6, else class 0xb. The client already does exactly this in the SpecialAttackInfo (0x754f1115) branch (item::special_class, plain 0xb for the others); nothing to port. Only the doc comment of the swing in net.rs that named a "height" was corrected; docs/CLIENT_UI.md's "Not followed: ... the target's height (FUN_1006a782's param_3)" should be dropped likewise. Commits: 5c5f5bf (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): FUN_1006a782's param_3 (the target's height) picks height variants of a swing, but the caller FUN_1003cac9 passes no height (so the original's own swing path leaves it unused there); following it means the attack-from-message path's height, which was not traced.
 
 #### `CMB-028` Character's own animation set, draw/holster, wield and attractor smoothing not done
@@ -1141,7 +1151,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not followed
 - A player notices: a crawling character swings the standing animations
 - Where: `crates/mao-formats/src/item.rs:342`; `crates/mao-client/src/net.rs:4893`; `docs/CLIENT_UI.md:2392`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Since Crawl was ported (2026-11-19) the client knows its own character crawls (World::own_crawling, the WaitState 14 that SwitchToCrawlMode sets), so the case exists for one's own character. Ported FUN_1009d964's crawling branch (param_2's high byte, set when the holder's stat 430 is 14, re-run for places 6 and 8 by FUN_10068a17 from the movement-state functions): sets 0, 1, 2 and 6 draw/idle/holster with 0xe7/0xe9/0xe8; set 0 also attacks (0xb, burst 0x16, aimed 0x15, full auto 0x17, fling 0x1c) with 0xeb, 0xea in the left hand; set 3 uses 0xcd/0xce/0xcf and 0xd1 for all five attacks; sets 7 and 8 have no crawling branch. New mao_formats::item::weapon_actions_as(template, slot, class, crawling) (weapon_actions keeps its signature, crawling false); Characters gets a per-body `crawling` flag set before each character is drawn (own character and own_crawling only: others' stat 430 is not received), used by ensure_weapon_action and ensure_swing. Test: mao-formats game_data specials_swing_their_class_of_the_weapon (extended, checked to fail on a wrong value). Commits: 9390247 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): FUN_1009d964 takes the crawling variants when the holder's stat 430 (0x1ae) is 14; the client keeps no crawling (Crawl does nothing yet) and has no stat 430 for others, so there is no case to act on.
 
 #### `CMB-030` Equip timer, restarted attack entry place, items-after-timer not ported
@@ -1183,6 +1194,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no special-attack sounds/texts
 - Where: `docs/CLIENT_UI.md:2450`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The "Sneak Attack!" texts are not chat or sound: FUN_1009d2b2 (the weapon's attack sound) and FUN_1003c7a6 (the special's swing class) call FUN_10011171(attacker, "Sneak Attack!" / "Fast Attack!" / "Backstab!" / "Burst!" / "Brawl!" / "Dimach!" ..., 0xd), a floating text effect 0x2f5a over the attacker in colour 0xd of the table at 0x10157b08, the same effect as the original's floating combat numbers (see CMB-007): the client has no such text effect since CMB-038 removed its floaters, so these wait on the user's decision there (the texts are GUI-less literals of Gamecode, to be written in the client's own words). The special's own sound fields (FUN_1006af0e) and the item hits (FUN_1009b4b0 -> FUN_1009b2c4 with the sound offset +0xb0 and a flag from +0x2c) are sound choices that can only be judged by ear in the live game.
 - Looked at, left (2026-11-19, overnight): The special attack's own sound fields (FUN_1006af0e's sound part), item hits (FUN_1009b4b0) and the "Sneak Attack!" texts each need their reading and a listen; sound cannot be judged offline.
 
 #### `CMB-034` Stun does not touch the vehicle
@@ -1192,7 +1204,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only the state flags (stat 224) change
 - A player notices: not stated beyond the stunned character's movement state
 - Where: `crates/mao-client/src/spelllist.rs:30`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): The "vehicle" is not Vehicle.dll's ride but the character's own movement vehicle (+0x50), and its slots +0x98/+0x9c are Gamecode's: FUN_1005a02c(1) asks +0x9c (FUN_1006f52a, the movement state machine's slot 7 at +0x178) and then calls +0x98(1). For a creature's NPCVehicle_t that is FUN_100713de: FUN_1006f551 hands the movement action 0x15 (FullStopTransitionAction_t, FUN_1006cb58's case 0x15), FUN_10070df1 clears its Path_t and FUN_1007034b(0) drops the followed target. For one's own PlayerVehicle_t it is FUN_100718f0, the full stop alone. Ported: a stun's beginning drops a non-own character's FollowTarget route (World::paths), so a stunned creature stops where it is. Left: the +0x9c check is taken as passing (the state machine's slot 7 was not read: a chaser already standing within 4 m loses its chase too), and whether the own full stop sends a movement 0x15 to the server (the client's own stun already zeroes the movement keys, so it stops, with the ordinary stop messages) needs a capture of a stun while moving. Test: net::door_tests::a_stun_holds_ones_own_character (extended). Commits: 63a053f (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): Stun's vehicle call (+0x9c/+0x98 with FUN_1005a02c(1)) is into Vehicle.dll's vehicle object, whose methods at those slots are not ported (see NAN-052); the stun already holds the own character through the state flags.
 
 #### `CMB-035` Stun on a non-character gives no "select a target" line
@@ -1202,7 +1215,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not ported; nothing is shown
 - A player notices: no explanation when casting the program on a non-character
 - Where: `crates/mao-client/src/spelllist.rs:223`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): FUN_100a879c (spell 0xcf82, Stun): when the dynel it runs on is neither a SimpleItem_t nor a SimpleChar_t, it looks up the run's +0x10 identity (the run's caster in the client's terms), and when that is the client's own character tells Feedback_YouNeedToSelectATargetForProgram; begun or ending alike. The earlier reader found no path that reaches it; the rule is still the original's and costs nothing, so it is ported the way the client already does 0xcf7d's AttackCheck: spelllist::Outcome::StunNoTarget { caster } for a stun on a non-character, and the world tells the line when the caster is its own character and the dynel is not a world item (item_dynels). Tests: net::door_tests::a_stun_holds_ones_own_character (extended), spelllist tests pass. Commits: 2b835fb (branch nightt, cherry-picked).
 - Looked at, left (2026-11-18, overnight): no path was found on which the line can be said (a target that is neither a character nor a world item is an inventory entry, and such spells carry no caster): nothing to port.
 
 #### `CMB-036` Weapon draw: busy count and idle-stand once not done
@@ -1212,7 +1226,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not done
 - A player notices: weapon draw timing may differ
 - Where: `docs/CLIENT_UI.md:2398`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): FUN_1003cce2 (the animation controller's draw, vtable +4): with its busy count (+0x3c) below 1 and a weapon in place 6, else 8, else 0, when the weapon's idle (class 0x10) is not already the looping one it plays the weapon's start, FUN_10045976(0x1a), or action 0x78 (`idle-stand`) when the map has none, once (FUN_1003be23(..., 1, 1, 0)). Ported the idle-stand-once: a weapon drawn whose map has no 0x1a (item::weapon_actions_as empty) now plays idle-stand once as its flourish, where nothing played. Left: the busy count, which is the controller's own count of running actions (other actions holding the draw back); the client's animation stack has no such count, and modelling it is the animation controller's queue (the same as DTH-006, NAN-017). Build checked; weapon/draw/swing tests pass; no unit test (the drawing path needs the game's meshes). Commits: d6486d9 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The weapon draw's busy count (+0x3c of the animation controller) and the once-only idle-stand need the animation controller's queue, which the client does not model (it plays layered actions directly).
 
 ### Combat: the client has it, the original does not (2)
@@ -1316,7 +1331,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: only the primary button starts a selection, drag or scroll; scrolls by egui's drag delta (may be the opposite way)
 - A player notices: right/middle presses on the map do nothing; scroll direction may be reversed
 - Where: `crates/mao-client/src/cityterminal.rs:415`; `crates/mao-client/src/cityterminal.rs:444`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): The direction left open is now traced and the client already matches it. BuildingMapView_c's MouseMove (GUI.dll FUN_100e4abf) in its scroll state (+0x4b8 = 2, set by MouseDown FUN_100e56a8 in view mode, or on a press not on a waiting house) calls its vtable +0xe4, View::ScrollBy (0x1014d269), with the pointer's point less the press point (+0x4b0, both in the view's content coordinates, so each move gives the pointer's screen movement since the last); ScrollBy adds it to the content offset (+0xf8, kept between -(content - view) and 0) and sets the scroll bars to its negative: a positive delta moves the content right/down, with the pointer, a hand drag. egui's `Ui::scroll_with_delta` takes a delta the same way (positive moves the content right/down, "as when swiping"), which cityterminal.rs feeds with the drag's delta, so the direction is the original's. The any-button part was done before. Nothing to change.
 - Done in part (2026-11-19, overnight): (Done before the low list's TGT entries went to another porter.) GUI.dll's BuildingMapView_c MouseDown never reads its button arguments, so any mouse button selects, drags a house or scrolls; the city map (cityterminal.rs) now starts these on any button (egui any_pressed / any_down) instead of the primary only. Left: the scroll's direction, ScrollBy's sign not traced. Build checked; no unit test (egui input).
 
 #### `TGT-007` Name tag height and picking size from the posed body, not the mesh at rest
@@ -1370,7 +1386,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: "we guessed: self / next hostile"
 - A player notices: target buttons may not do what the original's do
 - Where: `docs/ORIGINAL_UI_PLAN.md:217`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Traced in GUI.dll: the control center builds two `CCTargetControl_c` (FUN_10074d26, from CreateTargetMenus / FUN_1006f911) told apart by the byte +0x154. Each one's button +0x148 gets GFX_GUI_CONTROLCENTER_TARGET_BUTTON (AFCM ids 0xaa/0xac/0xab) and the icon 0xad + (flag == 0) (0x100751be: SELF 0xae for flag 0, OTHER 0xad for flag 1), and its click slot 0x10073651: flag 0 calls TargetingModule_t::SelectSelf, flag 1 calls N3InterfaceModule_t::N3Msg_PerformSpecialAction(0xb), the Start Combat action (which the client's action tile and attack key already do as N3Msg_DefaultAttack). So the left button (self icon) was right; the right one (other icon) attacks rather than selecting the next hostile. Ported: the right button presses the attack (keys.commands[4], as the hotbar's Attack does); its tooltip is now the client's "Attack the target". (The two other buttons of each control, +0x14c and +0x150, send AFCM 0x1e with 0x105/0x106 and 0xe8/0xe9, and the target-of-target button 0x10073b8e; the client draws no such buttons.) Build checked; no unit test (a button in the viewer). Commits: 3c8c51d (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The control center's two target buttons are defined in GUI.dll's control-center building code, not traced tonight; the guess (self, next hostile) stays.
 
 #### `TGT-012` Mouse pointer hot spots and egui-driven choice
@@ -1405,7 +1422,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: monster level is meaningless in this layout; no name/level for monsters
 - A player notices: no level on monster target frame
 - Where: `docs/CLIENT_UI.md:1892`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): What a player missed (no name or level on a monster's target frame) is there now: a monster's level comes from its announcement (the full update's Level, FUN_1007916d / FUN_1007835c set it as a stat), read into World::levels since commit 4d15e1c (main, 2026-11-20), and its name from the same announcement (World::names); the target bars (net.rs `target_bars`, `TargetBar { name, level, .. }`) show both for any target, a monster's too. The original's target frame also reads the dynel's own stats, not the info packet; a monster's info packet (kind 80) carrying no name and only a constant level byte is just what it is, and the client now ignores that byte (4d15e1c). Nothing more to port. Commits: 4d15e1c (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The monster info message's layout is not decoded far enough to find a name or level in it; needs the original's reader for that message.
 
 #### `TGT-015` Name tags lack title, names, marks, colour table, ignored icon, side colours
@@ -1416,6 +1434,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: name tags lack these marks
 - Where: `docs/ORIGINAL_AUDIT.md:87`; `crates/mao-client/src/nametag.rs:1`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Read the text rule (GUI.dll FUN_1002596c) so the next port has it: the title (N3Msg_GetTitleName) and a space first; for a character (type 50000) stat 0's bits 22 and 23 (value >> 22: bit 0 the first name, N3Msg_GetFirstName, bit 1 with it the last name after the name); for a non-NPC, stat 224 (state flags) & 0x4000001 gives "** name **", else stat 673 (0x2a1) bit 9 gives "= name ="; for a non-NPC with stat 532 (0x214) neither 0 nor 1234567890, " the " + N3Msg_GetBreedStr; the colour and the ignored icon follow in the same function. Every one of these reads another character's stats (0, 224, 532, 673) or title, which the client does not have for other characters: the full update's stat list for others is skipped by shape (the field-order gap of NAN-030/DTH-009), and the Stat messages it does read for others carry only some. Porting needs FUN_1007916d's full order read first.
 - Looked at, left (2026-11-19, overnight): Indicator_t's title, names, marks, colour table, ignored icon and battle-station colours read stats of other characters that the client does not receive; without those stats there is nothing to draw them from.
 
 #### `TGT-016` Unnamed usable objects shown as "Object xxxx"
@@ -1425,7 +1444,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: an object whose name is not decoded is shown as "Object <hex id>"
 - A player notices: unnamed targets
 - Where: `crates/mao-client/src/net.rs:3389`; `docs/CLIENT_UI.md:99`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): The "usable objects" announced as 4f474e05 with type 0xc76a are `CorpseFullUpdate`s (corpses), and their name is already decoded (net::corpse_name, in the order of CorpseFullUpdateIIR_t's reader FUN_1009fa4c -> FUN_1009f88a -> FUN_100a0c87 -> FUN_100a1661). The client read it only for a corpse that names its dead (stats 415/416) and showed "Object <hex id>" for any other; the original's reader always reads the name. Now the name is read for every such corpse and the id stands in only for a message too short to hold one. Checked over the captures: all 371 captured corpses name their dead and read a name ("Remains of ..."), so the rest was the rare case. Doors, terminals and booths are playfield statels with their own names, not these. Tests: corpse/remains tests pass (net::movement_tests::a_corpse_names_itself, a_captures_dead_become_their_remains). Commits: 818609c (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The original shows the object's name from its template; for these objects the client has not decoded where the name lies, so it shows the id. Needs the template's name field found for those object kinds.
 
 ### Targeting and mouse: the client has it, the original does not (1)
@@ -1472,7 +1492,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the client's own character is never a corpse's body (reworked 2026-11-17); its corpse is an object of its own named by the corpse's name
 - A player notices: own corpse treated differently from creature corpses
 - Where: `docs/CLIENT_UI.md:4826`; `crates/mao-client/src/net.rs:12629`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): For one's own character the client already does what the original does for every corpse: the corpse (0xc76a, CorpseFullUpdate) is a dynel of its own, at its own place, named by its own name and drawn by its own look (net.rs: the own character is filtered out of the bodies a corpse can take, so its corpse goes the `remains` way: corpse_name + mao_net::n3::corpse_look, drawn as the original's FUN_1007eaf0 draws a corpse whose character is not there), while the character itself lives on elsewhere. So the "own rule" is the original's rule; the departure left is the client reusing creatures' bodies as their corpses, which is DTH-008's.
 - Looked at, left (2026-11-19, overnight): Same root as DTH-008: in the original every corpse is its own dynel, so the client's own-corpse object is the original's shape already; the rule that the own character is never a corpse's body is the client's way of not reusing bodies for its own character. Left with DTH-008.
 
 #### `DTH-004` Own death line told once in five seconds
@@ -1505,6 +1526,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: death pose hold implemented differently
 - Where: `docs/CLIENT_UI.md:2401`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The death's priority and loop arguments are the animation controller's (its call at +0x18), and the client has no such controller: it plays layered actions on its own stack and holds the death's last frame by direction. Following them means porting the controller's queue (with CMB-036's busy count and NAN-017's cast timing), not a rule that can be dropped in.
 - Looked at, left (2026-11-19, overnight): The death animation's priority and loop arguments (+0x18 of the controller's call, not decoded) belong to the animation controller, which the client does not model; holding the pose stands in.
 
 ### Death and revival: the original was not read: inferred or measured (4)
@@ -1527,6 +1549,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: bodies jump to where the corpse appears
 - Where: `crates/mao-client/src/net.rs:12116`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Moving the body to the corpse's place was asked for by the user (2026-11-11: the body had been left where the client walked it, in walls or under floors) and the linking was reworked at the user's request on 2026-11-17. The original draws the corpse as its own dynel (0xc76a, its own mesh from CorpseFullUpdate, FUN_1007eaf0) while the dying creature's dynel stays until its despawn some ten seconds later; whether the original hides the creature as its corpse appears (or shows both for those seconds) can only be seen in the live game. Separating them is ready in the code (the `remains` path draws a corpse by its own look) but undoing the user's choice needs that look first.
 - Looked at, left (2026-11-19, overnight): In the original the corpse is a dynel of its own (0xc76a) drawn at its own place with the dead one's look, and the dying creature's dynel goes with its despawn; the client reuses the creature's body for the corpse. Separating them needs the corpse drawn from its own announcement (mesh and look of the one it names), a larger change to the death path; left.
 
 #### `DTH-009` Corpse's owner found by scanning for stat keys
@@ -1536,7 +1559,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the dead character is found by searching the announcement for the bytes of stats 415 and 416
 - A player notices: a corpse may not link to its owner for an unusual message
 - Where: `crates/mao-net/src/n3.rs:1692`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): The corpse's stats are now read at their place: new mao_net::n3::corpse_stats follows CorpseFullUpdateIIR_t's reader (Gamecode FUN_1009fa4c -> FUN_1009f88a -> FUN_100a0c87 -> FUN_100a1661: the version words, the identity, the place and turn when the identity's type word is 0, a word, an identity, two bytes, then FUN_1002e7d9's list, a count word (n + 1) x 0x3f1 and n pairs), the same order net::corpse_name already used for the name; corpse_of takes stat 416 from that list instead of searching the bytes for 415 = 50000 followed by 416. Checked over the captures first: the ordered read and the old scan agree on all 371 corpses. The full update's field order (NAN-030) was not needed: the corpse has its own reader. corpse_look still finds its later fields by the same key (its own part, left as it was). Two tests' made-up corpse bytes were given the real header. Tests: mao-net n3::entity_tests::a_wounded_dockworker_is_announced_on_the_ground and a_corpse_says_how_it_looks; mao-client corpse/remains tests. Commits: 6546d42 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The corpse announcement's stats 415/416 are found by their keys because the full update's field order before them is not decoded (the same gap as NAN-030); reading them at their place needs FUN_1007916d's order.
 
 #### `DTH-010` Invented names for corpses
@@ -2994,7 +3018,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: At most 6 program auras per character are drawn; the ring's body uses fatness 1 for everyone but the own character.
 - A player notices: Other characters' auras may not fit their body or may be cut off.
 - Where: `crates/mao-client/src/net.rs:9635`; `crates/mao-client/src/net.rs:9626`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Both halves: (1) others' fatness is no longer fixed: the ring's body takes another character's announced `fatness` (EntityInfo, the full update's Fatness, stat 47) since the body builds were ported (net.rs `body` in the auras' list; World::fatness for the drawn body), so nothing was left there. (2) The six-aura cap was the client's own (the original makes each running program's effect, its EffectType stat 413, on the character, with no count), kept "to guard the frame" while the effect decode was partial: a guard that changes what a player sees, so it is removed; every program's effect is drawn now. Build checked; no unit test (the viewer's list). Commits: 9a65a88 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The six-aura limit and others' fixed fatness are the client's (the original draws every program's effect; others' fatness is their body stat, which the client does not get for other characters). The original's rule is "draw them all", but with the effect decode partial (NAN-028) the cap guards the frame; others' fatness has no source.
 
 #### `NAN-008` Buff pulse retry wait is a hash, not the original's random number
@@ -3046,6 +3071,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Rings do not tilt with limbs.
 - Where: `docs/ORIGINAL_AUDIT.md:268`; `docs/CLIENT_UI.md:2305`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The rings' tilt with the bone's frame and the stat-360 scale of the offset belong to the buff-ring effect's attach (NAN-009/NAN-011, still open: the attach bone of the posed skeleton is not handed to the effect code and the attach height is a guess); without the bone frame there is nothing to tilt by, and the result can only be judged by pictures of the original.
 - Looked at, left (2026-11-19, overnight): The rings' orientation and the stat-360 scale of the offset belong to the same buff-ring effect class (NAN-009/011); left with it.
 
 #### `NAN-013` Cancelled nano leaves the window at once
@@ -3099,6 +3125,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Cast end follows a client timer rather than the server message.
 - Where: `docs/CAPTURE_GAPS.md:225`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): 0x6b FinishNanoCasting clears the cast's still-casting byte, which the original's CharCastNano_t state and the animation controller read to end the casting animation; the client has neither (NAN-015/016 open), so it times the animation itself. Following it means porting the cast state and the controller's queue (with CMB-036's busy count and DTH-006), not a single rule.
 - Looked at, left (2026-11-19, overnight): The casting animation's timing belongs to CharCastNano_t and the animation controller (NAN-015/016), not ported; 0x6b's effect is a DisplaySystem class not decoded.
 
 #### `NAN-018` Effect meshes: only some drawn, head attractor used when the body lacks one
@@ -3119,6 +3146,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: None visible.
 - Where: `crates/mao-client/src/nanoprograms.rs:88`; `docs/CLIENT_UI.md:438`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Storage only: the original keeps hidden programs in a seventh school list saved in its own prefs (NanoView_c's per-school list configs, `listview_config%d`, GUI.dll FUN_100d4d44); the client keeps the same set in hiddennanos.ini beside mao.ini. The player sees the same thing, and the client's own ini files are kept by the user's decision (SET-001/002/005).
 - Looked at, left (2026-11-19, overnight): Where hidden programs are kept is storage only: the original's seventh school list is saved in its own prefs, which this client cannot share with the original; a file beside mao.ini holds the same set. No player-visible difference to port.
 
 #### `NAN-020` Other characters' cast times use the nano's time alone; flag 0x80000 not followed
@@ -3149,7 +3177,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Kept for one's own character only (the client keeps no stats of others).
 - A player notices: Pets and NPCs keep their own mesh stat.
 - Where: `crates/mao-client/src/spelllist.rs:32`; `docs/CAPTURE_GAPS.md:73`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): The client now keeps stats of other characters (World::others_stats, from their Stat messages), so FUN_100a4f8a's set has somewhere to land: spell 0xcf22's SetStat on another character goes into others_stats (with the same exceptions spelllist already follows: 0x2f Fatness and 0x3c Profession as their own setters, the other six of the eight ignored), and World::fatness takes another's Fatness from there before the announced one, so a fatness set by a spell list changes the build its body is drawn with, as FUN_1003e464 marks the original's body to be made anew. Test: net::door_tests::a_stun_holds_ones_own_character (extended). Commits: 60e9080 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): Same as CMB-012: FUN_100a4f8a sets stat 0 on any character, and the client keeps no stat table for others to set it in.
 
 #### `NAN-023` Spell 0xcfd4 effect drawn without colours, scale and repetitions
@@ -3182,6 +3211,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Unlisted modes show a spiral instead of the original's effect.
 - Where: `docs/CLIENT_UI.md:2265`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Graphics only: the stars effect's 29 modes come from _GfxControlStars_t, whose decompile is mangled; matching the mode numbers needs that DisplaySystem class re-read from its disassembly and the result judged against pictures of the original; no rule is clear enough to port blind.
 - Looked at, left (2026-11-19, overnight): The stars effect's mode numbers come from a mangled decompile; matching them exactly needs the DisplaySystem class re-read (disassembly), graphics only.
 
 #### `NAN-026` Stars mode 22 edges measured across the client's attach table; mode 15 uses blob-shadow points
@@ -3202,6 +3232,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Volume effects look different.
 - Where: `docs/CLIENT_UI.md:2273`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Graphics only: the volume grid's fan gradient within a slice and the alpha-blended slices need a blended fan path in the client's effect renderer for this class; the look can only be judged by eye.
 - Looked at, left (2026-11-19, overnight): The fan gradient and alpha-blended slices need a blending path the client's effect renderer lacks for this class; graphics only.
 
 ### Nano programs: the original was not read: inferred or measured (9)
@@ -3235,6 +3266,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The nano list may be misread for odd updates.
 - Where: `crates/mao-net/src/n3.rs:2156`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): SimpleCharFullUpdate's reader (Gamecode FUN_1007916d) is not ported in field order: the client skips the earlier variable-length fields by shape (it gained the Level field on 2026-11-20, 4d15e1c, but not the full order up to ActiveNanos). Reading the list at its place needs FUN_1007916d's whole order ported and checked against the captures' 7165 updates, more than this entry's worth tonight.
 - Looked at, left (2026-11-19, overnight): SimpleCharFullUpdate's field order up to ActiveNanos is not decoded by the client (many earlier fields of variable length are skipped by shape); reading it at its place needs the full reader FUN_1007916d's order ported.
 
 #### `NAN-031` Flare effect burns where the character stood
@@ -3296,6 +3328,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Nano buffs with other tail values would not count.
 - Where: `crates/mao-formats/src/item.rs:66`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Found a piece but not the rule: the third tail word is the spell's target stat (0x20). For a nano template Gamecode FUN_100a49b1 (FUN_100a4b10's, over the 0x1d event lists by FUN_100020fd) counts targets 1 and 2 as on oneself (else the program is not self-only, byte +0x2f), and a running list's spells go by FUN_100026d0's rule (3 the caster, 0xe the fighting target, 0x17 the use target, anything else the character). So 1, 2 and 3 on oneself agree with the live check; but the path that applies a worn item's or a running nano's 0xcf35 modifiers to the stat map (FUN_10086774 / FUN_100a49b1 -> FUN_100020fd) was not traced to which targets it keeps, so items' [2, 3] and nanos' [1, 2, 3] stay as checked live.
 - Looked at, left (2026-11-19, overnight): The tail word's meaning is in the template reader (FUN_10086774 / FUN_100a49b1 read the lists through FUN_100020fd), not traced to that word tonight; the live-checked values stay.
 
 ### Nano programs: a guard or fallback the original lacks (1)
@@ -3364,6 +3397,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Cones lack texture scroll.
 - Where: `docs/CLIENT_UI.md:2362`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Graphics only: the crazy cones' texture offset scrolling is part of a DisplaySystem effect class the client has not ported; only judged by eye.
 - Looked at, left (2026-11-19, overnight): The crazy cones' texture scrolling is a DisplaySystem class not ported; graphics only.
 
 #### `NAN-043` Effect sequencer entry end and looping not followed; some rare classes not drawn
@@ -3374,6 +3408,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some effects last longer or do not loop.
 - Where: `docs/CLIENT_UI.md:2007`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Graphics only: _GfxControlSequencer_t's entry end (the child's duration cut to end - start in 56 of 522 entries) and its flag 0x400 looping are sequencer internals of DisplaySystem, and the rare classes undrawn have no decode; to be judged against pictures.
 - Looked at, left (2026-11-19, overnight): The effect sequencer's entry end and looping, and the rare classes, are DisplaySystem internals not ported; graphics only.
 
 #### `NAN-044` Highlights: mode 3, flag 0x400 priority and hide word not drawn
@@ -3384,6 +3419,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: None visible by the notes.
 - Where: `docs/CLIENT_UI.md:2376`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The notes say no template sets the highlight's hide word and no program names a mode-3 template, so nothing in the game uses them: there is nothing visible to port.
 - Looked at, left (2026-11-19, overnight): The notes say no template sets the hide word and no program names a mode-3 template; with nothing using them there is nothing visible to port.
 
 #### `NAN-045` Nano type "Self" never shown
@@ -3425,6 +3461,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Tower beams and halos are approximated.
 - Where: `docs/CLIENT_UI.md:2277`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Graphics only: GfxVisualSprite3's body-fixed standing quad, separate billboard height and alpha blending are a DisplaySystem class not ported; tower beams and halos need pictures to judge.
 - Looked at, left (2026-11-19, overnight): Single-quad sprites' body-fixed quad, billboard height and blending are a DisplaySystem class not ported; graphics only.
 
 #### `NAN-049` Smoke streams: force push of other kinds and sprite spin not done
@@ -3435,6 +3472,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Smoke does not respond to force or spin.
 - Where: `crates/mao-client/src/effects.rs:2189`; `docs/CLIENT_UI.md:2275`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The smoke's force push needs the effect handler's force field (SetFXForce on other effects), which the client does not keep for smoke streams, and the sprites' spin belongs to the same class; graphics, judged by eye.
 - Looked at, left (2026-11-19, overnight): Smoke streams' force push of other kinds needs a force system the client does not keep, and the spin is part of the same class; graphics only.
 
 #### `NAN-050` Spell types 0xcf0a, 0xcf56, 0xcf4a, 0xcf70, 0xcf1b, 0xd003 do nothing
@@ -3456,6 +3494,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Spells aimed at the use target do not run.
 - Where: `crates/mao-client/src/net.rs:1078`; `crates/mao-client/src/spelllist.rs:300`; `docs/CAPTURE_GAPS.md:79`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Traced further: the use target is the character's action holder (+0x1e4, made lazily by FUN_10058bd2 -> FUN_1003b143, a 0x1c-byte holder of an ActionData_t) and its +0x14 is an ItemActionData_t's identity (FUN_1003b0ef copies +0x14/+0x18; FUN_1003b15e performs the item action on it, FUN_1003b279 checks it). So 0x17 is the item (or dynel) the character's current item action is on, set while such an action runs. When the holder is filled and cleared (FUN_1005d0b1 and FUN_1005f666 zero +0x1e4) is not yet traced, and the client keeps no item action of its own (it sends the use at once), so there is no use target to give the spell runner yet.
 - Looked at, left (2026-11-19, overnight): The use target (+0x1e4's +0x14) is set by the original's use of an item on something; the client keeps no use target in the scene, and which messages set it was not traced.
 
 #### `NAN-052` Stun: the call to the vehicle is not made
@@ -3465,7 +3504,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The flags themselves are set and one's own character cannot move; the vehicle call is not made.
 - A player notices: A stun has no effect on a vehicle.
 - Where: `crates/mao-client/src/spelllist.rs:29`; `docs/CAPTURE_GAPS.md:86`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): Same call as CMB-034 (ported there, commit 63a053f): FUN_1005a02c(1) is the character's own movement vehicle (+0x50), not Vehicle.dll's ride; for a creature (NPCVehicle_t, FUN_100713de) a full stop with its path and followed target dropped, now done as the creature's FollowTarget route dropped at the stun's beginning; for one's own (PlayerVehicle_t, FUN_100718f0) the full stop alone, which the state flags already give. Left: the +0x9c check (FUN_1006f52a, the state machine's slot 7) taken as passing, and whether the own full stop sends a movement 0x15 needs a capture of a stun while moving. The state flags' effects (0x400 / 0x100 / 0x4200) are the stun itself, ported before. Commits: 63a053f (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): Same as CMB-034: the vehicle's +0x9c/+0x98 are Vehicle.dll methods not ported.
 
 #### `NAN-053` Target NCU windows: no borderless style, own tab strip or places beside the target bars
@@ -3487,6 +3527,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Debris and embers are approximate.
 - Where: `docs/CLIENT_UI.md:2279`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Graphics only: BParticle2's spin, ground bounce, height and daylight fades and body turn are a DisplaySystem particle class not ported; debris and embers need pictures to judge.
 - Looked at, left (2026-11-19, overnight): Thrown billboard particles' spin, bounce, fades and body turn are a DisplaySystem particle class not ported; graphics only.
 
 #### `NAN-055` Tracer cords: ribbon and locator not done
@@ -3497,6 +3538,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Tracer cords look dotted.
 - Where: `docs/CLIENT_UI.md:2271`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Graphics only: the tracer cords' ribbon between links and the locator riding the line are a DisplaySystem class not ported (each link is drawn as a sprite); judged by eye.
 - Looked at, left (2026-11-19, overnight): The tracer cords' ribbon and locator are a DisplaySystem class not ported (each link is a sprite); graphics only.
 
 ### Nano programs: the client has it, the original does not (5)

@@ -1283,3 +1283,9 @@ These were written before this list; some may have been seen working since witho
 - [ ] An effect built on a repeating toggle (kind 3036 with flag 0x400, no vehicle flag) keeps replaying its child while it runs.
 - [ ] Outdoors under thick clouds (a stormy area) the ground is lit as brightly as under a clear sky of the same hour; the fog still greys it.
 - [ ] A mode-0 suns effect shows eight halos two units above the character, turning, some clockwise and some anticlockwise, one still; check the sense of turn against the original.
+- [ ] Gain an alien level: the "alien experience" line tells the full amount gained.
+- [ ] Crawl with a pistol and a rifle drawn: the weapon idles and fires in the crawling poses.
+- [ ] Stun a walking or chasing creature: it stops at once.
+- [ ] Start a fight with a weapon whose template has no start animation: the character plays idle-stand once.
+- [ ] Click the right target button with an enemy selected: the fight starts.
+- [ ] A character with more than six buffs running: every buff's effect shows, and the frame rate holds.

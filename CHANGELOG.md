@@ -52,6 +52,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The camera no longer creeps towards your character on slopes; it rests against the ground as in the original.
 - Dragging an entry of the control center's menus that runs a chat command (the Social menu's emotes, for example) makes a macro of it that can be dropped on a hotbar, as in the original.
 - The inspect, mail, nano programs, maps, signup terminal, teleport target, laser target and mech select windows and the compass first open where the original client left them for the character.
+- The control center's right target button attacks the target, as in the original (it selected the next enemy).
 
 ### World
 
@@ -60,6 +61,17 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Sound
 
 - Changing the battle music setting in the options takes effect at once, as in the original.
+
+### Fights
+
+- A hit that lands just as a creature dies is told with the creature's name, not its remains'.
+- The alien experience gained with an alien level-up is told (it was not).
+- While crawling, your weapon is drawn, held and fired with the crawling animations.
+- A stunned creature stops where it is instead of walking on along its path.
+
+### Nanos
+
+- Every nano program running on a character shows its effect, not only the first six.
 
 ## 0.1.7 (2026-11-20)
 

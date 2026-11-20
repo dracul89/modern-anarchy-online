@@ -8131,3 +8131,51 @@ The weather's thick clouds set `VisualEnvFX_t` +0x1134 to `1 − clouds / 2.333`
 ### The suns turn (RND-032)
 
 `_GfxControlSuns_t` in mode 0 (Gamecode FUN_100fc425) shows eight halos two units above the point, sun k (k from 0) `size + k × step` wide under the envelope `1 − (2u − 1)⁴`, each turning in the view at `(k − 4) × time × 0.5` radians (`GfxVisualSol`, DisplaySystem FUN_10020836): the inner ones one way, the outer ones the other, the fifth still. The client drew 32 unturned halos; it now draws the eight, turning (the renderer's billboards can spin: `mao_render::Particle::spin`).
+
+### A hit as a creature dies names the creature (CMB-009)
+
+In the original a corpse is a dynel of its own and the dying creature keeps its name until its despawn, so a hit told in between names the creature (Gamecode FUN_10012c3e). The client shows the creature's body as its remains from the corpse's announcement on, but the fight lines now name the creature until its despawn (`World::died_as`), not "Remains of ...".
+
+### /petduel's target (CMB-018)
+
+GUI.dll's /petduel handler (FUN_100b8d78) challenges whenever the selection is a character (type 50000), oneself and NPCs included, and says its "target a player first" line otherwise; the client now does the same (it refused oneself and sent a challenge for an object). The no-target lines of /duel and /petduel are the client's own words, as the original's is a literal of GUI.dll, not a text.mdb entry.
+
+### Alien experience at an alien level-up (CMB-026)
+
+Gamecode FUN_100a2006 adds the held stat 178 (the experience the alien level took) to the alien experience line's amount when the same Stat message tells an alien level (169) above the held one, so the line tells what was gained (the client, which tells only a gain, had said nothing at a level-up since the value drops). The client now does the same (`net::alien_level_extra`), and tells the lines in the message's stat order: health, alien experience, experience, shadowknowledge.
+
+### A crawling character's weapon actions (CMB-029)
+
+Gamecode FUN_1009d964 fills a wielded weapon's animations with crawling variants while the holder crawls (WaitState 14): draw, idle and holster 0xe7/0xe9/0xe8 (a rifle 0xcd/0xce/0xcf), and small arms and rifles attack with 0xeb (0xea left hand) and 0xd1. The client now uses them for its own character while it crawls (`item::weapon_actions_as`); others' crawling is not known to the client.
+
+### A stun stops a creature's walk (CMB-034)
+
+The original's stun (Gamecode FUN_100a879c) also calls the character's movement vehicle (FUN_1005a02c(1)); for a creature (`NPCVehicle_t`, FUN_100713de) that is a full stop with its path and followed target dropped. The client now ends the walk the server set a stunned creature on (`World::paths`) at the stun's beginning; one's own character was already held still by its state flags.
+
+### A stun on no character (CMB-035)
+
+Gamecode FUN_100a879c tells the client's own caster `Feedback_YouNeedToSelectATargetForProgram` when a stun spell runs on something that is neither a character nor an item; the client now does too (`spelllist::Outcome::StunNoTarget`).
+
+### A weapon drawn with no start (CMB-036)
+
+Gamecode FUN_1003cce2 plays `idle-stand` (0x78) once when a drawn weapon's map has no start (class 0x1a); the client now does the same instead of nothing. The controller's busy count that holds a draw back is not ported.
+
+### The control center's target buttons (TGT-011)
+
+GUI.dll's two `CCTargetControl_c` (FUN_10074d26) each have a target button (slot 0x10073651): the one with the self icon selects oneself (`TargetingModule_t::SelectSelf`), the one with the other icon starts the fight (`N3Msg_PerformSpecialAction(0xb)`). The client's right button now attacks, as the attack key does, instead of the guessed next hostile.
+
+### Every corpse by its own name (TGT-016)
+
+`CorpseFullUpdateIIR_t`'s reader (Gamecode FUN_1009fa4c → FUN_100a1661) always reads the corpse's name; the client now shows it for a corpse that names no dead too, where it showed "Object <id>".
+
+### A corpse's dead read at its place (DTH-009)
+
+The corpse's announcement names its dead in its stats 415 and 416; the client now reads them from the stat list where `CorpseFullUpdateIIR_t`'s reader has it (`n3::corpse_stats`, FUN_1009fa4c → FUN_100a1661, the list FUN_1002e7d9), not by searching the bytes. Both ways agree on every captured corpse.
+
+### Every running program's effect (NAN-007)
+
+The original draws the effect (EffectType, stat 413) of every program running on a character; the client drew the first six only. Now all are drawn, on one's own and others' bodies (others' bodies by their announced fatness).
+
+### Spell lists setting another's stat (NAN-022)
+
+Gamecode FUN_100a4f8a (spell 0xcf22) sets a stat on any character, pets and NPCs included; the client now keeps it for others too (`World::others_stats`), and a Fatness set so is the build the body is drawn with.
