@@ -1315,3 +1315,6 @@ These were written before this list; some may have been seen working since witho
 - [ ] **1** Type `/` in the chat: the command list still offers the script files (from the client's `scripts` folder and
   the original's beside its `Prefs`), and a script made while playing shows within five seconds. The frame rate with the
   chat window up is about what it is with it closed.
+
+- [ ] **1** Open the skills window and play with it up: the frame rate stays about what it is with it closed. Raise a
+  skill with +, open and fold a group, press Suggested IP distribution: the values, colours and the list follow at once.

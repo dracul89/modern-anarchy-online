@@ -121,6 +121,10 @@ fn add_xml(tree: &mut Tree, parent: Id, xml: &str) -> Option<Id> {
 #[derive(Default)]
 pub struct SkillWindow {
     window: Option<crate::gui::window::XmlWindow>,
+    /// The named views of the window by name, the first in the tree's order as `Tree::find` gives it, made once the view
+    /// is loaded: the window looked its values up by name every frame, over a thousand searches of the whole tree, which
+    /// was 8 ms of each frame while it was open.
+    names: std::collections::HashMap<String, Id>,
     /// The points added to each skill, not yet accepted.
     pending: BTreeMap<u32, i64>,
     selected: Option<u32>,
@@ -141,6 +145,8 @@ impl SkillWindow {
         let dirs: Vec<std::path::PathBuf> = crate::skin::skin(ctx).map(|s| s.dirs().into_iter().map(|d| d.to_path_buf()).collect()).unwrap_or_default();
         let Some((mut tree, root)) = crate::gui::load_view(&dirs, "Skills.xml", "parent") else { return };
         tree.measure = crate::gui::font::Measure { ctx: Some(ctx.clone()) };
+        // (every change this window makes to its views sets `relayout`: its views' sizes are kept between frames)
+        tree.keep_preferred = true;
         for (g, (group, stats)) in GROUPS.iter().enumerate() {
             if let Some(list) = tree.find(root, &format!("{group}_view")) {
                 for &stat in *stats {
@@ -181,6 +187,7 @@ impl SkillWindow {
                 }
             }
         }
+        self.names = index(&tree, root);
         self.window = Some(crate::gui::window::XmlWindow { name: "Skills".into(), title: "Skills".into(), tree, root, open: true, default_size: egui::vec2(640.0, 480.0) });
         // (MAO_SKILL=<group number>,<stat>,<points added>: the window comes up on that group's page with the skill selected,
         // for pictures of it)
@@ -191,8 +198,8 @@ impl SkillWindow {
         }
     }
 
-    fn set_text(tree: &mut Tree, root: Id, name: &str, value: &str) {
-        let Some(id) = tree.find(root, name) else { return };
+    fn set_text(tree: &mut Tree, names: &std::collections::HashMap<String, Id>, name: &str, value: &str) {
+        let Some(&id) = names.get(name) else { return };
         if let Some(t) = tree.control_mut::<crate::gui::controls::TextView>(id) {
             if t.text != value {
                 t.text = value.to_string();
@@ -202,8 +209,8 @@ impl SkillWindow {
     }
 
     /// Shows a view or hides it.
-    fn set_shown(tree: &mut Tree, root: Id, name: &str, shown: bool) {
-        let Some(id) = tree.find(root, name) else { return };
+    fn set_shown(tree: &mut Tree, names: &std::collections::HashMap<String, Id>, name: &str, shown: bool) {
+        let Some(&id) = names.get(name) else { return };
         let want = if shown { 0 } else { 1 };
         if tree.get(id).hidden.min(1) != want {
             tree.get_mut(id).hidden = want;
@@ -217,8 +224,9 @@ impl SkillWindow {
         }
         let Some(w) = self.window.as_mut() else { return };
         let (tree, root) = (&mut w.tree, w.root);
+        let names = &self.names;
         if let Some((group, stat, added)) = self.demo.take() {
-            if let Some(list) = GROUPS.get(group).and_then(|g| tree.find(root, &format!("{}_view", g.0))) {
+            if let Some(list) = GROUPS.get(group).and_then(|g| names.get(&format!("{}_view", g.0)).copied()) {
                 tree.get_mut(list).hidden = 0;
             }
             for (selector, value) in [("infoselect", 1), ("groupselect", group as i32)] {
@@ -233,7 +241,7 @@ impl SkillWindow {
             tree.relayout = true;
             // (MAO_SKILL_SUGGEST: the suggested distribution pressed as well)
             if std::env::var_os("MAO_SKILL_SUGGEST").is_some()
-                && let Some(id) = tree.find(root, "suggest_ip")
+                && let Some(id) = names.get("suggest_ip").copied()
             {
                 tree.signals.push((id, Signal::Clicked));
             }
@@ -282,8 +290,8 @@ impl SkillWindow {
         }
         let character = costs.who(&self.pending);
         // the values: each row's buffed value with the points added (FUN_100fa0e0), the buttons' pictures changed once added
-        Self::set_text(tree, root, "remaining_ip", &(ip - costs.spent(&self.pending)).to_string());
-        Self::set_text(tree, root, "status", &self.status);
+        Self::set_text(tree, names, "remaining_ip", &(ip - costs.spent(&self.pending)).to_string());
+        Self::set_text(tree, names, "status", &self.status);
         for (_, stats) in GROUPS {
             for &stat in stats {
                 let added = self.pending.get(&stat).copied().unwrap_or(0);
@@ -291,13 +299,13 @@ impl SkillWindow {
                 if let Some(t) = costs.tables {
                     let colour = crate::skillcost::colour(t.cost_level(&character, stat));
                     for mode in 0..2 {
-                        if let Some(id) = tree.find(root, &format!("name{mode}_{stat}"))
+                        if let Some(id) = names.get(&format!("name{mode}_{stat}")).copied()
                             && let Some(name) = tree.control_mut::<crate::gui::controls::TextView>(id)
                         {
                             name.colour = crate::gui::controls::Colour(colour);
                         }
                     }
-                    if let Some(bar) = tree.find(root, &format!("bar_{stat}")) {
+                    if let Some(bar) = names.get(&format!("bar_{stat}")).copied() {
                         let max = t.max(&character, stat);
                         crate::gui::powerbar::set_value(tree, bar, if max > 0 { ((costs.stored(stat) + added) as f32 / max as f32).clamp(0.0, 1.0) } else { 0.0 });
                     }
@@ -311,20 +319,20 @@ impl SkillWindow {
                 };
                 for mode in 0..2 {
                     let name = format!("value{mode}_{stat}");
-                    Self::set_text(tree, root, &name, &(costs.buffed(stat) + added).to_string());
-                    if let Some(id) = tree.find(root, &name)
+                    Self::set_text(tree, names, &name, &(costs.buffed(stat) + added).to_string());
+                    if let Some(id) = names.get(&name).copied()
                         && let Some(value) = tree.control_mut::<crate::gui::controls::TextView>(id)
                     {
                         value.colour = crate::gui::controls::Colour(colour);
                     }
                     for button in ["dec", "inc"] {
-                        if let Some(b) = tree.find(root, &format!("{button}{mode}_{stat}")) {
+                        if let Some(b) = names.get(&format!("{button}{mode}_{stat}")).copied() {
                             if let Some(c) = tree.control_mut::<crate::gui::controls::Button>(b) {
                                 c.on = added > 0;
                             }
                         }
                     }
-                    if let Some(row) = tree.find(root, &format!("row{mode}_{stat}")) {
+                    if let Some(row) = names.get(&format!("row{mode}_{stat}")).copied() {
                         if let Some(r) = tree.control_mut::<Row>(row) {
                             r.selected = self.selected == Some(stat);
                         }
@@ -337,32 +345,32 @@ impl SkillWindow {
         if let Some(stat) = self.selected {
             let added = self.pending.get(&stat).copied().unwrap_or(0);
             let right = |v: String| format!("<div align=\"right\">{v}</div>");
-            Self::set_text(tree, root, "statName", &format!("<center>{}</center>", text(2002, stat, &crate::skills::stat_name(stat))));
-            Self::set_text(tree, root, "statdesc", &text(2001, stat, ""));
-            Self::set_text(tree, root, "base", &right((costs.stored(stat) + added).to_string()));
-            Self::set_text(tree, root, "buffed", &right((costs.buffed(stat) + added).to_string()));
-            Self::set_text(tree, root, "pointdelta", &right(added.to_string()));
+            Self::set_text(tree, names, "statName", &format!("<center>{}</center>", text(2002, stat, &crate::skills::stat_name(stat))));
+            Self::set_text(tree, names, "statdesc", &text(2001, stat, ""));
+            Self::set_text(tree, names, "base", &right((costs.stored(stat) + added).to_string()));
+            Self::set_text(tree, names, "buffed", &right((costs.buffed(stat) + added).to_string()));
+            Self::set_text(tree, names, "pointdelta", &right(added.to_string()));
             // (what the next point costs, FUN_100f9aeb; the points added together, FUN_100f9b0d; the cap)
             let fields = match costs.tables {
                 Some(t) => [t.cost(&character, stat, costs.stored(stat) + added).to_string(), t.total_cost(&character, stat, costs.stored(stat), added).to_string(), t.max(&character, stat).to_string()],
                 None => ["-".to_string(), "-".to_string(), "-".to_string()],
             };
             for (field, value) in ["unitcost", "totalcost", "maxskill"].into_iter().zip(fields) {
-                Self::set_text(tree, root, field, &right(value));
+                Self::set_text(tree, names, field, &right(value));
             }
             // (the reset: a disabled skill's is free; an ability has none; the others' takes a reset point, stat 199)
-            if let Some(s) = tree.find(root, "resetselect") {
+            if let Some(s) = names.get("resetselect").copied() {
                 crate::gui::selector::set_value(tree, s, i32::from(disabled));
             }
-            Self::set_shown(tree, root, "resetselect", disabled || !(16..=21).contains(&stat));
-            Self::set_text(tree, root, "rp", &stats.get(&199).copied().unwrap_or(0).to_string());
+            Self::set_shown(tree, names, "resetselect", disabled || !(16..=21).contains(&stat));
+            Self::set_text(tree, names, "rp", &stats.get(&199).copied().unwrap_or(0).to_string());
         }
         // (the notice that a skill is disabled: shown only for one of the disabled group's, FUN_100fa1c4's `Show`)
-        Self::set_shown(tree, root, "disabledLbl", disabled);
+        Self::set_shown(tree, names, "disabledLbl", disabled);
         // ("Reset all skills (n)", FUN_100fae7a: one when stat 348's third bit is clear, and stat 691's; the button dead
         // at none. The original reads both stats whatever they hold; here a stat the server has not told of counts nothing)
         let resets = stats.get(&348).map_or(0, |f| i64::from(f & 4 == 0)) + stats.get(&691).copied().unwrap_or(0);
-        if let Some(id) = tree.find(root, "resetAll") {
+        if let Some(id) = names.get("resetAll").copied() {
             let label = format!("{} ({resets})", crate::gui::xml::ldb_named(502, "SkillView_ResetAll", "Reset all skills"));
             if let Some(b) = tree.control_mut::<crate::gui::controls::Button>(id)
                 && b.label != label
@@ -387,14 +395,14 @@ impl SkillWindow {
             let stat_of = |prefix: &str| name.strip_prefix(prefix).and_then(|r| r.split('_').nth(1)).and_then(|s| s.parse::<u32>().ok());
             if let Some(g) = GROUPS.iter().position(|(group, _)| *group == name) {
                 // a group's button: its list folded or opened, its page shown (FUN_100f9f70)
-                if let Some(list) = tree.find(root, &format!("{name}_view")) {
+                if let Some(list) = names.get(&format!("{name}_view")).copied() {
                     let node = tree.get_mut(list);
                     node.hidden = if node.hidden > 0 { 0 } else { 1 };
                 }
-                if let Some(s) = tree.find(root, "infoselect") {
+                if let Some(s) = names.get("infoselect").copied() {
                     crate::gui::selector::set_value(tree, s, 1);
                 }
-                if let Some(s) = tree.find(root, "groupselect") {
+                if let Some(s) = names.get("groupselect").copied() {
                     crate::gui::selector::set_value(tree, s, g as i32);
                 }
                 tree.relayout = true;
@@ -402,11 +410,11 @@ impl SkillWindow {
                 // (carried out at the press, above)
             } else if let Some(stat) = stat_of("row") {
                 self.selected = Some(stat);
-                if let Some(s) = tree.find(root, "infoselect") {
+                if let Some(s) = names.get("infoselect").copied() {
                     crate::gui::selector::set_value(tree, s, 1);
                 }
                 if let Some((g, _)) = GROUPS.iter().enumerate().find(|(_, (_, stats))| stats.contains(&stat)) {
-                    if let Some(s) = tree.find(root, "groupselect") {
+                    if let Some(s) = names.get("groupselect").copied() {
                         crate::gui::selector::set_value(tree, s, g as i32);
                     }
                 }
@@ -426,7 +434,7 @@ impl SkillWindow {
                 if std::env::var_os("MAO_TRACE_SKILLS").is_some() {
                     eprintln!("suggested for {profession:?} level {level}: {touched:?}, ip {ip}, priorities {:?}", GROUPS[0].1.iter().map(|s| priority(*s)).collect::<Vec<_>>());
                 }
-                if let (Some(a), Some(b)) = (tree.find(root, "col1"), tree.find(root, "col2")) {
+                if let (Some(a), Some(b)) = (names.get("col1").copied(), names.get("col2").copied()) {
                     tree.get_mut(a).children.clear();
                     tree.get_mut(b).children.clear();
                     for column in [a, b] {
@@ -441,7 +449,7 @@ impl SkillWindow {
                         );
                         add_xml(tree, if k % 2 == 0 { a } else { b }, &row);
                     }
-                    if let Some(s) = tree.find(root, "infoselect") {
+                    if let Some(s) = names.get("infoselect").copied() {
                         crate::gui::selector::set_value(tree, s, 2);
                     }
                 }
@@ -486,6 +494,20 @@ impl SkillWindow {
         }
         *open = is_open;
     }
+}
+
+/// The named views under `root` by name, the first of a name in the order `Tree::find` searches (depth first).
+fn index(tree: &Tree, root: Id) -> std::collections::HashMap<String, Id> {
+    let mut names = std::collections::HashMap::new();
+    let mut stack: Vec<Id> = tree.nodes[root].children.iter().rev().copied().collect();
+    while let Some(id) = stack.pop() {
+        let node = &tree.nodes[id];
+        if !node.name.is_empty() {
+            names.entry(node.name.clone()).or_insert(id);
+        }
+        stack.extend(node.children.iter().rev().copied());
+    }
+    names
 }
 
 /// The stats a list of one's own holds set for as long as it lasts (spell 0xcf76; the network thread's `temp_stat`):
@@ -673,5 +695,11 @@ mod tests {
         let unique: std::collections::BTreeSet<u32> = all.iter().copied().collect();
         assert_eq!(all.len(), unique.len());
         assert_eq!(all.len(), 75);
+        // (the index the window looks its views up in gives what a search of the tree gives, for every name)
+        let names = index(&tree, root);
+        assert!(names.len() > 75 * 5, "{}", names.len());
+        for (name, id) in &names {
+            assert_eq!(tree.find(root, name), Some(*id), "{name}");
+        }
     }
 }

@@ -8308,3 +8308,25 @@ Measured after, same place and windows: the layout 0.6 ms (from 6.3), 160 to 175
 the same test window, 2560x1400), the slowest frame of every five seconds 10 to 12 ms. One run of the four had the
 window not drawn for about 38 s near its end while the network thread went on (the next, longer one did not); not
 explained, perhaps the window minimized.
+
+## A new character's first hour, played by script (2026-11-20)
+
+The user asked for a run with a new character of about an hour. Maohourly (paid account, id 2065585413, Solitus female
+Enforcer, made with `net <game> create Maohourly 1 11 0 1 1`) played fourteen scripted segments in Arete Landing, each
+logging in, playing, taking pictures of the client's own window (PrintWindow) and closing itself (`MAO_QUIT_AFTER`; the
+runner never stops the client): the first arrival and its kit, Rex Larsson's robots and cargo box, Marcus Stone's gas
+fires, the hand-over of the suppressant, the wounded dockworker and the stim's return, Flint Novak in the junkyard,
+the Bio Analyzing Computer's robots, a death there and the return to the pad. Level 2 came during it (the level's
+notice button showed). Everything the run did worked as the game expects but for what follows.
+
+### The skills window: 8 ms of every frame
+
+With the skills window up the frame rate fell from about 180 to 73 (`ui-w-skills` in the profile, 7.8 to 8.8 ms). Two
+causes. The window set each of its 75 skills' values, colours, bars and buttons every frame by name through
+`Tree::find`, a search of the whole view tree from the top, over a thousand of them a frame; it now looks them up in
+an index of its named views made once the view is loaded (`skillwindow::index`, test: the index gives what
+`Tree::find` gives for every name). And the tree's preferred sizes, worked out from every text in it, were worked out
+afresh twice a frame (the window's default size and `host::show`'s minimum), 5.5 ms; the original keeps each view's
+preferred size until told it changed. `Tree::keep_preferred` now keeps them from one call to the next until the tree is
+to be laid out again (`relayout`) or gains views; only the skills window asks for it, as every change it makes sets
+`relayout`. Measured live after: 0.54 ms, about 160 frames a second with it open.

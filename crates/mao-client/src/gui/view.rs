@@ -277,6 +277,12 @@ pub struct Tree {
     no_groups: std::cell::Cell<bool>,
     depth: std::cell::Cell<u32>,
     cache: std::cell::RefCell<std::collections::HashMap<(Id, bool, bool), Point>>,
+    /// Keep the preferred sizes from one call to the next until the tree is to be laid out again (`relayout`) or gains
+    /// views, as the original keeps them until told they changed. Only for a window whose code sets `relayout` with every
+    /// change it makes (the skills window): measuring its whole tree twice a frame was 5.5 ms of each.
+    pub keep_preferred: bool,
+    /// The number of views the kept sizes were worked out for.
+    cached_for: std::cell::Cell<usize>,
 }
 
 impl Tree {
@@ -445,8 +451,9 @@ impl Tree {
     /// client copies its element's group), which the original settles through its cached sizes.
     pub fn preferred(&self, id: Id, max: bool) -> Point {
         let outer = self.depth.get() == 0;
-        if outer {
+        if outer && (!self.keep_preferred || self.relayout || self.cached_for.get() != self.nodes.len()) {
             self.cache.borrow_mut().clear();
+            self.cached_for.set(self.nodes.len());
         }
         let key = (id, max, self.no_groups.get());
         if let Some(p) = self.cache.borrow().get(&key) {
