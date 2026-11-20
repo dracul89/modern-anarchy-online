@@ -9013,17 +9013,22 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // whole list: an accepted mission comes alone), `Quest` action 1 is a deletion.
                     if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x465a4061 || m.kind == 0x212c487a) {
                         if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
-                            if m.kind == 0x465a4061 {
+                            // (FUN_100acfde adds the missions to the list of the character the message names, a
+                            // character's (type 50000) only; the journal is the player's own: SetMainDynel 0x10019fdf
+                            // sets that character's +0x140, the other condition of FUN_10056cdd's line)
+                            if m.kind == 0x465a4061 && m.identity == (n3::CHARACTER, own) {
                                 let icon = |id: u32| gear_textures.get(mao_formats::item::ICON_TYPE, id).map(|t| std::sync::Arc::new(crate::gear::Icon { id, width: t.width as usize, height: t.height as usize, rgba: t.rgba }));
                                 // (the message's last byte, the schema's `Unknown28`: the missions are new. The original
-                                // then says so, Gamecode FUN_10056cdd, and the journal uploads the place.)
+                                // then says so for each, Gamecode FUN_10056cdd, and the journal uploads the place.)
                                 let new = p.value.get("Unknown28").and_then(mao_net::schema::Value::as_int).unwrap_or(0) != 0;
                                 let missions = crate::missionlog::missions_from(&p.value, &icon);
-                                if new && !missions.is_empty() {
-                                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_YouGotANewMission")));
+                                if new {
+                                    for _ in &missions {
+                                        state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_YouGotANewMission")));
+                                    }
                                 }
                                 pending_mission_log.push(crate::missionlog::Arrived::Missions(missions, new));
-                            } else if p.value.get("Action").and_then(mao_net::schema::Value::as_int) == Some(1) {
+                            } else if m.kind == 0x212c487a && p.value.get("Action").and_then(mao_net::schema::Value::as_int) == Some(1) {
                                 let id = p.value.get("Mission").map(|i| (i.get("Type").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32, i.get("Instance").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32));
                                 pending_missions_removed.extend(id);
                             }
