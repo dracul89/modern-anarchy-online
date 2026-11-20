@@ -116,6 +116,9 @@ pub struct Own {
     pub flying: bool,
     pub flags: i64,
     pub stat_215: i64,
+    /// The character's byte +0x21d (`spelllist::Control`: feared, or held by the spell 0xcff0), which `N3Msg_StopAttack` and
+    /// the attack's sender FUN_1006817d ask (not FUN_10069a9f).
+    pub held: bool,
 }
 
 /// FUN_10069a9f(target, with feedback), for a player's own character: whether the target may be attacked, and the line
@@ -181,9 +184,10 @@ pub fn can_attack(own: Own, kind: Target) -> Result<(), Option<&'static str>> {
 /// `Feedback_CantAttackInThisState` and nothing more; a fight that was going on ends there for the attack key, and for a
 /// switch to the one fought. Else the target is checked ([`can_attack`]); a refusal's own line is followed by
 /// `Feedback_UnableToAttackTarget`. An attack still on its way (FUN_1006817d's +0x79) says
-/// `Feedback_PleaseWaitUntilPreviousAction`. `fought` is who the character fights now.
+/// `Feedback_PleaseWaitUntilPreviousAction`, and so does a held character (`Own::held`, FUN_1006817d's +0x21d), whose
+/// `N3Msg_StopAttack` also sends nothing. `fought` is who the character fights now.
 pub fn default_attack(fought: Option<u32>, fighting: bool, switching: bool, own: Own, pending: bool, target: Option<u32>, kind: Target) -> Attack {
-    let mut a = Attack { stop: fighting, ..Attack::default() };
+    let mut a = Attack { stop: fighting && !own.held, ..Attack::default() };
     if own.swimming {
         a.lines.push("Feedback_CantAttackInThisState");
         return a;
@@ -192,7 +196,7 @@ pub fn default_attack(fought: Option<u32>, fighting: bool, switching: bool, own:
         return a;
     }
     match (can_attack(own, kind), target) {
-        (Ok(()), Some(t)) if !pending => a.start = Some((t, if fighting { 2 } else { 0 })),
+        (Ok(()), Some(t)) if !pending && !own.held => a.start = Some((t, if fighting { 2 } else { 0 })),
         (Ok(()), Some(_)) => a.lines.push("Feedback_PleaseWaitUntilPreviousAction"),
         (refusal, _) => {
             a.requirements = matches!(kind, Target::Item { attackable: true, met: false });
@@ -341,6 +345,11 @@ mod tests {
         assert_eq!(default_attack(None, false, false, me, false, None, Target::Nothing), refuse(&["Feedback_UnableToAttackTarget"]));
         assert_eq!(default_attack(None, false, false, me, false, Some(7), Target::Other), refuse(&["Feedback_UnableToAttackTarget"]));
         assert_eq!(default_attack(None, false, false, me, true, Some(9), alive), refuse(&["Feedback_PleaseWaitUntilPreviousAction"]));
+        // (held, +0x21d: `N3Msg_StopAttack` sends nothing and FUN_1006817d says the wait line)
+        let held = Own { held: true, ..me };
+        assert_eq!(default_attack(Some(9), true, false, held, false, Some(9), alive), Attack::default());
+        assert_eq!(default_attack(None, false, false, held, false, Some(9), alive), refuse(&["Feedback_PleaseWaitUntilPreviousAction"]));
+        assert_eq!(default_attack(Some(5), true, true, held, false, Some(9), alive), refuse(&["Feedback_PleaseWaitUntilPreviousAction"]));
         // (Ctrl + click: not fighting, an attack; fighting another, a stop and an attack with the flag; the one fought, a stop)
         assert_eq!(default_attack(None, false, true, me, false, Some(9), alive), start(9, 0));
         assert_eq!(default_attack(Some(5), true, true, me, false, Some(9), alive), Attack { stop: true, ..start(9, 2) });
@@ -367,7 +376,7 @@ mod tests {
         assert_eq!(can_attack(Own { flags: 0x406, ..me }, alive), Err(Some("Feedback_YoureUnableToAttack")));
         // (CMB-003: one's own flag 0x80000000 with stat 215 lets one attack any character, even the dead and while
         // flying, but not oneself)
-        let free = Own { flags: 0x8000_0006u32 as i64, stat_215: 1, flying: true, swimming: false };
+        let free = Own { flags: 0x8000_0006u32 as i64, stat_215: 1, flying: true, swimming: false, held: false };
         assert_eq!(default_attack(None, false, false, free, false, Some(9), Target::Character { dead: true, fights_me: false, mate: true, facts: Facts::default() }), Attack { start: Some((9, 0)), ..Attack::default() });
         assert_eq!(can_attack(free, Target::Yourself), Err(Some("Feedback_YouCantAttackYourself")));
         assert_eq!(can_attack(Own { flags: 0x8000_0000u32 as i64, ..me }, Target::Character { dead: true, fights_me: false, mate: false, facts: Facts::default() }), Err(Some("Feedback_TargetIsAlreadyDead")));

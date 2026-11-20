@@ -6724,8 +6724,20 @@ sends nothing and says nothing. Two spells of the server's spell lists set it on
   FUN_1007835c copies; `EntityInfo::refuses`). It is 0 in every captured update.
 
 Not ported: the two spells also give a player's character an `NPCVehicle_t` (FUN_1005ac62(1)), so that the server moves
-it; the client still moves it as before. States 2-4 (0xcf7e, mind control, daze) are only for NPCs. Nano casting and
-stopping an attack read the same byte (`N3Msg_CastNanoSpell`, `N3Msg_StopAttack`): not ported here.
+it; the client still moves it as before. States 2-4 (0xcf7e, mind control, daze) are only for NPCs.
+
+**The rest the byte holds back (2026-11-19, late evening).** The same byte is asked by:
+
+- **A nano cast** (`N3Msg_CastNanoSpell` 0x1001b5d4, before its own checks): nothing is cast and
+  `Feedback_UnableToExecuteOnThisTarget` is told (its category 0x42000018 is shown here as a combat line).
+- **Stopping a fight** (`N3Msg_StopAttack` 0x100280e0, which the attack key, sitting down and /camp call): no `StopFight`
+  is sent, so the fight goes on.
+- **Starting an attack** (FUN_1006817d, the sender behind the attack key and Ctrl + click): no `Attack` is sent and
+  `Feedback_PleaseWaitUntilPreviousAction` is told, as for an attack still on its way (`combat::Own::held`).
+
+Not ported: the nano target checks read the caster's byte too (FUN_1004fbe4, FUN_1004ed2f), which a held character of
+one's own never reaches; FUN_10051c98 (a speed, stat 0x126, for a held or NPC character) and FUN_10071519 (a vtable
+function whose owner was not found).
 
 `N3Msg_SecondarySpecialAttack` (Gamecode 0x100281fc) checks the reach after the weapon's bit (`World::special_refusal`):
 

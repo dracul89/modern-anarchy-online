@@ -5230,7 +5230,13 @@ impl World {
 
     /// What FUN_10069a9f asks of the own character.
     fn attacker(&self) -> crate::combat::Own {
-        crate::combat::Own { swimming: self.swimming.contains(&self.own), flying: self.own_flying, flags: self.stats.get(&224).copied().unwrap_or(0), stat_215: self.stats.get(&215).copied().unwrap_or(0) }
+        crate::combat::Own { swimming: self.swimming.contains(&self.own), flying: self.own_flying, flags: self.stats.get(&224).copied().unwrap_or(0), stat_215: self.stats.get(&215).copied().unwrap_or(0), held: self.own_held() }
+    }
+
+    /// One's own character's byte +0x21d is set (`spelllist::Control`: feared, or held by the spell 0xcff0): its special
+    /// attacks, nano casts, attacks and `N3Msg_StopAttack` are refused.
+    fn own_held(&self) -> bool {
+        self.control.get(&self.own).is_some_and(|c| c.refuses)
     }
 
     /// Whether `N3Msg_GetCloseTarget` takes a character for one of one's own side (0x1001c6db): a player in the own team
@@ -5266,7 +5272,7 @@ impl World {
         }
         // (0x100281fc's first check: the character's byte +0x21d, set while fear or the spell 0xcff0 holds it, refuses
         // without a word)
-        if number != crate::actions::SEARCH && self.control.get(&self.own).is_some_and(|c| c.refuses) {
+        if number != crate::actions::SEARCH && self.own_held() {
             return Some(Vec::new());
         }
         if number != crate::actions::SEARCH {
@@ -9634,7 +9640,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // (one who does not sit is asked whether it may: a flyer may not, and no logout starts)
                     pending_messages.push(crate::feedback::plain("Feedback_YouMustBeSitting"));
                 } else if crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
-                    if state.fighting.contains_key(&own) {
+                    // (`N3Msg_StopAttack` sends nothing for a held character, +0x21d)
+                    if state.fighting.contains_key(&own) && !state.own_held() {
                         let _ = connection.send(&n3::stop_fight(own));
                     }
                     // (one already seated stays so: the original sits only a character not sitting)
@@ -9702,7 +9709,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             pending_messages.push(crate::feedback::gui("TimedLogoutAborted", &[]));
                         }
                     } else {
-                        if state.fighting.contains_key(&own) {
+                        // (`N3Msg_StopAttack` sends nothing for a held character, +0x21d)
+                        if state.fighting.contains_key(&own) && !state.own_held() {
                             let _ = connection.send(&n3::stop_fight(own));
                         }
                         sitting = true;
@@ -10664,6 +10672,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if keys.cast.0 != cast_seen {
                 cast_seen = keys.cast.0;
                 'cast: {
+                // (0x1001b5d4 asks the character's byte +0x21d before anything: set, feared or held by the spell 0xcff0,
+                // nothing is cast and `Feedback_UnableToExecuteOnThisTarget` is told, with its category 0x42000018)
+                if state.own_held() {
+                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, crate::feedback::plain("Feedback_UnableToExecuteOnThisTarget")));
+                    break 'cast;
+                }
                 // (the client's own check first: FUN_1004fbe4)
                 let stat = |s: u32| state.stats.get(&s).copied();
                 let caster = crate::combat::Caster { dead: state.own_dead, swimming: state.swimming.contains(&own), falling: airborne, moving: keys.forward || keys.back || keys.strafe != 0 || goto.is_some(), nano: stat(214).unwrap_or(0) };

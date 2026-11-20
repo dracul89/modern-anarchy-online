@@ -177,7 +177,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The attack key refuses team and raid members, and refuses while flying, with the original's lines; a refused attack also says "Unable to attack target" as the original does.
 - The friendly targeting keys pick team and raid mates of another side and one's own pets; the hostile keys skip them.
 - A special attack at a target behind a wall or out of view says "no line of sight" at once and is not sent, as the original's client checks.
-- While the character is feared, its special attacks are held back without a word, as the original's are, and the game's "fear activated" line shows when the fear begins.
+- While the character is feared, its special attacks, nano programs and attacks are held back as the original holds them back (a fight it is in cannot be stopped either), and the game's "fear activated" line shows when the fear begins.
 - At one's own death the world turns wholly white at once when the death has played out, and is clear again the moment one lives, as in the original (no slow fade).
 - Damage and healing numbers no longer float over characters; the fight is told in the chat's combat lines, as in the original.
 - A special attack at an item is sent as at that item (it was sent as at a character), and an item that cannot be attacked says so, as in the original.
