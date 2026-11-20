@@ -9,7 +9,7 @@
 //!
 //! A character's name in a line is a link (`user://<name>`, as FUN_1009bc20 and FUN_100a681d write it). The chat
 //! view's `MouseDown` (FUN_1008fa92) and its signals' handlers in `GroupChatView_c` (FUN_100ac65f): the left button on
-//! a name opens the tell window for the character (FUN_100ac2fa), with Shift or Ctrl held it types the start of a tell
+//! a name opens the tell window for the character (FUN_100ac2fa), with Shift held it types the start of a tell
 //! instead (FUN_100ac4c4, FUN_100ac42b); the right button opens a menu (FUN_1008e5ea: `IgnoreUser`, `OpenChat`,
 //! `SendTell`). A tell window (`ChatGUIModule_c::OpenTellWindow` 0x10086323) is a window of the tells with one
 //! character: what is typed in it is a tell to them; it holds the tells from before it was opened too (the original
@@ -1235,7 +1235,7 @@ impl ChatWindow {
         }
     }
 
-    /// A group's name pressed in a line (`chatgroup://`, FUN_100ac4f0): with no Shift or Ctrl held, in a chat window
+    /// A group's name pressed in a line (`chatgroup://`, FUN_100ac4f0): with no Shift held, in a chat window
     /// that shows the group, the window talks to it from then on (FUN_1009a7c0, when the group takes lines); else the
     /// window's input bar is given `/group` and the name. A group not there is passed over.
     fn group_pressed(&mut self, frame: Option<&str>, group: &str, qualified: bool) {
@@ -2672,7 +2672,7 @@ mod tests {
         w.panes[0].selected.insert("Yy Linkedro".into());
         w.group_pressed(None, "Yy Linked", false);
         assert_eq!((w.panes[0].output.as_str(), w.input.as_str()), ("Yy Linked", ""));
-        // (a read-only group is not taken; with Shift or Ctrl, or in a window that does not show it, the command is typed)
+        // (a read-only group is not taken; with Shift, or in a window that does not show it, the command is typed)
         w.group_pressed(None, "Yy Linkedro", false);
         assert_eq!(w.panes[0].output, "Yy Linked");
         w.group_pressed(None, "Yy Linked", true);

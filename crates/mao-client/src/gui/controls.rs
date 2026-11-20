@@ -731,14 +731,21 @@ pub fn markup(ui: &mut egui::Ui, palette: &Palette, text: &str, font: FontId, co
     markup_click(ui, palette, text, font, colour, None).1.filter(|c| !c.secondary).map(|c| c.link)
 }
 
-/// A press on a link of [`markup_click`]'s: the link, whether it was the right button, and whether Shift or Ctrl was
-/// held.
+/// A press on a link of [`markup_click`]'s: the link, whether it was the right button, and whether the qualifiers'
+/// low two bits were set ([`qualified`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct LinkClick {
     pub link: String,
     pub secondary: bool,
     pub qualified: bool,
     pub at: egui::Pos2,
+}
+
+/// The qualifiers' low two bits (`& 3`, as FUN_100ac4c4 and FUN_100ac4f0 test them): `WindowController_c::GetQualifiers`
+/// (GUI.dll 0x10156df6) sets bit 0 for the left Shift key, bit 1 for the right one, both for Shift alone; Ctrl is bits
+/// 2 and 3, Alt 4 and 5. So: Shift held.
+pub fn qualified(modifiers: egui::Modifiers) -> bool {
+    modifiers.shift
 }
 
 /// [`markup`] that tells the right button from the left. `known` is the height the same text took at the same width
@@ -777,7 +784,7 @@ pub fn markup_click(ui: &mut egui::Ui, palette: &Palette, text: &str, font: Font
     let click = over.filter(|_| response.clicked() || secondary).map(|link| LinkClick {
         link,
         secondary,
-        qualified: ui.input(|i| i.modifiers.shift || i.modifiers.ctrl),
+        qualified: ui.input(|i| qualified(i.modifiers)),
         at: response.interact_pointer_pos().or(response.hover_pos()).unwrap_or(rect.min),
     });
     (height, click)
@@ -1180,5 +1187,14 @@ mod slider_tests {
         s.mouse(Mouse::Move, Point::new(400.0, 5.0));
         assert_eq!(s.value, 100.0);
         assert_eq!(s.mouse(Mouse::Up { inside: false }, Point::new(400.0, 5.0)), Some(Signal::Clicked));
+    }
+
+    /// `GetQualifiers & 3` is Shift, not Ctrl or Alt.
+    #[test]
+    fn a_link_is_qualified_by_shift_only() {
+        assert!(qualified(egui::Modifiers::SHIFT));
+        assert!(!qualified(egui::Modifiers::CTRL));
+        assert!(!qualified(egui::Modifiers::ALT));
+        assert!(qualified(egui::Modifiers::SHIFT | egui::Modifiers::CTRL));
     }
 }
