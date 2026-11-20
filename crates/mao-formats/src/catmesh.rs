@@ -11,7 +11,8 @@
 //! * a name (32 bytes),
 //! * the textures: an `i32` of `(count + 1) * 0x3f1`, then per texture a name
 //!   (32 bytes), two `i32`s and a flag `i32` (the mode),
-//! * a colour `i32` (four bytes, shown through a curve in the original),
+//! * a packed `i32` (four bytes, each read through a curve in the original:
+//!   the torso sphere, [`CatMesh::torso_sphere`]),
 //! * the mesh: `i32` 4, an `i32` version (0x67 or 0x104), an `i32`, two
 //!   floats, then
 //!   * materials: a count, and per material a name (string), flags (`i32`,
@@ -171,7 +172,7 @@ pub struct Group {
 pub struct CatMesh {
     pub name: String,
     pub textures: Vec<TextureRef>,
-    /// The object's colour word.
+    /// The object's packed word (called a colour; it holds the torso sphere: [`CatMesh::torso_sphere`]).
     pub colour: u32,
     pub version: i32,
     pub materials: Vec<Material>,
@@ -339,7 +340,23 @@ fn turn(b: &BoneMatrix, p: [f32; 3]) -> [f32; 3] {
     [0, 1, 2].map(|c| p[0] * b[c] + p[1] * b[3 + c] + p[2] * b[6 + c])
 }
 
+/// The curve the original reads each byte of the object's packed word through (displaysystem FUN_1006aab4, `rdb.rs`
+/// `colour_curve`): the byte as a signed number `b`, `0.05 b + 0.000006 b³`.
+pub fn word_curve(byte: u8) -> f32 {
+    let b = byte as i8 as f64;
+    (b * 0.05000000074505806 + 6.000000212225132e-06 * b * b * b) as f32
+}
+
 impl CatMesh {
+    /// The torso sphere the object's packed word holds (the "colour" word): FUN_1006aab4 reads its top byte and then its
+    /// low three through [`word_curve`] into four floats, which `VisualCATMesh_t` keeps at +0xbc (FUN_1007494b):
+    /// `GetTorsoSphereRadi` (0x10072c22) answers the first (1.0 without a mesh), `GetTorsoSpherePos` the other three. The
+    /// radius, then the centre.
+    pub fn torso_sphere(&self) -> (f32, [f32; 3]) {
+        let [b0, b1, b2, b3] = self.colour.to_le_bytes();
+        (word_curve(b3), [word_curve(b0), word_curve(b1), word_curve(b2)])
+    }
+
     /// The bones' matrices when `anim` is at `time`: from the root, each
     /// bone's rotation and (scaled) translation composed with its parent's,
     /// as the original's `CATRender_t::Pose`.
@@ -549,6 +566,22 @@ mod tests {
         assert_eq!((v[0].position, v[0].normal), ([11.0, 20.0, 30.0], [0.0, 0.0, 1.0]));
         assert_eq!(v[1].position, [9.0, 9.0, 9.0]);
         assert_eq!(v[2].position, [5.5, 10.5, 15.0]);
+    }
+}
+
+#[cfg(test)]
+mod torso_tests {
+    use super::*;
+
+    /// FUN_1006aab4's curve over the packed word: the usual body's 0x05000500 is a sphere of 0.25075 about (0, 0.25075, 0);
+    /// a byte over 127 counts negative.
+    #[test]
+    fn the_packed_word_is_the_torso_sphere() {
+        let usual = CatMesh { colour: 0x0500_0500, ..Default::default() };
+        let (r, c) = usual.torso_sphere();
+        assert!((r - 0.25075).abs() < 1e-6 && c[0] == 0.0 && (c[1] - 0.25075).abs() < 1e-6 && c[2] == 0.0);
+        assert!((word_curve(0xff) + 0.050006).abs() < 1e-6);
+        assert!((word_curve(10) - 0.506).abs() < 1e-6);
     }
 }
 
