@@ -59,8 +59,9 @@ fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
     });
 }
 
-/// The target buttons beside the menu strips: the left one targets the character itself (the original's F1), the right one the next
-/// hostile (Tab). Drawn from `TARGET_BUTTON` (its second and third pictures are hovered and pressed) and the icon on it.
+/// The target buttons beside the menu strips (GUI.dll's two `CCTargetControl_c`, FUN_10074d26, their button +0x148 at 0x10073651):
+/// the left one, with the self icon, targets the character itself (`TargetingModule_t::SelectSelf`, the original's F1), the right
+/// one, with the other icon, starts the fight (`N3Msg_PerformSpecialAction(0xb)`, as the Start Combat action and the attack key). Drawn from `TARGET_BUTTON` (its second and third pictures are hovered and pressed) and the icon on it.
 fn target_buttons(ctx: &egui::Context, skin: &Skin, clicked: &mut Option<&'static str>) {
     // (beside the menu strips, whose width is the skin's: 214 in the game's own, 280 and 205 in the AOU skins)
     let strip = |name: &str| skin.get(name).map_or(214.0, |s| s.size.x);
@@ -69,7 +70,7 @@ fn target_buttons(ctx: &egui::Context, skin: &Skin, clicked: &mut Option<&'stati
         let (anchor, x, window, icon, tip) = if left {
             (egui::Align2::LEFT_BOTTOM, 5.0 + left_strip + 10.0, "target_self", "GFX_GUI_CONTROLCENTER_TARGET_ICON_SELF", "Target yourself")
         } else {
-            (egui::Align2::RIGHT_BOTTOM, -(5.0 + right_strip + 10.0), "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Target the next enemy")
+            (egui::Align2::RIGHT_BOTTOM, -(5.0 + right_strip + 10.0), "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Attack the target")
         };
         let Some(size) = skin.get("GFX_GUI_CONTROLCENTER_TARGET_BUTTON").map(|s| s.size) else { return };
         egui::Area::new(egui::Id::unique(window)).anchor(anchor, egui::vec2(x, -8.0)).show(ctx, |ui| {
@@ -526,10 +527,10 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
             }
         });
     }
-    // the target buttons: the left one targets the character itself (F1), the right one the next hostile (Tab)
+    // the target buttons: the left one targets the character itself (F1), the right one attacks (special action 0xb)
     for (rect, window, icon, tip) in [
         (d.left_target, "target_self", "GFX_GUI_CONTROLCENTER_TARGET_ICON_SELF", "Target yourself"),
-        (d.right_target, "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Target the next enemy"),
+        (d.right_target, "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Attack the target"),
     ] {
         let Some(rect) = rect else { continue };
         egui::Area::new(egui::Id::unique(window)).fixed_pos(rect.min).order(egui::Order::Foreground).show(ctx, |ui| {

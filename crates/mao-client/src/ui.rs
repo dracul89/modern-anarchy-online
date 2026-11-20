@@ -236,7 +236,7 @@ pub struct Requests {
     pub item_splits: Vec<(u32, u32)>,
     /// An action clicked in the Action window.
     pub action: Option<hotbar::Action>,
-    /// A control center target button: 0 yourself, 1 the next hostile.
+    /// A control center target button: 0 yourself, 1 the attack (GUI.dll 0x10073651).
     pub target: Option<u8>,
     /// The AGG/DEF slider let go at this value (stat 51).
     pub aggdef: Option<i32>,

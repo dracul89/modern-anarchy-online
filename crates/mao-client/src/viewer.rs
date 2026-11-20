@@ -3141,7 +3141,9 @@ impl ApplicationHandler for App {
                     if let Some(which) = requests.target {
                         match which {
                             0 => self.keys.select_self = self.keys.select_self.wrapping_add(1),
-                            1 => self.keys.commands[0] = self.keys.commands[0].wrapping_add(1),
+                            // (the other control's button: `N3Msg_PerformSpecialAction(0xb)`, GUI.dll 0x10073651, which
+                            // the attack key does too)
+                            1 => self.keys.commands[4] = self.keys.commands[4].wrapping_add(1),
                             // (the camera modes: first person, third person, and which third person)
                             2 => self.steering.set_mode(crate::camera::Mode::First),
                             3 => {
