@@ -48,6 +48,18 @@ const NAMES: &[(&str, &str)] = &[
     ("RaidConfig", "Raid"),
     ("MissionSelectionViewConfig", "Missions"),
     ("NotificationWindowConfig", "NotificationWindow"),
+    // (the configs of the original's Prefs.xml files on this machine that have a window here: each holds a
+    // `WindowFrame` while its window floats)
+    ("InspectViewConfig", "Inspect"),
+    ("LaserTargetConfig", "LaserTarget"),
+    ("MailWindowConfig", "Mail"),
+    ("MechSelectConfig", "MechSelect"),
+    ("NanoViewConfig", "Nano programs"),
+    ("PFMapWindowConfig", "map_window"),
+    ("PlanetMapViewConfig", "PlanetMap"),
+    ("SignupTerminalConfig", "SignupTerminal"),
+    ("TeleportTargetConfig", "TeleportTarget"),
+    ("CompassWindowConfig", "compass"),
 ];
 
 /// The `Prefs` folders of the original's installs: `MAO_AO_PREFS`, else each `%LOCALAPPDATA%/Funcom/Anarchy
@@ -494,6 +506,17 @@ mod tests {
         // (a startup window in another's frame: that frame is "Chat")
         let configs = vec![("Window3".to_string(), config("Window3", false, Some("10,20,300,200"))), ("Window4".to_string(), config("Window3", true, None))];
         assert_eq!(chat_frames(&configs), vec![("Chat".to_string(), [10.0, 20.0, 300.0, 200.0])]);
+    }
+
+    /// The configs the original's files hold for windows this client has go to those windows' names.
+    #[test]
+    fn the_originals_configs_name_this_clients_windows() {
+        let text = r#"<Root><Archive name="SignupTerminalConfig" code="0"><Rect name="WindowFrame" value="Rect(200.000000,180.000000,909.000000,718.000000)" /></Archive><Archive name="TweakPanelConfig" code="0"><Rect name="WindowFrame" value="Rect(1,2,3,4)" /></Archive></Root>"#;
+        let named: Vec<(String, [f32; 4])> = config_frames(text).into_iter().filter_map(|(n, f)| NAMES.iter().find(|(o, _)| *o == n).map(|(_, h)| (h.to_string(), f))).collect();
+        assert_eq!(named, vec![("SignupTerminal".to_string(), [200.0, 180.0, 909.0, 718.0])]);
+        for config in ["InspectViewConfig", "LaserTargetConfig", "MailWindowConfig", "MechSelectConfig", "NanoViewConfig", "PFMapWindowConfig", "PlanetMapViewConfig", "TeleportTargetConfig", "CompassWindowConfig"] {
+            assert!(NAMES.iter().any(|(o, _)| *o == config), "{config}");
+        }
     }
 
     #[test]
