@@ -1820,6 +1820,30 @@ mod tests {
         assert_eq!(shown_meshes(&[(0, 5, 7, 0), (0, 5, 7, 0)]), vec![(5, 7, 0)]);
     }
 
+    /// A creature's announced level (`MAO_CAPTURES`): the field before the health, whose place the health's agreement with the
+    /// info packets (23203 of 23203) already shows; every captured creature's is a level a creature has (1 to 300): a docker
+    /// 3, minibulls 8 to 13, Anansi's guards about 200. (Neither the schema, which does not read these updates
+    /// whole, nor the info packets, whose monster kind has no level, can check its value.)
+    #[test]
+    fn a_creatures_level_is_announced() {
+        let Some(dir) = std::env::var_os("MAO_CAPTURES") else { return };
+        let mut by_name: std::collections::BTreeMap<String, std::collections::BTreeSet<u16>> = Default::default();
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let Ok(text) = std::fs::read_to_string(entry.path().join("dump.txt")) else { continue };
+            for line in text.lines().filter(|l| l.contains(" kind 271b3a6b ") && l.contains("bytes: ")) {
+                let h = line.rsplit("bytes: ").next().unwrap().trim();
+                let data: Vec<u8> = (0..h.len() / 2).map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap()).collect();
+                let Some(info) = (Message { kind: ENTITY_INFO, identity: (CHARACTER, 1), data }).entity_info() else { continue };
+                if let Some(level) = info.level {
+                    assert!((1..=300).contains(&level), "{} at level {level}", info.name);
+                    by_name.entry(info.name.clone()).or_default().insert(level);
+                }
+            }
+        }
+        eprintln!("creature levels: {:?}", by_name.iter().take(40).collect::<Vec<_>>());
+        assert!(by_name.len() > 20);
+    }
+
     /// CMB-016: the captured creatures' full updates with the flags' bit 0x100 (`MAO_CAPTURES`) each list natural weapons, every code
     /// of four letters, the two code words alike; the Engineer Automaton of the 16:55 capture has "ENW2" and "ENW1".
     #[test]
@@ -2068,6 +2092,9 @@ pub struct EntityInfo {
     pub run_speed: Option<u16>,
     /// The listed meshes drawn while the character's body is another's ([`morphed_meshes`]: its own head alone).
     pub morph_meshes: Vec<(u8, u32, u32)>,
+    /// A creature's level as it is announced (FUN_1007916d's level field, the `Level` stat FUN_1007835c sets): what the
+    /// tags' and target bars' colour is judged by (`N3Msg_Consider`).
+    pub level: Option<u16>,
     /// A creature's natural weapons `(low, high, code)`, with the flags' bit 0x100 ([`natural_weapons`]).
     pub natural_weapons: Vec<(u32, u32, u32)>,
     /// The update's last byte (the reader FUN_1007916d's +0x32f, the schema's `ScfuTowerUnk`), which the exec FUN_1007835c
@@ -2244,6 +2271,8 @@ fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, fl
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Creature {
     family: u16,
+    /// The level (a byte, a short with the flags' bit 0x1000), which the exec FUN_1007835c sets as the `Level` stat (54).
+    level: u16,
     pet_type: u16,
     health: (u32, u32),
     template: Option<u32>,
@@ -2271,10 +2300,10 @@ fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<Creature> {
     if take(2)? as i16 > 0 {
         take(1)?;
     }
-    take(if flags & 0x1000 != 0 { 2 } else { 1 })?;
+    let level = take(if flags & 0x1000 != 0 { 2 } else { 1 })? as u16;
     let max = take(if flags & 0x800 != 0 { 2 } else { 4 })?;
     let health = if flags & 0x4000 != 0 { max.saturating_sub(take(1)?) } else { take(if flags & 0x800 != 0 { 2 } else { 4 })? };
-    let mut creature = Creature { family: three[0], pet_type: three[2], health: (health, max), ..Creature::default() };
+    let mut creature = Creature { family: three[0], level, pet_type: three[2], health: (health, max), ..Creature::default() };
     // (the rest, as far as the message goes)
     let mut rest = || -> Option<()> {
         creature.template = Some(take(4)?);
@@ -2814,7 +2843,8 @@ impl Message {
         let run_speed = creature.as_ref().and_then(|c| c.run_speed);
         let refuses = d.last().is_some_and(|&b| b != 0);
         let (family, pet_type, health) = creature.as_ref().map_or((None, None, None), |c| (Some(c.family), Some(c.pet_type), Some(c.health)));
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, run_speed, morph_meshes, natural_weapons, refuses })
+        let level = creature.as_ref().map(|c| c.level);
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, run_speed, morph_meshes, level, natural_weapons, refuses })
     }
 }
 

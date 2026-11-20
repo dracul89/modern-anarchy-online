@@ -178,6 +178,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The friendly targeting keys pick team and raid mates of another side and one's own pets; the hostile keys skip them.
 - A special attack at a target behind a wall or out of view says "no line of sight" at once and is not sent, as the original's client checks.
 - A refused nano program says why and then "unable to execute on this target", as the original does.
+- Creatures' life bars are coloured by their level again, as the original colours them: the level is taken from each creature's announcement, and a monster's info packet (whose level byte is always 1) no longer greys the bar.
 - Districts' fight modes are read: coming into a district of another suppression level tells its line, an attack at someone in a district of more suppression says so, and where the gas allows fights between sides a friendly nano goes only to one's own side or team.
 - A nano weaker than one of its line already running on the target is refused with the game's "better program running" line.
 - Nano programs are checked before they are sent as the original checks them: sitting, crawling, a vehicle, a target that is no character, a creature that is not your pet for a friendly nano, a target out of range or out of sight each have the game's line.

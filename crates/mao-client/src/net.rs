@@ -3693,7 +3693,9 @@ impl World {
         if m.kind == 0x4d38242e {
             if let Some(info) = mao_net::n3::info_packet(&m.data) {
                 self.health.insert(m.identity.1, (info.health as i64, info.max_health as i64));
-                if info.level > 0 {
+                // (a monster's packet, kind 80, has no level: its byte is 1 for every monster, where the announcement has the
+                // real one; taken, it greyed every selected monster's bar)
+                if info.level > 0 && !info.monster {
                     self.levels.insert(m.identity.1, info.level);
                 }
                 if self.inspecting == Some(m.identity.1) {
@@ -4903,6 +4905,10 @@ impl World {
             }
             let player = info.is_player();
             self.names.insert(m.identity.1, (info.name.clone(), player));
+            // (a creature's level, its `Level` stat as FUN_1007835c sets it from the update: the tags' colour, `N3Msg_Consider`)
+            if let Some(level) = info.level.filter(|&l| l > 0) {
+                self.levels.insert(m.identity.1, level.min(255) as u8);
+            }
             // (stat 194 is set only as the dynel is made: a full update again for one already here leaves it)
             self.in_play.entry(m.identity.1).or_insert(info.flags & 2 != 0);
             // (and so is +0x21d, from the update's last byte, FUN_1007835c)

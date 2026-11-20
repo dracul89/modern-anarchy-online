@@ -1238,6 +1238,8 @@ These were written before this list; some may have been seen working since witho
   click stands up; while swimming it does nothing.
 - [ ] Launcher PATCH (LCH-036, 2026-11-19): only when a dimension really is newer than the game folder (do not fake
   it: the patcher changes the game folder). PATCH opens AnarchyPatcher.exe for that dimension and the launcher closes.
+- [ ] Life bar colours (2026-11-20): creatures' bars over their heads and in the target bar show green (easy) to red
+  (hard) by their level against yours, grey only for those too low to give experience; selecting one keeps its colour.
 - [ ] Suppression fields (fight mode, 2026-11-19): walking from a city into the wilds (and zoning in) tells the district's
   suppression line ("...75%..." and the like) once at each change; compare where and how the original shows it (a screen
   text rather than a chat line is likely). Attacking a player standing in a district of more suppression first says so.
