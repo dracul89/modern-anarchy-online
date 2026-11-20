@@ -8268,3 +8268,27 @@ For finding the rest: `MAO_PROFILE=1` now also prints, every five seconds, the t
 by stage (`slow: 33.6 ms | draw 3.1 | ... | outside 26.2`, `outside` being the time between frames no stage counts: the
 event loop and the system), and `MAO_QUIT_AFTER=<seconds>` closes the window by itself, for a timed run. The offline
 `map` view redraws only when something changes (3 frames in 66 s), so it cannot show stutter; that needs a live run.
+
+### Measured live, and the characters' textures prepared ahead (2026-11-20)
+
+Live runs on Maowild (the user's go-ahead), a minute each standing, turning and walking in Arete Landing, with
+`MAO_PROFILE=1`, `MAO_QUIT_AFTER=60` and a scratch settings file copied from the user's (2560x1400 windowed, no frame
+limit, no limit behind other windows). With the overlay's old sampling the slowest frames of every five seconds were 24
+to 29 ms with 10 ms more in `ui` than in its layout; with the new one they were the steady 20 ms, so the fix holds live.
+
+What a frame costs there now: the interface's layout about 7 ms (the most), the update about 2.5 ms, the characters'
+upload about 2.4 ms every few frames, the scene's draw about 2.5 ms. And a hitch now and then: the characters' upload
+(`reupload_overlay`) took 0.1 to 0.2 s when characters came into sight, their textures being decoded (and their mip
+levels made) and then encoded in blocks (BC7/BC3) on the window's thread. The playfield's textures were decoded ahead
+(`Textures::prefetch`), the characters' never. Now:
+- `Textures::prefetch_new` decodes, on every core, the textures of the characters' model that the renderer was never
+  handed (`Textures::handed`; the renderer keeps every texture it was given), on the network thread before each update
+  takes the model to the window (`net-decode-ahead` in the profile: 29 to 864 ms there, off the frame).
+- `mao_render::pack` makes the blocks there too (`Texture::packed`), the meshes' quick way; `upload_blocks` uses them
+  when blocks are wanted and the fine alpha is not, else encodes as before. Nothing is packed while uploads are not made
+  in blocks (the setting or the device).
+Measured on the same route after: the characters' uploads at most 22.8 ms in play (from 102 and 202 ms), the frames
+about 80 a second (about 67 before; not the same characters in sight, so not a clean comparison). One 0.34 s upload is
+left at entry, when every character around comes at once, as the world is first drawn. Test
+`a_texture_in_blocks_is_a_quarter_the_size` (the packed blocks are the ones the upload made). Not measured: zoning live
+(the offline `map` upload of ICC Shuttleport is the same 1.7 s either way, so something else is most of that path).

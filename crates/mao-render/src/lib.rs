@@ -1806,7 +1806,7 @@ impl Renderer {
         });
         let taa_sampler = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
         let fsr_sampler = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Nearest, min_filter: wgpu::FilterMode::Nearest, ..Default::default() });
-        let white = upload_texture(gpu, &Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![255; 4], mips: 1 });
+        let white = upload_texture(gpu, &Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![255; 4], mips: 1, packed: None });
         let white_sprite = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &sprite_layout,
@@ -3009,24 +3009,50 @@ pub fn block_levels(t: &Texture, fine_alpha: bool) -> Option<Blocks> {
     Some(Blocks { data: out, levels, format: if encoder == Encoder::Bc3 { wgpu::TextureFormat::Bc3RgbaUnormSrgb } else { wgpu::TextureFormat::Bc7RgbaUnormSrgb } })
 }
 
-/// A texture on the card: in blocks when that is asked for and the device and the texture allow it ([`block_levels`]),
-/// else as it is.
+/// Whether the last texture uploads were made in blocks (the setting and the device both allow it), so that [`pack`] makes
+/// the blocks ahead only when they will be used; until the first upload, yes.
+static PACKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// The texture with its blocks made ahead ([`block_levels`], the meshes' quick way), on whatever thread decoded it, so that
+/// its upload on the window's thread only hands them to the card: a character that came into sight held that thread 0.1 to
+/// 0.2 s encoding its textures. Left as it is when uploads are not made in blocks, or the texture cannot be.
+pub fn pack(mut t: Texture) -> Texture {
+    if t.packed.is_none() && PACKING.load(std::sync::atomic::Ordering::Relaxed) {
+        t.packed = block_levels(&t, false).map(|b| std::sync::Arc::new(mao_formats::texture::Packed { data: b.data, levels: b.levels, bc3: b.format == wgpu::TextureFormat::Bc3RgbaUnormSrgb }));
+    }
+    t
+}
+
+/// A texture on the card: in blocks when that is asked for and the device and the texture allow it ([`block_levels`],
+/// or the blocks [`pack`] made ahead when the quick way is wanted), else as it is.
 fn upload_blocks(gpu: &Gpu, t: &Texture, compress: bool, fine_alpha: bool) -> wgpu::TextureView {
-    let Some(made) = (compress && gpu.bc).then(|| block_levels(t, fine_alpha)).flatten() else { return upload_texture(gpu, t) };
+    PACKING.store(compress && gpu.bc, std::sync::atomic::Ordering::Relaxed);
+    if !(compress && gpu.bc) {
+        return upload_texture(gpu, t);
+    }
+    let made;
+    let (data, levels, format): (&[u8], u32, wgpu::TextureFormat) = match &t.packed {
+        Some(p) if !fine_alpha => (&p.data, p.levels, if p.bc3 { wgpu::TextureFormat::Bc3RgbaUnormSrgb } else { wgpu::TextureFormat::Bc7RgbaUnormSrgb }),
+        _ => {
+            let Some(m) = block_levels(t, fine_alpha) else { return upload_texture(gpu, t) };
+            made = m;
+            (&made.data, made.levels, made.format)
+        }
+    };
     let texture = gpu.device.create_texture_with_data(
         &gpu.queue,
         &wgpu::TextureDescriptor {
             label: Some("block texture"),
             size: wgpu::Extent3d { width: t.width, height: t.height, depth_or_array_layers: 1 },
-            mip_level_count: made.levels,
+            mip_level_count: levels,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: made.format,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         },
         wgpu::util::TextureDataOrder::LayerMajor,
-        &made.data,
+        data,
     );
     texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
@@ -3170,7 +3196,7 @@ mod tests {
     /// multiples of four.
     #[test]
     fn a_texture_in_blocks_is_a_quarter_the_size() {
-        let texture = |w: u32, h: u32, alpha: u8| Texture { width: w, height: h, format: mao_formats::texture::Format::Png, rgba: (0..w * h).flat_map(|i| [(i % w) as u8, (i / w) as u8, 90, alpha]).collect(), mips: 1 };
+        let texture = |w: u32, h: u32, alpha: u8| Texture { width: w, height: h, format: mao_formats::texture::Format::Png, rgba: (0..w * h).flat_map(|i| [(i % w) as u8, (i / w) as u8, 90, alpha]).collect(), mips: 1, packed: None };
         let made = block_levels(&texture(64, 32, 255), false).unwrap();
         // (64x32, 32x16, 16x8, 8x4, then 4x2, 2x1 and 1x1 as one block each)
         assert_eq!(made.levels, 7);
@@ -3183,6 +3209,13 @@ mod tests {
         assert!(quick.format == wgpu::TextureFormat::Bc3RgbaUnormSrgb && fine.format == wgpu::TextureFormat::Bc7RgbaUnormSrgb);
         assert_eq!((quick.data.len(), fine.data.len()), (made.data.len(), made.data.len()));
         assert!(block_levels(&texture(30, 32, 255), false).is_none() && block_levels(&texture(4, 4, 255), false).is_none());
+        // (made ahead by `pack`: the same blocks, BC3 for alpha; none where blocks cannot be made)
+        for alpha in [255, 128] {
+            let packed = pack(texture(64, 32, alpha)).packed.expect("packed");
+            let direct = block_levels(&texture(64, 32, alpha), false).unwrap();
+            assert!(packed.data == direct.data && packed.levels == direct.levels && packed.bc3 == (alpha != 255));
+        }
+        assert!(pack(texture(30, 32, 255)).packed.is_none());
     }
 
     /// A large level encoded in strips on several cores is the same bytes as in one piece.
@@ -3209,7 +3242,7 @@ mod tests {
         let material = mao_formats::model::Material { diffuse: [1.0; 3], opacity: 1.0, two_sided: true, textures: vec![(1, 1)], ..Default::default() };
         let model = Model { parts: vec![mao_formats::model::Part { name: String::new(), world: Mat4::IDENTITY.to_cols_array(), vertices, indices: vec![0, 1, 2, 0, 2, 3], material }], ..Default::default() };
         // (soft stripes of colour, 256 texels square)
-        let texture = Texture { width: 256, height: 256, format: mao_formats::texture::Format::Png, rgba: (0..256u32 * 256).flat_map(|i| [(i % 256) as u8, (i / 256) as u8, (((i % 256) / 32) * 32) as u8, 255]).collect(), mips: 1 };
+        let texture = Texture { width: 256, height: 256, format: mao_formats::texture::Format::Png, rgba: (0..256u32 * 256).flat_map(|i| [(i % 256) as u8, (i / 256) as u8, (((i % 256) / 32) * 32) as u8, 255]).collect(), mips: 1, packed: None };
         let picture = |compress: bool| {
             let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
             renderer.compress_textures = compress;
@@ -3390,7 +3423,7 @@ mod tests {
     #[test]
     fn mip_chain_halves_down_to_one_pixel() {
         // 4x2: levels 4x2, 2x1, 1x1.
-        let t = Texture { width: 4, height: 2, format: mao_formats::texture::Format::Png, rgba: (0..32).map(|i| (i * 8) as u8).collect(), mips: 1 };
+        let t = Texture { width: 4, height: 2, format: mao_formats::texture::Format::Png, rgba: (0..32).map(|i| (i * 8) as u8).collect(), mips: 1, packed: None };
         let (data, levels) = mao_formats::texture::mip_chain(&t.rgba, t.width, t.height);
         assert_eq!(levels, 3);
         assert_eq!(data.len(), 32 + 2 * 4 + 4);
@@ -3400,7 +3433,7 @@ mod tests {
             assert_eq!(data[40 + c], ((two[c] as u32 + two[4 + c] as u32 + 1) / 2) as u8);
         }
         // A 1x1 texture has just its one level.
-        let one = Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![9, 9, 9, 9], mips: 1 };
+        let one = Texture { width: 1, height: 1, format: mao_formats::texture::Format::Png, rgba: vec![9, 9, 9, 9], mips: 1, packed: None };
         assert_eq!(mao_formats::texture::mip_chain(&one.rgba, 1, 1), (vec![9, 9, 9, 9], 1));
     }
 }

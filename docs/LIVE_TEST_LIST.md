@@ -1308,3 +1308,6 @@ These were written before this list; some may have been seen working since witho
 
 - [ ] **1** With the performance overlay up (`/perf`), the frame graph has no spike every second and the "1% low" sits
   near the average frame time, not at about twice it. Opening the overlay no longer freezes the game for half a second.
+
+- [ ] **1** Walk into a crowded place (a city, Arete Landing's shops): characters coming into sight no longer freeze the
+  game for a moment, and their clothes and skins look as before (compressed ahead now).

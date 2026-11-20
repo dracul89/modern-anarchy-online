@@ -56,6 +56,18 @@ pub struct Texture {
     pub rgba: Vec<u8>,
     /// How many mip levels `rgba` holds, one after the other, the full image first (1: just the image).
     pub mips: u32,
+    /// The same levels already in the graphics card's block format, made where the texture was decoded ahead, off the
+    /// window's thread (`mao_render::pack`); none when not made.
+    pub packed: Option<std::sync::Arc<Packed>>,
+}
+
+/// A texture's levels in the card's block format: the blocks one level after the other, how many levels, and whether they
+/// are BC3 (else BC7).
+#[derive(Debug)]
+pub struct Packed {
+    pub data: Vec<u8>,
+    pub levels: u32,
+    pub bc3: bool,
 }
 
 impl Texture {
@@ -141,7 +153,7 @@ pub fn decode_after(object: &[u8], head: usize) -> Result<Texture, Error> {
         Format::Jpeg => image::load_from_memory_with_format(&file, image::ImageFormat::Jpeg)?,
     };
     let rgba = decoded.to_rgba8();
-    Ok(Texture { width: rgba.width(), height: rgba.height(), format, rgba: rgba.into_raw(), mips: 1 })
+    Ok(Texture { width: rgba.width(), height: rgba.height(), format, rgba: rgba.into_raw(), mips: 1, packed: None })
 }
 
 /// The header before the image in a ground texture object
@@ -176,5 +188,5 @@ pub fn decode_ground(object: &[u8]) -> Result<Texture, Error> {
         },
     )?;
     let rgba = decoded.to_rgba8();
-    Ok(Texture { width: rgba.width(), height: rgba.height(), format, rgba: rgba.into_raw(), mips: 1 })
+    Ok(Texture { width: rgba.width(), height: rgba.height(), format, rgba: rgba.into_raw(), mips: 1, packed: None })
 }

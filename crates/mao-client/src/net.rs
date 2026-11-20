@@ -12041,6 +12041,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 });
                 let (model, mut casters, character_parts) = overlay_model(&state, &state.props, &mut characters, &|id| id != own && near(id), true);
                 let (own_model, own_casters, _) = overlay_model(&state, &state.props, &mut characters, &|id| id == own, false);
+                // (the textures of characters that came into sight are decoded here, on every core, not on the window's
+                // thread during the upload: `Textures::prefetch_new`)
+                let decoding = Instant::now();
+                let decoded = thread_textures.prefetch_new(&model) + thread_textures.prefetch_new(&own_model);
+                if decoded > 0 {
+                    crate::prof::add("net-decode-ahead", decoding.elapsed());
+                }
                 // The notes the animations went past play their sounds at the characters (FUN_100452d3), on the material
                 // under each one; and the deaths theirs.
                 if let Some(c) = &mut characters {

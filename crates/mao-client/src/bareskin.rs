@@ -130,7 +130,7 @@ pub fn compose(top: &Texture, naked: &Texture) -> Option<Texture> {
         let c = if is_green(p) { sampled(naked, ((k % w) as f32 + 0.5) / w as f32, ((k / w) as f32 + 0.5) / h as f32) } else { [p[0], p[1], p[2]] };
         rgba.extend_from_slice(&[c[0], c[1], c[2], 255]);
     }
-    Some(Texture { width: top.width, height: top.height, format: top.format, rgba, mips: 1 })
+    Some(Texture { width: top.width, height: top.height, format: top.format, rgba, mips: 1, packed: None })
 }
 
 #[cfg(test)]
@@ -138,7 +138,7 @@ mod tests {
     use super::*;
 
     fn picture(width: u32, height: u32, pixels: &[[u8; 4]]) -> Texture {
-        Texture { width, height, format: mao_formats::texture::Format::Png, rgba: pixels.concat(), mips: 1 }
+        Texture { width, height, format: mao_formats::texture::Format::Png, rgba: pixels.concat(), mips: 1, packed: None }
     }
 
     /// Only the exact green is the skin's: a green a little off stays what it is, as the 16-bit test leaves it.

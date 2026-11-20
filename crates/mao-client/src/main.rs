@@ -194,11 +194,14 @@ pub struct Textures {
     index: Arc<std::sync::OnceLock<Option<mao_formats::instances::Instances>>>,
     /// Textures decoded ahead (see [`Textures::prefetch`]), taken by the first `get` of each.
     ready: Arc<std::sync::Mutex<std::collections::HashMap<(u32, u32), Option<Texture>>>>,
+    /// The textures handed to the renderer for an upload, which keeps every texture it was given: never decoded ahead again
+    /// ([`Textures::prefetch_new`]).
+    handed: Arc<std::sync::Mutex<std::collections::HashSet<(u32, u32)>>>,
 }
 
 impl Textures {
     pub fn new(db: Arc<ResourceDatabase>) -> Self {
-        Textures { db, index: Default::default(), ready: Default::default() }
+        Textures { db, index: Default::default(), ready: Default::default(), handed: Default::default() }
     }
 
     /// The resource database the textures come from.
@@ -224,7 +227,7 @@ impl Textures {
 
     /// Another handle on the same database.
     pub fn clone_handle(&self) -> Textures {
-        Textures { db: self.db.clone(), index: self.index.clone(), ready: self.ready.clone() }
+        Textures { db: self.db.clone(), index: self.index.clone(), ready: self.ready.clone(), handed: self.handed.clone() }
     }
 
     /// Whether a texture has no see-through pixel (a missing one counts as opaque); looks at a prefetched copy before decoding again.
@@ -246,6 +249,7 @@ impl Textures {
 
     /// A texture for the renderer's upload: one decoded ahead by [`Textures::prefetch`] (mip levels and all), else decoded now.
     pub fn get_for_upload(&self, kind: u32, instance: u32) -> Option<Texture> {
+        self.handed.lock().unwrap().insert((kind, instance));
         if let Some(texture) = self.ready.lock().unwrap().remove(&(kind, instance)) {
             return texture;
         }
@@ -259,6 +263,31 @@ impl Textures {
         wanted.sort_unstable();
         wanted.dedup();
         wanted.retain(|k| !self.ready.lock().unwrap().contains_key(k));
+        self.decode_ahead(&wanted);
+    }
+
+    /// Decodes ahead, as [`Textures::prefetch`] does, only the textures of a model that the renderer was never handed and
+    /// that are not decoded yet: the characters' model, before each update takes it to the window's thread. A character
+    /// that came into sight had its textures decoded (and their levels made) on that thread during the upload, a frame of
+    /// 0.1 to 0.4 s. Returns how many it decoded.
+    pub fn prefetch_new(&self, model: &Model) -> usize {
+        let mut wanted: Vec<(u32, u32)> = model.parts.iter().filter_map(|p| p.material.textures.first().copied()).collect();
+        wanted.sort_unstable();
+        wanted.dedup();
+        {
+            let (handed, ready) = (self.handed.lock().unwrap(), self.ready.lock().unwrap());
+            wanted.retain(|k| !handed.contains(k) && !ready.contains_key(k));
+        }
+        self.decode_ahead(&wanted);
+        wanted.len()
+    }
+
+    /// Decodes these textures with their mip levels, and their blocks for the card (`mao_render::pack`), on every core into
+    /// the ready ones.
+    fn decode_ahead(&self, wanted: &[(u32, u32)]) {
+        if wanted.is_empty() {
+            return;
+        }
         let next = std::sync::atomic::AtomicUsize::new(0);
         let workers = std::thread::available_parallelism().map_or(2, |n| n.get()).min(16).min(wanted.len().max(1));
         std::thread::scope(|scope| {
@@ -266,7 +295,7 @@ impl Textures {
                 scope.spawn(|| loop {
                     let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let Some(&(kind, instance)) = wanted.get(i) else { break };
-                    let texture = self.get(kind, instance).map(Texture::with_mips);
+                    let texture = self.get(kind, instance).map(Texture::with_mips).map(mao_render::pack);
                     self.ready.lock().unwrap().insert((kind, instance), texture);
                 });
             }
