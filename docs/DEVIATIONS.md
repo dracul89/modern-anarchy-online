@@ -84,7 +84,7 @@ None.
 **Combat** (2)
 
 - `CMB-003` Attack key checks only the first refusals (SIMPLIFIED) - part done
-- `CMB-016` Creature with weapon points but no weapon swings the unarmed swing (GUESS) - looked at, left
+- `CMB-016` Creature with weapon points but no weapon swings the unarmed swing (GUESS) - part done
 
 **Targeting and mouse** (2)
 
@@ -993,7 +993,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: does not make those items; plays unarmed-rswing (0x40a) in its place, a guess; where the list of natural weapons comes from not read
 - A player notices: humanoid NPCs with natural weapons swing the generic unarmed attack
 - Where: `crates/mao-client/src/net.rs:4515`; `docs/CLIENT_UI.md:4801`; `crates/mao-client/src/net.rs:4514`; `docs/LIVE_TEST_LIST.md:839`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-19, late evening, the user's go-ahead): the list is found and the swing ported. The full update's flag 0x100 brings it after the meshes (FUN_100798aa: an `x3f1` list of four words, FUN_10065bcd: low and high template and a code twice), decoded as `EntityInfo::natural_weapons` (found by its shape: the clothes' list before it may be empty); the captures' 28 creatures with the flag all read, codes like ENW1/LEW2/QKSI (players carry the flag with an empty list). `AttackInfo`'s last word, read until now as `WeaponInstance`, is the code of the natural weapon that swung (FUN_1006ae3c: FUN_10068c19 by code); kept per attacker (`World::swing_codes`). A body with the weapons' attachment points whose attack names one of its natural weapons plays action 0xb from its own animations (FUN_1006a014 as FUN_1006a782 calls it from FUN_1006ae3c, param 0: FUN_10045976(0xb)) instead of 0x40a. Left: an attack that names no code with no item in its place keeps the 0x40a stand-in (the original swings only a weapon its place holds, FUN_100685bb, and where such a creature's place gets one was not found); the made items' level, fight stance actions (FUN_100c46f2) and range are not used. Test n3::natural_weapons_follow_the_meshes.
 - Looked at, left (2026-11-19, overnight): FUN_1006b14c (called from the full-update exec FUN_1007835c and FUN_10079de3) walks a list kept at the character's +0x2c, each entry a template pair (low/high id, entry +8/+0xc) and a place (+0x14), and makes an ACGItem_t of each at the character's level (stat 54, at most 511), giving it the fight animations 0x406/0x407/0x408 (FUN_100c46f2 over 0x1a/0x10/0x1b) and setting it in the place (FUN_1006a166); FUN_1006a014 then swings that item's attack (action 0xb) when the body has weapon attractors. Porting needs where that list is in the creature's full update (filled by the reader FUN_1007916d / exec FUN_1007835c), which the client does not decode, and a check against the captures' creature announcements; then the made item's animation set. That decoding is beyond tonight's bound and wants live confirmation; the 0x40a stand-in stays.
 
 #### `CMB-017` Backstab availability from the decompile only

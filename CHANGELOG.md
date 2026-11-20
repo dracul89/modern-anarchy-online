@@ -221,6 +221,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Character creation: the opening lines fade in and out slowly as in the original, the two lines about docking and continuing the DNA show on the way down, and after making a character the "boarding shuttle" line and the fade to black follow the original's six seconds.
 
 ### Graphics
+- Creatures that fight with natural weapons (robots, automatons) swing their own attack animation, as the original does.
 - A polymorphed or riding character's body carries the character's own head, as the original shows it, and nothing else it wears.
 
 - A few playfields without water of their own (the Uturn and Foundry playfields among them) no longer show a flat sheet of water over their low ground.

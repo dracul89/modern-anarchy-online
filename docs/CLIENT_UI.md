@@ -4818,9 +4818,12 @@ in a fight (`World::fighting`) stands in its 0x407 where its template has one, p
 begins and its 0x408 when it ends, the standing animation waiting for them as a player's does; a creature sent
 running (`path_runs`) plays its run.
 
-A guess, said plainly: a body WITH the weapons' attachment points and no weapon item (a humanoid NPC fighting with
-its natural weapon) swings that natural weapon's own attack in the original. The client does not make those items
-and swings `unarmed-rswing` there too. Where the list of natural weapons comes from was not read.
+Natural weapons (CMB-016, 2026-11-19): a creature's full update with the flags' bit 0x100 lists its natural weapons
+after its meshes (Gamecode FUN_100798aa: template pair and a four-letter code, `EntityInfo::natural_weapons`), of which
+FUN_1006b14c makes items kept by code. An `AttackInfo`'s last word names the code that swung (FUN_1006ae3c). A body WITH
+the weapons' attachment points whose attack names one of its natural weapons plays its own animation for action 0xb, the
+attack (FUN_1006a014: FUN_10045976(0xb)). Still a guess, said plainly: such a body whose attack names no code and holds
+no item swings `unarmed-rswing`; the original swings only what its place holds, and where that comes from was not found.
 
 Seen offline: the docker standing, in its stance and after its push (`creature 44f1` with `MAO_HELD=407`, `40a`),
 and the test `a_creature_with_no_weapon_swings_and_takes_its_stance`. Not seen live.

@@ -1820,6 +1820,39 @@ mod tests {
         assert_eq!(shown_meshes(&[(0, 5, 7, 0), (0, 5, 7, 0)]), vec![(5, 7, 0)]);
     }
 
+    /// CMB-016: the captured creatures' full updates with the flags' bit 0x100 (`MAO_CAPTURES`) each list natural weapons, every code
+    /// of four letters, the two code words alike; the Engineer Automaton of the 16:55 capture has "ENW2" and "ENW1".
+    #[test]
+    fn natural_weapons_follow_the_meshes() {
+        let Some(dir) = std::env::var_os("MAO_CAPTURES") else { return };
+        let (mut with, mut read) = (0, 0);
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let Ok(text) = std::fs::read_to_string(entry.path().join("dump.txt")) else { continue };
+            for line in text.lines().filter(|l| l.contains(" kind 271b3a6b ") && l.contains("bytes: ")) {
+                let h = line.rsplit("bytes: ").next().unwrap().trim();
+                let data: Vec<u8> = (0..h.len() / 2).map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap()).collect();
+                let Some(info) = (Message { kind: ENTITY_INFO, identity: (CHARACTER, 1), data }).entity_info() else { continue };
+                // (players carry the flag too, with an empty list)
+                if info.flags & 0x100 == 0 || info.flags & 1 == 0 {
+                    assert!(info.flags & 0x100 != 0 || info.natural_weapons.is_empty());
+                    continue;
+                }
+                with += 1;
+                if !info.natural_weapons.is_empty() {
+                    read += 1;
+                }
+                for &(low, high, code) in &info.natural_weapons {
+                    assert!(low > 0 && high >= low && code.to_be_bytes().iter().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()), "{line}");
+                }
+                if info.name == "Engineer Automaton I" {
+                    assert_eq!(info.natural_weapons, [(0x1d74f, 0x1d74f, u32::from_be_bytes(*b"ENW2")), (0x1d74c, 0x1d74c, u32::from_be_bytes(*b"ENW1"))]);
+                }
+            }
+        }
+        eprintln!("natural weapons read in {read} of {with} updates with them");
+        assert_eq!(read, with);
+    }
+
     #[test]
     fn a_full_updates_meshes_follow_its_clothes() {
         let hex = "000017a6000000000000000000000000000000010000000000000000000000020000000000000000000000030000000000000000000000040000000000000000000007e20000009d3a00000000040000000000";
@@ -2035,6 +2068,8 @@ pub struct EntityInfo {
     pub run_speed: Option<u16>,
     /// The listed meshes drawn while the character's body is another's ([`morphed_meshes`]: its own head alone).
     pub morph_meshes: Vec<(u8, u32, u32)>,
+    /// A creature's natural weapons `(low, high, code)`, with the flags' bit 0x100 ([`natural_weapons`]).
+    pub natural_weapons: Vec<(u32, u32, u32)>,
     /// The update's last byte (the reader FUN_1007916d's +0x32f, the schema's `ScfuTowerUnk`), which the exec FUN_1007835c
     /// copies to a new character's byte +0x21d: set, the character's own special attacks are refused (Gamecode's control
     /// state, fear). 0 in all of the captures' 7165 updates.
@@ -2483,8 +2518,33 @@ pub fn shown_meshes(list: &[(u8, u8, u32, u32)]) -> Vec<(u8, u32, u32)> {
 /// ([`shown_meshes`]). From the original's capture of 2026-10-30: a player's update ends its five clothes with
 /// `000007e2` and `00 00009d3a 00000000 04`, the head 40250 (`head_opifexmale02`) with flags 4.
 fn cloth_and_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u32, u32)>) {
-    let (clothes, meshes) = cloth_and_listed_meshes(rest);
+    let (clothes, meshes, _) = cloth_and_listed_meshes(rest);
     (clothes, shown_meshes(&meshes))
+}
+
+/// A creature's natural weapons (the full update's list after its meshes, read with the flags' bit 0x100 by Gamecode
+/// FUN_100798aa: an `x3f1`-counted list of four words each, FUN_10065bcd: the low and high template, a code read into the
+/// entry's +0x14 and one into +0x10): `(low, high, code)`. FUN_1006b14c makes an item of each pair at the creature's level and
+/// keeps it by the code (FUN_1006a166); an `AttackInfo` names the code that swung (its last word). In the captures the codes
+/// are four letters or digits ("ENW1", "LEW2", "QKSI"), the two words alike. The list is found by that shape after the
+/// meshes, as the clothes' list before it may be empty and so not found ([`cloth_and_meshes`]).
+fn natural_weapons(rest: &[u8]) -> Vec<(u32, u32, u32)> {
+    let word = |k: usize| rest.get(k..k + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+    let code = |w: u32| w.to_be_bytes().iter().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit());
+    for at in 0..rest.len().saturating_sub(20) {
+        let Some(marker) = word(at).filter(|m| *m > 0 && m % 0x3f1 == 0 && (2..=33).contains(&(m / 0x3f1))) else { continue };
+        let entries: Option<Vec<(u32, u32, u32)>> = (0..(marker / 0x3f1 - 1) as usize)
+            .map(|i| {
+                let e = at + 4 + 16 * i;
+                let (low, high, c, c2) = (word(e)?, word(e + 4)?, word(e + 8)?, word(e + 12)?);
+                (low > 0 && high >= low && code(c) && c2 == c).then_some((low, high, c))
+            })
+            .collect();
+        if let Some(entries) = entries {
+            return entries;
+        }
+    }
+    Vec::new()
 }
 
 /// Which of a character's listed meshes are drawn while its body is another's (its `MonsterData`, stat 359, is set: a
@@ -2508,7 +2568,7 @@ pub fn morphed_meshes(list: &[(u8, u8, u32, u32)]) -> Vec<(u8, u32, u32)> {
 
 /// The clothes and the listed meshes `(flags, position, mesh, texture)` of a character's full update, as [`cloth_and_meshes`]
 /// finds them.
-fn cloth_and_listed_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u8, u32, u32)>) {
+fn cloth_and_listed_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u8, u32, u32)>, Option<usize>) {
     let int = |at: usize| rest.get(at..at + 4).map(|b| i32::from_be_bytes(b.try_into().unwrap()));
     for start in 0..rest.len().saturating_sub(16) {
         let Some(marker) = int(start) else { break };
@@ -2540,6 +2600,7 @@ fn cloth_and_listed_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u8, u32
         }
         if valid && !out.is_empty() {
             let mut meshes: Vec<(u8, u8, u32, u32)> = Vec::new();
+            let mut end = None;
             if let Some(marker) = int(at).filter(|m| *m > 0 && m % 0x3f1 == 0 && m / 0x3f1 <= 17) {
                 let mut m = at + 4;
                 for _ in 0..marker / 0x3f1 - 1 {
@@ -2550,11 +2611,12 @@ fn cloth_and_listed_meshes(rest: &[u8]) -> (Vec<(String, u32)>, Vec<(u8, u8, u32
                     }
                     m += 10;
                 }
+                end = Some(m);
             }
-            return (out, meshes);
+            return (out, meshes, end);
         }
     }
-    (Vec::new(), Vec::new())
+    (Vec::new(), Vec::new(), None)
 }
 
 impl Message {
@@ -2736,8 +2798,9 @@ impl Message {
         let model = if flags & 1 == 0 { u32_at(&mut at) } else { None };
         let tail = &d[at.min(d.len())..];
         let textures = if flags & 0x10 != 0 { texture_overrides(tail) } else { Vec::new() };
-        let (clothes, listed) = cloth_and_listed_meshes(tail);
+        let (clothes, listed, _) = cloth_and_listed_meshes(tail);
         let (meshes, morph_meshes) = (shown_meshes(&listed), morphed_meshes(&listed));
+        let natural_weapons = if flags & 0x100 != 0 { natural_weapons(tail) } else { Vec::new() };
         // (a creature's fields in the reader's order, FUN_1007916d)
         let creature = creature_fields(d, at, flags).filter(|_| flags & 1 != 0);
         let (template, scale) = creature.as_ref().map_or((None, None), |c| (c.template.filter(|&t| t != 0), c.scale));
@@ -2751,7 +2814,7 @@ impl Message {
         let run_speed = creature.as_ref().and_then(|c| c.run_speed);
         let refuses = d.last().is_some_and(|&b| b != 0);
         let (family, pet_type, health) = creature.as_ref().map_or((None, None, None), |c| (Some(c.family), Some(c.pet_type), Some(c.health)));
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, run_speed, morph_meshes, refuses })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, run_speed, morph_meshes, natural_weapons, refuses })
     }
 }
 

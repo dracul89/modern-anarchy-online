@@ -463,6 +463,9 @@ struct World {
     /// Each character's last attack (`AttackInfo`, `MissedAttackInfo`, `SpecialAttackInfo`): the weapon's place, when, a number
     /// picking the swing (`swing_rand`), and the animation class (0xb, or a special's).
     swings: BTreeMap<u32, (u32, Instant, u32, u32)>,
+    /// The natural weapon each character's last `AttackInfo` named by its code (the message's last word, which FUN_1006ae3c
+    /// looks up among the items FUN_1006b14c made, FUN_10068c19); 0 for a weapon in a place.
+    swing_codes: BTreeMap<u32, u32>,
     /// The CRT `rand()` each swing's variant is picked by: FUN_10045976 takes `rand() % count` of an action's variants at each
     /// start (the original's state is the CRT's own, shared with its other callers, so its sequence cannot be matched).
     swing_rand: crate::audio::Rand,
@@ -780,6 +783,10 @@ struct Loot {
     handle: u32,
     entries: Vec<inventory::Entry>,
 }
+
+/// The weapon `creature_parts` is given for a swing of a natural weapon (`EntityInfo::natural_weapons`, CMB-016): no template of
+/// its own to read, the body's own attack (action 0xb) is played.
+const NATURAL_WEAPON: u32 = u32::MAX;
 
 /// Entities spawned by the game (the backyard's monsters, which are dressed like players) have ids from here up;
 /// characters have lower ones (seen in the captures and live).
@@ -3054,6 +3061,7 @@ impl World {
                 let slot = p.value.get("WeaponSlot").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 let n = self.swing_rand.next() as u32;
                 self.swings.insert(m.identity.1, (slot, Instant::now(), n, 0xb));
+                self.swing_codes.insert(m.identity.1, p.value.get("WeaponInstance").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32);
                 // (the line: FUN_1009b6b7's feedback, the damage type the attacking weapon's, FUN_1009b525)
                 let int = |name: &str| p.value.get(name).and_then(mao_net::schema::Value::as_int).unwrap_or(0);
                 let target = p.value.get("Target").and_then(|t| t.get("Instance")).and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
@@ -6269,15 +6277,20 @@ impl Characters {
         // action's layer, at its own speed: FUN_1006a782 sets the speed scale only for players, `[0x21c] == 0`)
         let swing = match swing {
             Some((weapon, slot, began, pick, class)) if death.is_none() && self.swings_started.get(&id) != Some(&began) => {
-                let data = db.get(Id { kind: mao_formats::item::TEMPLATE, instance: weapon }).ok().flatten();
+                let data = (weapon != NATURAL_WEAPON).then(|| db.get(Id { kind: mao_formats::item::TEMPLATE, instance: weapon }).ok().flatten()).flatten();
+                let armed = mesh.attractor_named("Attractor03_lefthand").is_some();
                 let actions = match &data {
-                    Some(d) if mesh.attractor_named("Attractor03_lefthand").is_some() => {
+                    Some(d) if armed => {
                         let a = mao_formats::item::weapon_actions(d, slot, class);
                         if a.is_empty() && class != 0xb { mao_formats::item::attack_actions(d, slot) } else { a }
                     }
+                    // (a natural weapon on a body with the weapons' attachment points: FUN_1006a014 with FUN_1006a782's
+                    // param 0 (FUN_1006ae3c) takes action 0xb, the attack, from the body's own animations, FUN_10045976(0xb))
+                    None if armed && weapon == NATURAL_WEAPON => vec![0xb],
                     // (a body without the weapons' attachment points swings `unarmed-rswing` whatever it holds: FUN_1006a782.
-                    // One with them and no weapon item swings its natural weapon's own attack in the original, FUN_1006a014,
-                    // an item this client does not make: the same `unarmed-rswing` stands in for it, a guess.)
+                    // One with them whose attack names no natural weapon and holds no item: the same `unarmed-rswing`, a
+                    // guess: the original swings only a weapon its place holds, FUN_100685bb, and where a creature's place
+                    // gets one when its update lists none was not found.)
                     _ => vec![0x40a],
                 };
                 let mut found = None;
@@ -7233,7 +7246,9 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // (an attack swings the weapon the server said the creature holds in the place it names. Most creatures are
             // told to hold none, and they swing all the same: template 0, `creature_parts`. Until 2026-11-17 a creature
             // with no weapon item never swung at all: Arete's dockers and collectors stood still while they hit.)
-            let swing = world.swings.get(&id).map(|&(slot, began, pick, class)| (world.weapons.get(&(id, slot as u8)).copied().unwrap_or(0), slot, began, pick, class));
+            // (an attack that names one of the creature's natural weapons by its code swings that one: CMB-016)
+            let natural = world.swing_codes.get(&id).is_some_and(|&c| c != 0 && info.natural_weapons.iter().any(|w| w.2 == c));
+            let swing = world.swings.get(&id).map(|&(slot, began, pick, class)| (world.weapons.get(&(id, slot as u8)).copied().filter(|&w| w != 0).unwrap_or(if natural { NATURAL_WEAPON } else { 0 }), slot, began, pick, class));
             chars.creature_fight.insert(id, world.fighting.contains_key(&id));
             chars.creature_body = Some((info.breed, info.sex));
             if let Some(parts) = chars.creature_parts(id, info.template.unwrap(), action, (id % 997) as f32 * 3.0, 1.0, &info.textures, &info.clothes, deform, world.held_action(id), swing, &info.meshes) {
