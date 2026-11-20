@@ -1147,7 +1147,10 @@ impl Ui {
         }
         crate::gui::host::begin_frame();
         let layout_started = crate::prof::lap("ui-host", rollup_started);
+        // (`MAO_PROFILE`: the windows timed in groups, `ui-w-*`, and egui's own end of the pass after them)
+        let mut closure_end = std::time::Instant::now();
         let output = self.ctx.run_ui(raw, |ui| {
+            let mut wt = std::time::Instant::now();
             let ctx = ui.ctx().clone();
             // (away from the keyboard, `afk.rs`: the frame's input is looked at before anything typed or clicked is
             // carried out. The `AutoAFK` setting is on in the game's own settings; a game master, stat 215, does not
@@ -1163,6 +1166,7 @@ impl Ui {
             if settings.perf_overlay {
                 perf.show(&ctx, &hud.gpu, palette);
             }
+            wt = crate::prof::lap("ui-w-start", wt);
             notification_layer(&ctx, control_center.as_ref().map(|cc| &cc.store), palette);
             let booths: Vec<[f32; 2]> = hud.labels.iter().map(|l| [l.world.x, l.world.y]).collect();
             let notum_wars = hud.stats.get(&389).is_some_and(|e| e & 1 != 0);
@@ -1173,6 +1177,7 @@ impl Ui {
                 automap.show(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), hud.camera_yaw, &hud.map_dots, &booths, &hud.towers, notum_wars, &hud.location, palette);
             }
             automap.pf_window(&ctx, hud.position.map(|p| ([p[0], p[2]], hud.heading)), &hud.pf_dots, &hud.towers, notum_wars, palette);
+            wt = crate::prof::lap("ui-w-map", wt);
             if control_center.is_none() && crate::skin::skin(&ctx).is_some() {
                 *control_center = crate::gui::controlcenter::ControlCenter::load(&ctx);
             }
@@ -1245,10 +1250,12 @@ impl Ui {
             } else {
                 shortcut_layer(&ctx, shortcut_bars, settings.hotbars as usize, settings.lock_hotbars, gear, &hud.gear, &*actions, &mut requests);
             }
+            wt = crate::prof::lap("ui-w-cc", wt);
             if stats_window.open {
                 stats_window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, palette);
             }
             // (what to do with an invitation to a private chat group: the option's, `ChatPGInviteAction`)
+            wt = crate::prof::lap("ui-w-stats", wt);
             chat_window.invite_action = control_center.as_ref().and_then(|cc| cc.store.get("ChatPGInviteAction")).map_or(1, |v| v.as_int32());
             // (the warning when a line goes to a group the window does not show: on in the game's own settings)
             chat_window.warn_unshown = control_center.as_ref().and_then(|cc| cc.store.get("ChatWarnWhenSpeakingToUnsubGroups")).is_none_or(|v| v.as_bool());
@@ -1261,9 +1268,11 @@ impl Ui {
                 target: hud.target_bars.iter().find(|b| b.selected).map(|b| b.name.clone()),
                 fighting: hud.target_bars.iter().find(|b| b.hostile).map(|b| b.name.clone()),
             };
+            wt = crate::prof::lap("ui-w-chat-settings", wt);
             if let Some(out) = chat_window.show(&ctx, palette) {
                 requests.chat.push(out);
             }
+            wt = crate::prof::lap("ui-w-chat-show", wt);
             chat_window.away_frame(&ctx, palette, auto_afk, game_master);
             // (a macro just made rides on the pointer until it is dropped on a hotbar slot or let go elsewhere:
             // the original begins a drag of it, FUN_100d8c4a)
@@ -1280,6 +1289,7 @@ impl Ui {
             }
             // (one's own backpacks and the other containers, each in a window of its own: shown when opened, and again when
             // opened anew; another's container numbered by the lowest number no other window up has, FUN_100cb7f9)
+            wt = crate::prof::lap("ui-w-chat", wt);
             bag_windows.retain(|identity, _| hud.bags.iter().chain(hud.loot.iter()).any(|b| b.identity == *identity));
             for view in hud.bags.iter().chain(hud.loot.iter()) {
                 if bag_windows.get(&view.identity).is_none_or(|w| w.handle_seen != Some((view.handle, view.opened))) {
@@ -1316,6 +1326,7 @@ impl Ui {
             if crate::loot::bank_shut(bag_windows.iter().find(|(id, _)| id.0 == crate::loot::BANK).map(|(_, w)| w.open)) {
                 crate::net::close_bank();
             }
+            wt = crate::prof::lap("ui-w-bags", wt);
             if help_window.open {
                 help_window.show(&ctx, &settings.keymap, palette);
             }
@@ -1337,6 +1348,7 @@ impl Ui {
                     requests.chat.push(out);
                 }
             }
+            wt = crate::prof::lap("ui-w-help-tips-info", wt);
             if perks_window.open {
                 if let Some(asked) = perks_window.show(&ctx, &hud.perk_state, &hud.stats, palette) {
                     requests.train_perk = Some(asked);
@@ -1421,6 +1433,7 @@ impl Ui {
             }
             // (the target NCU windows, `ControlCenterModule_c::CreateTargetMenus`: each while its option is on, which
             // closing it turns off)
+            wt = crate::prof::lap("ui-w-perks-ncu", wt);
             for (k, window) in target_ncu.iter_mut().enumerate() {
                 let option = if window.fight { "ShowFightTargetNCU" } else { "ShowNanoTargetNCU" };
                 if !control_center.as_ref().is_some_and(|cc| cc.store.get_bool("cc_section1") && cc.store.get_bool(option)) {
@@ -1457,6 +1470,7 @@ impl Ui {
             for url in knowledge_window.show(&ctx, gear, &hud.gear, palette) {
                 info_view.show_url(&url);
             }
+            wt = crate::prof::lap("ui-w-skills-team-extras", wt);
             if actions.open {
                 actions.show(&ctx, gear, &hud.perk_actions, hud.specials.as_deref(), palette);
                 if let Some(a) = actions.clicked.take() {
@@ -1516,6 +1530,7 @@ impl Ui {
             if let Some(url) = shown.info {
                 info_view.show_url(&url);
             }
+            wt = crate::prof::lap("ui-w-actions-mission-shop", wt);
             planet.show(&ctx, palette, hud.playfield, crate::planetmaps::expansion_playfield(hud.playfield), hud.position, hud.heading, requests.waypoint.or(hud.waypoint));
             if npc_chat.open {
                 // (the credits the trade bar's V gives at most: stat 61, FUN_10057cc6)
@@ -1574,6 +1589,7 @@ impl Ui {
             for link in inspect.references {
                 chat_window.add_text(&link);
             }
+            wt = crate::prof::lap("ui-w-planet-npc-mail", wt);
             if *gear_open || gear.wear_open() {
                 let events = gear.show(&ctx, gear_open, &hud.gear, &hud.stats, palette);
                 if crate::gear::traced() && !(events.uses.is_empty() && events.combines.is_empty() && events.infos.is_empty() && events.moves.is_empty()) {
@@ -1651,6 +1667,7 @@ impl Ui {
                 },
                 None => {}
             }
+            wt = crate::prof::lap("ui-w-gear", wt);
             browser.show(&ctx, palette);
             if market_send.open {
                 let cash = hud.stats.get(&61).copied().unwrap_or(0);
@@ -1667,6 +1684,7 @@ impl Ui {
             if let Some(url) = tradeskill_window.show(&ctx, gear, &hud.gear, &hud.stats, palette) {
                 info_view.show_url(&url);
             }
+            wt = crate::prof::lap("ui-w-browser-research", wt);
             if *options_open {
                 options_window(&ctx, options_open, rebinding, settings, &mut requests, palette, themes);
                 if !*options_open {
@@ -1674,8 +1692,12 @@ impl Ui {
                 }
             }
             // (a window's tab carried and put down, `docks.rs`, once every window has drawn its tabs)
+            wt = crate::prof::lap("ui-w-options", wt);
             crate::docks::end_frame(&ctx, palette);
+            crate::prof::lap("ui-w-docks", wt);
+            closure_end = std::time::Instant::now();
         });
+        crate::prof::add("ui-w-egui-end", closure_end.elapsed());
         crate::chrome::end_frame();
         // (an inventory item let go over the world, not over a window, is used on what is there: by either button,
         // `gear::letting_go_on_world`)
