@@ -1261,3 +1261,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] Arete Landing's Wounded Dockworkers: they lie and breathe (the idle loops), no frozen pose.
 - [ ] Open the bank and a bag; drag a bank item onto the bag's window: the line about bank items shows, the item stays in the bank.
 - [ ] Try to equip an item with a profession or side it refuses: the refusal line names it.
+- [ ] Knowledge window: fill all 30 cells, drop one more item on a full cell: it lands in a new sixth row and the board scrolls.
+- [ ] Chat window menu, Rename Window: the box shows the prompt over a field with the name, OK/Cancel; typing the other window's name and OK brings the box back with the "already exists" prompt.
+- [ ] Planet map: zoom in twice, close and reopen it (and restart the client): it opens at that level.
+- [ ] Research window: hover a goal with requirements: the Requirements part lists the criteria with no "Wear:" or "Use:" heading.
+- [ ] Outdoors on a steep slope, swing the camera down into the hill: it rests on the ground without being pulled in towards the character, and the ground does not vanish (no sky showing through it).

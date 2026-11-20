@@ -8031,3 +8031,31 @@ The original's criteria evaluator (Gamecode FUN_100065d8) says a line for a fail
 ### Tower updates of other kinds (ZON-023)
 
 The original (Gamecode FUN_1012b350) treats a tower update whose kind is neither 1 (destroyed) nor 2 (planted) as a plant of an empty tower (the message's own, zeroed by TowerProxyBase_t's constructor FUN_1012b9d9). The client now adds that empty entry at the front of the playfield's list too, instead of ignoring the update.
+
+### The knowledge board grows (WIN-057)
+
+The original's knowledge board is a grid MultiListView_c: a drop on a cell already holding another item goes to the grid's first free cell (FUN_100cf299, GetFirstFreePos), past the last row when every cell is taken, so the board grows. The client's board does the same now: it is never full, shows as many rows as its items reach (scrolling past the window's five) and keeps the grown rows in knowledge.ini. Its six columns stay, the window not being resizable.
+
+### Renaming a chat window (WIN-066)
+
+The original asks a chat window's new name in a text input box (FUN_10099d7a: DialogBox_c with a TextInputDialogForm_c, 0x1014851a): titled "Enter window name", the prompt over a field 150 wide holding the window's name, OK and Cancel; Enter is OK. A name another window already has brings the box back saying so ("WindowWithNameExists", FUN_1009983b), with the typed name kept; the window's own name or an empty one changes nothing (FUN_10094950). The client's rename box is now that box (`chrome::text_dialog`, usable for other text questions), with the same answers; the name is taken as typed, not trimmed.
+
+### Missions of one's own character (WIN-096)
+
+The original adds a mission update's missions to the list of the character the message names (Gamecode FUN_100acfde) and says "You got a new mission" for each new one only when that character is the player's own (FUN_10056cdd: the +0x140 flag SetMainDynel 0x10019fdf sets). The client's journal now takes the update only when it names the player's character, and the line comes once per new mission.
+
+### The planet map's opening zoom (WIN-099)
+
+The original's planet map view starts at its first zoom level, or at the level kept in its PlanetMapViewConfig (`ZoomLev`), held to the map's levels (FUN_1004d92d, FUN_1004c2e2). The client's planet map window now does the same: it opens at the level last zoomed to (kept in layout.ini), else the first, never past the map's last level; it no longer jumps to the second level for a new map.
+
+### Research requirements as the original writes them (WIN-139)
+
+The research window's description of a goal is Gamecode's N3Msg_GetPerkDescription (0x10029d14): the description, the modifiers, then under "Requirements" the criteria of the template's wear action followed by those of its use action as N3Msg_GetCriteriaString writes them, with no "Wear:"/"Use:" headings, and nothing when the template's MoreFlags has bit 4. The client now builds it so; before it showed the use-by string with each action's heading.
+
+### Skills held for a while cannot be raised (WIN-142)
+
+Gamecode's skill maximum is 0 for a skill a temporary list (spell 0xcf76, e.g. riding a Yalmaha) holds set, with the line "Feedback_CantChangeTemporarilyChangedSkill" (FUN_100656fb, FUN_100642cd). The client's skills window now refuses to add points to such a skill, saying that line, and the IP suggestion passes it over.
+
+### The camera on slopes (CAM-009)
+
+The original's camera never gets pulled towards the character to clear the ground: its vehicle settles against the playfield's surfaces (Vehicle_t::EnsureSurfaceAlignment). The client used to shrink the camera's distance until the eye was 0.6 above the ground; now that its camera vehicle settles against the playfield's surfaces and tile-map ground as the original's does, that pull-in is kept only for playfields without surfaces.

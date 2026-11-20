@@ -23,6 +23,21 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A bank item dropped on a bag, chest or corpse window now says it can only go to the inventory, as the original does.
 - More of the original's reasons are told when an item cannot be worn or used (combat mode, team, side, profession and others).
 
+### Windows
+
+- The knowledge window no longer refuses an item when its 30 cells are full: the board grows a row and scrolls.
+- The planet map opens at the zoom level you last used (the first level the very first time), as the original does.
+- Research window: a goal's requirements read as in the original, without the "Wear:"/"Use:" headings.
+- Skills window: a skill set for a while by a temporary effect can no longer be raised, as in the original.
+
+### Chat
+
+- Renaming a chat window uses the original's name box; a name another chat window has is refused and asked again.
+
+### Interface
+
+- The camera no longer creeps towards your character on slopes; it rests against the ground as in the original.
+
 ## 0.1.7 (2026-11-20)
 
 ### World
