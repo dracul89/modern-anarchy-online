@@ -8339,3 +8339,24 @@ place>;<kind>;<id>` (an inventory item used on a thing in the world, the identit
 its target), `give@<item>` (the item put in the open trade with an NPC, as a drop on its bar does) and `giveaccept@`
 (the bar's V). `MAO_PROFILE`'s `ui-w-skills-team-extras` is now four: `ui-w-target-ncu`, `ui-w-skills`,
 `ui-w-team-pets`, `ui-w-faction-extras`.
+
+### The NPC trade bar kept the given place
+
+After Marcus Stone took the suppressant (V, `KnubotFinishTrade`), his reward came to the same inventory place, and the
+bar, which keeps the places put in, showed the reward as if it were being given; V again would have given it. GUI.dll
+leaves the bar up after V (FUN_10057cc6) and has no handler for `KnubotRejectedItems`; its bar holds the items
+themselves, so one the server takes leaves it. Now the bar keeps the item each place held when it was put in
+(`Trade::put`) and drops a place whose item has gone (`npcchat::drop_gone`, test `a_given_item_leaves_the_bar`).
+Not seen live after the change.
+
+### Seen in the run and left for a decision or a later look
+
+- The skills window's list shows Abilities and Body & Defense with an Abilities-sized empty gap between them and the
+  other groups below sight, where the original's (capture arete-20261030-1655) stacks all eleven group buttons with
+  Reset all skills under them: the folded Abilities list seems to keep its room. Older than today.
+- The missions window opens so small that a mission's name is cut ("Extinguish the Gas F..."). Not compared with the
+  original's size yet.
+- The client's own walk to a `/waypoint` (MOV-028, kept by decision) that cannot reach its point (on a walkway above
+  it) steps back and forth along the rail for as long as it is left, with no end; the original has no such walk.
+- Marcus Stone, while he fights the cleaning robots, opens no chat for a use: the game's own rule (seen before), not a
+  fault.

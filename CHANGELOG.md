@@ -63,6 +63,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The inspect, mail, nano programs, maps, signup terminal, teleport target, laser target and mech select windows and the compass first open where the original client left them for the character.
 - The control center's right target button attacks the target, as in the original (it selected the next enemy).
 - A new level shows the game's notice buttons near the lower right: new skill points, and when they come, a new perk or research; a click opens that window.
+- An item handed to an NPC leaves its trade bar once the trade is done; the reward that came to the same inventory place showed in the bar instead, and pressing V again would have given it away.
 - The skills window no longer halves the frame rate while it is open: it took 8 ms of every frame (measuring its whole view twice and searching it by name a thousand times); now about half a millisecond.
 - The chat window no longer searches the disk every frame (for the script names its command list offers): the interface takes about 0.6 ms a frame where it took 6.3, and the game ran at about 165 frames a second where it ran at about 80 in the same test.
 - Characters coming into sight no longer freeze the game for a tenth to a fifth of a second: their textures are decoded and compressed ahead on every core, not on the frame's thread.

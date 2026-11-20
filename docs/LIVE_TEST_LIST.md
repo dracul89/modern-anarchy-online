@@ -1318,3 +1318,6 @@ These were written before this list; some may have been seen working since witho
 
 - [ ] **1** Open the skills window and play with it up: the frame rate stays about what it is with it closed. Raise a
   skill with +, open and fold a group, press Suggested IP distribution: the values, colours and the list follow at once.
+
+- [ ] **1** Hand an NPC a quest item through its trade bar and press V: once the NPC has it, the bar is empty, and the
+  reward that comes is in the inventory, not in the bar.

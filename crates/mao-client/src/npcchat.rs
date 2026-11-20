@@ -72,6 +72,10 @@ pub struct Trade {
     pub slots: u32,
     /// The inventory places put in.
     pub items: Vec<u32>,
+    /// The item each of those places held when it was put in (low, high, quality). The original's bar holds the items
+    /// themselves, so one the server takes when the trade is done leaves it; here a place whose item has gone leaves it,
+    /// or the next item to come to that place (the NPC's reward, as often as not) showed in the bar and V gave it too.
+    pub put: std::collections::HashMap<u32, (u32, u32, u32)>,
     bar: Option<(Tree, Id, Id)>,
     shown: Vec<multilist::Item>,
     right_since: Option<std::time::Instant>,
@@ -432,6 +436,7 @@ fn trade_window(ctx: &egui::Context, palette: &crate::theme::Palette, t: &mut Tr
         t.right_since = Some(std::time::Instant::now());
     }
     let right_held = t.right_since.map_or(0.0, |s| s.elapsed().as_secs_f32());
+    drop_gone(t, items);
     let Some((tree, root, list)) = t.bar.as_mut() else { return false };
     let (root, list) = (*root, *list);
     // (the grid's rows: the items put in, by their places)
@@ -479,8 +484,11 @@ fn trade_window(ctx: &egui::Context, palette: &crate::theme::Palette, t: &mut Tr
             }
         });
     });
-    if let Some(slot) = added {
+    if let Some(slot) = added
+        && let Some(i) = items.iter().find(|i| i.slot == slot)
+    {
         t.items.push(slot);
+        t.put.insert(slot, (i.item_id, i.high_id, i.quality));
         commands.push(Command::TradeItem(npc, slot, true));
     }
     // (a click on an item takes it out, FUN_10057c0b; with Shift it shows its page, FUN_10057c5d)
@@ -498,6 +506,7 @@ fn trade_window(ctx: &egui::Context, palette: &crate::theme::Palette, t: &mut Tr
             _ => {
                 if t.items.contains(&slot) {
                     t.items.retain(|s| *s != slot);
+                    t.put.remove(&slot);
                     commands.push(Command::TradeItem(npc, slot, false));
                 }
             }
@@ -529,6 +538,16 @@ fn trade_window(ctx: &egui::Context, palette: &crate::theme::Palette, t: &mut Tr
         commands.push(Command::FinishTrade(npc, 0, false));
     }
     close
+}
+
+/// A place put in whose item has left the inventory (given to the NPC when the trade was done) goes out of the bar, as
+/// the original's bar, which holds the items themselves, loses an item the server takes.
+fn drop_gone(t: &mut Trade, items: &[crate::gear::GearItem]) {
+    let put = &t.put;
+    let still = |slot: u32| items.iter().any(|i| i.slot == slot && put.get(&slot) == Some(&(i.item_id, i.high_id, i.quality)));
+    let gone: Vec<u32> = t.items.iter().copied().filter(|&s| !still(s)).collect();
+    t.items.retain(|s| !gone.contains(s));
+    t.put.retain(|s, _| !gone.contains(s));
 }
 
 /// The server's `Knubot` messages to the window (`kind`, `data` past the identity): none for others.
@@ -576,6 +595,19 @@ mod tests {
     /// WIN-030: FUN_10057d8b's label and grid (one column for one slot, else two; half the slots' rows), V's credits no
     /// more than one has (FUN_10057cc6, `atoi` compared unsigned), the NPC's text in the answers' place and a second
     /// trade's offer ignored while the bar is up (FUN_10059236).
+    /// After the trade, the place given holds the NPC's reward: it is out of the bar, not shown (and given) as the item
+    /// put in; a place still holding what was put in stays.
+    #[test]
+    fn a_given_item_leaves_the_bar() {
+        let item = |slot: u32, id: u32| crate::gear::GearItem { slot, item_id: id, high_id: id, count: 1, quality: 1, bag: false, container: (0, 0), flags: 0, can: 0, name: String::new(), description: String::new(), icon: None, effects: Vec::new(), actions: Vec::new() };
+        let mut t = Trade { slots: 2, items: vec![0x4b, 0x4c], ..Default::default() };
+        t.put.insert(0x4b, (0x4874c, 0x4874c, 1));
+        t.put.insert(0x4c, (0x48854, 0x48854, 1));
+        drop_gone(&mut t, &[item(0x4b, 0x48679), item(0x4c, 0x48854)]);
+        assert_eq!(t.items, vec![0x4c]);
+        assert!(!t.put.contains_key(&0x4b));
+    }
+
     #[test]
     fn the_trade_bar_is_the_originals() {
         assert_eq!((give_label(1), give_label(3)), ("GIVE ITEM", "GIVE ITEMS"));
