@@ -31,6 +31,15 @@ pub struct PlanetWindow {
     buttons_height: f32,
 }
 
+/// Where the window's zoom level is kept (the original's `PlanetMapViewConfig` `ZoomLev`).
+const ZOOM_KEY: &str = "PlanetMapZoomLev";
+
+/// The level a map opens at: the kept `ZoomLev` (FUN_1004d92d reads it when it is there; the view starts at 0), held
+/// to the map's levels as FUN_1004c2e2 holds it (no more than the last, no less than 0).
+fn opening_level(kept: Option<usize>, levels: usize) -> usize {
+    kept.unwrap_or(0).min(levels.saturating_sub(1))
+}
+
 /// The level's pixel of a fraction of the map's rectangle, and back: how a point stays put from one level to another.
 fn fraction(map: &PlanetMap, level: usize, p: egui::Pos2) -> egui::Vec2 {
     let Some(l) = map.levels.get(level) else { return egui::Vec2::ZERO };
@@ -65,6 +74,7 @@ impl PlanetWindow {
         let moved = from_fraction(&map, new, point);
         self.centre = Some(moved - offset);
         self.level = new;
+        crate::layout::set_tab(ZOOM_KEY, new);
     }
 
     /// Draws the window: `own` the character's playfield, place (server x, y, z) and heading; `waypoint` the mission's;
@@ -81,8 +91,8 @@ impl PlanetWindow {
             self.map = crate::planetmaps::for_window(expansion_playfield);
             self.picked_for = Some((playfield, expansion_playfield));
             if self.map.as_ref().map(|m| (m.root.clone(), m.name.clone())) != old {
-                // (a new map opens at its second level, or its first)
-                self.level = self.map.as_ref().map_or(0, |m| 1.min(m.levels.len().saturating_sub(1)));
+                // (a map opens at the level kept in PlanetMapViewConfig's `ZoomLev`, else the first, FUN_1004d92d)
+                self.level = self.map.as_ref().map_or(0, |m| opening_level(crate::layout::tab(ZOOM_KEY), m.levels.len()));
                 self.centre = None;
                 self.follow = true;
             }
@@ -217,5 +227,19 @@ impl PlanetWindow {
             self.buttons_height = (ui.min_rect().bottom() - buttons_top).max(1.0);
         });
         self.open = open;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_map_opens_at_the_kept_level_held_to_its_levels() {
+        assert_eq!(opening_level(None, 4), 0);
+        assert_eq!(opening_level(Some(2), 4), 2);
+        assert_eq!(opening_level(Some(7), 4), 3);
+        assert_eq!(opening_level(Some(3), 1), 0);
+        assert_eq!(opening_level(None, 0), 0);
     }
 }
