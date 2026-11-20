@@ -203,13 +203,16 @@ fn apply_sound(store: &Store, name: &str) {
         "MusicVolume" => m.set_master_music_volume(f),
         "VoiceSndFxOn" => m.set_master_player_fx_mute(!on),
         "VoiceSndFxVolume" => m.set_master_player_fx_volume(f),
+        // (`SlotPrefBattlemusicModeChanged` 0x100c52d5: `SetBattleMusicMode` with the value as a whole number)
+        "BattlemusicMode" => m.set_battle_music_mode(v.as_int32()),
         // (`SoundOnOff`: everything)
         "SoundOnOff" => m.set_master_mute(!on),
         _ => {}
     });
 }
 
-const SOUND: [&str; 8] = ["SoundOnOff", "MasterVolume", "SoundFXOn", "FXVolume", "MusicOn", "MusicVolume", "VoiceSndFxOn", "VoiceSndFxVolume"];
+/// The preferences `SoundOptionsMonitor_c` (FUN_100c573c) observes.
+const SOUND: [&str; 9] = ["SoundOnOff", "MasterVolume", "SoundFXOn", "FXVolume", "MusicOn", "MusicVolume", "BattlemusicMode", "VoiceSndFxOn", "VoiceSndFxVolume"];
 
 /// The docks and the pictures that size them.
 const DOCKS: [(&str, &str); 7] = [
@@ -572,6 +575,14 @@ fn tip(ui: &egui::Ui, env: &Env, response: &egui::Response, e: &Entry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The sound preferences passed to the sound module as they change are `SoundOptionsMonitor_c`'s nine.
+    #[test]
+    fn the_sound_preferences_are_the_monitors_nine() {
+        let mut names = SOUND.to_vec();
+        names.sort_unstable();
+        assert_eq!(names, ["BattlemusicMode", "FXVolume", "MasterVolume", "MusicOn", "MusicVolume", "SoundFXOn", "SoundOnOff", "VoiceSndFxOn", "VoiceSndFxVolume"]);
+    }
 
     /// `MAO_GAME`: every window the game's own menus name (`*_window` and the Team menu's `team_view`, in
     /// `cd_image/gui/Default/ActionMenu`) is one of the client's windows.
