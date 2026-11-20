@@ -1911,10 +1911,13 @@ impl World {
                         self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_FearActivated")));
                     }
                 }
+                // (FUN_100a4f8a sets it on any character: another's goes with the stats its `Stat` messages set)
                 crate::spelllist::Outcome::SetStat { stat, value } => {
                     if on.1 == self.own {
                         self.stats.insert(stat, value as i64);
                         self.stats_changed = true;
+                    } else {
+                        self.others_stats.entry(on.1).or_default().insert(stat, value as i64);
                     }
                 }
                 crate::spelllist::Outcome::TempStat { stat, value, begin } => {
@@ -2105,7 +2108,8 @@ impl World {
     /// 3, `EntityInfo::fatness`) or a `Stat` message changed it since; 1 for one not announced.
     fn fatness(&self, id: u32) -> i32 {
         let announced = self.infos.get(&id).map_or(1, |i| i.fatness as i32);
-        if id == self.own { self.stats.get(&47).map_or(announced, |&v| v as i32) } else { announced }
+        let stats = if id == self.own { Some(&self.stats) } else { self.others_stats.get(&id) };
+        stats.and_then(|s| s.get(&47)).map_or(announced, |&v| v as i32)
     }
 
     /// Another character's own body's scale in percent: the `Scale` stat its full update set (`EntityInfo::scale`: a
@@ -12193,7 +12197,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         // (the body the ring is fitted to: breed, sex and the fatness stat 47)
                         let body = |id: u32| -> Option<(i32, i32, i32)> {
                             let info = state.infos.get(&id)?;
-                            let fatness = if id == own { state.stats.get(&47).copied().unwrap_or(1) as i32 } else { info.fatness as i32 };
+                            let fatness = if id == own { state.stats.get(&47).copied().unwrap_or(1) as i32 } else { state.fatness(id) };
                             Some((info.breed as i32, info.sex as i32, fatness))
                         };
                         // (the spell lists' effects on each character, keyed apart from the programs by the top bit)
@@ -14660,6 +14664,10 @@ mod door_tests {
         assert_eq!(w.game_lines.len(), 1);
         w.spell_outcomes(vec![(me, crate::spelllist::Outcome::SetStat { stat: 689, value: 3 }), ((crate::requirements::CHARACTER, 5), crate::spelllist::Outcome::SetStat { stat: 690, value: 1 })]);
         assert_eq!((w.stats.get(&689), w.stats.get(&690)), (Some(&3), None));
+        // (NAN-022: another's stat set goes with its own stats, FUN_100a4f8a; a fatness set there is its body's)
+        assert_eq!(w.others_stats.get(&5).and_then(|s| s.get(&690)), Some(&1));
+        w.spell_outcomes(vec![((crate::requirements::CHARACTER, 5), crate::spelllist::Outcome::SetStat { stat: 47, value: 2 })]);
+        assert_eq!(w.fatness(5), 2);
     }
 
     /// TGT-005: a creature whose master (stat 196, from the server's `Stat`) is oneself is a friend for the targeting keys;
