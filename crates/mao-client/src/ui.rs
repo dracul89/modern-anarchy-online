@@ -28,8 +28,12 @@ pub struct Label {
 /// font's pixels high at 0.01 a pixel (word 28, 0x1016ce20); its run (FUN_100df059) lifts it 0.4 a second (word 29) for its
 /// life of 1.3 s (word 26); its colour (SetColor, FUN_100df166) is the event's from the table at 0x10157b08, start and end
 /// alike. Over one's own character it is made only with the third-person camera (DAT_102e1640); in first person the original
-/// sends AFCM module 0x19's message 0x3b instead, which is not ported. The glyphs are the effect's material 40's, by a table
-/// Gamecode fills at run time (0x102c5608, not in the file): the client's own font stands in for them, a guess at the look.
+/// sends AFCM module 0x19's message 0x3b instead (FUN_100044c2: the amount and the colour's index), which GUI.dll's
+/// `RenderTextModule_t::DamageTextMessage` (0x1004b4f2) makes a flat screen text of: `"%d"` in font 2, centred 50 pixels
+/// from the left plus a random -20..20 and 20 above its y of DAT_102761c0, rising 70 pixels over its 2.3 s (FUN_1004b357,
+/// FUN_1004b112). DAT_102761c0 is never written (in .bss; that read is its only reference), so the text always stands
+/// above the screen's top edge and is never seen: the client, drawing nothing there, shows the same. The glyphs are the
+/// effect's material 40's, by a table Gamecode fills at run time (0x102c5608, not in the file): the client's own font stands in for them, a guess at the look.
 pub struct CombatText {
     pub world: Vec3,
     pub text: String,
@@ -2645,7 +2649,8 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     crate::whiteout::draw(ctx, &painter, screen);
     // (no tags over the Whom-Pah booths: each booth's own sign says where it leads, and the tags stood over them on
     // top of everything. The booths' labels still fill the Whom-Pah window and the corner map's dots.)
-    // The fight lines' floating texts (`CombatText`): centred, rising, in the event's colour; one's own not in first person.
+    // The fight lines' floating texts (`CombatText`): centred, rising, in the event's colour; one's own not in first person
+    // (there the original's own text, `DamageTextMessage`, stands above the screen's top edge: see `CombatText`).
     for t in &hud.combat_texts {
         let age = t.born.elapsed().as_secs_f32();
         if age >= COMBAT_TEXT_LIFE || (t.own && hud.first_person) {
