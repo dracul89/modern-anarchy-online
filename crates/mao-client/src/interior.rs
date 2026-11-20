@@ -143,6 +143,15 @@ impl RoomState {
         a == b || self.doors(a, b).first().is_some_and(|&n| open(n))
     }
 
+    /// Whether a body whose sphere's centre is at `at` is in reach of the character's, at `own`, as far as the rooms go
+    /// (Gamecode FUN_1005a1e7's dungeon part): `PosToRoom` of the character's centre with its own room as the hint, then
+    /// of the other's with the character's room as the hint; when either is in no room it is in reach, else through
+    /// [`RoomState::reach_through`].
+    pub fn rooms_reach(&self, interior: &Interior, own: [f32; 3], at: [f32; 3], open: &dyn Fn(u8) -> bool) -> bool {
+        let Some(a) = interior.room_at(own, self.current) else { return true };
+        interior.room_at(at, Some(a)).is_none_or(|b| self.reach_through(a, b, open))
+    }
+
     /// The rooms to draw now: the character's own, the rooms behind its open doors, and for two seconds the rooms that were
     /// shown. One flag per room; empty when the character is in no room yet.
     pub fn shown(&mut self, interior: &Interior, now: Instant, open: &dyn Fn(u8) -> bool) -> Vec<bool> {
@@ -198,9 +207,6 @@ mod tests {
         assert_eq!(crate::approach_doors(&db, 1186).len(), 7);
     }
 
-    /// `MAO_GAME`: the org headquarters (playfield 4349). Its elevators are no doorways: the server moves the character
-    /// from the hall (room 1) to the tactical room (room 5), which no door joins. A step there is undone; a place the
-    /// server gave is kept (the places are the user's log's, 2026-11-15).
     /// FUN_1005a1e7: two rooms apart, a trade or a use reaches through the doorway's door only when it is open; a doorway
     /// with no door registered, or rooms no doorway joins, do not.
     #[test]
@@ -215,6 +221,25 @@ mod tests {
         assert!(!state.reach_through(1, 2, &|_| true) && !state.reach_through(0, 2, &|_| true));
     }
 
+    /// FUN_1005a1e7 by the two bodies' sphere centres: each point's room by `PosToRoom` (the character's own room the
+    /// hint), the same room or either in none in reach, two rooms apart through the open door only.
+    #[test]
+    fn reach_by_place_finds_the_rooms_first() {
+        let i = interior();
+        let mut state = RoomState::default();
+        state.register(&i, &BTreeMap::from([(7u8, (1u32, [4.0f32, 0.0, 1.0]))]));
+        let (in_0, in_0b, in_1, in_2, nowhere) = ([3.0, 1.0, 1.0], [3.5, 1.0, 3.0], [7.0, 1.0, 1.0], [11.0, 1.0, 1.0], [30.0, 1.0, 1.0]);
+        assert_eq!([in_0, in_1, in_2, nowhere].map(|p| i.room_at(p, None)), [Some(0), Some(1), Some(2), None]);
+        let (shut, open) = (|_: u8| false, |n: u8| n == 7);
+        assert!(state.rooms_reach(&i, in_0, in_0b, &shut));
+        assert!(!state.rooms_reach(&i, in_0, in_1, &shut) && state.rooms_reach(&i, in_0, in_1, &open));
+        assert!(!state.rooms_reach(&i, in_0, in_2, &|_| true));
+        assert!(state.rooms_reach(&i, nowhere, in_1, &shut) && state.rooms_reach(&i, in_0, nowhere, &shut));
+    }
+
+    /// `MAO_GAME`: the org headquarters (playfield 4349). Its elevators are no doorways: the server moves the character
+    /// from the hall (room 1) to the tactical room (room 5), which no door joins. A step there is undone; a place the
+    /// server gave is kept (the places are the user's log's, 2026-11-15).
     #[test]
     fn a_teleport_between_rooms_without_a_doorway_is_kept() {
         let Some(game) = std::env::var_os("MAO_GAME") else { return };

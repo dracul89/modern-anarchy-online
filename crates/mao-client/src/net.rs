@@ -976,8 +976,8 @@ fn delete_refusal(place: u32, full_bag: bool) -> Option<&'static str> {
 
 /// Whether a trade may start with a character (Gamecode FUN_1005a1e7, asked by `N3Msg_TradeStart` 0x10019148): the
 /// distance between the two body spheres' centres, less both radii, no more than 5 m (DAT_101584fc). Spheres are
-/// (height of the centre above the feet, radius). Not here: in a dungeon, two rooms apart need the door between them
-/// open (`n3Playfield_t::IsDoorOpenBetweenRooms`).
+/// (height of the centre above the feet, radius). Its dungeon part (two rooms apart need the door between them open,
+/// `n3Playfield_t::IsDoorOpenBetweenRooms`) is `interior::RoomState::rooms_reach`.
 fn trade_in_reach(own: [f32; 3], own_sphere: (f32, f32), at: [f32; 3], sphere: (f32, f32)) -> bool {
     let (dx, dy, dz) = (at[0] - own[0], (at[1] + sphere.0) - (own[1] + own_sphere.0), at[2] - own[2]);
     (dx * dx + dy * dy + dz * dz).sqrt() - own_sphere.1 - sphere.1 <= 5.0
@@ -10794,14 +10794,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         // `FindDoorIDFromRoomLink` and `IsDoorOpenBetweenRooms`)
                         let now = Instant::now();
                         let open = |n: u8| state.doors_open.get(&n).is_some_and(|until| *until > now);
+                        // (`PosToRoom` of the two spheres' centres)
                         let rooms_join = |at: [f32; 3]| {
-                            interior.as_ref().is_none_or(|i| {
-                                let own_room = i.room_at(position, room_state.current);
-                                match (own_room, own_room.and_then(|r| i.room_at(at, Some(r)))) {
-                                    (Some(a), Some(b)) => room_state.reach_through(a, b, &open),
-                                    _ => true,
-                                }
-                            })
+                            let (own_centre, centre) = ([position[0], position[1] + own_sphere.0, position[2]], [at[0], at[1] + their_sphere.0, at[2]]);
+                            interior.as_ref().is_none_or(|i| room_state.rooms_reach(i, own_centre, centre, &open))
                         };
                         if state.position_of(id).is_some_and(|at| !trade_in_reach(position, own_sphere, at, their_sphere) || !rooms_join(at)) {
                             state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_TargetOutsideRangeForTrade")));
@@ -11971,14 +11967,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 let own_corpse = state.corpses.get(&own).copied();
                 let now = Instant::now();
                 let open = |n: u8| state.doors_open.get(&n).is_some_and(|until| *until > now);
+                // (`PosToRoom` of the two spheres' centres: the corpse's is the client's no-mesh sphere)
+                let own_centre_y = position[1] + own_sphere.unwrap_or(NO_MESH_SPHERE).0;
                 let rooms_join = |at: [f32; 3]| {
-                    interior.as_ref().is_none_or(|i| {
-                        let own_room = i.room_at(position, room_state.current);
-                        match (own_room, own_room.and_then(|r| i.room_at(at, Some(r)))) {
-                            (Some(a), Some(b)) => room_state.reach_through(a, b, &open),
-                            _ => true,
-                        }
-                    })
+                    let (own_centre, centre) = ([position[0], own_centre_y, position[2]], [at[0], at[1] + NO_MESH_SPHERE.0, at[2]]);
+                    interior.as_ref().is_none_or(|i| room_state.rooms_reach(i, own_centre, centre, &open))
                 };
                 let away: Vec<(u32, u32)> = state
                     .loots
