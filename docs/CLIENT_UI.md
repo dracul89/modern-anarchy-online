@@ -1055,8 +1055,10 @@ update's; a helmet stands in the head's place (`HEAD_REPLACED`) and the body's h
 a picture (`MAO_WEAR=0:9d3a,0:4e5f` against `128:4e5f` on `player 2 2`): the hair's spikes through the helmet are
 gone. Not seen live. The original's hiding modes (+0x74, `VisualCATMesh_t::SetShape`): Gamecode FUN_100590b8 sets 1 while
 the character's `MonsterData` (stat 359) is set and 0 otherwise. In shape 1 FUN_10073517 hides every listed mesh but the
-character's own head (place 0, flag bit 2), so a polymorphed or riding character's body carries that head on its head
-attractor and nothing else it wears (`n3::morphed_meshes`, 2026-11-19, RND-142); the head does not change the body's skin.
+character's own head (place 0, flag bit 2). Hanging that head on a polymorphed or riding character's body was ported on
+2026-11-19 (RND-142) and taken out on 2026-11-20: the user's polymorphed character showed a human face over the creature's,
+which the original does not show. What in the original keeps that head off the body was not found; such bodies carry
+nothing worn again.
 *A shop's wall gone.* Since the faces turned away are no longer drawn (this morning), every interior's own walls and
 ceilings were gone from inside it and the next room showed through; the floors stayed. The rooms' pieces are put from
 the game's upright frame into the viewer's, which mirrors them, and given as parts in the viewer's own frame, so

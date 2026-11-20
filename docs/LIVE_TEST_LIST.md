@@ -1255,9 +1255,8 @@ These were written before this list; some may have been seen working since witho
   team mate) says a better program is running and nothing is cast; recasting the same buff to refresh it still works.
 - [ ] Natural weapons (CMB-016, 2026-11-19): a creature with weapon points that fights with its own weapons (Engineer
   Automatons, cleaning robots at Arete Landing) swings its own attack animation, not the generic unarmed push.
-- [ ] Morphed heads (RND-142, 2026-11-19): a character polymorphed or on a Yalmaha shows its own head on the body's
-  head place, nothing else it wears (no helmet, pads or back piece). Look for a head doubled on or floating off the body
-  and compare with the original if one is at hand.
+- [ ] Morphed bodies (RND-142 taken out, 2026-11-20): a polymorphed character shows the creature's body and face alone,
+  no human head or face on it.
 - [ ] Icon time text (CMB-023, 2026-11-19): after a special or a nano, the Actions window tile and the nano programs'
   icon show the yellow time left (" 9s", then minutes over 60 s), as the shortcut bar does.
 - [ ] A sky flash with a negative lower radius on a usual character: its foot about half as wide as before (0.25 for 0.5).

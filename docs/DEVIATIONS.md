@@ -38,36 +38,36 @@ client does today, what a player notices, and where it is in the code.
 <!-- status: made by status.py; run it again after marking entries -->
 ## Where it stands
 
-Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; "looked at, left" was read and not ported for a reason its entry gives; "kept by decision" is your answer to keep the client's way.
+Counted from the entries' own marks on 2026-11-20. "Open" is not looked at yet; "looked at, left" was read and not ported for a reason its entry gives; "kept by decision" is your answer to keep the client's way.
 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 54 | 0 | 0 | 0 | 0 | **0** |
-| **medium** | 159 | 64 | 28 | 39 | 28 | 0 | **0** |
-| **low** | 725 | 219 | 45 | 405 | 56 | 0 | **0** |
-| **all** | 938 | 337 | 73 | 444 | 84 | 0 | **0** |
+| **medium** | 159 | 64 | 27 | 39 | 29 | 0 | **0** |
+| **low** | 725 | 220 | 51 | 398 | 56 | 0 | **0** |
+| **all** | 938 | 338 | 78 | 437 | 85 | 0 | **0** |
 
 ### By area
 
 | Area | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Movement (`MOV`) | 33 | 13 | 1 | 15 | 4 | 0 | **0** |
-| Combat (`CMB`) | 39 | 20 | 6 | 12 | 1 | 0 | **0** |
+| Movement (`MOV`) | 33 | 14 | 0 | 15 | 4 | 0 | **0** |
+| Combat (`CMB`) | 39 | 20 | 7 | 11 | 1 | 0 | **0** |
 | Targeting and mouse (`TGT`) | 17 | 8 | 2 | 7 | 0 | 0 | **0** |
 | Death and revival (`DTH`) | 14 | 7 | 0 | 7 | 0 | 0 | **0** |
-| NPCs and creatures (`NPC`) | 40 | 19 | 2 | 18 | 1 | 0 | **0** |
-| Inventory and items (`INV`) | 84 | 38 | 12 | 29 | 5 | 0 | **0** |
+| NPCs and creatures (`NPC`) | 40 | 19 | 5 | 15 | 1 | 0 | **0** |
+| Inventory and items (`INV`) | 84 | 38 | 11 | 30 | 5 | 0 | **0** |
 | Nano programs (`NAN`) | 60 | 16 | 6 | 35 | 3 | 0 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 8 | 1 | 15 | 4 | 0 | **0** |
 | Chat and commands (`CHT`) | 80 | 38 | 7 | 29 | 6 | 0 | **0** |
-| Windows and interface (`WIN`) | 180 | 75 | 17 | 65 | 23 | 0 | **0** |
+| Windows and interface (`WIN`) | 180 | 75 | 19 | 63 | 23 | 0 | **0** |
 | Camera (`CAM`) | 13 | 7 | 0 | 6 | 0 | 0 | **0** |
-| Rendering and world (`RND`) | 194 | 48 | 13 | 125 | 8 | 0 | **0** |
+| Rendering and world (`RND`) | 194 | 47 | 13 | 125 | 9 | 0 | **0** |
 | Sound and music (`SND`) | 17 | 5 | 0 | 12 | 0 | 0 | **0** |
-| Launcher, login, character creation (`LCH`) | 51 | 21 | 2 | 22 | 6 | 0 | **0** |
-| Settings and files (`SET`) | 54 | 9 | 3 | 25 | 17 | 0 | **0** |
+| Launcher, login, character creation (`LCH`) | 51 | 21 | 3 | 21 | 6 | 0 | **0** |
+| Settings and files (`SET`) | 54 | 9 | 4 | 24 | 17 | 0 | **0** |
 | Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 2 | 0 | **0** |
-| Other (`OTH`) | 21 | 3 | 1 | 13 | 4 | 0 | **0** |
+| Other (`OTH`) | 21 | 4 | 0 | 13 | 4 | 0 | **0** |
 
 ### High weight not finished
 
@@ -75,11 +75,10 @@ None.
 
 ### Medium weight not finished, by area
 
-**Movement** (3)
+**Movement** (2)
 
 - `MOV-001` Own flight also read from worn items and running programs (OWN-RULE) - looked at, left
 - `MOV-004` Own walking and collision where a playfield has no surfaces (and with noclip) (SIMPLIFIED) - looked at, left
-- `MOV-021` Flight: entering effect and the ways flight ends missing (MISSING) - part done
 
 **Combat** (3)
 
@@ -327,7 +326,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 - [x] `CMB-037` Damage meter window (client's own) **(kept by decision)**
 - [x] `CMB-038` Floating combat numbers **(done)**
-- [x] `CMB-039` A nano cast's own check lacks most of the original's refusals (MISSING)
+- [ ] `CMB-039` A nano cast's own check lacks most of the original's refusals (MISSING) **(part done)**
 
 **Targeting and mouse**
 
@@ -8371,8 +8370,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: shown_meshes follows the flags only; not seen live
 - A player notices: some worn items the original hides may be drawn
 - Where: `crates/mao-net/src/n3.rs:1949`; `docs/CLIENT_UI.md:1058`
-- Decision: [x] port  [ ] leave
-- Done (2026-11-19, late evening, the user's go-ahead): shape 1 is ported as the reader found it. `n3::morphed_meshes` keeps of a character's listed meshes only those at place 0 with flag bit 2 (its own head; the first with bit 1 alone if one has it), from the full update (`EntityInfo::morph_meshes`) and the appearance update alike (`World::morph_equipment`, kept beside `equipment`, whose flags are gone); a body drawn for a `MonsterData` (a polymorph, a craft) hangs them through `creature_parts`, without letting that head choose the body's skin (`Characters::morph_gear`). Shape 2 is never set by Gamecode; shape 0 is `shown_meshes`. Whether the head sits right on each morph and craft body is for the eye (LIVE). Test a_full_updates_meshes_follow_its_clothes.
+- Decision: [ ] port  [x] leave
+- Taken out (2026-11-20, the user's go-ahead: "Yes, fix both"): the user's polymorphed character showed its own human face over the creature's, which the original does not show; the code below was removed and morphed bodies carry nothing worn again. What in the original keeps the head off was not found (Gamecode FUN_100585bf falls back to the character's own head stat 64 when the template has none, so the head is somewhere in the body's build). Ported 2026-11-19, late evening: shape 1 as the reader found it. `n3::morphed_meshes` keeps of a character's listed meshes only those at place 0 with flag bit 2 (its own head; the first with bit 1 alone if one has it), from the full update (`EntityInfo::morph_meshes`) and the appearance update alike (`World::morph_equipment`, kept beside `equipment`, whose flags are gone); a body drawn for a `MonsterData` (a polymorph, a craft) hangs them through `creature_parts`, without letting that head choose the body's skin (`Characters::morph_gear`). Shape 2 is never set by Gamecode; shape 0 is `shown_meshes`. Whether the head sits right on each morph and craft body is for the eye (LIVE). Test a_full_updates_meshes_follow_its_clothes.
 - Looked at, left (2026-11-19, overnight): Found the rule: VisualCATMesh_t::SetShape (DisplaySystem, stores +0x74) is called by Gamecode FUN_100590b8 only with 0 or 1: 1 when the character's MonsterData (stat 359) is set (a polymorph or a craft), 0 otherwise; shape 2 is never set by Gamecode. FUN_10073517 (drop-in catrun.rs attach_attractors) then hides, in shape 1, every worn mesh except those at place 0 with flag bit 2 (the character's own head), and in shape 2 every place outside 1..4. The client draws a MonsterData body with no worn meshes at all (net.rs overlay_model, creature_parts with an empty gear list), so the faithful change is to hang the character's own bit-2 head on the creature body's head attractor while it is morphed. Whether that head then sits on (or doubles) the creature's own head on the morph and craft bodies can only be judged by eye, and the gear list the client keeps (World::equipment) has already lost the flags (shown_meshes), so it needs a second list kept from the raw one. Left for a session that can look.
 
 #### `RND-143` Animation rest pose of a frame not used
