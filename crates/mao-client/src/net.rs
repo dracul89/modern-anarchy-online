@@ -12212,7 +12212,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 .collect()
                         };
                         let mut add = |id: u32, own_character: bool, at: [f32; 3], nanos: Vec<u32>| {
-                            let mut auras: Vec<(u32, mao_formats::gfx::Visual)> = nanos.into_iter().filter_map(|n| aura_of(n).map(|v| (n, v))).take(6).collect();
+                            // (every running program's effect, as the original draws each: no count is kept back)
+                            let mut auras: Vec<(u32, mao_formats::gfx::Visual)> = nanos.into_iter().filter_map(|n| aura_of(n).map(|v| (n, v))).collect();
                             auras.extend(spell_visuals(id));
                             if !auras.is_empty() {
                                 let facing = state.rotations.get(&id).map(|q| 2.0 * q[1].atan2(q[3])).unwrap_or(0.0);
