@@ -897,8 +897,8 @@ impl ChatWindow {
     /// FUN_1009a00d), a separator, "Enable Click-through", "Disable Text Input", "Deactivate On Send", a separator,
     /// "Default Window", "Auto Subscribe Channels", a separator, "Show Chat Window", "Show Log Window", "Log Messages",
     /// a separator, "Rename %s", "Delete %s", "Clone %s" with the window's name and "New Window" (FUN_1009b901). The
-    /// click-through, deactivating on send, the default window and the log window are not in this client: their
-    /// entries are drawn and cannot be chosen.
+    /// click-through, the default window and the log window are not in this client: their entries are drawn and cannot be
+    /// chosen.
     fn window_menu_tree(&self) -> Vec<Node> {
         use crate::gui::popup::Entry;
         let Some(pane) = self.panes.get(self.menu_pane) else { return Vec::new() };
@@ -909,7 +909,7 @@ impl ChatWindow {
             Node::separator(Menu::Window),
             not_here("EnableClickthrough"),
             Node::leaf(Menu::Visual, "noinput", Entry::marked(menu_text("DisableTextInput"), true, !pane.look.input)),
-            not_here("ChatWindowMenu_DeactivateOnSend"),
+            Node::leaf(Menu::Visual, "deactivate", Entry::marked(menu_text("ChatWindowMenu_DeactivateOnSend"), true, pane.look.deactivate)),
             Node::separator(Menu::Window),
             not_here("ChatWindowMenu_DefaultWindow"),
             Node::leaf(Menu::Main, "auto", Entry::marked(menu_text("ChatWindowMenu_AutoSubscribeChannels"), true, pane.auto)),
@@ -1020,6 +1020,7 @@ impl ChatWindow {
                     (Menu::Visual, "noinput") => pane.look.input = !pane.look.input,
                     (Menu::Visual, "hideinput") => pane.look.hide_input = !pane.look.hide_input,
                     (Menu::Visual, "fade") => pane.look.fade = !pane.look.fade,
+                    (Menu::Visual, "deactivate") => pane.look.deactivate = !pane.look.deactivate,
                     (Menu::Mode, mode) => pane.look.borderless = mode == "borderless",
                     (Menu::Talk, group) if !group.is_empty() => pane.output = group.to_string(),
                     (Menu::Groups { .. }, group) if !group.is_empty() => {
@@ -1880,10 +1881,15 @@ impl ChatWindow {
                 state.store(ctx, input_id);
             }
         } else if enter {
-            // (the line sent, the keys are the game's again: Enter starts the next one)
+            // (the line sent, the keys are the game's again: Enter starts the next one; with the window's
+            // "Deactivate On Send" off the bar stays typed in, FUN_100ab37b)
             let line = std::mem::take(&mut self.input);
             out = self.run_in(pane, &line);
-            response.surrender_focus();
+            if self.panes.get(pane).is_none_or(|p| p.look.deactivate) {
+                response.surrender_focus();
+            } else {
+                response.request_focus();
+            }
         }
         // The list of commands, above the input line, as the original's.
         if (has_focus || response.has_focus() || self.keep_list) && !suggestions.is_empty() {
@@ -2644,7 +2650,7 @@ mod tests {
         w.menu_pane = 1;
         let nodes = w.window_menu_tree();
         let keys: Vec<(String, bool)> = nodes.iter().map(|n| (n.key.clone(), n.entry.enabled)).collect();
-        let want = [("visual", true), ("", true), ("", false), ("noinput", true), ("", false), ("", true), ("", false), ("auto", true), ("", true), ("show", true), ("", false), ("log", true), ("", true), ("rename", true), ("delete", true), ("clone", true), ("new", true)];
+        let want = [("visual", true), ("", true), ("", false), ("noinput", true), ("deactivate", true), ("", true), ("", false), ("auto", true), ("", true), ("show", true), ("", false), ("log", true), ("", true), ("rename", true), ("delete", true), ("clone", true), ("new", true)];
         assert_eq!(keys, want.iter().map(|(k, e)| (k.to_string(), *e)).collect::<Vec<_>>());
         assert!(nodes[13].entry.label.contains("Combat"));
         // (its own entries: the window shown or not, logged or not, copied into a frame of its own)
@@ -2653,6 +2659,10 @@ mod tests {
         w.choose(&ctx, Menu::Window, "log", egui::Pos2::ZERO);
         w.choose(&ctx, Menu::Window, "clone", egui::Pos2::ZERO);
         assert!(!w.open && w.log);
+        // (deactivating on send, on as the original's windows come, turned off for the window)
+        assert!(w.panes[1].look.deactivate);
+        w.choose(&ctx, Menu::Visual, "deactivate", egui::Pos2::ZERO);
+        assert!(!w.panes[1].look.deactivate);
         assert_eq!(w.panes.len(), 3);
         assert_eq!((w.panes[2].selected.clone(), w.panes[2].frame.clone()), (w.panes[1].selected.clone(), w.panes[2].name.clone()));
     }

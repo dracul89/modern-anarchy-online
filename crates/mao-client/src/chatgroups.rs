@@ -299,12 +299,15 @@ pub struct Look {
     pub fade: bool,
     /// The frame's "always on top" (1) and "always behind" (-1).
     pub layer: i8,
+    /// `deactivate_on_send` (+0x168, on unless the config says otherwise, FUN_1009e379): a line sent ends the typing
+    /// (FUN_100ab37b → FUN_10099084); off, the input bar stays typed in.
+    pub deactivate: bool,
 }
 
 impl Default for Look {
     /// As the original's configs come (0.8 and 0.3 are in every one of the player's own files).
     fn default() -> Look {
-        Look { borderless: false, solid: (80, 30), input: true, hide_input: false, fade: false, layer: 0 }
+        Look { borderless: false, solid: (80, 30), input: true, hide_input: false, fade: false, layer: 0, deactivate: true }
     }
 }
 
@@ -445,6 +448,7 @@ pub fn parse_config(xml: &str) -> Option<(Pane, i64, bool)> {
         hide_input: flag("hide_input_when_inactive"),
         fade: flag("is_message_fading_enabled"),
         layer: 0,
+        deactivate: value(xml, "deactivate_on_send") != Some("false"),
     };
     let pane = Pane { name, frame, selected, known, auto, output: value(xml, "output_group").unwrap_or("").to_string(), timestamps: flag("show_timestamps"), look };
     Some((pane, value(xml, "tab_index").and_then(|v| v.parse().ok()).unwrap_or(0), flag("is_startup_window")))
@@ -461,14 +465,15 @@ pub fn from_original(prefs: &Path) -> Vec<Pane> {
 }
 
 /// `chatwindows.ini`: a window a block: `window <name>`, `frame <name>`, `auto 0|1`, `timestamps 0|1`, `look` with
-/// its seven numbers (borderless, solid while active and otherwise, input bar, hidden bar, fading, layer), `output
+/// its numbers (borderless, solid while active and otherwise, input bar, hidden bar, fading, layer, deactivating on
+/// send; a file of before the last has seven, the last then on), `output
 /// <group>`, then a line a group it has met, `+ <group>` shown or `- <group>` not.
 pub fn render(panes: &[Pane]) -> String {
     let mut out = String::new();
     for p in panes {
         let l = p.look;
         out += &format!("window {}\nframe {}\nauto {}\ntimestamps {}\n", p.name, p.frame, u8::from(p.auto), u8::from(p.timestamps));
-        out += &format!("look {} {} {} {} {} {} {}\noutput {}\n", u8::from(l.borderless), l.solid.0, l.solid.1, u8::from(l.input), u8::from(l.hide_input), u8::from(l.fade), l.layer, p.output);
+        out += &format!("look {} {} {} {} {} {} {} {}\noutput {}\n", u8::from(l.borderless), l.solid.0, l.solid.1, u8::from(l.input), u8::from(l.hide_input), u8::from(l.fade), l.layer, u8::from(l.deactivate), p.output);
         for g in &p.known {
             out += &format!("{} {g}\n", if p.selected.contains(g) { '+' } else { '-' });
         }
@@ -491,8 +496,12 @@ pub fn parse(text: &str) -> Vec<Pane> {
             "frame" if !rest.is_empty() => p.frame = rest.to_string(),
             "timestamps" => p.timestamps = rest == "1",
             "look" => {
-                if let [borderless, active, inactive, input, hide, fade, layer] = rest.split_whitespace().filter_map(|w| w.parse::<i32>().ok()).collect::<Vec<_>>()[..] {
-                    p.look = Look { borderless: borderless == 1, solid: (active.clamp(0, 100) as u8, inactive.clamp(0, 100) as u8), input: input == 1, hide_input: hide == 1, fade: fade == 1, layer: layer.signum() as i8 };
+                let numbers: Vec<i32> = rest.split_whitespace().filter_map(|w| w.parse::<i32>().ok()).collect();
+                if let [borderless, active, inactive, input, hide, fade, layer, ref more @ ..] = numbers[..]
+                    && more.len() <= 1
+                {
+                    let deactivate = more.first().is_none_or(|&d| d == 1);
+                    p.look = Look { borderless: borderless == 1, solid: (active.clamp(0, 100) as u8, inactive.clamp(0, 100) as u8), input: input == 1, hide_input: hide == 1, fade: fade == 1, layer: layer.signum() as i8, deactivate };
                 }
             }
             "output" => p.output = rest.to_string(),
@@ -598,7 +607,9 @@ mod tests {
         // (a config that says nothing of the look has the original's; one that does is read)
         assert_eq!(pane.look, Look::default());
         let styled = r#"<Archive code="0"><String name="name" value="Side" /><Int32 name="visual_mode" value="2" /><Float name="window_transparency_active" value="0.500000" /><Float name="window_transparency_inactive" value="0.100000" /><Bool name="is_textinput_enabled" value="false" /><Bool name="hide_input_when_inactive" value="true" /><Bool name="is_message_fading_enabled" value="true" /></Archive>"#;
-        assert_eq!(parse_config(styled).unwrap().0.look, Look { borderless: true, solid: (50, 10), input: false, hide_input: true, fade: true, layer: 0 });
+        assert_eq!(parse_config(styled).unwrap().0.look, Look { borderless: true, solid: (50, 10), input: false, hide_input: true, fade: true, layer: 0, deactivate: true });
+        // (`deactivate_on_send` is on unless the file turns it off)
+        assert!(!parse_config(r#"<Archive code="0"><String name="name" value="Side" /><Bool name="deactivate_on_send" value="false" /></Archive>"#).unwrap().0.look.deactivate);
         assert!(pane.shows("Me hit by monster") && pane.shows("Clan OOC") && !pane.shows(SYSTEM) && !pane.shows("Neu. OOC"));
     }
 
@@ -618,8 +629,10 @@ mod tests {
         assert_eq!((panes[1].frame.as_str(), frames(&panes).len(), members(&panes, FIRST_FRAME)), ("Window2", 2, vec![0]));
         assert_eq!((free_name(&panes), parse(&render(&panes)) == panes), ("Window3".to_string(), true));
         // (the look goes round too; a file without it has the original's)
-        panes[0].look = Look { borderless: true, solid: (60, 10), input: false, hide_input: true, fade: true, layer: -1 };
+        panes[0].look = Look { borderless: true, solid: (60, 10), input: false, hide_input: true, fade: true, layer: -1, deactivate: false };
         assert_eq!(parse(&render(&panes)), panes);
+        // (a look line of before deactivating on send has it on)
+        assert!(parse("window A\nlook 0 80 30 1 0 0 0\n")[0].look.deactivate);
         assert_eq!(parse("window A\n")[0].look, Look::default());
         // (a file of before the frames puts every window in the first)
         assert_eq!(parse("window A\nwindow B\n").iter().map(|p| p.frame.clone()).collect::<Vec<_>>(), ["Window1", "Window1"]);
