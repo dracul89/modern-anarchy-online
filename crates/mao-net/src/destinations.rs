@@ -8,8 +8,8 @@
 //! the playfield's district of that name (`PlayfieldDistrictInfo_t::GetDistrictData`), the PvP setting the suppression
 //! gas follows. The two bytes are the change's flags (bit 0 the mode is set rather than added, bit 1 it overrides the
 //! changes before it, bit 2 it takes away the change of that id) and the mode, a signed byte. The district's mode is its
-//! own (district data +0x54) run through its changes ([`fight_mode`], FUN_1011fddd). The client keeps no districts'
-//! fight modes yet, so the list is read and kept only.
+//! own (district data +0x54) run through its changes ([`fight_mode`], FUN_1011fddd). The playfield keeps the changes in its
+//! `FightModeHandler_t` ([`FightModeHandler`], `PlayfieldAnarchy_t::GetFightModeHandler` 0x10121b8d).
 
 /// The message that carries the list.
 pub const DESTINATION_LIST: u32 = 0x371d0542;
@@ -64,6 +64,38 @@ pub fn fight_mode(base: i32, changes: &[Destination]) -> i32 {
         }
     }
     mode.clamp(0, 4)
+}
+
+/// A playfield's `FightModeHandler_t` (`PlayfieldAnarchy_t` +0xbc, made with it by `GetFightModeHandler` 0x10121b8d): the
+/// changes the server made to its districts' fight modes, each district's in the order they came (keyed by the district,
+/// which the original finds by its name in the playfield's district info).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FightModeHandler {
+    districts: Vec<(String, Vec<Destination>)>,
+}
+
+impl FightModeHandler {
+    /// One change of a `FightModeUpdate` (FUN_101250c3's loop): a removal takes away, in every district, the first change
+    /// of its id (FUN_1011fe65); any other is added at the end of its district's list (FUN_1011fed2).
+    pub fn apply(&mut self, change: &Destination) {
+        if change.removal() {
+            for (_, list) in &mut self.districts {
+                if let Some(at) = list.iter().position(|c| c.id == change.id) {
+                    list.remove(at);
+                }
+            }
+            return;
+        }
+        match self.districts.iter_mut().find(|d| d.0 == change.name) {
+            Some((_, list)) => list.push(change.clone()),
+            None => self.districts.push((change.name.clone(), vec![change.clone()])),
+        }
+    }
+
+    /// The fight mode of the district of this name, its own mode `base` (FUN_1011fddd).
+    pub fn mode(&self, district: &str, base: i32) -> i32 {
+        fight_mode(base, self.districts.iter().find(|d| d.0 == district).map_or(&[][..], |d| &d.1[..]))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,5 +164,20 @@ mod tests {
         assert_eq!(fight_mode(2, &[change(0, -4)]), 0);
         assert_eq!(fight_mode(0, &[change(3, 3), change(0, 1), change(1, 0)]), 3);
         assert_eq!(fight_mode(0, &[change(3, 3), change(2, -1)]), 2);
+    }
+
+    /// FUN_101250c3: changes add to their district's list, a removal takes the first of its id from each district.
+    #[test]
+    fn the_handler_keeps_changes_by_district() {
+        let change = |id: u32, name: &str, flags: u8, mode: i8| Destination { id, name: name.into(), flags: [flags, mode as u8] };
+        let mut h = FightModeHandler::default();
+        h.apply(&change(7, "North", 1, 0));
+        h.apply(&change(8, "North", 0, 1));
+        h.apply(&change(9, "South", 0, -1));
+        assert_eq!((h.mode("North", 3), h.mode("South", 3), h.mode("East", 3)), (1, 2, 3));
+        h.apply(&change(7, "North", 4, 0));
+        assert_eq!(h.mode("North", 3), 4);
+        h.apply(&change(9, "South", 4, 0));
+        assert_eq!(h.mode("South", 3), 3);
     }
 }

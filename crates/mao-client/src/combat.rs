@@ -3,6 +3,8 @@
 //! key does (`N3Msg_DefaultAttack` 0x10028147 with the selection and `false`, from Interfaces.dll 0x10007cba; its check
 //! FUN_10069a9f and the sender FUN_1006817d).
 
+use std::time::{Duration, Instant};
+
 /// The radius the targeting keys look in (the locality query's 100, 0x10156eb0).
 pub const TARGET_RADIUS: f32 = 100.0;
 /// What a candidate nearer than the current target (or as near and listed before it) is pushed back by, so the order wraps
@@ -128,8 +130,8 @@ pub struct Own {
 /// The fight mode (`FightTypeAllowed_e`) of a character's district: FUN_1003e3e2 takes the playfield's district info for the
 /// character's zone, its district's mode (`DistrictData_t` +0x54, 0 to 4: text.mdb's `SuppressionField100`, 75, 25, 5 and
 /// 0) through the playfield's `FightModeHandler_t` (FUN_1011fddd: the district's base and the handler's changes for it,
-/// clamped to 0..4); 2 when the playfield has no district info or none for the zone. The handler's changes come from the
-/// server and are not kept here: the base stands.
+/// clamped to 0..4); 2 when the playfield has no district info or none for the zone. The caller passes the mode through the
+/// handler (`destinations::FightModeHandler`, the server's `FightModeUpdate`s: `World::district_fight_mode`).
 pub fn fight_mode(district: Option<Option<u8>>) -> i64 {
     match district {
         Some(Some(mode)) => mode as i64,
@@ -148,6 +150,119 @@ pub fn battlestation(playfield: u32) -> bool {
 /// `SuppressionField0` for 4.
 pub fn suppression_field(mode: i64) -> Option<&'static str> {
     ["SuppressionField100", "SuppressionField75", "SuppressionField25", "SuppressionField5", "SuppressionField0"].get(usize::try_from(mode).ok()?).copied()
+}
+
+/// One's own character's PvP grace and disgrace periods: the dynel's flags +0x138 bit 2 (grace, set by FUN_1003ed59) and
+/// bit 16 (disgrace, FUN_1003ef7f), which start as it crosses into a district of another fight mode (FUN_1003f4a3), and the
+/// mode it came from (`carried`, +0xf4 of its `FUN_10058d5d` part), which stands for its own while either is set
+/// (FUN_1003e43a). Each runs on one of the dynel's timed flags (FUN_1002dfc8: 0x40000000 the grace's, 1 the disgrace's),
+/// whose end (FUN_10059e90) ends the period with its line (FUN_1003e57f, FUN_1003e5d0 with 1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Periods {
+    pub carried: i64,
+    pub grace: bool,
+    pub disgrace: bool,
+    grace_ends: Option<Instant>,
+    disgrace_ends: Option<Instant>,
+}
+
+/// What FUN_1003ed59 asks of the character when a grace period would start: whether it is attacking (its attack part's
+/// +0x44 not 1), whether it is in play (stat 194) and whether the district it is in has a land control range (district
+/// data +0x44, the range's low end, above 0).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Crossing {
+    pub attacking: bool,
+    pub in_play: bool,
+    pub land_control: bool,
+}
+
+impl Periods {
+    /// FUN_1003e43a: the character's fight mode, its district's, or during either period the one it came with.
+    pub fn current(&self, district: i64) -> i64 {
+        if self.grace || self.disgrace {
+            self.carried
+        } else {
+            district
+        }
+    }
+
+    /// FUN_1003f4a3(old, new), after its suppression line: the old mode is kept (0 for none, -1); from a mode not -1, 0 or 1
+    /// into 0 or 1 a disgrace period starts (FUN_1003ef7f) and the grace ends (FUN_1003e57f(0)); from -1, 0 or 1 into another
+    /// a grace period starts (FUN_1003ed59) and the disgrace ends (FUN_1003e5d0(0)). The lines it tells.
+    pub fn changed(&mut self, old: i64, new: i64, at: Crossing, now: Instant) -> Vec<&'static str> {
+        self.carried = if old == -1 { 0 } else { old };
+        let mut lines = Vec::new();
+        if !(-1..=1).contains(&old) {
+            if (0..=1).contains(&new) {
+                self.start_disgrace(now);
+                lines.extend(self.end_grace());
+            }
+        } else if !(0..=1).contains(&new) {
+            lines.extend(self.start_grace(at, now));
+            lines.extend(self.end_disgrace());
+        }
+        lines
+    }
+
+    /// FUN_1003ef7f: not in grace, the disgrace flag is set and its timer started anew for 60 seconds. (Its signal to the
+    /// interface, AFCM module 0x37 with the character, is not ported: what shows it was not traced.)
+    fn start_disgrace(&mut self, now: Instant) {
+        if !self.grace {
+            self.disgrace = true;
+            self.disgrace_ends = Some(now + Duration::from_secs(60));
+        }
+    }
+
+    /// FUN_1003ed59: none while in disgrace; while attacking `Feedback_NoPvPGracePeriod`; else the grace flag is set, and
+    /// in play its timer is started anew: 60 seconds in a district with a land control range, else 15. (Its signal AFCM
+    /// 0x37, as above, is not ported.)
+    pub fn start_grace(&mut self, at: Crossing, now: Instant) -> Option<&'static str> {
+        if self.disgrace {
+            return None;
+        }
+        if at.attacking {
+            return Some("Feedback_NoPvPGracePeriod");
+        }
+        self.grace = true;
+        if at.in_play {
+            self.grace_ends = Some(now + Duration::from_secs(if at.land_control { 60 } else { 15 }));
+        }
+        None
+    }
+
+    /// FUN_1003e57f: a grace period ends (its timer too): `Feedback_PvPGracePeriodEnded`. An attack started (FUN_1006a1b1
+    /// with a target) ends it so.
+    pub fn end_grace(&mut self) -> Option<&'static str> {
+        self.grace_ends = None;
+        std::mem::take(&mut self.grace).then_some("Feedback_PvPGracePeriodEnded")
+    }
+
+    /// FUN_1003e5d0: a disgrace period ends: `Feedback_PvPDisgracePeriodEnded`.
+    fn end_disgrace(&mut self) -> Option<&'static str> {
+        self.disgrace_ends = None;
+        std::mem::take(&mut self.disgrace).then_some("Feedback_PvPDisgracePeriodEnded")
+    }
+
+    /// The timed flags that ran out (FUN_10059e90: 0x40000000 ends the grace, 1 the disgrace).
+    pub fn tick(&mut self, now: Instant) -> Vec<&'static str> {
+        let mut lines = Vec::new();
+        if self.grace_ends.is_some_and(|t| t <= now) {
+            lines.extend(self.end_grace());
+        }
+        if self.disgrace_ends.is_some_and(|t| t <= now) {
+            lines.extend(self.end_disgrace());
+        }
+        lines
+    }
+
+    /// `CharInPlay` (FUN_10072b96): a character still in grace asks FUN_1003ed59 again, now in play.
+    pub fn in_play(&mut self, at: Crossing, now: Instant) -> Option<&'static str> {
+        if self.grace {
+            self.start_grace(at, now)
+        } else {
+            None
+        }
+    }
 }
 
 /// FUN_10069a9f(target, with feedback), for a player's own character: whether the target may be attacked, and the line
@@ -399,6 +514,54 @@ pub fn nano_range_line(distance: f32, range: i64, bonus: i64) -> Option<&'static
 
 #[cfg(test)]
 mod tests {
+    /// TGT-004: FUN_1003f4a3 and its periods. Into a district of mode 2 and up from 0 or 1 a grace period starts (15 s
+    /// outside land control, 60 s inside), the mode one came with standing for one's own (FUN_1003e43a); back into 0 or 1
+    /// from 2 and up the grace ends and, not in grace, a disgrace period of 60 s starts. Attacking, no grace is given; in
+    /// disgrace, none starts. The timers end the periods with their lines.
+    #[test]
+    fn crossing_districts_gives_grace_and_disgrace() {
+        use super::{Crossing, Periods};
+        use std::time::{Duration, Instant};
+        let t0 = Instant::now();
+        let free = Crossing { attacking: false, in_play: true, land_control: false };
+        let mut p = Periods::default();
+        assert_eq!(p.changed(1, 3, free, t0), Vec::<&str>::new());
+        assert!(p.grace && !p.disgrace);
+        assert_eq!((p.current(3), p.carried), (1, 1));
+        assert_eq!(p.tick(t0 + Duration::from_secs(14)), Vec::<&str>::new());
+        assert_eq!(p.tick(t0 + Duration::from_secs(15)), vec!["Feedback_PvPGracePeriodEnded"]);
+        assert_eq!(p.current(3), 3);
+        // (back into a mode of 0 or 1: disgrace for 60 s, carrying the 3)
+        assert_eq!(p.changed(3, 0, free, t0), Vec::<&str>::new());
+        assert!(p.disgrace && !p.grace);
+        assert_eq!(p.current(0), 3);
+        // (in disgrace no grace starts, and the disgrace ends on going back)
+        assert_eq!(p.changed(0, 2, free, t0), vec!["Feedback_PvPDisgracePeriodEnded"]);
+        assert!(!p.grace && !p.disgrace);
+        // (in grace, going back gives no disgrace: the grace only ends)
+        let mut p = Periods::default();
+        p.changed(-1, 4, Crossing { land_control: true, ..free }, t0);
+        assert_eq!(p.carried, 0);
+        assert_eq!(p.tick(t0 + Duration::from_secs(59)), Vec::<&str>::new());
+        assert_eq!(p.changed(4, 1, free, t0), vec!["Feedback_PvPGracePeriodEnded"]);
+        assert!(!p.disgrace);
+        // (attacking: no grace)
+        let mut p = Periods::default();
+        assert_eq!(p.changed(0, 2, Crossing { attacking: true, ..free }, t0), vec!["Feedback_NoPvPGracePeriod"]);
+        assert!(!p.grace);
+        // (not in play: grace without a timer until `CharInPlay`)
+        let mut p = Periods::default();
+        p.changed(0, 2, Crossing { in_play: false, ..free }, t0);
+        assert_eq!(p.tick(t0 + Duration::from_secs(600)), Vec::<&str>::new());
+        assert_eq!(p.in_play(free, t0), None);
+        assert_eq!(p.tick(t0 + Duration::from_secs(15)), vec!["Feedback_PvPGracePeriodEnded"]);
+        // (between two modes on the same side of the line nothing starts)
+        let mut p = Periods::default();
+        assert_eq!(p.changed(2, 4, free, t0), Vec::<&str>::new());
+        assert!(!p.grace && !p.disgrace);
+        assert_eq!(p.carried, 2);
+    }
+
     /// CMB-022: Brawl's item reaches 3 m past the two bodies, so a target 4.9 m away is reached and one 5 m away is not;
     /// a bonus of 50 % makes it 4 m (cut, not rounded); no item reaches past 40 m.
     #[test]

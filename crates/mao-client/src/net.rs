@@ -474,6 +474,14 @@ struct World {
     /// The playfield the character is in (the network loop's `current`; `combat::battlestation` asks it).
     playfield: u32,
     own_fight_mode: Option<i64>,
+    /// Whether that district has a land control range (district data +0x44 above 0), for the grace's length.
+    own_land_control: bool,
+    /// The playfield's `FightModeHandler_t` (`destinations::FightModeHandler`, made anew with each playfield: it is the
+    /// `PlayfieldAnarchy_t`'s) and the `FightModeUpdate`s waiting for their playfield's districts (FUN_10124e42's 2).
+    fight_handler: mao_net::destinations::FightModeHandler,
+    fight_updates: Vec<mao_net::destinations::DestinationList>,
+    /// One's own PvP grace and disgrace periods (`combat::Periods`: the dynel's +0x138 bits 2 and 16, its part's +0xf4).
+    periods: crate::combat::Periods,
     /// The lightning's strikes heard (where, seed) and the eye's jolts, for the viewer.
     strikes: Vec<([f32; 3], u32)>,
     jolts: Vec<f32>,
@@ -3090,6 +3098,11 @@ impl World {
                 // (the client's own fight starting: its weapons' attack timers, FUN_1006a1b1)
                 if m.identity.1 == self.own {
                     self.start_attack_timers();
+                    // (and at a character it ends one's grace period, FUN_1006a1b1 → FUN_1003e57f(0))
+                    if self.infos.contains_key(&target) {
+                        let line = self.periods.end_grace();
+                        self.feedback_lines(line);
+                    }
                 }
             }
         }
@@ -3558,6 +3571,12 @@ impl World {
         // `CharInPlay` (0x570c2039, `CharInPlayIIR_t`'s FUN_10072b96): the character is in play, its stat 194 set to 1.
         if m.kind == 0x570c2039 {
             self.in_play.insert(m.identity.1, true);
+            // (one's own still in its grace period asks for it again, now in play: FUN_10072b96 → FUN_1003ed59)
+            if m.identity.1 == self.own {
+                let at = self.crossing(self.own_land_control);
+                let line = self.periods.in_play(at, Instant::now());
+                self.feedback_lines(line);
+            }
         }
         // A character's social action (a dance, a bow): the last word of the message is the action's number.
         if m.kind == 0x3b290771 && m.data.len() >= 13 {
@@ -4381,6 +4400,8 @@ impl World {
         }
         if m.kind == mao_net::destinations::DESTINATION_LIST {
             self.destinations = mao_net::destinations::parse(&m.data);
+            // (FUN_10125055 reads it, FUN_101250c3 applies it once its playfield is there: `apply_fight_updates`)
+            self.fight_updates.extend(self.destinations.clone());
         }
         // `AOTransportSignalIIR_c`: a city's signals (`mao_net::city`). The houses' changes are for everyone in the
         // playfield; the session's are heard between its opening and its close only (the receivers Gamecode's
@@ -5356,10 +5377,79 @@ impl World {
         self.in_play.get(&id).copied().unwrap_or(true)
     }
 
-    /// A character's fight mode (`combat::fight_mode`): its district's, by the zone it stands in. One's own as the frame last
-    /// found it (with the room it is in); another's by its place outdoors, and indoors as one's own room's (the client does
-    /// not know which room another stands in). (FUN_1003e43a's own `+0xf4` taken over the district's while the dynel's
-    /// +0x138 has bit 16 or 2 is not ported: what sets those bits was not read.)
+    /// A district's fight mode through the playfield's handler (FUN_1003e3e2 → FUN_1011fddd; `combat::fight_mode`).
+    fn district_fight_mode(&self, district: &mao_formats::districts::District) -> i64 {
+        crate::combat::fight_mode(Some(district.fight_mode.map(|base| self.fight_handler.mode(&district.name, base as i32) as u8)))
+    }
+
+    /// The character's fight mode as FUN_1003e43a gives it: one's own during a PvP grace or disgrace period is the mode it
+    /// came with (`combat::Periods::current`). Others' periods are not followed (the original runs them for every player
+    /// as it crosses districts, FUN_10058f1e): theirs is their district's.
+    fn current_fight_mode(&self, id: u32) -> i64 {
+        let mode = self.fight_mode(id);
+        if id == self.own {
+            self.periods.current(mode)
+        } else {
+            mode
+        }
+    }
+
+    /// What FUN_1003ed59 asks of one's own character (`combat::Crossing`): whether it fights (its attack part's +0x44 not 1)
+    /// and is in play (stat 194).
+    fn crossing(&self, land_control: bool) -> crate::combat::Crossing {
+        crate::combat::Crossing { attacking: self.fighting.contains_key(&self.own), in_play: self.in_play(self.own), land_control }
+    }
+
+    /// Feedback lines (FUN_10059047) in the chat as system lines.
+    fn feedback_lines<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
+        for name in names {
+            self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
+        }
+    }
+
+    /// One's own district's fight mode changed from `old` to `new` (-1 for none): FUN_1003f4a3 tells the new mode's
+    /// suppression line (text.mdb 110 `SuppressionField<n>`; the original sends it as AFCM module 0x19's message 4 with the
+    /// colour 0xf, whose window was not traced: told as a system line here), then starts or ends the PvP periods.
+    fn own_fight_mode_changed(&mut self, old: i64, new: i64) {
+        if let Some(name) = crate::combat::suppression_field(new) {
+            self.feedback_lines([name]);
+        }
+        let at = self.crossing(self.own_land_control);
+        let lines = self.periods.changed(old, new, at, Instant::now());
+        self.feedback_lines(lines);
+    }
+
+    /// The `FightModeUpdate`s of the playfield the character is in, once its districts are there (FUN_101250c3): an update
+    /// naming a district the playfield does not have is dropped whole (FUN_10124e42's 3, so with no districts at all);
+    /// the others' changes go to the handler in their order, and each one whose district one stands in tells its mode as
+    /// a crossing from none (FUN_1003f4a3(-1, mode)). Updates for another playfield wait.
+    fn apply_fight_updates(&mut self, playfield: u32, map: Option<&crate::sounds::DistrictMap>, own: Option<&mao_formats::districts::District>) {
+        if !self.fight_updates.iter().any(|u| u.playfield == playfield) {
+            return;
+        }
+        let (now, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.fight_updates).into_iter().partition(|u| u.playfield == playfield);
+        self.fight_updates = rest;
+        let Some(map) = map else { return };
+        for update in now {
+            if !update.entries.iter().all(|c| map.districts.districts.iter().any(|d| d.name == c.name)) {
+                eprintln!("fight mode update dropped: a district it names is not in playfield {playfield}");
+                continue;
+            }
+            for change in &update.entries {
+                self.fight_handler.apply(change);
+                if let Some(district) = own.filter(|d| d.name == change.name) {
+                    let mode = self.district_fight_mode(district);
+                    self.own_fight_mode = Some(mode);
+                    self.own_fight_mode_changed(-1, mode);
+                }
+            }
+        }
+    }
+
+    /// A character's fight mode (`combat::fight_mode`): its district's through the handler, by the zone it stands in. One's
+    /// own as the frame last found it (with the room it is in); another's by its place outdoors, and indoors as one's own
+    /// room's (the client does not know which room another stands in). The grace and disgrace periods are
+    /// [`Self::current_fight_mode`]'s.
     fn fight_mode(&self, id: u32) -> i64 {
         if id == self.own {
             return self.own_fight_mode.unwrap_or(2);
@@ -5369,7 +5459,7 @@ impl World {
         if map.zone_side().is_none() {
             return self.own_fight_mode.unwrap_or(2);
         }
-        crate::combat::fight_mode(map.district_at(place, None).map(|d| d.fight_mode))
+        map.district_at(place, None).map_or(2, |d| self.district_fight_mode(d))
     }
 
     /// The floating text a fight line makes after it (FUN_10012c3e's end): the event's amount, `"%d"`, over the event's
@@ -5480,7 +5570,7 @@ impl World {
         // (FUN_1004ed2f by fight mode, FUN_1003e43a: neither in mode 2 (sides against sides) lets it go; else a team or raid
         // mate, or (not in a team) one of one's own side; in a team the target's side must be one's own stat 0xd5's. The
         // battlestation (`combat::battlestation`) lets only one of the same stat 0x29c, its team in the battle.)
-        if pet || self.fight_mode(self.own) != 2 && self.fight_mode(t) != 2 {
+        if pet || self.current_fight_mode(self.own) != 2 && self.current_fight_mode(t) != 2 {
             return None;
         }
         let (in_team, in_raid) = crate::team::with(|team| (!team.members.is_empty(), team.raid.is_some()));
@@ -9320,6 +9410,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.spell_queue = Default::default();
                     state.state_flags.clear();
                     state.control.clear();
+                    // (one's own character's PvP periods and district go with it, and the playfield's fight-mode changes with
+                    // the playfield; updates already sent for the new one wait for its districts)
+                    state.periods = Default::default();
+                    state.own_fight_mode = None;
+                    state.fight_handler = Default::default();
+                    state.fight_updates.retain(|u| u.playfield == playfield);
                     state.others_stats.clear();
                     state.in_play.clear();
                     // (and their movement starts in its plain mode: whether the server runs a flyer's list again in the new
@@ -11636,17 +11732,20 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.lc_district = info;
                     state.lc_district_changed = true;
                 }
-                // (the fight mode of the district the character stands in: a change tells the district's suppression line,
-                // FUN_1003f6e6 → FUN_1003f5b2 → FUN_1003f4a3, text.mdb 110 `SuppressionField<n>`; told as a system line here,
-                // where the original sends it as AFCM module 0x19's message 4 with the colour 0xf, whose window was not traced)
-                let district = districts.as_ref().and_then(|d| d.1.as_ref()).map(|d| d.district_at(position, room_state.current).map(|x| x.fight_mode));
-                let mode = district.flatten().map(|found| crate::combat::fight_mode(Some(found)));
+                // (the fight mode of the district the character stands in, through the playfield's handler: a change tells the
+                // district's suppression line and starts or ends the PvP periods, FUN_1003f6e6 → FUN_1003f5b2 → FUN_1003f4a3)
+                let own_district = districts.as_ref().and_then(|d| d.1.as_ref()).and_then(|d| d.district_at(position, room_state.current));
+                state.apply_fight_updates(current, districts.as_ref().and_then(|d| d.1.as_deref()), own_district);
+                let mode = own_district.map(|found| state.district_fight_mode(found));
+                state.own_land_control = own_district.is_some_and(|d| d.control.0 > 0);
                 if mode != state.own_fight_mode {
-                    if let Some(name) = mode.and_then(crate::combat::suppression_field) {
-                        state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
-                    }
+                    let old = state.own_fight_mode.unwrap_or(-1);
                     state.own_fight_mode = mode;
+                    state.own_fight_mode_changed(old, mode.unwrap_or(-1));
                 }
+                // (the grace's and the disgrace's timed flags, FUN_10059e90)
+                let ended = state.periods.tick(Instant::now());
+                state.feedback_lines(ended);
                 ambient_weather = crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity()).weather;
                 // (FUN_100b1f3c: the expansion flag, set once the character's stat 389 has bit 0)
                 state.expansion |= state.stats.get(&389).is_some_and(|s| s & 1 != 0);
