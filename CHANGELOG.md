@@ -8,6 +8,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### World
 
+- Garbage Fleas and Waste Collectors are drawn again: since the last build only their names showed. (A creature skin
+  whose picture carries see-through areas was drawn see-through; the original draws it solid.)
 - It rains and snows: the weather's rain was not drawn at all (only heard, and seen as fog). Sand, dark, red and
   green storms are wind-blown streaks in their colours and tint the screen, flickering, as in the game.
 - Overcast weather dims the sky and the fog; the dimming used to follow the wrong weather value.

@@ -6891,6 +6891,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `crates/mao-formats/src/catmesh.rs:435`; `docs/CLIENT_UI.md:56`
 - Decision: [x] port  [ ] leave
 - Done (2026-11-18): the texture list's flag is read as the original reads it: alpha that blends (clear) or alpha that is light (set), by whether the texture has alpha; the material's opacity is used. Two listed textures with a full alpha channel are drawn plain where the original lights them fully. Compared offline, not seen live.
+- Done in part (2026-11-19): the clear flag's blending is undone. The original's capture shots show the Garbage Fleas and Waste Collectors solid, whose skins are RGBA PNGs with an alpha of nearly 0; blended by it they were invisible (the user's report). Mode-0 skins are drawn whole; mode 5 (alpha as light) and the opacity stay. Why the original does not blend them was not found (catmesh::set_texture_alpha).
 
 #### `RND-021` Character skin colour is a plain tan
 

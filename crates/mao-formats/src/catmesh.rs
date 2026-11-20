@@ -102,11 +102,16 @@ impl Material {
 /// How a character mesh's material treats its texture's alpha. The object's texture list holds a flag for each texture, read
 /// as alpha mode 5 when set and 0 when not (`operator>>(BinaryStream &, TextureData_t &)`, GameData 0x1000c0b4), and given to
 /// the material (randy31's FUN_10040645, by DisplaySystem's FUN_10074b03):
-/// - not `alpha_is_light` (mode 0): blended by the alpha of a texture that has any;
+/// - not `alpha_is_light` (mode 0): randy31's FUN_10040645 turns alpha blending on for a texture that has alpha, but the
+///   original's own screenshots show such bodies whole: Arete's Garbage Fleas and Waste Collectors, whose skins
+///   (`fleamonster1.png`, `floatingpicker2.png`) are RGBA PNGs with an alpha of nearly 0 everywhere, stand solid in the
+///   capture of 2026-10-30. What drops their alpha on the way (the bitmap, the surface's format or the device's states)
+///   was not found, so the texture's alpha is not used here and the body is drawn whole. (From 2026-11-18 to 2026-11-19
+///   it blended by that alpha, and those creatures were not seen at all.)
 /// - `alpha_is_light` (mode 5): the alpha of a texture that has any is light added to the lighting, and nothing is blended.
 ///
-/// A texture without alpha changes nothing in either, and the material is blended by its opacity alone when that is under
-/// 255/256 (`set_opacity`). A texture a character wears is not light.
+/// The material is blended by its opacity alone when that is under 255/256 (`set_opacity`). A texture a character wears is
+/// not light.
 pub fn set_texture_alpha(material: &mut crate::model::Material, alpha_is_light: bool) {
     use crate::model::Blend;
     let blend = if material.opacity < 0.996_093_75 { Blend::Alpha } else { Blend::None };
@@ -115,7 +120,7 @@ pub fn set_texture_alpha(material: &mut crate::model::Material, alpha_is_light: 
     material.blend = blend;
     material.alpha_lights = alpha_is_light;
     material.ignore_alpha = alpha_is_light || blend == Blend::None;
-    material.blend_by_texture = alpha_is_light || blend == Blend::None;
+    material.blend_by_texture = alpha_is_light;
 }
 
 #[derive(Clone, Debug, Default)]
@@ -544,5 +549,24 @@ mod tests {
         assert_eq!((v[0].position, v[0].normal), ([11.0, 20.0, 30.0], [0.0, 0.0, 1.0]));
         assert_eq!(v[1].position, [9.0, 9.0, 9.0]);
         assert_eq!(v[2].position, [5.5, 10.5, 15.0]);
+    }
+}
+
+#[cfg(test)]
+mod alpha_tests {
+    use super::*;
+
+    /// Mode 0 draws the body whole whatever its texture's alpha (Arete's fleas and collectors); mode 5 goes by the
+    /// texture (its alpha is light); an opacity under 255/256 still blends.
+    #[test]
+    fn a_mode_0_skin_is_drawn_whole() {
+        let mut m = crate::model::Material { opacity: 1.0, ..Default::default() };
+        set_texture_alpha(&mut m, false);
+        assert!(m.blend == crate::model::Blend::None && m.ignore_alpha && !m.blend_by_texture);
+        set_texture_alpha(&mut m, true);
+        assert!(m.alpha_lights && m.blend_by_texture);
+        let mut faded = crate::model::Material { opacity: 0.5, ..Default::default() };
+        set_texture_alpha(&mut faded, false);
+        assert!(faded.blend == crate::model::Blend::Alpha && !faded.ignore_alpha && !faded.blend_by_texture);
     }
 }

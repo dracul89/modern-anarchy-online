@@ -6632,7 +6632,11 @@ and the stream reader turns it into an alpha mode: set is mode 5, clear is mode 
 GameData 0x1000c0b4; randy31's FUN_10040645 then applies the mode). **The word is not the mode itself**: read as a mode, 1 would
 be an alpha test at 0x80, which cuts nearly the whole body out of the creatures that use it (`catmesh::set_texture_alpha`).
 
-- **Clear (3441 of the game's 4248 listed textures):** a texture with alpha is blended by it; 156 of them have some.
+- **Clear (3441 of the game's 4248 listed textures):** randy31 turns alpha blending on for a texture with alpha; 156 of them
+  have some. **Drawn whole here since 2026-11-19**: the original's own capture shots (`arete-20261030-1655`) show Arete's Garbage
+  Fleas and Waste Collectors solid, though their skins (`fleamonster1.png`, `floatingpicker2.png`) are RGBA PNGs whose alpha is
+  nearly 0 everywhere. Blended by it they were not seen at all (the user's report). What drops that alpha in the original (the
+  bitmap, the surface's format or the device's states) was not found.
 - **Set (807):** the alpha of a texture that has any is light, added to the lighting before the colour is multiplied in, and
   nothing is blended. These are the glowing eyes, lamps and chest lights of the creatures; 738 of them have such alpha.
 - **A texture without alpha** is drawn whole either way. A material with an opacity under 255/256 is then blended by that
