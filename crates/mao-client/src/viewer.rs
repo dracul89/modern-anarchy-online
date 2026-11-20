@@ -2413,7 +2413,7 @@ impl ApplicationHandler for App {
                                 // GetBodyScale)
                                 let at_feet = crate::effects::Locator { scale: crate::effects::body_scale(attractors), ..crate::effects::Locator::feet(feet, heading) };
                                 meshes.extend(crate::effects::visual_meshes(aura, at_feet, age, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, atrox)));
-                                shells.extend(crate::effects::visual_ground_shells_on(aura, feet, age, &ground, crate::effects::torso_scale(attractors)));
+                                shells.extend(crate::effects::visual_ground_shells_on(aura, feet, age, &ground, crate::effects::torso_lengths(attractors)));
                                 shaking = shaking.max(crate::effects::shake(aura, feet, age, eye_now));
                                 rocks.extend(crate::effects::visual_rocks(aura, feet, age).into_iter().map(|(r, at, t)| (r, at, t, id ^ nano.rotate_left(16))));
                                 // (the trails, each keeping its samples from frame to frame)

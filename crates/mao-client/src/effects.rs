@@ -1654,15 +1654,16 @@ pub fn spiral2_shells(s: &mao_formats::gfx::Spiral2, at: [f32; 3], t: f32, scale
 /// rising (the fraction `u` of the rise) the colours from the start's to the middle's and, with flag 0x400, the bottom radius
 /// from the top's to its own and the cone `u` of its height long; while falling from the middle's to the end's. The cones hang
 /// from the height down to the point (flag 0x8000: they stand on it, on the ground with 0x4000), turned `k 6.28 / cones` with
-/// flag 0x2000, added with 0x200. Not: the torso's radius (word 18 negative: the client takes 0.5 for it), following the
+/// flag 0x2000, added with 0x200. A negative word 18 is that many times the body's torso radius `torso` (FUN_100ef80f:
+/// `GetTorsoSphereRadi`, 1 without a CAT mesh). Not: following the
 /// point (the client always does), the cones' texture extents read as floats.
-pub fn skyflash_shells(s: &mao_formats::gfx::SkyFlash, at: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
+pub fn skyflash_shells(s: &mao_formats::gfx::SkyFlash, at: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>, torso: f32) -> Vec<Shell> {
     let period = s.rise + s.fall;
     if t < 0.0 || period <= 0.0 || t >= s.length() {
         return Vec::new();
     }
     let c = t.rem_euclid(period);
-    let mut below = s.growth.0 * (c / period) + if s.radii.0 < 0.0 { -s.radii.0 * 0.5 } else { s.radii.0 };
+    let mut below = s.growth.0 * (c / period) + if s.radii.0 < 0.0 { -s.radii.0 * torso } else { s.radii.0 };
     let above = s.growth.1 * (c / period) + s.radii.1;
     let (mut step_below, step_above) = s.steps;
     let mut height = s.height;
@@ -2246,7 +2247,7 @@ fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
 /// The shells a visual lays round a point `t` seconds in (world, Z up): a shock wave's rings and cones, or (a scatter) its
 /// copies'. On no body: the torso scale 1 ([`visual_ground_shells_on`]).
 pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
-    visual_ground_shells_on(v, feet, t, ground, 1.0)
+    visual_ground_shells_on(v, feet, t, ground, None)
 }
 
 /// The name of the torso sphere among a body's frames (`Characters::frames`, the caster's attractors): not a mesh
@@ -2263,7 +2264,7 @@ pub fn torso_frame(mesh: &mao_formats::catmesh::CatMesh) -> (String, mao_formats
 
 /// The body's scale and its torso radius times it, from the [`TORSO_SPHERE`] among its frames: the first axis's length,
 /// and the second's (its sign that of the radius: against the third axis crossed with the first).
-fn torso_lengths(frames: &[(String, mao_formats::model::Matrix)]) -> Option<(f32, f32)> {
+pub fn torso_lengths(frames: &[(String, mao_formats::model::Matrix)]) -> Option<(f32, f32)> {
     let (_, m) = frames.iter().find(|(name, _)| name == TORSO_SPHERE)?;
     let row = |i: usize| [m[4 * i], m[4 * i + 1], m[4 * i + 2]];
     let length = |r: [f32; 3]| (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
@@ -2286,8 +2287,13 @@ pub fn torso_scale(frames: &[(String, mao_formats::model::Matrix)]) -> f32 {
     torso_lengths(frames).map_or(1.0, |(_, r)| r / 0.25075000524520874)
 }
 
-/// [`visual_ground_shells`] on a body of the torso scale `torso` ([`torso_scale`]).
-pub fn visual_ground_shells_on(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>, torso: f32) -> Vec<Shell> {
+/// [`visual_ground_shells`] on a body whose scale and torso radius times it are `body` ([`torso_lengths`]; none: a dynel
+/// without a CAT mesh).
+pub fn visual_ground_shells_on(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>, body: Option<(f32, f32)>) -> Vec<Shell> {
+    // (Spiral2's torso scale, FUN_1011230d: 1 without a mesh; SkyFlash's torso radius, FUN_100ef80f: without the body's scale,
+    // 1 without a mesh)
+    let torso = body.map_or(1.0, |(_, r)| r / 0.25075000524520874);
+    let radius = body.map_or(1.0, |(k, r)| if k != 0.0 { r / k } else { 0.0 });
     match v {
         Visual::ShockWave(s) => shockwave_shells(s, feet, t, ground),
         Visual::TParticle2 { particles, length, head } => {
@@ -2296,11 +2302,11 @@ pub fn visual_ground_shells_on(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn 
         }
         Visual::Spiral2(s) => spiral2_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t, torso),
         Visual::GroundGrid(g) => groundgrid_shells(g, feet, t, ground),
-        Visual::SkyFlash(s) => skyflash_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t, ground),
+        Visual::SkyFlash(s) => skyflash_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t, ground, radius),
         Visual::CrazyCone(c) => crazycone_shells(c, [feet[0], feet[1], feet[2] + if c.attach == 0 { 0.0 } else { anchor(c.attach).0 }], t, ground),
         Visual::TParticle(p) => tparticle_shells(p, [feet[0], feet[1], feet[2] + if p.attach == 0 { 0.0 } else { anchor(p.attach).0 }], t),
-        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells_on(c, feet, t, ground, torso)).collect(),
-        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_ground_shells_on(child, feet, t - start, ground, torso) } else { Vec::new() },
+        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells_on(c, feet, t, ground, body)).collect(),
+        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_ground_shells_on(child, feet, t - start, ground, body) } else { Vec::new() },
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
             let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
@@ -2308,7 +2314,7 @@ pub fn visual_ground_shells_on(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn 
             children
                 .iter()
                 .filter(|(born, _)| t >= *born && t - born < life)
-                .flat_map(|(born, at)| visual_ground_shells_on(child, [feet[0] + at[0], feet[1] + at[1], feet[2] + at[2]], t - born, ground, torso))
+                .flat_map(|(born, at)| visual_ground_shells_on(child, [feet[0] + at[0], feet[1] + at[1], feet[2] + at[2]], t - born, ground, body))
                 .collect()
         }
         _ => Vec::new(),
@@ -4697,19 +4703,22 @@ mod tests {
             colours: [(0x00ff_ffff, 0x00ff_ffff), (0xffff_ffff, 0xffff_ffff), (0x00ff_ffff, 0x00ff_ffff)],
         };
         let flat = |_: f32, _: f32| Some(0.0);
-        let at = skyflash_shells(&s, [0.0; 3], 2.0, &flat);
+        let at = skyflash_shells(&s, [0.0; 3], 2.0, &flat, 1.0);
         assert_eq!(at.len(), 6);
         let top = at[0].vertices.iter().map(|v| v.position[2]).fold(f32::MIN, f32::max);
         let bottom = at[0].vertices.iter().map(|v| v.position[2]).fold(f32::MAX, f32::min);
         assert!((top - 60.0).abs() < 1e-3 && bottom.abs() < 1e-3);
         // (falling: the middle's colour to the end's)
         assert!(at[0].vertices[0].colour[3] < 1.0 && at[0].vertices[0].colour[3] > 0.4);
-        assert!(skyflash_shells(&s, [0.0; 3], 4.9, &flat).is_empty());
+        assert!(skyflash_shells(&s, [0.0; 3], 4.9, &flat, 1.0).is_empty());
         // flag 0x400: half way through the rise the cone is half as long, hung from the top
         let grow = mao_formats::gfx::SkyFlash { flags: 0x3e03, ..s.clone() };
-        let half = skyflash_shells(&grow, [0.0; 3], 0.2, &flat);
+        let half = skyflash_shells(&grow, [0.0; 3], 0.2, &flat, 1.0);
         let low = half[0].vertices.iter().map(|v| v.position[2]).fold(f32::MAX, f32::min);
         assert!((low - 30.0).abs() < 1e-3);
+        // (a negative radius below is that many torso radii: -0.9 on a torso of 0.5 is 0.45)
+        let torso = mao_formats::gfx::SkyFlash { radii: (-0.9, s.radii.1), ..s.clone() };
+        assert_eq!(skyflash_shells(&torso, [0.0; 3], 2.0, &flat, 0.5), at);
     }
 
     #[test]
