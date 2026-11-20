@@ -6,6 +6,13 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Graphics
+
+- Sky flash cones sized by the body (a negative radius) take the body's real torso size, not a fixed half unit.
+- Effect meshes held at the feet of a bigger or smaller character are scaled with the body, as on its attractors.
+- Fire effects with a gate (rage flames and the like) come in small bursts as in the original, not as an even stream.
+- Spiral buff effects are sized by the body: bigger on large creatures and on characters scaled up, smaller on small ones.
+
 ## 0.1.7 (2026-11-20)
 
 ### World

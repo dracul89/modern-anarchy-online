@@ -1252,3 +1252,7 @@ These were written before this list; some may have been seen working since witho
   and compare with the original if one is at hand.
 - [ ] Icon time text (CMB-023, 2026-11-19): after a special or a nano, the Actions window tile and the nano programs'
   icon show the yellow time left (" 9s", then minutes over 60 s), as the shortcut bar does.
+- [ ] A sky flash with a negative lower radius on a usual character: its foot about half as wide as before (0.25 for 0.5).
+- [ ] A buff whose mesh stands at the feet (flag 0x200) on a creature or character of Scale above 100: the mesh is that much bigger.
+- [ ] A fire effect of template 2202/2203/2207/2208 (rage flames): flames come in uneven small bursts, about as many as before.
+- [ ] A spiral buff (Spiral2, e.g. template 71108) on a character at Scale 100: as before; on a scaled or large-torso body: wider and taller in proportion.

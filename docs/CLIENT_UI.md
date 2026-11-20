@@ -7983,3 +7983,27 @@ Every command GUI.dll registers for a player now has its piece count in the clie
 ### The key editor's last parts (SET-032)
 
 A key bound to several of the original's actions now does them all, as GUI.dll's input (FUN_10018376) does, and only when none takes it does a fixed key act. OK in the Bind Key box with no key pressed binds the original's "no key", a row of its own kept in mao.ini as `Inactive`. The original's team, raid, LFT, research, knowledge, daily login and item shop window keys are actions with the shipped keys (Ctrl+5, Ctrl+Shift+R, Shift+F, Shift+O, Ctrl+3). Mouse buttons as keys and the team, pet, camera-view, reference, switch-target, copy and per-slot shortcut keys are not done yet.
+
+## The long tail of low-weight entries (2026-11-20)
+
+Six readers went through the catalog's open low-weight entries in parallel, each in its own worktree, and ported what the original's code settles without the live game. None of it was seen in a live game.
+
+### A frame's saved animation matrix (RND-143)
+
+The original's frame reader keeps a frame's saved `anim_matrix` even when the frame has an animation (it goes into the animation's holder, randy31 `refframe.rs`) and reads no keys until the animation is played. The client's mesh reader does the same; it no longer carries an unused reader of the animation's first keys.
+
+### A body's torso sphere (RND-149)
+
+A character mesh's packed word, once thought a colour, is the torso sphere: the original reads its top byte and then its low three through a curve (`0.05 b + 0.000006 b³`, FUN_1006aab4) and the body keeps them as the torso's radius and centre (`VisualCATMesh_t::GetTorsoSphereRadi` 0x10072c22, `GetTorsoSpherePos`). The usual body's sphere is 0.25075 across the radius; big creatures' run to 5. The client decodes it (`CatMesh::torso_sphere`) and carries it, through the body's scale, among the body's frames for the effects that size themselves by it: a sky flash whose lower radius is negative is that many torso radii (FUN_100ef80f), where the client took 0.5.
+
+### Effect meshes at the feet of a scaled body (RND-152)
+
+With flag 0x200 an effect mesh grows by the body's scale (FUN_1010ce9c: `GetBodyScale`, whatever the locator). The client did so only on attractors; a mesh held at the feet of a bigger or smaller body now grows or shrinks with it too.
+
+### Fire effects' gate (RND-157)
+
+The original's fire effect makes its flames only in the frames where `rand()` masked by word 31 is zero, the ones held back all at once at the next frame let through (FUN_100dbed5). The client does the same with its frame-numbered stand-in for `rand()`: rage flames with a mask come in small bursts rather than a steady stream. The attractor frames are not followed yet.
+
+### Spirals sized by the body (RND-174)
+
+The Spiral2 effect's radius, rise and turn are scaled by the body's torso: its torso sphere's radius over the usual body's 0.25075, times the body's scale (FUN_1011230d, used by FUN_10111fdb and FUN_10111c40). The client carries each body's torso sphere among its frames and sizes the spirals by it; a usual character at its normal size is unchanged.
