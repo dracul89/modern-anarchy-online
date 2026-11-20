@@ -82,15 +82,16 @@ pub fn all_towers(data: &[u8]) -> Option<Vec<Tower>> {
 }
 
 /// A `PlayfieldTowerUpdateClient`: the site, and the planted tower (`None`: the site's tower was destroyed). Other kinds
-/// read nothing more and do what a plant does without a tower in the original (FUN_1012b350 adds an empty entry); they are
-/// left out here.
+/// read nothing more and do what a plant does (FUN_1012b350 takes every kind but 1 for one) with the tower the message
+/// was made with: FUN_1012b311 makes it with `TowerProxyBase_t`'s constructor (FUN_1012b9d9), which zeroes the site, the
+/// tower and the place (+0x04 to +0x1c) and leaves the rest as the memory had it; taken as zero here.
 pub fn tower_update(data: &[u8]) -> Option<((u32, u32), Option<Tower>)> {
     let mut r = Reader { data, at: 1 };
     let site = r.identity()?;
     match r.u32()? {
         1 => Some((site, None)),
         2 => Some((site, Some(r.tower()?))),
-        _ => None,
+        _ => Some((site, Some(Tower { site: (0, 0), tower: (0, 0), position: [0.0; 3], mesh: 0, destroyed_mesh: 0, scale: 0.0, side: 0, class: 0 }))),
     }
 }
 
@@ -240,6 +241,11 @@ mod tests {
         apply_update(&mut list, site, None);
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].site, (0xc354, 3));
+        // (another kind adds an empty entry at the front, FUN_1012b350)
+        let (site, empty) = tower_update(&hex("010000c3540000000500000007")).unwrap();
+        assert_eq!((site, empty.as_ref().map(|t| (t.site, t.mesh, t.class))), ((0xc354, 5), Some(((0, 0), 0, 0))));
+        apply_update(&mut list, site, empty);
+        assert_eq!((list.len(), list[0].site), (2, (0, 0)));
     }
 
     #[test]
