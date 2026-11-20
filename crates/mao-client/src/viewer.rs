@@ -2710,7 +2710,9 @@ impl ApplicationHandler for App {
                         w.scene.sky.0 = fog;
                     }
                     let e = self.environment;
-                    w.scene.daylight = if interior { 1.0 } else { self.daylight * e.sky };
+                    // (the clouds' `1 − [2] / 2.333`, `environment::Environment::sky`, reaches only the effect scripts'
+                    // `CloudTranspariency`: the light and the sky are not dimmed by it)
+                    w.scene.daylight = if interior { 1.0 } else { self.daylight };
                     w.scene.ambient = e.ambient;
                     self.area_fog_base = if interior { None } else { e.fog };
                     w.scene.area_fog = fog_mode(self.area_fog_base, crate::prefs::get("FogMode"));

@@ -14,8 +14,11 @@
 //! - the area's own fog ([0x12]–[0x15]), when its colour is not black, after `AddFogLightIntensity(min(day,
 //!   1 − [2] × 0.8), at least 0.5)`.
 //!
-//! The clouds [2] also set `VisualEnvFX_t`'s +0x1134 to `1 − [2] / 2.333` (the effect scripts' `CloudTranspariency`):
-//! the client takes that as a dimming of the sky and its light as well. Both were read from entry 8 here until
+//! The clouds [2] also set `VisualEnvFX_t`'s +0x1134 to `1 − [2] / 2.333` (the effect scripts' `CloudTranspariency`).
+//! Nothing else reads that field (DisplaySystem's FUN_1005cdcf copies it into the script variable; the environment
+//! light, `fxvisual.rs environment_frame`, looks the variable up but never uses it; of the scripts only Outerspace's
+//! sunlight reads it, for its ground texture projection), so it dims neither the sky nor its light: until 2026-11-20
+//! the client multiplied the daylight by it. Both were read from entry 8 here until
 //! 2026-11-18: the frame reads the table's byte offset 8, which is its third float (`FLD [EAX+8]` at 0x100bf033 and
 //! 0x100bf243), where the rain's look and sound read byte offset 0x20, the ninth.
 
@@ -28,7 +31,7 @@ pub struct Environment {
     pub fog: Option<([f32; 3], f32)>,
     /// The fog light the colour was lit by (`AddFogLightIntensity`'s least; 1 without an area fog), for a fog gathered later.
     pub fog_light: f32,
-    /// What the weather leaves of the sky's light, 0 to 1.
+    /// The scripts' `CloudTranspariency` (`1 − [2] / 2.333`, 0 to 1); it dims nothing in the original.
     pub sky: f32,
     /// The weather values, for the debugging overlay.
     pub weather: [f32; 14],
