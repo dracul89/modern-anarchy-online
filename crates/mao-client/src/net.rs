@@ -123,6 +123,17 @@ const PATH_SPEED: f32 = WALK_SPEED;
 /// `DAT_10161ad8` = 16), the distance taken in three dimensions.
 const CHASE_NEAR: f32 = 4.0;
 
+/// What a `Stat` message's alien experience line adds to the experience's own change (Gamecode FUN_100a2006): when the
+/// message tells an alien level (169) above the one held, the held stat 178, the experience that level took (the new
+/// experience starts again from 0 past it); else nothing. Stat 178 comes after 40 in the message's map, so it is the
+/// held value. (A held 178 this client does not have counts as 0.)
+fn alien_level_extra(held_level: Option<i64>, told_level: Option<i64>, held_next: Option<i64>) -> i64 {
+    match (held_level, told_level) {
+        (Some(held), Some(told)) if held < told => held_next.unwrap_or(0),
+        _ => 0,
+    }
+}
+
 /// The name a `CorpseFullUpdate` carries ("Remains of Leet"), read in the order of Gamecode's reader of
 /// `CorpseFullUpdateIIR_t` (FUN_1009fa4c → FUN_1009f88a → FUN_100a0c87 → FUN_100a1661): after the byte before the stream,
 /// the corpse's version word and the dynel's, its identity, the place and turn (seven floats) when the identity's type
@@ -4800,8 +4811,16 @@ impl World {
         if m.kind == 0x2b333d6e && m.identity.1 == self.own {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
                 // (FUN_100a2006 tells the change of the health, experience, alien experience and shadowknowledge from the value
-                // held; a stat not held yet has no change to tell)
-                let before: Vec<(u32, Option<i64>)> = [27u32, 52, 40, 573].iter().map(|&s| (s, self.stats.get(&s).copied())).collect();
+                // held; a stat not held yet has no change to tell. The message's stats are a map gone through by number, so
+                // the lines come in that order: health 27, alien experience 40, experience 52, shadowknowledge 573.)
+                let before: Vec<(u32, Option<i64>)> = [27u32, 40, 52, 573].iter().map(|&s| (s, self.stats.get(&s).copied())).collect();
+                // (and an alien level told above the one held, stat 169, adds the held stat 178 to the alien experience's
+                // change: the experience the level took, which the new value starts again from)
+                let told_level = match p.value.get("Stats") {
+                    Some(mao_net::schema::Value::List(items)) => items.iter().filter_map(|i| Some((i.get("Item1")?.as_int()?, i.get("Item2")?.as_int()?))).find(|t| t.0 == 169).map(|t| t.1),
+                    _ => None,
+                };
+                let alien_extra = alien_level_extra(self.stats.get(&169).copied(), told_level, self.stats.get(&178).copied());
                 // (MAO_COMBAT_LOG: the stats told of the character, but its health and nano)
                 if std::env::var_os("MAO_COMBAT_LOG").is_some() {
                     if let Some(mao_net::schema::Value::List(items)) = p.value.get("Stats") {
@@ -4814,7 +4833,7 @@ impl World {
                 self.read_stats(p.value.get("Stats"));
                 for (stat, old) in before {
                     let (Some(old), Some(&new)) = (old, self.stats.get(&stat)) else { continue };
-                    let change = new - old;
+                    let change = new - old + if stat == 40 { alien_extra } else { 0 };
                     if let Some(line) = crate::feedback::own_stat(stat, change) {
                         self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                     }
@@ -15392,6 +15411,16 @@ mod door_tests {
         let mut m = Facing::default();
         assert_eq!(m.step(0.0, at, target, true, 0.7), 0.0);
         assert_eq!((m.timer, m.turn), (0.0, None));
+    }
+
+    #[test]
+    fn an_alien_level_up_adds_what_the_level_took() {
+        // (FUN_100a2006: level 3 held, 4 told: the held stat 178 is added to the alien experience's change)
+        assert_eq!(alien_level_extra(Some(3), Some(4), Some(15000)), 15000);
+        // (no level told, the same one, or none held: nothing)
+        assert_eq!(alien_level_extra(Some(3), None, Some(15000)), 0);
+        assert_eq!(alien_level_extra(Some(4), Some(4), Some(15000)), 0);
+        assert_eq!(alien_level_extra(None, Some(4), Some(15000)), 0);
     }
 
     #[test]
