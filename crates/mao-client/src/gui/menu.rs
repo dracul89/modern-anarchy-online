@@ -12,7 +12,9 @@
 //! `on_deactivate`, `on_invoke`, `on_begin_drag`), when their criteria hold (`(%s) && (%s)` with the entry's own):
 //! `<SetValue name=... value=.../>` sets a distributed value to the expression's value (true without one,
 //! FUN_100655bf), `<CloseMenu/>` closes the open menus, `<RunChatScript value="/..."/>` runs a chat command
-//! (FUN_10065798's signal).
+//! (FUN_10065798's signal). `ActionRunChatScript_c` (made by FUN_100656a4, with its `macro_name`) runs its line when
+//! the entry is invoked, and when the entry begins a drag (`on_begin_drag`) makes a macro of it instead
+//! ([`drag_macro`]).
 
 use super::xml::Element;
 
@@ -20,7 +22,19 @@ use super::xml::Element;
 pub enum Action {
     SetValue { name: String, value: String },
     CloseMenu,
-    RunChatScript(String),
+    /// The line, and the `macro_name` a drag's macro is called by (empty without one).
+    RunChatScript(String, String),
+}
+
+/// FUN_10065798 called for a drag (its second argument 1): an `ActionRunChatScript_c` with a line makes a macro of it,
+/// called by its `macro_name`, else by the line without its first character (the slash); the signal (`GlobalSignals_c`
+/// +0x1a0) is the one `/macro` raises. Nothing without a line.
+pub fn drag_macro(value: &str, macro_name: &str) -> Option<(String, String)> {
+    if value.is_empty() {
+        return None;
+    }
+    let name = if macro_name.is_empty() { value.get(1..).unwrap_or("").to_string() } else { macro_name.to_string() };
+    Some((name, value.to_string()))
 }
 
 /// One `<Actions>` block.
@@ -114,7 +128,7 @@ fn actions(e: &Element) -> Vec<Actions> {
             .filter_map(|c| match c.name.to_ascii_lowercase().as_str() {
                 "setvalue" => c.attribute("name").map(|n| Action::SetValue { name: n.to_string(), value: c.attribute("value").unwrap_or("").to_string() }),
                 "closemenu" => Some(Action::CloseMenu),
-                "runchatscript" => c.attribute("value").map(|v| Action::RunChatScript(v.to_string())),
+                "runchatscript" => c.attribute("value").map(|v| Action::RunChatScript(v.to_string(), c.attribute("macro_name").unwrap_or("").to_string())),
                 _ => None,
             })
             .collect();
@@ -171,6 +185,17 @@ mod tests {
         assert_eq!(e[1].mode, Mode::Toggle);
         assert_eq!(e[1].actions_for("on_invoke").next().unwrap().actions[0], Action::CloseMenu);
         assert_eq!(e[2].mode, Mode::None);
-        assert_eq!(e[3].actions[0].actions, vec![Action::RunChatScript("/script aou_gui_slim".into())]);
+        assert_eq!(e[3].actions[0].actions, vec![Action::RunChatScript("/script aou_gui_slim".into(), String::new())]);
+    }
+
+    /// FUN_10065798's drag: the macro is called by `macro_name`, else by the line without its slash; no line, no macro.
+    #[test]
+    fn a_dragged_chat_script_makes_a_macro() {
+        assert_eq!(drag_macro("/bow", ""), Some(("bow".into(), "/bow".into())));
+        assert_eq!(drag_macro("/script x", "Mine"), Some(("Mine".into(), "/script x".into())));
+        assert_eq!(drag_macro("", "Mine"), None);
+        let doc = crate::gui::xml::parse(r#"<Menu><MenuEntry label="Bow"><Actions event="on_invoke,on_begin_drag"><RunChatScript value="/bow" macro_name="Bow"/></Actions></MenuEntry></Menu>"#);
+        let e = entries(&doc[0].children);
+        assert_eq!(e[0].actions_for("on_begin_drag").next().unwrap().actions, vec![Action::RunChatScript("/bow".into(), "Bow".into())]);
     }
 }

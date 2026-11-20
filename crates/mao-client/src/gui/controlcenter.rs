@@ -172,6 +172,8 @@ pub struct Output {
     pub windows: Vec<(&'static str, bool)>,
     /// Chat commands to run.
     pub commands: Vec<String>,
+    /// Macros to make and carry on the pointer (a name and a line): an entry's `on_begin_drag` chat script.
+    pub macros: Vec<(String, String)>,
     /// The values changed this frame that are numbers, with what they are now.
     pub changed: Vec<(String, f64)>,
 }
@@ -306,7 +308,9 @@ impl ControlCenter {
                         }
                     }
                     Action::CloseMenu => self.popups.clear(),
-                    Action::RunChatScript(c) => out.commands.push(c.clone()),
+                    // (FUN_10065798: run when invoked; a drag makes a macro of the line)
+                    Action::RunChatScript(c, name) if event == "on_begin_drag" => out.macros.extend(super::menu::drag_macro(c, name)),
+                    Action::RunChatScript(c, _) => out.commands.push(c.clone()),
                 }
             }
         }
@@ -377,6 +381,7 @@ impl ControlCenter {
         // the menu rows
         let menus: Vec<Id> = (0..self.tree.nodes.len()).filter(|&i| self.tree.get(i).control.as_any().is::<CCMenuView>() && self.tree.is_visible(i)).collect();
         let mut clicked: Option<(Entry, egui::Rect, bool, usize)> = None;
+        let mut dragged: Option<Entry> = None;
         for id in menus {
             let rect = super::host::screen_rect(&self.tree, id, screen.min);
             let Some(view) = self.tree.get(id).control.as_any().downcast_ref::<CCMenuView>() else { continue };
@@ -385,8 +390,12 @@ impl ControlCenter {
                 let mut x = rect.left();
                 for (e, size) in &entries {
                     let r = egui::Rect::from_min_size(egui::pos2(x, rect.bottom() - size.y), *size);
-                    if let Some(c) = self.button(ui, &env, e, r) {
+                    let (click, drag) = self.button(ui, &env, e, r);
+                    if let Some(c) = click {
                         clicked = Some((e.clone(), c, false, 0));
+                    }
+                    if drag {
+                        dragged = Some(e.clone());
                     }
                     x += size.x + if e.icon.is_empty() { 0.0 } else { ICON_GAP };
                 }
@@ -438,8 +447,12 @@ impl ControlCenter {
                 ui.painter().rect_filled(egui::Rect::from_min_size(at, egui::vec2(width, total)), 0.0, egui::Color32::from_black_alpha(170));
                 for (i, e) in entries.iter().enumerate() {
                     let r = egui::Rect::from_min_size(at + egui::vec2(0.0, i as f32 * height), egui::vec2(width, height));
-                    if let Some(c) = self.button(ui, &env, e, r) {
+                    let (click, drag) = self.button(ui, &env, e, r);
+                    if let Some(c) = click {
                         clicked = Some((e.clone(), c, true, depth + 1));
+                    }
+                    if drag {
+                        dragged = Some(e.clone());
                     }
                 }
             });
@@ -454,6 +467,10 @@ impl ControlCenter {
         }
         if let Some((entry, rect, beside, depth)) = clicked {
             self.invoke(&entry, rect, beside, depth, stats, &mut out);
+        }
+        // (an entry that begins a drag runs its `on_begin_drag` actions, the entry's list +0x1d0)
+        if let Some(entry) = dragged {
+            self.run(&entry, "on_begin_drag", stats, &mut out);
         }
 
         // the docks, for `vitals.rs`
@@ -511,16 +528,18 @@ impl ControlCenter {
         self.store.take_changed();
     }
 
-    /// One entry's button: the strip for its state and its label; the rect when it was clicked.
-    fn button(&self, ui: &mut egui::Ui, env: &Env, e: &Entry, r: egui::Rect) -> Option<egui::Rect> {
-        let response = ui.interact(r, ui.scope_id().with((&e.name, &e.label, r.min.x as i32, r.min.y as i32)), egui::Sense::click());
+    /// One entry's button: the strip for its state and its label; the rect when it was clicked, and whether a drag
+    /// began on it.
+    fn button(&self, ui: &mut egui::Ui, env: &Env, e: &Entry, r: egui::Rect) -> (Option<egui::Rect>, bool) {
+        let response = ui.interact(r, ui.scope_id().with((&e.name, &e.label, r.min.x as i32, r.min.y as i32)), egui::Sense::click_and_drag());
+        let drag = response.drag_started();
         let on = e.mode == Mode::Toggle && self.store.get_bool(&e.name);
         // (an icon button: its picture, brighter under the pointer or while on)
         if let Some(skin) = env.skin.filter(|s| !e.icon.is_empty() && s.has(&e.icon)) {
             let tint = if on || response.is_pointer_button_down_on() { egui::Color32::WHITE } else if response.hovered() { egui::Color32::from_gray(235) } else { egui::Color32::from_gray(190) };
             skin.draw_in(ui.painter(), &e.icon, r, tint);
             tip(ui, env, &response, e);
-            return response.clicked().then_some(r);
+            return (response.clicked().then_some(r), drag);
         }
         let strip = if response.is_pointer_button_down_on() || on {
             "GFX_GUI_CONTROLCENTER_BUTTON03"
@@ -540,7 +559,7 @@ impl ControlCenter {
         let text_rect = egui::Rect::from_min_size(egui::pos2(r.center().x - (text.x + 1.0) / 2.0, r.center().y - (text.y + 1.0) / 2.0), egui::vec2(text.x + 1.0, text.y + 1.0));
         label.paint(&Paint { painter, env, rect: text_rect, hovered: false, pressed: false, enabled: true });
         tip(ui, env, &response, e);
-        response.clicked().then_some(r)
+        (response.clicked().then_some(r), drag)
     }
 }
 

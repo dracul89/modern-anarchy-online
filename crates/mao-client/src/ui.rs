@@ -1153,6 +1153,13 @@ impl Ui {
                         requests.chat.push(line);
                     }
                 }
+                // (a menu entry's chat script dragged: a macro made, saved and carried as `/macro` does, GUI.dll
+                // FUN_10065798 raising the shortcut bar's FUN_100d8c4a)
+                for (name, command) in out.macros {
+                    let id = crate::macros::create(&name, &command);
+                    let name = crate::macros::get(id).map_or(name, |m| m.name);
+                    chat_window.macro_made = Some((id, name));
+                }
                 if option_panel.show(&ctx, palette, &mut cc.store, &hud.stats, &mut settings.keymap) {
                     requests.save = true;
                 }
