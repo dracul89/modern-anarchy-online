@@ -2270,6 +2270,8 @@ impl World {
                 None => return,
             },
         }
+        // (the skills window refuses a stat held so, FUN_100656fb)
+        *crate::skillwindow::TEMPORARY.lock().unwrap_or_else(|e| e.into_inner()) = self.saved_stats.keys().copied().collect();
         self.stats_changed = true;
     }
 

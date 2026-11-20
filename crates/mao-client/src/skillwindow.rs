@@ -238,7 +238,8 @@ impl SkillWindow {
                 tree.signals.push((id, Signal::Clicked));
             }
         }
-        let costs = Costs { tables: crate::skillcost::tables(), stats, parts };
+        let temporary = TEMPORARY.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let costs = Costs { tables: crate::skillcost::tables(), stats, parts, temporary: &temporary };
         let ip = costs.stored(IP);
         // the increase and decrease buttons: a point at the press (FUN_100fe968, FUN_100fe7d1), then one every 50 ms once
         // held for half a second (their `EventTimer_c`s, FUN_100fecde); let go with Shift or Ctrl held the increase goes as
@@ -487,11 +488,17 @@ impl SkillWindow {
     }
 }
 
+/// The stats a list of one's own holds set for as long as it lasts (spell 0xcf76; the network thread's `temp_stat`):
+/// Gamecode's skill maximum for them is 0 (FUN_100656fb by FUN_100642cd).
+pub static TEMPORARY: std::sync::Mutex<std::collections::BTreeSet<u32>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
+
 /// What the window's sums are worked out from: Gamecode's tables and the character's stats.
 struct Costs<'a> {
     tables: Option<&'static crate::skillcost::Tables>,
     stats: &'a BTreeMap<u32, i64>,
     parts: &'a BTreeMap<u32, Breakdown>,
+    /// The stats set for a while ([`TEMPORARY`]).
+    temporary: &'a std::collections::BTreeSet<u32>,
 }
 
 impl Costs<'_> {
@@ -524,10 +531,16 @@ impl Costs<'_> {
         self.tables.map_or(0, |t| pending.iter().map(|(&stat, &p)| t.total_cost(&who, stat, self.stored(stat), p)).sum())
     }
 
+    /// Whether a skill is set for a while (FUN_100642cd), which makes N3Msg_GetSkillMax 0 with the line
+    /// `Feedback_CantChangeTemporarilyChangedSkill` (FUN_100656fb; not for Swim and Map Navigation, 0 before that test).
+    fn held(&self, stat: u32) -> bool {
+        stat != 138 && stat != 140 && self.temporary.contains(&stat)
+    }
+
     /// Whether a point more fits under the skill's cap (FUN_100f9aac).
     fn below_cap(&self, pending: &BTreeMap<u32, i64>, stat: u32) -> bool {
         let added = pending.get(&stat).copied().unwrap_or(0);
-        self.tables.is_none_or(|t| self.stored(stat) + added + 1 <= t.max(&self.who(pending), stat))
+        !self.held(stat) && self.tables.is_none_or(|t| self.stored(stat) + added + 1 <= t.max(&self.who(pending), stat))
     }
 
     /// Whether the IP pay for a point more (FUN_100fe550's check).
@@ -549,6 +562,9 @@ impl Costs<'_> {
 fn raise(pending: &mut BTreeMap<u32, i64>, status: &mut String, costs: &Costs, stat: u32) -> bool {
     if GROUPS[DISABLED].1.contains(&stat) {
         *status = "This skill has been disabled and can not be increased.".into();
+    } else if costs.held(stat) {
+        // (the original says it as a feedback line; here the window's own line, as its other refusals)
+        *status = crate::feedback::plain("Feedback_CantChangeTemporarilyChangedSkill");
     } else if !costs.below_cap(pending, stat) {
         *status = format!("{} cannot be raised further now.", text(2003, stat, &crate::skills::stat_name(stat)));
     } else if !costs.affordable(pending, stat) {
@@ -612,7 +628,8 @@ mod tests {
         // priority 2 gets none, nor those of none)
         let stats: BTreeMap<u32, i64> = [(IP, 5)].into_iter().collect();
         let parts = BTreeMap::new();
-        let costs = Costs { tables: None, stats: &stats, parts: &parts };
+        let none = std::collections::BTreeSet::new();
+        let costs = Costs { tables: None, stats: &stats, parts: &parts, temporary: &none };
         let priority = |stat: u32| match stat {
             16 | 17 => 1,
             18 => 2,
@@ -628,6 +645,12 @@ mod tests {
         let mut status = String::new();
         assert!(!raise(&mut pending, &mut status, &costs, 138) && status.contains("disabled"));
         assert!(raise(&mut pending, &mut status, &costs, 18) && pending[&18] == 1);
+        // (a skill a list holds set for a while takes no point: its maximum is 0, FUN_100656fb)
+        let held: std::collections::BTreeSet<u32> = [18, 140].into_iter().collect();
+        let costs = Costs { tables: None, stats: &stats, parts: &parts, temporary: &held };
+        status.clear();
+        assert!(!raise(&mut pending, &mut status, &costs, 18) && pending[&18] == 1);
+        assert!(costs.held(18) && !costs.held(140) && !costs.below_cap(&pending, 18));
     }
 
     /// The skin's view has every group's list, page and button, and every row goes in.
