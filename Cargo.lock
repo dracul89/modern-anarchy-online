@@ -136,7 +136,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "ao-server"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "flate2",
  "mao-net",
@@ -2757,7 +2757,7 @@ checksum = "fc04a4c58212d57930a24bf47d3fa87485264a3a054e9c10e042eb373573ad3c"
 
 [[package]]
 name = "mao-client"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "egui",
  "egui-wgpu",
@@ -2784,7 +2784,7 @@ dependencies = [
 
 [[package]]
 name = "mao-formats"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "flate2",
  "image",
@@ -2792,7 +2792,7 @@ dependencies = [
 
 [[package]]
 name = "mao-help"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "candle-core",
  "candle-transformers",
@@ -2806,7 +2806,7 @@ dependencies = [
 
 [[package]]
 name = "mao-net"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "flate2",
  "getrandom 0.3.4",
@@ -2817,7 +2817,7 @@ dependencies = [
 
 [[package]]
 name = "mao-render"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytemuck",
  "glam",
@@ -2830,7 +2830,7 @@ dependencies = [
 
 [[package]]
 name = "mao-tools"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "image",
  "mao-formats",

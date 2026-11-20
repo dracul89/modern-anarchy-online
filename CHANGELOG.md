@@ -6,6 +6,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+## 0.1.7 (2026-11-20)
+
 ### World
 
 - Garbage Fleas and Waste Collectors are drawn again: since the last build only their names showed. (A creature skin
@@ -157,6 +159,13 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - The character you pick in the list is alive: it breathes, and now and then waves, bows, scratches its head, as in
   the original.
+- Character creation: the far suns, the stars and the intro's shuttle move, and the character being made stands
+  breathing and fidgeting instead of frozen. A short or tall character is shown at the original's size, and the
+  heads offered are the original's list (more of them with Shadowlands, a few odd ones gone).
+- The dimension list marks a dimension newer or older than your game, and PLAY becomes PATCH, which starts the game's
+  own patcher and closes the launcher, as the original's does.
+- The game's licence is shown once, until you accept it.
+- The Connection page's time-outs accept any number of seconds (5 at the least, as in the original), and the time-out for entering the game now follows the page too.
 
 ### Fights
 
@@ -164,9 +173,6 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
   character is back.
 - Brought back by another player's resurrection (from level 15), your character is in resurrection shock: skills
   and abilities are lowered, by half at first, and recover over about six minutes.
-
-### Combat
-
 - The special attacks shown are confirmed to be built the way the original builds them (the server's three plus
   what each weapon in a hand gives); two small corner cases of it were made the original's.
 - A special attack out of reach says so at once instead of going to the server: Brawl reaches about 5 m and Dimach about 12 m
@@ -188,16 +194,6 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - A special attack at an item is sent as at that item (it was sent as at a character), and an item that cannot be attacked says so, as in the original.
 - The attack key now refuses as the original does: characters that cannot be attacked, surrendering NPCs, dead targets, and items that are not attackable or whose requirements are not met.
 - Tab targeting now counts team mates' pets as friendly and skips characters that are still zoning in.
-
-### Launcher
-
-- Character creation: the far suns, the stars and the intro's shuttle move, and the character being made stands
-  breathing and fidgeting instead of frozen. A short or tall character is shown at the original's size, and the
-  heads offered are the original's list (more of them with Shadowlands, a few odd ones gone).
-- The dimension list marks a dimension newer or older than your game, and PLAY becomes PATCH, which starts the game's
-  own patcher and closes the launcher, as the original's does.
-- The game's licence is shown once, until you accept it.
-- The Connection page's time-outs accept any number of seconds (5 at the least, as in the original), and the time-out for entering the game now follows the page too.
 
 ### Targeting and clicks
 
@@ -224,9 +220,9 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Character creation: the opening lines fade in and out slowly as in the original, the two lines about docking and continuing the DNA show on the way down, and after making a character the "boarding shuttle" line and the fade to black follow the original's six seconds.
 
 ### Graphics
+
 - Creatures that fight with natural weapons (robots, automatons) swing their own attack animation, as the original does.
 - A polymorphed or riding character's body carries the character's own head, as the original shows it, and nothing else it wears.
-
 - A few playfields without water of their own (the Uturn and Foundry playfields among them) no longer show a flat sheet of water over their low ground.
 - Far campfires, chimneys and lamps keep their fire, smoke and halo out to the view distance instead of only within 150 m.
 - Effect meshes and trails attached to a body part (an arm, a leg, the spine) now show there.
@@ -341,6 +337,14 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - The music's random choices are no longer the same every time the game starts.
 - Indoors, the district music follows the room you are in.
+
+### Not yet seen in a live game
+
+Read from the original client and tried offline or by test only: being feared (no capture has a fear), the nano
+checks before a cast and the stacking refusals, the suppression-field lines and the opposite-side and battlestation
+rules (the line is shown in the chat here; the original may show it on screen), natural-weapon swings, a polymorphed or
+riding character's head, the Notum Wars, battlestation and vehicle windows, the city controller's purchase, and the
+new pick-up, crawl and give-trade behaviour.
 
 ## 0.1.6 (2026-11-18)
 
