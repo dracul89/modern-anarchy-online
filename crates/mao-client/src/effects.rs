@@ -2969,7 +2969,8 @@ pub fn shake(v: &Visual, at: [f32; 3], t: f32, eye: [f32; 3]) -> f32 {
 /// (a disc across its facing, `r` from words 11–12), set off by the locator's offset (words 1–3 along the frame's axes),
 /// flying along the frame's z backwards (flag 0x100: up) at `|p.y| × word 13 / life`, its width, height and colour running
 /// from start to end over its life, pushed by the wind with its push kind. The original's random numbers are hashes of the
-/// flame's number; the `rand()` gate (word 31) is not played.
+/// flame's number. A frame's births are gated by `rand() & word 31` ([`gated_birth`]): with the mask set, the flames come in
+/// clumps at the frames let through.
 pub fn fire_particles(f: &mao_formats::gfx::Fire, feet: [f32; 3], heading: f32, time: f32) -> Vec<Particle> {
     let mut out = Vec::new();
     if time < 0.0 || f.rate <= 0.0 {
@@ -2985,13 +2986,18 @@ pub fn fire_particles(f: &mao_formats::gfx::Fire, feet: [f32; 3], heading: f32, 
         let o = world(f.place[0], f.place[1], f.place[2]);
         [feet[0] + o[0], feet[1] + o[1], feet[2] + o[2]]
     };
-    let first = ((time - life).max(0.0) * f.rate).floor() as u32;
+    // (a flame held back by the gate is born up to GATE_FRAMES frames after it was due)
+    let lag = if f.mask & 0x7fff != 0 { GATE_FRAMES as f32 * GATE_FRAME } else { 0.0 };
+    let first = ((time - life - lag).max(0.0) * f.rate).floor() as u32;
     let last = (time.min(until).max(0.0) * f.rate).floor() as u32;
     for k in first..=last.min(first + 600) {
         if k == 0 {
             continue;
         }
-        let born = k as f32 / f.rate;
+        let born = gated_birth(k as f32 / f.rate, f.mask, 1004);
+        if born > time.min(until) {
+            continue;
+        }
         let age = time - born;
         if !(0.0..life).contains(&age) {
             continue;
@@ -3782,6 +3788,25 @@ pub fn pulse_timing(v: &Visual) -> (f32, f32, i32) {
 }
 
 
+/// A frame of an effect's run, for the births a `rand()` gate holds back.
+const GATE_FRAME: f32 = 1.0 / 30.0;
+/// How many frames a held-back birth is looked for (a mask of 7 lets a frame through one time in eight).
+const GATE_FRAMES: u32 = 64;
+
+/// When a birth due at `due` seconds is made under a `rand()` gate of `mask` (the fire's word 31, FUN_100dbed5): a frame makes
+/// the births due only when `rand() & mask` is zero, so they wait for the first frame (a thirtieth) at or after `due` the gate
+/// lets through, all made together. The original's `rand()` (15 bits) is stood in for by a hash of the frame's number and
+/// `seed`; a mask of 0 never closes the gate. Infinity when no frame within [`GATE_FRAMES`] lets it through.
+fn gated_birth(due: f32, mask: u32, seed: u32) -> f32 {
+    if mask & 0x7fff == 0 {
+        return due;
+    }
+    let first = (due / GATE_FRAME).ceil().max(0.0) as u32;
+    (first..first + GATE_FRAMES)
+        .find(|&frame| ((hash(frame, seed) * 32767.0) as u32) & mask == 0)
+        .map_or(f32::INFINITY, |frame| frame as f32 * GATE_FRAME)
+}
+
 /// A cheap deterministic number in 0..1 for particle `k` and a purpose `salt` (so particles need no stored state).
 fn hash(k: u32, salt: u32) -> f32 {
     let mut x = k.wrapping_mul(0x9e37_79b1) ^ salt.wrapping_mul(0x85eb_ca6b);
@@ -4477,6 +4502,25 @@ mod tests {
     }
 
     #[test]
+    fn a_rand_gate_holds_births_to_the_frames_it_lets_through() {
+        // (no mask: born when due)
+        assert_eq!(gated_birth(0.37, 0, 1004), 0.37);
+        // (a mask of 7: born at a frame at or after it was due, whose stand-in rand() has the three low bits clear)
+        let mut frames = std::collections::BTreeSet::new();
+        for k in 1..200 {
+            let due = k as f32 / 16.0;
+            let born = gated_birth(due, 7, 1004);
+            assert!(born >= due - 1e-5 && born.is_finite());
+            let frame = (born / GATE_FRAME).round() as u32;
+            assert!((born - frame as f32 * GATE_FRAME).abs() < 1e-5);
+            assert_eq!(((hash(frame, 1004) * 32767.0) as u32) & 7, 0);
+            frames.insert(frame);
+        }
+        // (so flames come in clumps: fewer frames than flames)
+        assert!(frames.len() < 199);
+    }
+
+    #[test]
     fn a_ground_shake_is_strongest_near_and_follows_its_curve() {
         // (template 72380: 2.3 s, felt to 30 away, up to 0.2)
         let v = Visual::GroundShake { duration: 2.3, reach: 30.0, curve: vec![(0.0, 0.0), (0.1, 0.2), (0.9, 0.2), (1.0, 0.0)] };
@@ -4506,6 +4550,7 @@ mod tests {
             push_heights: (0.0, 4.0),
             push: 0,
             push_strength: 0.25,
+            mask: 0,
         };
         // facing +y (heading 0): the flames start within 0.5 of a point a quarter behind and run back along −y
         let at = fire_particles(&f, [0.0; 3], 0.0, 5.0);

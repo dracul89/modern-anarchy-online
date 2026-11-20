@@ -1414,6 +1414,9 @@ pub struct Fire {
     pub push_heights: (f32, f32),
     pub push: i32,
     pub push_strength: f32,
+    /// Word 31: the mask of `rand()` that gates a frame's births (FUN_100dbed5: none made in a frame where `rand() & mask` is
+    /// not zero; the flames due are made at the next frame let through).
+    pub mask: u32,
 }
 
 impl Fire {
@@ -1439,6 +1442,7 @@ impl Fire {
             push_heights: (r.float(27), r.float(28)),
             push: r.int(29),
             push_strength: r.float(30),
+            mask: r.int(31) as u32,
         })
     }
 }
