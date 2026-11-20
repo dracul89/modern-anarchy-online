@@ -2871,6 +2871,13 @@ mod entity_tests {
     /// parameter; the server's word is one number.
     #[test]
     fn the_queues_actions_and_its_word() {
+        // (the tradeskill combine, Shift + right click with an item in hand: the original's own message, captured
+        // 2026-10-31, the held item first (N3Msg_TradeskillCombine 0x10028707 → FUN_10072a88), the one clicked second)
+        let combine = use_item_on_item(0x1234_5678, (0x68, 0x5a), (0x68, 0x48));
+        let text = "000000005100000000000000680000005a00000068000000480000";
+        let captured: Vec<u8> = (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect();
+        assert_eq!(captured.len(), 27);
+        assert!(combine.body.ends_with(&captured), "{:02x?}", combine.body);
         let frame = queue_action(0x1234_5678, QUEUE_JOIN, 1);
         let body = &frame.body[frame.body.len() - 27..];
         assert_eq!(body[..9], [0, 0, 0, 0, 0xfd, 0, 0, 0, 0]);
