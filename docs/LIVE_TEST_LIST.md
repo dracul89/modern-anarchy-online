@@ -1311,3 +1311,7 @@ These were written before this list; some may have been seen working since witho
 
 - [ ] **1** Walk into a crowded place (a city, Arete Landing's shops): characters coming into sight no longer freeze the
   game for a moment, and their clothes and skins look as before (compressed ahead now).
+
+- [ ] **1** Type `/` in the chat: the command list still offers the script files (from the client's `scripts` folder and
+  the original's beside its `Prefs`), and a script made while playing shows within five seconds. The frame rate with the
+  chat window up is about what it is with it closed.

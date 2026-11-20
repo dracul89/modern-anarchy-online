@@ -8292,3 +8292,19 @@ about 80 a second (about 67 before; not the same characters in sight, so not a c
 left at entry, when every character around comes at once, as the world is first drawn. Test
 `a_texture_in_blocks_is_a_quarter_the_size` (the packed blocks are the ones the upload made). Not measured: zoning live
 (the offline `map` upload of ICC Shuttleport is the same 1.7 s either way, so something else is most of that path).
+
+### The interface's 6 ms: the chat's input bar searching the disk (2026-11-20)
+
+The layout timed by groups of windows (`ui-w-*` in `MAO_PROFILE`), live on Maowild with a copy of the user's own window
+files (a scratch folder; theirs untouched): of 6.3 ms, the chat window 5.7 and every other window together under 1. In
+the chat window, its 2 lines took 0.01 ms; its input bar 5.5. The bar asks `scripts::names()` every frame for the
+command list, and that looked up the scripts' folders (`scripts::dirs`: `aoprefs::prefs_dirs` lists the original's
+`Prefs` folders under `%LOCALAPPDATA%/Funcom`, and for a character the original never played here
+`newest_prefs_root` reads the date of every character's `Prefs.xml`) before it looked at its five-second cache. Now
+the cache is keyed by the character playing and looked at first, and the names are read again on a thread of their own
+(`script-names`) every five seconds and when another character plays; the bar gets the last reading (none until the
+first is in, a few milliseconds after the first frame). Test `the_script_names_are_read_from_the_folders`.
+Measured after, same place and windows: the layout 0.6 ms (from 6.3), 160 to 175 frames a second (from about 80 in
+the same test window, 2560x1400), the slowest frame of every five seconds 10 to 12 ms. One run of the four had the
+window not drawn for about 38 s near its end while the network thread went on (the next, longer one did not); not
+explained, perhaps the window minimized.

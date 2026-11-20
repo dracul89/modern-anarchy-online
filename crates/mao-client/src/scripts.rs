@@ -59,20 +59,36 @@ pub fn dirs() -> Vec<PathBuf> {
     dirs
 }
 
-/// The names of the script files there are (those not beginning with a dot), for the list of commands offered.
-/// Read at most every few seconds.
+/// The names of the script files there are (those not beginning with a dot), for the list of commands offered: the last
+/// reading, read again on a thread of its own every few seconds and when another character plays (none until the first
+/// reading is in). The chat's input bar asks every frame, and finding the folders ([`dirs`]) searches the original's
+/// `Prefs` folders on disk (for a character the original never played here, every character's `Prefs.xml` too): done
+/// on the frame's thread before the cache was looked at, that was 5.5 ms of every frame, and 9 ms every five seconds
+/// once it was looked at first.
 pub fn names() -> Vec<String> {
-    static SEEN: std::sync::Mutex<Option<(std::time::Instant, Vec<PathBuf>, Vec<String>)>> = std::sync::Mutex::new(None);
-    let dirs = dirs();
-    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((when, of, names)) = seen.as_ref()
-        && when.elapsed().as_secs() < 5
-        && *of == dirs
-    {
-        return names.clone();
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static SEEN: std::sync::Mutex<Option<(std::time::Instant, Option<u32>, Vec<String>)>> = std::sync::Mutex::new(None);
+    static READING: AtomicBool = AtomicBool::new(false);
+    let character = crate::layout::character();
+    let seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let fresh = seen.as_ref().is_some_and(|(when, of, _)| when.elapsed().as_secs() < 5 && *of == character);
+    if !fresh && !READING.swap(true, Ordering::AcqRel) {
+        let read = move || {
+            let names = read_names(&dirs());
+            *SEEN.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), character, names));
+            READING.store(false, Ordering::Release);
+        };
+        if std::thread::Builder::new().name("script-names".into()).spawn(read).is_err() {
+            READING.store(false, Ordering::Release);
+        }
     }
+    seen.as_ref().filter(|(_, of, _)| *of == character).map(|(_, _, names)| names.clone()).unwrap_or_default()
+}
+
+/// The script files' names in these folders, the first folder's before a later one's of the same name, sorted.
+fn read_names(dirs: &[PathBuf]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
-    for dir in &dirs {
+    for dir in dirs {
         let Ok(entries) = std::fs::read_dir(dir) else { continue };
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -82,7 +98,6 @@ pub fn names() -> Vec<String> {
         }
     }
     names.sort_by_key(|n| n.to_lowercase());
-    *seen = Some((std::time::Instant::now(), dirs, names.clone()));
     names
 }
 
@@ -262,6 +277,22 @@ impl Runner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The names in the folders: none beginning with a dot, no folder, the first folder's when two have one name, sorted
+    /// whatever the case.
+    #[test]
+    fn the_script_names_are_read_from_the_folders() {
+        let base = std::env::temp_dir().join(format!("mao-script-names-{}", std::process::id()));
+        let (one, two) = (base.join("one"), base.join("two"));
+        for (dir, files) in [(&one, &["b", ".hidden", "Attack"][..]), (&two, &["attack", "c"][..])] {
+            std::fs::create_dir_all(dir.join("folder")).unwrap();
+            for f in files {
+                std::fs::write(dir.join(f), "/s hi").unwrap();
+            }
+        }
+        assert_eq!(read_names(&[one, two, base.join("none")]), vec!["Attack", "b", "c"]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn a_scripts_lines_take_the_command_lines_words() {
