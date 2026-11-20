@@ -164,6 +164,22 @@ fn value<'a>(text: &'a str, name: &str) -> Option<&'a str> {
     Some(&rest[start..start + end])
 }
 
+/// The chat frames' places from the windows' `Chat/Windows/<folder>/Config.xml` (the folder's name and the file's
+/// text): a frame's `WindowFrame` is kept only in the config of the window whose folder the frame is named after
+/// (`window_name`, FUN_1009aecc; every file on this machine has it so). The frame of the startup window (else of the
+/// first window) is the client's "Chat"; each other is `Chat:<frame>`, as the chat window names its frames.
+pub fn chat_frames(configs: &[(String, String)]) -> Vec<(String, [f32; 4])> {
+    let frame_name = |text: &str| value(text, "window_name").map(|v| v.trim_matches(|c| c == '"').replace("&quot;", "")).unwrap_or_default();
+    let first = configs.iter().find(|(_, t)| value(t, "is_startup_window") == Some("true")).or(configs.first()).map(|(_, t)| frame_name(t));
+    let mut out = Vec::new();
+    for (folder, text) in configs {
+        let frame = frame_name(text);
+        let Some(place) = window_frame(text).filter(|_| frame == *folder) else { continue };
+        out.push((if Some(&frame) == first.as_ref() { "Chat".to_string() } else { format!("Chat:{frame}") }, place));
+    }
+    out
+}
+
 /// The named archives of a `Prefs.xml`: each `<Archive name="…" code="0">…</Archive>` at the top level and its frame.
 pub fn config_frames(text: &str) -> Vec<(String, [f32; 4])> {
     let mut out = Vec::new();
@@ -333,18 +349,13 @@ pub fn load(character: u32) -> Option<Original> {
             }
         }
     }
-    // (the chat windows: the startup window is the client's "Chat")
+    // (the chat windows' frames: the startup window's is the client's "Chat", the others `Chat:<frame>`)
     if let Ok(windows) = std::fs::read_dir(dir.join("Chat/Windows")) {
-        let mut found: Vec<(bool, [f32; 4])> = Vec::new();
-        for entry in windows.flatten() {
-            let Ok(text) = std::fs::read_to_string(entry.path().join("Config.xml")) else { continue };
-            if let Some(frame) = window_frame(&text) {
-                found.push((value(&text, "is_startup_window") == Some("true"), frame));
-            }
-        }
-        if let Some((_, frame)) = found.iter().find(|(startup, _)| *startup).or(found.first()) {
-            out.frames.insert("Chat".to_string(), *frame);
-        }
+        let configs: Vec<(String, String)> = windows
+            .flatten()
+            .filter_map(|e| Some((e.file_name().to_string_lossy().into_owned(), std::fs::read_to_string(e.path().join("Config.xml")).ok()?)))
+            .collect();
+        out.frames.extend(chat_frames(&configs));
     }
     // (the shortcut bars' frames, one file each)
     for n in 0..10 {
@@ -464,6 +475,25 @@ mod tests {
         assert_eq!(prefs_dirs_in(&roots, 5), Some((root.clone(), root.join("derived/Char5"))));
         assert_eq!(prefs_dirs_in(&roots, 6), None);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A chat frame's place is in its owner's config; the startup window's frame is "Chat", another is `Chat:<frame>`.
+    #[test]
+    fn the_chat_frames_come_from_their_owners_configs() {
+        let config = |frame: &str, startup: bool, place: Option<&str>| {
+            let place = place.map_or(String::new(), |p| format!("<Rect name=\"WindowFrame\" value=\"Rect({p})\" />"));
+            format!("<Archive code=\"0\">{place}<String name=\"window_name\" value='&quot;{frame}&quot;' /><Bool name=\"is_startup_window\" value=\"{startup}\" /></Archive>")
+        };
+        let configs = vec![
+            ("Window1".to_string(), config("Window1", true, Some("224,565,799,762"))),
+            ("Window2".to_string(), config("Window1", false, None)),
+            ("Window3".to_string(), config("Window3", false, Some("10,20,300,200"))),
+            ("Window4".to_string(), config("Window3", false, Some("1,1,2,2"))),
+        ];
+        assert_eq!(chat_frames(&configs), vec![("Chat".to_string(), [224.0, 565.0, 799.0, 762.0]), ("Chat:Window3".to_string(), [10.0, 20.0, 300.0, 200.0])]);
+        // (a startup window in another's frame: that frame is "Chat")
+        let configs = vec![("Window3".to_string(), config("Window3", false, Some("10,20,300,200"))), ("Window4".to_string(), config("Window3", true, None))];
+        assert_eq!(chat_frames(&configs), vec![("Chat".to_string(), [10.0, 20.0, 300.0, 200.0])]);
     }
 
     #[test]
