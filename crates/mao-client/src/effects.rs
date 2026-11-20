@@ -395,13 +395,27 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
                 ((t + 0.2) * (1.0 - t * t) * s.size, [centre[0] + p[0], centre[1] + p[1], centre[2] - 1.2])
             }
             3 => {
-                // born in the sphere, swirling across the radius without rising, the swirl gaining a tenth a frame
-                let (a, b, r) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0, hash(salt, 7).cbrt() * s.radius);
+                // `case 3`: born at a random point of the unit sphere about the point, its level parts times the radius (word
+                // 29, +0x16d8) but not its height, moving level across the radius (the server's (z, 0, -x) times it); then each
+                // frame its velocity pulled toward the point by a tenth of the way (0x10161850) and its place moved on by a
+                // tenth of the velocity: it circles the point, bobbing about the point's height. Drawn from the frame after
+                // its birth.
+                let (a, b, r) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0, hash(salt, 7).cbrt());
                 let flat = (1.0 - b * b).sqrt();
-                let (sx, sy, sz) = (flat * a.cos() * r, flat * a.sin() * r, b * r);
-                let gain = 1.0 + 0.1 * age * 30.0 * 0.1;
-                let position = [centre[0] + sx - sy * age * gain, centre[1] + sy + sx * age * gain, centre[2] + sz];
-                ((t + 0.2) * (1.0 - t * t) * s.size, position)
+                let (ux, uy, uz) = (flat * a.cos() * r, flat * a.sin() * r, b * r);
+                let mut p = [ux * s.radius, uy * s.radius, uz];
+                let mut v = [uy * s.radius, -ux * s.radius, 0.0];
+                let frames = (age * 30.0).floor().min(600.0) as u32;
+                if frames == 0 {
+                    continue;
+                }
+                for _ in 0..frames {
+                    for c in 0..3 {
+                        v[c] -= p[c] * 0.1;
+                        p[c] += v[c] * 0.1;
+                    }
+                }
+                ((t + 0.2) * (1.0 - t * t) * s.size, [centre[0] + p[0], centre[1] + p[1], centre[2] + p[2]])
             }
             4 => {
                 // thrown from the point in a random direction at the radius a second, slowed 5% a frame, falling a tenth a frame
@@ -457,9 +471,16 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
                 ((1.0 - w * w) * s.size, position)
             }
         };
+        // (mode 3 draws each star's colour anew every frame, FUN_10108663; a hash of the frame stands in for `rand()`)
+        if s.mode == 3 {
+            let drawn = (time * 30.0) as u32;
+            colour = [1, 2, 3, 0].map(|c| s.colour_a[c] + (s.colour_b[c] - s.colour_a[c]) * hash(salt ^ drawn.wrapping_mul(0x9e37), c as u32));
+        }
         let frame = match s.mode {
             4 => hash(salt, 9),
             10 => 0.0,
+            // (mode 3: `15 - trunc((death - now) × 16 / life)`, 0 to 15)
+            3 => (15 - ((1.0 - t) * 16.0) as i32).clamp(0, 15) as f32 / 15.0,
             // (the frame `15 - floor(a * 15.99)` of modes 16, 17 and 18, a the age over the life)
             16..=18 => (15 - ((t * 15.99) as i32).min(15)) as f32 / 15.0,
             _ => 1.0 - hash(salt, 9) * 0.25,
@@ -4193,6 +4214,24 @@ mod tests {
         let spread = far.iter().map(|p| p.position[2]).fold(f32::MIN, f32::max) - far.iter().map(|p| p.position[2]).fold(f32::MAX, f32::min);
         assert!(spread < 1.0);
         assert!(stars_particles(&s, centre, LANDING, false).is_empty());
+    }
+
+    #[test]
+    fn stars_mode_3_circle_the_point_pulled_toward_it() {
+        let s = Stars { mode: 3, colour_a: [1.0, 0.0, 0.0, 0.0], colour_b: [1.0, 1.0, 1.0, 1.0], size: 0.5, radius: 2.0, life: 3.0, swirl: 0.0, material: 33, attach: 1000, duration: -1.0, word11: 0.0, word30: 0 };
+        let centre = [10.0, 20.0, 5.0];
+        // (none drawn in the frame it is born)
+        assert!(stars_particles(&s, centre, 0.01, false).is_empty());
+        for time in [0.5f32, 1.0, 2.0, 2.9] {
+            let at = stars_particles(&s, centre, time, false);
+            assert!(!at.is_empty());
+            // the level circle's reach is the radius (the pull and the speed balance), the height within the unit sphere's
+            assert!(at.iter().all(|p| (p.position[0] - 10.0).hypot(p.position[1] - 20.0) <= 2.0 * 1.2 && (p.position[2] - 5.0).abs() <= 1.2), "{time}");
+        }
+        // the colours are drawn anew each frame
+        let a = stars_particles(&s, centre, 1.0, false);
+        let b = stars_particles(&s, centre, 1.0 + 1.0 / 30.0, false);
+        assert_ne!(a[0].colour, b[0].colour);
     }
 
     #[test]
