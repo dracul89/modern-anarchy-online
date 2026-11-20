@@ -64,6 +64,12 @@ const STEP: f32 = 0.4;
 
 /// A segment's first front face on a triangle: the point, its normal and how far along (0 to 1).
 fn triangle_hit(t: &[V3; 3], start: V3, end: V3) -> Option<(V3, V3, f32)> {
+    triangle_ray(t, start, end).filter(|h| (0.0..=1.0).contains(&h.2))
+}
+
+/// The line through `start` and `end` on a triangle's front face, before the start or past the end as well (FUN_100190f8 sets
+/// no bound on how far along): the point, its normal and how far along.
+fn triangle_ray(t: &[V3; 3], start: V3, end: V3) -> Option<(V3, V3, f32)> {
     let n = cross(sub(t[1], t[0]), sub(t[2], t[0]));
     let d = sub(end, start);
     let dn = dot(d, n);
@@ -71,9 +77,6 @@ fn triangle_hit(t: &[V3; 3], start: V3, end: V3) -> Option<(V3, V3, f32)> {
         return None;
     }
     let s = dot(sub(t[0], start), n) / dn;
-    if !(0.0..=1.0).contains(&s) {
-        return None;
-    }
     let p = add(start, scale(d, s));
     for k in 0..3 {
         let (a, b) = (t[k], t[(k + 1) % 3]);
@@ -82,6 +85,44 @@ fn triangle_hit(t: &[V3; 3], start: V3, end: V3) -> Option<(V3, V3, f32)> {
         }
     }
     Some((p, unit(n), s))
+}
+
+/// The tiles a segment crosses, in order from its start (`n3TilemapSurface_t::GetLineIntersection`'s walk, 0x10018b72): from
+/// the start's tile (x and z over the tile size, cut to whole numbers) one tile at a time, along z when the next z edge is
+/// no further along than the next x edge, else along x, as many steps as the tiles between the two ends' tiles.
+fn tiles_crossed(start: V3, end: V3, size: f32) -> Vec<(i64, i64)> {
+    let (sx, sz, ex, ez) = (start[0] / size, start[2] / size, end[0] / size, end[2] / size);
+    // (`_ftol`: cut towards zero)
+    let (mut i, mut j, ei, ej) = (sx as i64, sz as i64, ex as i64, ez as i64);
+    let (dx, dz) = (ex - sx, ez - sz);
+    // (how far along to the next edge, and from one edge to the next, in hundredths: `_DAT_1003d5a0` 100, `_DAT_1003d8b0` -100)
+    let (step_i, delta_i, mut next_i) = if dx < 0.0 {
+        let d = -100.0 / dx;
+        (-1, d, (sx - sx.floor()) * d)
+    } else {
+        let d = 100.0 / dx;
+        (1, d, (sx.floor() + 1.0 - sx) * d)
+    };
+    let (step_j, delta_j, mut next_j) = if dz.is_nan() || dz < 0.0 {
+        let d = -100.0 / dz;
+        (-1, d, (sz - sz.floor()) * d)
+    } else {
+        let d = 100.0 / dz;
+        (1, d, (sz.floor() + 1.0 - sz) * d)
+    };
+    let steps = (ej - j).abs() + (ei - i).abs();
+    let mut tiles = Vec::with_capacity(steps as usize + 1);
+    for _ in 0..=steps {
+        tiles.push((i, j));
+        if next_j <= next_i {
+            j += step_j;
+            next_j += delta_j;
+        } else {
+            i += step_i;
+            next_i += delta_i;
+        }
+    }
+    tiles
 }
 
 /// The playfield's surface for the vehicle: `n3TilemapSurface_t` outdoors (the zones and the tile-map's ground), the
@@ -121,37 +162,38 @@ impl Ground {
         }
     }
 
-    /// `n3TilemapSurface_t::GetLineIntersection` (0x10018b72): the zones' first hit and the tile-map ground's along the
-    /// tiles the segment crosses (`Intersect_Tile`), the nearer: the point and the face's normal.
+    /// `n3TilemapSurface_t::Intersect_Tile` (0x1001891d): the line on tile (`i`, `j`)'s ground: none when the tile's highest
+    /// corner is below both ends, else its first triangle the line meets, in FUN_1001769d's order, wherever along the line.
+    fn tile_ray(&self, i: i64, j: i64, start: V3, end: V3) -> Option<(V3, V3)> {
+        let tris = self.tile(i, j)?;
+        let highest = tris.iter().flatten().map(|p| p[1]).fold(f32::MIN, f32::max);
+        if highest < start[1] && highest < end[1] {
+            return None;
+        }
+        tris.iter().find_map(|t| triangle_ray(t, start, end)).map(|(hit, n, _)| (hit, n))
+    }
+
+    /// `n3TilemapSurface_t::GetLineIntersection` (0x10018b72): the zones' first hit, and the tile-map ground's first along
+    /// the tiles the segment crosses in order ([`tiles_crossed`], `Intersect_Tile` on each), taken when it lies within the
+    /// segment; the nearer of the two (the ground at an equal distance): the point and the face's normal.
     pub fn line(&self, start: V3, end: V3) -> Option<(V3, V3)> {
         let zone = self.zones.line(start, end).map(|(hit, n)| (hit, n, lsq(sub(hit, start))));
-        let mut ground: Option<(V3, V3, f32)> = None;
+        let mut ground: Option<(V3, V3)> = None;
         if let Some((t, _)) = self.terrain.as_ref() {
-            let size = t.tile_size;
-            let across = ((end[0] - start[0]).hypot(end[2] - start[2]) / (size * 0.5)).ceil().min(4000.0) as usize + 1;
-            let mut last = None;
-            for k in 0..=across {
-                let p = add(start, scale(sub(end, start), k as f32 / across as f32));
-                let tile = ((p[0] / size).floor() as i64, (p[2] / size).floor() as i64);
-                // (each tile once; its neighbours too, as a segment may cut a tile's corner between two samples)
-                if last == Some(tile) {
-                    continue;
-                }
-                last = Some(tile);
-                for (di, dj) in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)] {
-                    for tri in self.tile(tile.0 + di, tile.1 + dj).into_iter().flatten() {
-                        if let Some((hit, n, s)) = triangle_hit(&tri, start, end)
-                            && ground.is_none_or(|g| g.2 > s)
-                        {
-                            ground = Some((hit, n, s));
-                        }
-                    }
+            let length = lsq(sub(end, start));
+            for (i, j) in tiles_crossed(start, end, t.tile_size) {
+                if let Some((hit, n)) = self.tile_ray(i, j, start, end)
+                    && lsq(sub(hit, start)) <= length
+                    && lsq(sub(hit, end)) <= length
+                {
+                    ground = Some((hit, n));
+                    break;
                 }
             }
         }
-        let ground = ground.map(|(hit, n, _)| (hit, n, lsq(sub(hit, start))));
+        let ground = ground.map(|(hit, n)| (hit, n, lsq(sub(hit, start))));
         match (zone, ground) {
-            (Some(z), Some(g)) => Some(if g.2 < z.2 { (g.0, g.1) } else { (z.0, z.1) }),
+            (Some(z), Some(g)) => Some(if g.2 <= z.2 { (g.0, g.1) } else { (z.0, z.1) }),
             (Some(z), None) => Some((z.0, z.1)),
             (None, Some(g)) => Some((g.0, g.1)),
             (None, None) => None,
@@ -713,6 +755,17 @@ mod tests {
         let (mut across, mut budget) = (0.0f32, 0.5f32);
         assert_eq!(advance(&mut centre, [0.0, 0.5, 0.0], &mut across, &mut budget, &mut top), Some(true));
         assert_eq!(budget, 0.0);
+    }
+
+    /// The ground's walk goes through the tiles the segment crosses, each once and in order (0x10018b72).
+    #[test]
+    fn the_ground_walk_takes_the_tiles_the_segment_crosses() {
+        assert_eq!(tiles_crossed([0.5, 0.0, 0.5], [2.5, 0.0, 1.5], 1.0), vec![(0, 0), (1, 0), (1, 1), (2, 1)]);
+        // (backwards and on tiles of 4: the start's tile first)
+        assert_eq!(tiles_crossed([9.0, 0.0, 1.0], [1.0, 0.0, 1.0], 4.0), vec![(2, 0), (1, 0), (0, 0)]);
+        // (straight along z, and a segment inside one tile)
+        assert_eq!(tiles_crossed([0.5, 0.0, 0.5], [0.5, 0.0, 2.5], 1.0), vec![(0, 0), (0, 1), (0, 2)]);
+        assert_eq!(tiles_crossed([0.2, 5.0, 0.2], [0.7, -5.0, 0.6], 1.0), vec![(0, 0)]);
     }
 
     /// A floor at y 0.5 over x, z 0..40 and a wall at x 20 (facing -x), as zone triangles (y up).
