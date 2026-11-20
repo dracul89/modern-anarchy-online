@@ -8007,3 +8007,27 @@ The original's fire effect makes its flames only in the frames where `rand()` ma
 ### Spirals sized by the body (RND-174)
 
 The Spiral2 effect's radius, rise and turn are scaled by the body's torso: its torso sphere's radius over the usual body's 0.25075, times the body's scale (FUN_1011230d, used by FUN_10111fdb and FUN_10111c40). The client carries each body's torso sphere among its frames and sizes the spirals by it; a usual character at its normal size is unchanged.
+
+### Sneaking backwards plays the sneak reversed (MOV-010)
+
+The original (Gamecode FUN_1006c370) plays the sneak action with its reverse flag when a sneaking character moves against its facing; the walking and running modes have back animations of their own. The client now sets the sneak cycle in the animation stack's backward direction while sneaking backwards (`movement_backwards`), and forwards again when the character turns to move ahead.
+
+### The ground's line test walks the tiles (MOV-011)
+
+The original's tile-map ground test (N3.dll `n3TilemapSurface_t::GetLineIntersection` 0x10018b72, `Intersect_Tile` 0x1001891d) walks the tiles a segment crosses in order and takes the first tile hit inside the segment; the client now does the same walk (`vehicle::tiles_crossed`) instead of sampling the segment every half tile, and prefers the ground to a zone hit at the same distance, as the original does.
+
+### The ground's idle loops (NPC-012)
+
+In the original a character in the sitting-on-the-ground mode 8 plays the ground's idle 0xd7 looping (Gamecode FUN_1006c5ae through FUN_1003c6f3), and the standing idle 0x78 when its body has none. The client now loops it too (the Wounded Dockworkers' `idle-sleep-ground`, players announced sitting) instead of holding its last frame, and a creature without a ground idle stands in its idle instead of holding the end of sitting down.
+
+### A bank item let go on another container is refused (INV-060)
+
+In the original (GUI.dll FUN_100cc855) an item taken out of the bank can only go to the inventory: let go on a bag's, chest's or corpse's window it stays in the bank and the game says ItemsDraggedFromBankCanOnlyBeDroppedToBank (text 10003). The client now says that line in the same case (the wear cells not yet).
+
+### More requirement lines (INV-071)
+
+The original's criteria evaluator (Gamecode FUN_100065d8) says a line for a failed comparison when asked to; the client now also says the original's lines for the equal and unequal comparisons on teams, fighting, sitting, combat mode, controllers, the Shadowlands, the place behind or in front of the target, weapons that cannot be wielded, and a side or profession refused.
+
+### Tower updates of other kinds (ZON-023)
+
+The original (Gamecode FUN_1012b350) treats a tower update whose kind is neither 1 (destroyed) nor 2 (planted) as a plant of an empty tower (the message's own, zeroed by TowerProxyBase_t's constructor FUN_1012b9d9). The client now adds that empty entry at the front of the playfield's list too, instead of ignoring the update.

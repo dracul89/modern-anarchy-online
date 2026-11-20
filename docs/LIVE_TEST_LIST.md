@@ -1256,3 +1256,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] A buff whose mesh stands at the feet (flag 0x200) on a creature or character of Scale above 100: the mesh is that much bigger.
 - [ ] A fire effect of template 2202/2203/2207/2208 (rage flames): flames come in uneven small bursts, about as many as before.
 - [ ] A spiral buff (Spiral2, e.g. template 71108) on a character at Scale 100: as before; on a scaled or large-torso body: wider and taller in proportion.
+- [ ] Sneak (/sneak) and walk backwards: the legs move in reverse; forwards they move as before.
+- [ ] Walk over hilly ground outdoors and up to buildings: the character keeps to the ground as before, no sinking or floating.
+- [ ] Arete Landing's Wounded Dockworkers: they lie and breathe (the idle loops), no frozen pose.
+- [ ] Open the bank and a bag; drag a bank item onto the bag's window: the line about bank items shows, the item stays in the bank.
+- [ ] Try to equip an item with a profession or side it refuses: the refusal line names it.

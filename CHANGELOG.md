@@ -12,6 +12,16 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Effect meshes held at the feet of a bigger or smaller character are scaled with the body, as on its attractors.
 - Fire effects with a gate (rage flames and the like) come in small bursts as in the original, not as an even stream.
 - Spiral buff effects are sized by the body: bigger on large creatures and on characters scaled up, smaller on small ones.
+- Creatures and players sitting on the ground now loop their idle there instead of freezing on its last frame.
+
+### Movement
+
+- Sneaking backwards plays the sneak animation in reverse, as the original does.
+
+### Items
+
+- A bank item dropped on a bag, chest or corpse window now says it can only go to the inventory, as the original does.
+- More of the original's reasons are told when an item cannot be worn or used (combat mode, team, side, profession and others).
 
 ## 0.1.7 (2026-11-20)
 

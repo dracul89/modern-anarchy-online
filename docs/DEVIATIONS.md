@@ -496,6 +496,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a character slides along an interior wall instead of stopping dead
 - Where: `crates/mao-client/src/vehicle.rs:341`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The original's refusal of a place outside the rooms is n3RoomSurface_t::VetoPosition (N3.dll 0x10015587, read in the scratchpad's n3.c) calling VetoRoomTransition (0x1001462f): for a vehicle's body it asks the playfield whether the move from the body's last allowed zone (n3Dynel_t::GetLastAllowedZoneInst) to the new room may happen and, refused, sets the place to the body's last allowed position in its zone (GetLastAllowedGlobalPositionInZone) pushed along the move by a fraction of the body's radius, or to the playfield's fallback place when that is in no room either. The client keeps no last allowed zone or position per body, so its axis slide cannot be replaced by the original's push-back without adding that tracking to the movement code; a change to indoor walking that can only be judged by walking rooms live, and the user relies on movement working.
 - Looked at, left (2026-11-19, overnight): Read: the original's refusal of a place outside the rooms is n3RoomSurface_t::VetoPosition (0x10015587) inside the sweep against the room surfaces, which the client does not have (MOV-026); the client tests the room cells after the step-back loop instead. Dropping the axis slide without the room surfaces would let a step end outside every room (the step-back loop stops a tenth short), so it stays until n3RoomSurface_t is ported.
 
 #### `MOV-003` Yalmaha scale and run speed restored by the client
@@ -558,6 +559,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: jump animation timing may not match the real jump
 - Where: `crates/mao-client/src/net.rs:4161`; `crates/mao-client/src/net.rs:4995`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The jump's timing in the original belongs to the movement controller's state machine (FUN_1006cb58 builds the transition for each change of CharVehicle_t's state, type 15 JumpStart among them) driving the jump-start, loop and land actions while Vehicle.dll's body flies until it lands; the client has not ported that state machine (MOV-009), so the fixed 1400/350 ms stand in for it. Porting the jump's timing is part of MOV-009's port and needs a live comparison of the landing.
 - Looked at, left (2026-11-19, overnight): The original's jump is the transition JumpStart (type 15, FUN_1006cb58) driving the animation controller's jump-start/loop/land actions while Vehicle.dll's jump runs the body until it lands; the client's fixed 1400/350 ms stand in for that controller, whose jump states were not read. Needs the controller's jump states read and a live comparison.
 
 #### `MOV-009` Others count as moving for a fixed 700 ms
@@ -578,7 +580,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: plays it forwards
 - A player notices: backwards sneaking looks wrong
 - Where: `docs/CAPTURE_GAPS.md:273`; `crates/mao-client/src/net.rs:4222`; `crates/mao-client/src/net.rs:12286`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Gamecode FUN_1006c370 (0x1006c370): moving against the facing (FUN_10070a37 = 2) in the sneaking mode (6) keeps the sneak action (FUN_1003c679) and passes its reverse flag (the fourth argument of the animation controller's play at vtable +0x18, true when backing; the walking and running modes take their own back actions 0x88/0xde and clear it). The client's animation stack already had the original's directions (0 forward, 1 backward), so the cycle sneaking backwards is now a segment of its own set in direction 1 (net.rs `movement_backwards`, `Characters::backwards`, `drive`'s segment 4). Test: `net::movement_tests::sneaking_plays_the_sneak_action_at_walking_speed` (extended). Commits: 8862b38 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The client's character animation (chars.parts) has no playing direction: playing the sneak action reversed needs a reverse flag through the animation stack and its loop points; low worth against that change.
 
 #### `MOV-011` Tile-map ground hit test samples along the line
@@ -588,7 +591,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: samples the segment every half tile and tests each sampled tile and its four neighbours
 - A player notices: none visible expected
 - Where: `crates/mao-client/src/vehicle.rs:136`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): N3.dll's decompile (scratchpad n3.c) has the walk: n3TilemapSurface_t::GetLineIntersection (0x10018b72) goes from the start's tile (coordinates over the tile size, cut by _ftol) one tile at a time, along z when the next z edge is no further than the next x edge (distances in hundredths, `_DAT_1003d5a0` 100 / `_DAT_1003d8b0` -100), |di|+|dj| steps; on each tile in the map Intersect_Tile (0x1001891d) refuses a tile whose highest corner is below both ends and otherwise takes the first of FUN_1001769d's two triangles the (unbounded) line meets (FUN_100190f8); the first such hit lying within the segment ends the walk, and it beats the zones' hit at an equal distance. The client's sampling every half tile with neighbours is replaced by that walk (vehicle.rs `tiles_crossed`, `Ground::tile_ray`, `Ground::line`); the triangle edge test keeps the client's exact zero where FUN_100190f8 allows -0.0005. Test: `vehicle::tests::the_ground_walk_takes_the_tiles_the_segment_crosses`, the other vehicle tests pass. Commits: 5a4acb0 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): n3TilemapSurface_t::GetLineIntersection's tile walk (Intersect_Tile over the tiles the segment crosses) is in N3.dll, whose decompile is not among the exports folders; the client's sampling (every half tile plus neighbours) finds the same tiles for the short probes it makes. Porting needs N3.dll's walk read.
 
 #### `MOV-012` Turn animations fall back as if stat 662 were never set
@@ -599,6 +603,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a character with that stat set would not use the sidestep for turning
 - Where: `crates/mao-formats/src/appearance.rs:184`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Confirmed: FUN_1006c370 chooses the turn actions 0xc4/0xc5 for a character standing and turning (FUN_10070a4f 3 or 4, not sidestepping), and FUN_10010b3c falls them to 0x86/0x87 when the client's own character has stat 662. The client never chooses a turn action (its standing characters play the idle whatever they turn), so the stat's fallback has nothing to act on; it belongs with a port of the standing turn animations, which needs the others' turning state from their movement messages and a look in the game.
 - Looked at, left (2026-11-19, overnight): Read: FUN_10010b3c falls the turns 0xc4/0xc5 to 0x86/0x87 when the CLIENT's own character has stat 0x296 (662, in a vehicle: HasStat and non-zero), whoever is animated. But the client never plays the turn actions 0xc4/0xc5 (no turn animation is chosen anywhere), so the fallback has nothing to act on; it belongs with a port of the turn animations.
 
 ### Movement: the original was not read: inferred or measured (4)
@@ -611,6 +616,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: the landing may look different
 - Where: `docs/FLIGHT_ORIGINAL.md:251`; `crates/mao-client/src/net.rs:8735-8745`; `crates/mao-client/src/viewer.rs:1765`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Read further: leaving fly mode is Gamecode FUN_1006e65e (falling enabled, the body moved by `_DAT_10161850` up, the orientation mode set to the value the stat holder gives for 0xc5 mode 2, the movement keys reset and the walk or run restarted). Whether the pitch goes at once depends on Vehicle.dll FUN_1000c616 (the vehicle's turn, scratchpad vehicle.c), which in orientation mode 0 builds the body's rotation from its current body forward (FUN_1000f192), so whether the flyer's pitched forward is levelled there or kept until the next turn lies in FUN_1000f192 and n3Dynel's forward update; that is MOV-026's vehicle-turn port and can only be judged by landing live.
 - Looked at, left (2026-11-19, overnight): FLIGHT_ORIGINAL.md's reading (body up 0.1, fall, orientation mode reset) is what the client does; whether the original zeroes the pitch at once lies in N3.dll's vehicle orientation (not in the exports), so it stays unknown.
 
 #### `MOV-014` Seated character cannot move or jump
@@ -632,6 +638,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: walk/run animation of others follows measured speed and may lag or flicker
 - Where: `crates/mao-client/src/net.rs:3701`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The original has no measured speed for others: their animation goes by the movement state machine (FUN_1006cb58's transitions, FUN_1006c370's choice by mode and direction). The client's smoothed speed now only picks walk or run where no mode is known and sets the playback rate; it goes when that state machine (MOV-009) is ported, which needs the others' movement states from their messages checked live.
 - Looked at, left (2026-11-19, overnight): The original has no measured speed for others: their animation goes by their movement state and mode (FUN_1006c370), see MOV-005 (now by mode) and MOV-009 (state machine not ported); the smoothed speed now only judges walk/run where no mode is known and the playback rate, so it goes away with MOV-009's port.
 
 #### `MOV-016` Turn speed without the TurnSpeed stat
@@ -748,6 +755,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: room-edge and turning behaviour may differ
 - Where: `docs/CLIENT_UI.md:2933`; `crates/mao-client/src/vehicle.rs:328`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The vehicle's turn is Vehicle.dll FUN_1000c616 (orientation modes 0 to 4, read in the scratchpad's vehicle.c) and the room surface's transforms are n3RoomSurface_t's in N3.dll (n3.c); both are now readable, but porting them replaces how the body is turned and how rooms are entered, the core of movement indoors and in flight, which can only be checked by walking rooms and flying live; too large and too risky for an unattended low entry.
 - Looked at, left (2026-11-19, overnight): n3RoomSurface_t's own transforms and the vehicle's turn (orientation, FUN_1000c616 and N3.dll's orientation modes) are a port of N3.dll/Vehicle.dll classes that are not in the exports folders read tonight; large, and checkable only by walking rooms live.
 
 ### Movement: the client has it, the original does not (7)
@@ -1620,6 +1628,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a creature may show another action's animation when its own is missing
 - Where: `crates/mao-formats/src/npc.rs:146`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Read further: the original does not take "the first that loads". FUN_1003ca14 returns the first animation the creature's record names along FUN_10010b3c's fallbacks (FUN_10045976 asks the record, not the database), and FUN_1006c370, when playing it fails (the controller's play at +0x18 returns below 0), plays the controller's current idle instead (`piVar1[0xd]`, +0x34, which FUN_1003c6f3 sets: the mode's idle from FUN_1006c5ae, the weapon stance's from FUN_1003cce2/FUN_1003ce27, and six more callers). The client keeps no such current idle per creature; porting the fallback means tracking what each of those nine callers sets, and its effect (a creature whose record names a missing animation) can only be seen in the game. The finding is noted for that port.
 - Done in part (2026-11-19, overnight): Done with NPC-007 (commit 28afa7a): Template::animation_candidates now gives only the action's animation and FUN_10010b3c's fallbacks (FUN_1003ca14), and with none the creature's last animation goes on. Left: the "first that loads" among them (a record naming an animation the database lacks; the original would play nothing, then go on with what plays) and the client's start order for a creature that has played nothing yet (start_candidates).
 
 #### `NPC-004` Pet window: client's own menu; fixed buttons sorted by family
@@ -1685,6 +1694,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a creature always plays the same variant of an action
 - Where: `crates/mao-client/src/net.rs:4446`; `crates/mao-formats/src/npc.rs:113`; `docs/ORIGINAL_AUDIT.md:84`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Confirmed: FUN_10045976 picks an action's variant with the CRT rand() at each start (FUN_1003ca14), for animations and the sounds the animation's notes fire. The client threads the creature's id as the seed through creature_parts (movement, stance, flourishes, the death), sounds.rs and the game-data tests that check a creature's chosen animations by that seed; a per-start roll means keeping a rolled variant per creature and action, re-rolled when the controller starts the action again, and rewriting those tests; more than the low entry is worth, and whether the variety shows can only be judged in the game.
 - Looked at, left (2026-11-19, overnight): Read: FUN_10045976 picks an action's variant with the CRT rand() each time an animation is asked for (FUN_1003ca14), so a creature's walk or idle variant changes from start to start, and its sounds likewise. Not ported tonight: the creature's id is threaded as the seed through creature_parts (animations, the stance, the flourishes), sounds.rs (three places) and the game-data tests that compare a creature's chosen animations by that seed; changing it means a per-start seed kept per creature and action and reworking those tests, more than this low entry is worth in one night. The client already has the CRT's rand (audio::Rand) to use for it.
 
 #### `NPC-010` Creature size taken from posed points, not rest meshes
@@ -1695,6 +1705,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tag heights may differ slightly
 - Where: `docs/ORIGINAL_AUDIT.md:29`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The original's height is VisualMesh_t::GetMeshHeight over each body mesh at rest (twice the largest bounding radius); the client's character and creature parts reach the tag already posed and skinned and keep no rest bound. It is the same change as TGT-007 (left for the same reason): carrying each CAT mesh's rest sphere from the mesh loader to the tag, a renderer change whose effect (tags over seated, lying or long-weapon bodies) can only be judged by pictures.
 - Looked at, left (2026-11-19, overnight): VisualMesh_t::GetMeshHeight measures each body mesh at rest (its bounding sphere's diameter, the largest); the client sizes a creature from its posed points. Porting needs a rest-pose bounding sphere per CAT mesh kept beside the posed parts, the same work as TGT-007 (the name tag height), which went to another porter; better done once there.
 
 #### `NPC-011` Following creatures (FollowTarget type 2) stop where they are
@@ -1714,7 +1725,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the idle is held at its end where the original loops it; players announced sitting not done (their update's fields before the block were not read)
 - A player notices: sitting players stand; wounded NPC pose static
 - Where: `docs/CLIENT_UI.md:4683`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Gamecode FUN_1006c5ae, in the sitting-on-the-ground mode 8, plays 0xd7 through FUN_1003c6f3 with the same endless loop count (-1) a movement's cycle gets, and plays 0x78 (the standing idle) when the body has no 0xd7 (FUN_1003cac9 returns 0). The client held the ground's idle at its end (as a death) and, for a body without 0xd7, held the end of sitting down (0xd5). Now the ground's idle loops for creatures and for players announced sitting (net.rs `held_loops`, in `creature_parts` and `Characters::parts`), and a creature without 0xd7 stands in its idle. Test: `net::movement_tests::sneaking_plays_the_sneak_action_at_walking_speed` (held_loops asserts); the creature and death tests pass. Commits: 1dccd2c (branch nightt, cherry-picked).
 - Done in part (2026-11-18): a player announced sitting now sits (the movement mode of its full update is read: mode 8 holds the ground's idle). The grounded creature's idle held at its end is as it was.
 
 #### `NPC-013` Shop totals computed by the client
@@ -1725,6 +1737,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: totals may differ if a rule was ported wrongly
 - Where: `crates/mao-client/src/shop.rs:15`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Read further: N3Msg_TradeGetInventoryCost (Gamecode 0x10015da6) gives, for the shop's side, a value the vending machine keeps per customer (FUN_10099e7f: the record FUN_10099d50 finds in the machine's list at +0x1f0 by the client's identity, its field +0x14), and for one's own side FUN_10066769 → FUN_1009a12d, the sell price the client already ports (`shop::sell_price`). Where the shop's record +0x14 is written (summed as items are added, or set from a server message) was not found in Gamecode's VendingMachine functions (no write to +0x14 in the 0x10099/0x1009a range), so whether the client's sum of `buy_price` rows is that value cannot be settled without the writer or a shop compared live.
 - Looked at, left (2026-11-19, overnight): The original asks N3Msg_TradeGetInventoryCost for the two cash views; the client sums the rows priced by its port of Gamecode's vending-machine rules, which is the same computation the call wraps for a shop. What differs is the field's look (a frame drawn by hand); the cost function itself was not read line by line against the client's sum, so it stays as it is until a shop is compared live.
 
 ### NPCs and creatures: the original was not read: inferred or measured (14)
@@ -1829,6 +1842,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: box may differ from the original's
 - Where: `docs/ORIGINAL_AUDIT.md:36`; `docs/CLIENT_UI.md:996`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Searched again: GlobalSignals_c +0x184 is emitted with a text from twelve places, in Gamecode (FUN_10086b3e, QuestBooth_NeedTeam) and in GUI.dll (FUN_100097e4, LoginModule_c::SlotLoginReply, SlotWebViewCrashed, SlotOpenMarketSendWindow, FUN_1010733d, FUN_101096f1 and more), so it is the general "show this text" signal; but no connect of a slot to +0x184 shows in GUI.dll's decompile (every 0x184 there is an emit or an unrelated field or skill 0x184), so the box the original opens is still unknown; the client's box, chosen by those other uses, stands.
 - Looked at, left (2026-11-19, overnight): FUN_10086b3e emits GlobalSignals_c +0x184 with QuestBooth_NeedTeam (text.mdb 102); the GUI slot connected to +0x184 was not found tonight either (no connect to that offset turned up in the GUI's signal hookups read), so the client's error box stands.
 
 #### `NPC-024` NPC template record read by a heuristic when its layout is odd
@@ -1850,6 +1864,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a form may linger after a polymorph ends; movement animation may differ
 - Where: `docs/CLIENT_UI.md:1975`; `docs/CLIENT_UI.md:1967`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): What is left is the polymorphed character's own speed and animation names (its movement as the form's creature). No capture holds another character polymorphed with its movement messages, and the client's drawing of another's polymorph has not been seen live; which of the form's animations and speeds the original uses for it (the vehicle's speed by mode for the morph's template, FUN_1006f9eb, against the creature record) can only be checked against a live polymorph.
 - Done in part (2026-11-18): the 30 s timeout is gone: a polymorph ends with its program's `Buff`, or when the character is announced without the body. The polymorphed character's own speed and animation names are still not done.
 
 #### `NPC-026` Polymorph animation rate is a client-tuned 1.0 where not calibrated
@@ -1903,6 +1918,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: wording differs
 - Where: `crates/mao-client/src/net.rs:6982`; `crates/mao-client/src/mission.rs:322`; `docs/CLIENT_UI.md:1005`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): What remains is only the sentence's wording: "No missions available..." is a literal of GUI.dll's program (FUN_100d0e71), not in text.mdb (checked: the game's text holds no such line), and the user's rule is that literal strings of the original's program are written in the client's own words. The behaviour (a chat line, the old offers emptied, MustHave2FreeSlots) is already the original's.
 - Done in part (2026-11-18, overnight): the line is a chat line now and the old offers are emptied, as FUN_100d0e71 does; the sentence is a literal of GUI.dll's (not in text.mdb), so the words are still the client's own.
 
 #### `NPC-031` CharacterAction 0x64 (NPC state) not decoded
@@ -1963,6 +1979,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: sliders reset each time
 - Where: `docs/ORIGINAL_AUDIT.md:72`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The sliders are kept since WIN-135 (tabs.ini under MissionSelectionViewConfig's names). The advanced options button is read (GUI.dll FUN_100d10fc: a toggle button at +0x1a8 with pictures 0x47/0x46, its state `show_advanced_options` from the config, default false; FUN_100d04fe writes it), but its slot (which hides sliders 1 to 6 and shrinks the window) was not found, and with the original's default (false) the window would open with the difficulty slider alone, a change to the window's look that needs someone to look at it first.
 - Looked at, left (2026-11-19, overnight): The reading is in hand (NOTES: MissionSelectionViewConfig with show_advanced_options, difficulty and the six dimension values, written when the window goes; the toggle button hides sliders 1–6), and it is catalogued as WIN-135 (a window entry); left to that entry so the mission window is changed once.
 
 #### `NPC-037` Mission: character's flag +0x140 not read for the new-mission line
@@ -2278,6 +2295,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: some drops the original allows do nothing.
 - Where: `docs/GUI_DLL_PARITY.md:50`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Notes-only umbrella: DragObject_c's targets are each a view's own drop handler (the chat line's, the knowledge window's, another character's, the wear cells', the mail and market slots'), several catalogued apart (INV-031, INV-060, INV-063); nothing remains under this entry that is not one of those, and each wants its handler read and a drag tried in the game.
 - Looked at, left (2026-11-19, overnight): Notes-only umbrella: `DragObject_c` carries items, nanos and actions to bars, windows and characters; the parts the client lacks are each a target's own drop handler (the chat line's, the knowledge window's, another character's), several already separate entries (INV-031, INV-063). Nothing small and certain to port under this entry alone.
 
 #### `INV-027` Inventory grid starts five columns wide
@@ -2299,6 +2317,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: An item with a larger action chunk shows no requirements.
 - Where: `crates/mao-formats/src/item.rs:404`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The count limits belong to the client's own template reader (`mao_formats::item`); the original reads a template through GameData.dll's class readers in order (exports_gamedata), where an action chunk has no such limit. Replacing the reader is INV-042's port (the whole template reader), not a change to the limits alone: raising them without the original's reader would let the heuristic misread other chunks as actions.
 - Looked at, left (2026-11-19, overnight): The action chunk is read by the client's own template reader (`mao_formats::item`), which INV-042 covers; the original reads templates through GameData.dll's reader (`exports_gamedata`), and porting its chunk reading is that larger job, not a change to the count limits alone.
 
 #### `INV-029` Item menu: Delete on wear pages, no Lock/Unlock, no Looter
@@ -2329,6 +2348,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Removing the attached item needs a click, not a drag.
 - Where: `crates/mao-client/src/mailmessage.rs:301`; `crates/mao-client/src/marketsend.rs:127`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The mail and market item places are drag sources in the original (a slot view's drag start through DragObject_c); the client's slot control (`gui::itemslot`) is no drag source, and making it one means teaching the shared hand (`gear::held`, `gear::DRAGGED`) a source that is neither the inventory nor a container, with the mail and market windows' own drop rules; a click empties the place with the same result, and the drag can only be checked by trying it in the game.
 - Looked at, left (2026-11-19, overnight): The mail and market item places are drag sources in the original (a slot view's drag start); the client's slot control (`gui::itemslot`) has no drag source, and making one is a change to the shared drag system (`gear::held` / DragAndDrop) for a small gain; a click empties the place with the same result.
 
 #### `INV-032` Perk criteria: social-armour flag not tracked
@@ -2339,6 +2359,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Perks may show as trainable while social armour is on.
 - Where: `crates/mao-client/src/perks.rs:181`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): CanWear's test reads the character's +0x138 bit 1, set by a spell when social armour is worn; the client does not run that spell or keep the flag, and the spell that sets it (FUN_10080aff's stat 702 tests) was not traced to the bit; judging it from the worn social items would be a guess.
 - Looked at, left (2026-11-19, overnight): `CanWear`'s social-armour test reads the character's +0x138 bit 1, which a spell sets when social armour is worn; the client does not run that spell or keep the flag, so it cannot be judged without guessing it from the worn social items (FUN_10080aff's tests on stat 702 were not read for the flag's setting).
 
 #### `INV-033` Requirements: an unreported stat reads as 0
@@ -2433,6 +2454,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: An item with unusual flags would cut the inventory short.
 - Where: `crates/mao-net/src/inventory.rs:58`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The inventory list's end is found by a heuristic because the world-entry message's tables after the item list are not read (mao-net `inventory.rs`); the original reads the whole message with its class reader in Gamecode, and porting that reader (and the stat tables after the list) is a port of its own size, checkable against the captures but touching every login.
 - Looked at, left (2026-11-19, overnight): The inventory list's end is found by a heuristic because the world-entry message's tables are not fully read (mao-net `inventory.rs`); the original's reader of that message (its class reader in Gamecode) would have to be ported as a whole.
 
 #### `INV-042` Item template parsed by heuristics, not the original's reader
@@ -2443,6 +2465,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: An item with an unusual record may show no name or no actions.
 - Where: `crates/mao-formats/src/item.rs:442`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The template reader is the client's own (`mao_formats::item`: printable-text search for the name, chunk keys scanned); the original's is GameData.dll's class reader (exports_gamedata), a port of its own size that also settles INV-028; the client's reader is used by every item page, requirement and price, so replacing it is too large for a low entry.
 - Looked at, left (2026-11-19, overnight): The item template reader is the client's own (`mao_formats::item`); the original's is GameData.dll's class reader (`exports_gamedata`), a port of its own size (it also settles INV-028).
 
 #### `INV-043` Place of an item moved or looted into a container is a guess
@@ -2633,7 +2656,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Let go over the inventory window it is taken; no message when let go on a bag.
 - A player notices: No refusal text for a bank item dropped elsewhere.
 - Where: `crates/mao-client/src/loot.rs:382`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): GUI.dll FUN_100cc855 (0x100cc855): an item of the bank (container 0xdead) dropped on a view of another container (identity at +0x140/+0x144 set and not the bank's) raises LDB 10003 `ItemsDraggedFromBankCanOnlyBeDroppedToBank` through GlobalSignals_c +0x17c, the same signal as `DroppedItemWasLocked`, which the client already says as a feedback line; nothing moves. Now a bank item let go over a bag's, a chest's or a corpse's window says that line (loot.rs `BANK_ITEM_HELD`, `bank_item_in_hand`; feedback.rs reads the name from category 10003, the client's own words when the game has none). Left: the wear cells (the gear window's drop of a bank item), whose handler was not read. Test: `loot::tests::a_bank_item_is_in_hand_for_the_frame_after`. Commits: 0557a94 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-18, overnight): read (GUI FUN_100cc855: text 10003 ItemsDraggedFromBankCanOnlyBeDroppedToBank as a System chat line, on a bag, chest or corpse window or a wear cell); not ported, it wants a drag to try.
 
 #### `INV-061` City map: waiting building item not locked in the inventory
@@ -2674,6 +2698,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: None for normal play.
 - Where: `crates/mao-client/src/gui/iteminfo.rs:573`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The "Fabric" line (FUN_10033805, from the armour page FUN_1003826b) is written only while InputConfig_t's check mode is on (CheckMode(), a debug input mode); players never have it, so nothing a player sees is missing, and porting it would add a debug-only line the client has no mode for.
 - Looked at, left (2026-11-19, overnight): The "Fabric" line (FUN_10033805) is written only while `InputConfig_t`'s check mode is on (a debug input mode, `CheckMode()`), which players never have; nothing a player sees is missing.
 
 #### `INV-065` Item pages: stats not interpolated between the low and high templates
@@ -2684,6 +2709,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: stat values on a page at a quality between the templates may be the low template's.
 - Where: `crates/mao-client/src/gui/iteminfo.rs:41`
 - Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): Already done for the stats and price (derived::item_at). Read further for what is left: FUN_100cbfc8 also works the spell lists 14, 10, 24, 25, 26, 20 and 29 out between both templates spell by spell (FUN_100cb9a4 over each spell's parameter table from FUN_100cba11, by spell kind; some kinds 0xcf0a..0xcff5 matched by their nano or item reference first) and the stat lists 3, 6, 8, 4, 5, 10 (FUN_100cbe10) and 6, 7, 8, 11, 12, 13 (FUN_100cbd58, the attack and defence skill lists among them). The page's modifier and skill lists still read the low template between the two levels: porting needs each spell kind's parameter table read from FUN_100cba11, more than a low entry's time.
 - Looked at, left (2026-11-18, overnight): read (FUN_100cc5a1, FUN_100cbfc8, FUN_100cb909: 27 stats interpolated, the price by a curve, the high template whole at its level); the page is unchanged. The rounding fault it showed in the client's effects and requirements is mended (derived::between).
 - Done (2026-11-18, overnight, later the same night): the page and the inventory's names take the item as it is at its quality (derived::item_at: the high template at its level, 26 stats and the price between both); the page's modifier and skill lists still read the low template.
 
@@ -2695,6 +2721,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some locked states not shown.
 - Where: `docs/CLIENT_UI.md:4882`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Notes-only umbrella of lock states: an item's own wait that locks no skill, a program not shown locked for want of nano points, the locked-special lines. Each is a separate reading of the shortcut bar's and the lists' fading code (GUI.dll) with no rule found under this entry; nothing to port without those readings.
 - Looked at, left (2026-11-19, overnight): Notes-only umbrella of lock states (an item's own wait, nano points, locked-special lines); each needs its own reading of the shortcut bar's and the lists' fading code, not done tonight.
 
 #### `INV-067` Mail: total cost not shown
@@ -2705,6 +2732,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No total cost shown when sending mail.
 - Where: `docs/CLIENT_UI.md:141`; `crates/mao-client/src/mailbox.rs:3`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): No total cost was found in GUI.dll's mail views (FUN_10107fc8, FUN_10109a11); the strings "totalcost" and "unitcost" (0x101c1d30) were not traced to the mail window. Without the original's source of a total there is nothing to port.
 - Looked at, left (2026-11-19, overnight): No total cost was found in GUI.dll's mail views (FUN_10107fc8, FUN_10109a11); its strings "totalcost" and "unitcost" (0x101c1d30) were not traced to the mail window and may be the city terminal's buy dialog. Needs the mail window's own source of a total read first.
 
 #### `INV-068` Organization contract items cannot be taken or put in
@@ -2734,7 +2762,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: The cost is drawn as a plain number with nothing saying it is points (no code for a label found).
 - A player notices: Points vendors show a bare number.
 - Where: `docs/CLIENT_UI.md:4387`; `docs/LIVE_TEST_LIST.md:268`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Nothing to port: the original's shop shows the same Credits label at a points shop (the skin's TradeGUI.xml views), and the client builds its shop window from that same view file (shop.rs: `PartnerCashView`/`OurCashView` found in the skin's tree), so its label is the original's; the notes that said the original labels points were wrong.
 - Looked at, left (2026-11-18, overnight): nothing to port: the original's shop shows the same Credits label at a points shop (TradeGUI.xml's ShopBuy view); the notes that said otherwise are wrong.
 
 #### `INV-071` Requirement evaluator's flag arguments and feedback lines not ported
@@ -2744,7 +2773,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: None of the three is ported; both callers pass 0.
 - A player notices: No requirement feedback lines come from the evaluator.
 - Where: `crates/mao-client/src/requirements.rs:28`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): Gamecode FUN_100065d8 with its feedback flag: a failed "equal" on a character (case 0, from 0x10006a8c) says plain lines for stat 6 (TargetMustNotBeInATeam), 0x18d (WrongTargetSelected), 0x112 or 0x2b2 at 1 (YouCanWieldNoWeapons), 0x19a (TargetCantBeInFight at 0, else TargetMustBeFighting), 0x1ae at 2 (TargetMustBeSitting), 0x1b2 at 10 (MustBeInCombatMode), 0x1c7 at 0x9d (TargetMustBeAController), 0x1e8 at 1/2 (MustBeBehindTarget / MustBeInFrontOfTarget), 0x213 at 0 (MustNotBeInShadowlands); a failed "unequal" (case 0x18) says TargetMustBeInATeam (6), TargetSideMustNotBe (0x21, category 2005), ThisEffectCantBeUtilitizedBy (0x3c, 2004) and MustNotBeInCombatMode (0x1b2 at 10). Ported (requirements.rs `equal_line`, `unequal_line`, `Told::Plain/SideNot/ProfessionNot`; feedback.rs, with the client's own words when the game has no text). Left: 0x167's category-101 line, the other operators' lines (formula, running nanos, perks, free places, teams, raids, worn items) and the level-compare and pass-most flags, which no ported caller sets. Test: `requirements::tests::a_failed_list_tells_what_failed` (extended). Commits: b67064d (branch nightt, cherry-picked).
 - Done in part (2026-11-18, overnight): the evaluator's feedback lines are ported for below, above and the equalities of breed, side, sex and profession (requirements::evaluate_told, commit c9ff224), used by the wear and wield checks; the other operators' lines and the two flag arguments (level compare, pass-most) are not, and no ported caller sets those flags.
 
 #### `INV-072` Server CharacterAction 0x6e (end of an action's progress) not handled
@@ -2755,6 +2785,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: No progress end on corpse/chest actions.
 - Where: `docs/CAPTURE_GAPS.md:288`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Re-read: CharacterAction case 0x20 (FUN_1005d61f) calls FUN_10046e7a, which closes the inventory container whose identity is at +0x20 of the object at the character's +0x180 (FUN_10058d5d, FUN_1003f61c), if one is set; no timer or progress ends. The earlier note took that object for the reclaim terminal's list (0xdeae), but the writers of a +0x180 found in Gamecode are of other classes (Vehicle_t's followed target, FUN_1007034b), so which container it closes is not settled, and no capture holds a server 0x6e to see it. Left until that field's writer is found.
 - Looked at, left (2026-11-18, overnight): the note is a misreading: 0x6e closes the open reclaim container (0xdeae; 0x6a the bank's), FUN_10046e7a; no timer ends. Nothing to port until there is a reclaim window.
 
 #### `INV-073` Shops: list configs not read
@@ -2764,7 +2795,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Not read; no sold list (shop.rs notes nothing is sold for points).
 - A player notices: Shop lists not in the saved layout.
 - Where: `docs/GUI_DLL_PARITY.md:88`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Already done by WIN-035 (commit 387b498): the shop's three docks are item-container lists whose mode, grid order, column widths and sort are kept under the trade's config, `ShopViewConfig.shop_listview_config` at a shop and `TradeViewConfig.partner_listview_config` with a player (shop.rs `config`, `keepers`), as GUI.dll FUN_100e121e and FUN_100dfdc8 keep them; the `ShopBuy` view has no sold list in the original either (the skin's TradeGUI.xml), which the client loads.
 - Looked at, left (2026-11-19, overnight): The shop lists' saved column layout (`shop_listview_config`) is a window-layout matter of small worth; no change.
 
 #### `INV-074` Some wear refusals left to the server
@@ -2806,6 +2838,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: such worn stat changes never apply
 - Where: `crates/mao-formats/src/item.rs:216`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): A worn item's temporary set with criteria is judged by the original when the item's wear event runs its spells, on the character as it is then (the spell executor was not found; FUN_100065d8 is only the criteria evaluator); the client's worn sums are stateless, recomputed from the worn list, so judging the criteria there would depend on the order items were put on and on the sum itself (INV-053, same ground).
 - Looked at, left (2026-11-19, overnight): Same ground as INV-053: a worn item's temporary set with criteria is judged by the original when the spell runs (the wear event), on the character as it is then; the client's stateless sum cannot judge it without the spell executor's rule.
 
 #### `INV-078` Worn meshes: hiding modes and loading stand-in not ported
@@ -2816,6 +2849,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Some worn items hide/show differently; no stand-in while loading.
 - Where: `docs/ORIGINAL_AUDIT.md:39`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): FUN_10073517's hiding modes (+0x74) and the stand-in mesh while a worn mesh loads are renderer behaviour whose effect (which worn meshes hide which, a brief stand-in) can only be judged by looking at characters in the game; the client loads meshes synchronously, so a loading stand-in has nothing to stand in for.
 - Looked at, left (2026-11-19, overnight): Notes-only: FUN_10073517's hiding modes (+0x74) and the stand-in mesh while loading are renderer work that needs a look in the game.
 
 ### Inventory and items: the client has it, the original does not (6)
@@ -3621,7 +3655,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: playfield number taken at byte 58 by the original's order of reads, no captured message confirmed it then (a later note says tests of real messages read it)
 - A player notices: possibly wrong building inside
 - Where: `docs/CLIENT_UI.md:3859`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Nothing left to port: `Message::owned_building` (mao-net n3.rs) reads OwnedBuildingGeneratorData_t in FUN_1011f23e's order (the playfield at byte 58 after the version at 54, the outside place with version 4), and the test `n3::tests::an_owned_buildings_inside_is_its_templates_playfield` checks it on the real silo and headquarters messages of the user's log of 2026-11-15 (playfields 4350 and 4349).
 - Looked at, left (2026-11-19, overnight): Already by the original's read order (OwnedBuildingGeneratorData_t, FUN_1011f23e) and confirmed by real messages since (the later note); nothing left but the catalog's wording.
 
 #### `ZON-010` Server travel-destination list: two flag bytes not understood
@@ -3643,6 +3678,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-net/src/n3.rs:746`; `docs/CAPTURE_GAPS.md:117`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): n3TeleportIIR_t::ReadSubClass (0x10029e7f) reads two more identities (+0x4c, +0x54: 186a1 before most zonings, 186a7 in a mission) and a byte string, and the client keeps them; what reads them after (the instance redirect) was not traced, and nothing visible depends on them in the captures, so there is no rule to port.
 - Looked at, left (2026-11-19, overnight): n3TeleportIIR_t::ReadSubClass's two extra identities (+0x4c, +0x54) and byte string are read by the original but where they are used (the instance redirect, 186a1/186a7) was not traced; nothing visible to port without that.
 
 #### `ZON-012` Whom-Pah sign-to-playfield table is inferred
@@ -3685,6 +3721,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no crash; the player is placed at the pad instead of zoning
 - Where: `crates/mao-client/src/net.rs:12709`; `docs/ARETE_CAPTURE.md:131`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Kept as a guard: the original crashed on a c7a0 teleport with every id zero (an instance not made yet), so there is no behaviour of the original's to follow; without the client's move to the pad the message would leave the character where it stood or end the client, neither of which is the original's either.
 - Looked at, left (2026-11-19, overnight): The original crashed on this message (an instance not made yet), so there is no original behaviour to follow; the client's move to the pad is the least it can do without one.
 
 #### `ZON-016` Zoning hold released after 30 seconds
@@ -3738,6 +3775,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: organisation-placed fixtures not shown
 - Where: `crates/mao-net/src/n3.rs:2067`; `docs/CLIENT_UI.md:3861`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The fixtures list follows the outside place in OwnedBuildingGeneratorData_t (reader FUN_101217c0); the only real messages (the user's log, 2026-11-15) carry none, so the list's layout cannot be checked, and drawing fixtures needs their templates and meshes placed in the building, which no message shows.
 - Looked at, left (2026-11-19, overnight): The fixtures list (FUN_101217c0) is read in the original to draw what an organisation put in its building; reading it needs the reader ported and a message with fixtures, which no log holds.
 
 #### `ZON-021` Planet map window: no Build/War buttons, coordinate row or own PF map view
@@ -3748,6 +3786,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: map lacks those controls
 - Where: `docs/GUI_DLL_PARITY.md:101`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): MapControlView_c's Build/War buttons, the coordinate and waypoint row and the window's own PF map view are GUI.dll view work on the planet map window (the Build/War pair is ported on the land-control map, towerbuild.rs); a window layout change that has to be looked at.
 - Looked at, left (2026-11-19, overnight): MapControlView_c's Build/War buttons, the coordinate and waypoint row and the window's PF map view are GUI.dll view work; the Build/War pair is ported on the land-control map (towerbuild.rs) but not on the planet map window; not done tonight.
 
 #### `ZON-022` Playfield definitions older than version 7 are refused
@@ -3767,7 +3806,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: other kinds are ignored
 - A player notices: none visible
 - Where: `crates/mao-net/src/landcontrol.rs:84`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Gamecode FUN_1012b350 takes every update kind but 1 as a plant (FUN_1012a0e9 inserts the message's tower at the front); the reader FUN_1012b38a reads a tower only for kind 2, so another kind plants the tower the message was made with: FUN_1012b311 builds it with TowerProxyBase_t's constructor FUN_1012b9d9, which zeroes the site, the tower and the place (+0x04..+0x1c) and leaves the model, side, scale and class as the memory had them (taken as zero). `landcontrol::tower_update` now returns that empty tower for other kinds instead of nothing. Test: `landcontrol::tests::updates_destroy_and_plant` (extended). Commits: d614d5d (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): FUN_1012b350 adds an empty entry for other kinds; what an empty entry shows (a site with no tower drawn, or a placeholder in the list) was not traced through LandControl_t's users, so the client still leaves them out.
 
 ### Zoning and playfields: the client has it, the original does not (5)
@@ -9110,6 +9150,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: plain text description
 - Where: `docs/CLIENT_UI.md:2821`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The Meta-Physicist's description is GUI.dll's `DescriptionMetaPhysicists` with `<font>` tags and entities; the character creation's text areas are drawn by the client's own painter (ccscene), not the GUI text view (`gui/text.rs`) that understands the tags, so showing their colours means moving the creation's text areas onto that view, a change to the creation screens that has to be looked at.
 - Looked at, left (2026-11-19, overnight): Notes only: the Meta-Physicist's description is GUI.dll's `DescriptionMetaPhysicists` with `<font>` tags and entities, which the creation's text area (drawn by the client's own painter) shows as plain text; drawing the tags' colours needs the creation's text areas moved onto the GUI text view (`gui/text.rs`), which the creation scenes do not use yet.
 
 #### `LCH-018` Name case is set by the client
@@ -9130,6 +9171,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: page behaves as in a normal browser; optional
 - Where: `crates/mao-client/src/launchwindow.rs:568`; `docs/CLIENT_UI.md:776`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Nothing of the original's left to port: the page shows by default (`page = true`) as the original's always-shown browser control; the switch and sending new-window links to the system browser are what a WebView2 child needs, having no window of its own to open them in.
 - Looked at, left (2026-11-19, overnight): The page shows by default (`page = true`), as the original's always-shown browser control; the switch and sending new-window links to the system browser are what a WebView2 child needs (it has no window of its own to open them in). Nothing of the original's left to port.
 
 #### `LCH-020` No colour depth; exclusive full screen when neither box is ticked
@@ -9204,6 +9246,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: layout may be a pixel off
 - Where: `crates/mao-client/src/launchwindow.rs:82`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The launcher's exact rectangles are in Anarchy.exe's dialog templates (resources 153, 161, 107 and the main dialog), in dialog units that turn into pixels by the dialog's font; the measured rectangles are within a pixel of the original's window, and checking a conversion needs the two windows side by side. The list's white box is the plain Win32 list box's look with default colours.
 - Looked at, left (2026-11-19, overnight): The launcher's controls are in Anarchy.exe's dialog templates (resources 153, 161, 107 and the main dialog); reading their exact rectangles needs a dialog-template reader over the program's resources, and the measured rectangles are within a pixel. The list's white box is how the original's plain Win32 list box looks with the default colours. Left.
 
 #### `LCH-027` Profession scene text area height is a guess
@@ -9237,6 +9280,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none unless the game hangs
 - Where: `crates/mao-client/src/launcher.rs:126`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Kept: the 180 s limit only ends the launcher's own wait for the game's window when the game hangs before showing one; the original has no second process to wait for, so there is no original behaviour to port and nothing a player can do or see changes.
 - Looked at, left (2026-11-19, overnight): Kept: the 180 s limit only ends the launcher's own wait for the game's window when the game hangs before having one; the original has no second process to wait for. Nothing a player can do or see changes.
 
 #### `LCH-030` Launcher guards, lenient graphics choice, error box and crash log
@@ -9268,6 +9312,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: players without WebView2 see words, not the site's page
 - Where: `crates/mao-client/src/launcher.rs:623`; `crates/mao-client/src/loginviews.rs:182`; `crates/mao-client/src/loginviews.rs:134`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Kept: the words are shown only where no WebView2 (or another system's web view) can be made, where the original's page could not be shown at all; with WebView2 the page is the original's (LoginModule_c::ShowError's page).
 - Looked at, left (2026-11-19, overnight): Kept: the words are only shown where no WebView2 (or another system's web view) can be made, where the original's page could not be shown at all; with WebView2 the page is the original's.
 
 #### `LCH-033` Plain orange buttons when the game has no Anarchy.exe
@@ -9278,6 +9323,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible with the game installed
 - Where: `crates/mao-client/src/launchwindow.rs:826`; `docs/CLIENT_UI.md:786`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Kept: plain buttons are drawn only when the game folder has no Anarchy.exe to take the original's bitmaps from (a stripped folder or another system's install); with the game installed the buttons are the original's bitmaps, and the client may not ship them.
 - Looked at, left (2026-11-19, overnight): Kept: plain buttons are only drawn when the game folder has no Anarchy.exe to take the original's bitmaps from (a Linux/Mac install or a stripped folder); with the game installed the buttons are the original's.
 
 ### Launcher, login, character creation: the original does it, the client does not (9)
@@ -9362,6 +9408,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: those failures are not shown as the original's pages
 - Where: `docs/ORIGINAL_AUDIT.md:37`; `docs/CLIENT_UI.md:1030`; `crates/mao-client/src/launcher.rs:113`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The refusals after the list are ported (2026-11-19); what is left is the page for a connection lost after the list, which needs the game's process to tell a lost connection apart from its other endings and hand that to the launcher, and can only be checked by losing a connection live.
 - Done in part (2026-11-19, overnight): Ported the refusals after the list: GUI.dll `LoginModule_c::SlotLoginReply` 0x10012179 sends 0x10 and 0x21 (as 0xd) to `ShowError` with their kind and code, the error's page over the login. `mao_net::session::login_character` now returns a system message in the ticket's place as `Error::Refused { kind, code }` (it was a type error without the code); the game's process writes it to the `MAO_TICKET_UP` file (`launcher::TicketNote::Refused`), and the launcher, whose progress window is up (LCH-038), waits for that process to end, puts the window away and shows the error's page (`dimensions::error_page(kind, code)`) over the login form, or the words where no page can be shown. Test: `launcher::tests::the_ticket_note_round_trips`. Left: the page for a connection lost after the list (the game's process would have to tell that apart from its other failures), not ported.
 
 #### `LCH-042` play.sh does not search Steam libraries on other drives
@@ -9372,6 +9419,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Linux/Mac launch script needs the folder
 - Where: `docs/PLATFORMS.md:63`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Not a departure from the original: play.sh is the client's own Linux/Mac starter; reading Steam's libraryfolders.vdf is a feature of the script for a platform pass, and no Linux/Mac install is here to test it.
 - Looked at, left (2026-11-19, overnight): Notes only, and nothing of the original's: play.sh is the client's own Linux/Mac starter; reading Steam's libraryfolders.vdf is a feature of the script, not a departure from the original game. Left for a platform pass.
 
 ### Launcher, login, character creation: the client has it, the original does not (9)
@@ -10221,6 +10269,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: objects the original cannot load are readable
 - Where: `docs/ROADMAP.md:17`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Reading past 4 GiB only lets the client load objects the original could not reach; it changes nothing the original can show, and holding positions to 32 bits would only make the client refuse what it can read.
 - Looked at, left (2026-11-19, overnight): Notes only: reading past 4 GiB only lets the client load what the original could not; it changes nothing the original can show.
 
 ### Other: an approximation or a stand-in (3)
@@ -10318,6 +10367,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: answers only from the game's help, crafting texts and AO-Universe
 - Where: `docs/HELP_ASSISTANT.md:284`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Notes only: other sources for the client's own help assistant, which the original does not have; nothing of the original's to port.
 - Looked at, left (2026-11-19, overnight): Notes only: other sources for the client's own help assistant; nothing of the original's.
 
 #### `OTH-012` Level-up: reset-points line and hints not ported
@@ -10348,6 +10398,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible known
 - Where: `crates/mao-client/src/hazards.rs:21`; `docs/ORIGINAL_AUDIT.md:97`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Searched again: GlobalSignals_c +0x14c is emitted in one place only (Gamecode FUN_10011a4b, from the mine bleep FUN_10085faa with 3.0) and no slot connected to it shows in GUI.dll or Gamecode (no other reference to +0x14c of the GlobalSignals instance); an emit with no slot does nothing (`if (*(int*)(signals + 0x14c) != 0)`), so unless another DLL connects it the original shows nothing either. Left until a receiver is found; nothing to wire it to.
 - Looked at, left (2026-11-19, overnight): The signal after the bleep (FUN_10085faa: `GlobalSignals_c` +0x14c with 3.0, FUN_10011a4b) has no traced receiver: which window or effect listens on +0x14c is unknown, so there is nothing to wire it to. Left until the receiver is found.
 
 #### `OTH-015` Organization: no module views; contract window read-only
@@ -10358,6 +10409,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: organization UI is chat-driven; contract window is read-only
 - Where: `docs/GUI_DLL_PARITY.md:95`; `docs/GUI_DLL_PARITY.md:239`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): OrganizationGUIModule_c's views and the contract window's clicks are a large GUI.dll part (the module's views, its ItemContainerView_c with its own drop and click handlers, and the +0x18c text signal whose receiver was not traced); a set of windows to build and look at, not a low entry's port.
 - Looked at, left (2026-11-19, overnight): Notes only: the organization module's views and the contract window's clicks are a large GUI.dll part (`OrganizationGUIModule_c`, its ItemContainerView_c); out of reach tonight.
 
 #### `OTH-016` Server CharacterAction cases with unknown meaning not handled
@@ -10378,6 +10430,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no recipes beyond the game's texts and what the player tried
 - Where: `docs/TRADESKILL_GUIDE.md:106`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Notes only: an outside recipe table is not the original's (the original has none, OTH-006); nothing to port.
 - Looked at, left (2026-11-19, overnight): Notes only: an outside recipe table is not the original's (the original has none; OTH-006).
 
 ### Other: the client has it, the original does not (4)
