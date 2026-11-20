@@ -10632,11 +10632,12 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
             }
             // `/petduel` (GUI.dll FUN_100b8d78): a challenge to the targeted character, or an answer to one. The
-            // original asks only that the target is a character; what comes of it is the server's to say.
+            // original asks only that the target is a character (the selection's type 50000, one's own self too); what
+            // comes of it is the server's to say.
             if keys.pet_duel.0 != pet_duel_seen {
                 pet_duel_seen = keys.pet_duel.0;
                 let what = keys.pet_duel.1;
-                match (what, target.filter(|t| *t != own)) {
+                match (what, target.filter(|t| state.types.get(t).copied().unwrap_or(n3::CHARACTER) == n3::CHARACTER)) {
                     (0, None) => pending_messages.push("A pet duel needs a player as the target.".into()),
                     (_, t) => {
                         let _ = connection.send(&n3::pet_duel(own, t, what));
