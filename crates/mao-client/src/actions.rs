@@ -78,6 +78,19 @@ pub fn crawl_toggle(swimming: bool, crawling: bool, monster_data: i64) -> Crawl 
     }
 }
 
+/// `N3Msg_DoSocialAction` (Gamecode 0x10026b4f): the feedback that refuses a social action, or `None` to send it. None
+/// while swimming (the movement's mode 4); lounging and sleeping (0x45, 0x44) only sitting. (Its third refusal, a
+/// vehicle equipped for those two, reads an object of the character's at +0x2c8 this client does not know.)
+pub fn social_refusal(swimming: bool, sitting: bool, id: u32) -> Option<&'static str> {
+    if swimming {
+        Some("Feedback_CantDoSocialActionsWhileSwimming")
+    } else if (id == 0x44 || id == 0x45) && !sitting {
+        Some("Feedback_MustSitToLoungeOrSleep")
+    } else {
+        None
+    }
+}
+
 /// The action's item template for a number, and the number for a template.
 pub fn template_of(number: u32) -> Option<u32> {
     TEMPLATES.iter().find(|t| t.0 == number).map(|t| t.1)
@@ -525,6 +538,15 @@ impl ActionsWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `N3Msg_DoSocialAction`: swimming refuses every social action first; lounge and sleep want sitting.
+    #[test]
+    fn social_actions_are_refused_swimming_and_lounging_unseated() {
+        assert_eq!(social_refusal(true, true, 0x10), Some("Feedback_CantDoSocialActionsWhileSwimming"));
+        assert_eq!(social_refusal(false, false, 0x45), Some("Feedback_MustSitToLoungeOrSleep"));
+        assert_eq!(social_refusal(false, true, 0x44), None);
+        assert_eq!(social_refusal(false, false, 0x10), None);
+    }
 
     /// A pistol's flags (0x1405) let no one brawl; a katana's (0x66000405) let one brawl and use Dimach; a burst
     /// weapon bursts.

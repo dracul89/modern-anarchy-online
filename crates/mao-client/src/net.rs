@@ -10447,13 +10447,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     },
                 }
             }
-            // A social action (Gamecode's `N3Msg_DoSocialAction`, 0x10026b4f): lounging and sleeping (0x45, 0x44) only sitting
+            // A social action (Gamecode's `N3Msg_DoSocialAction`, 0x10026b4f): none while swimming (the movement's mode 4,
+            // "Feedback_CantDoSocialActionsWhileSwimming"), lounging and sleeping (0x45, 0x44) only sitting
             // ("Feedback_MustSitToLoungeOrSleep"), else a `SocialActionCmd_t` of the character to the server.
             if keys.social.0 != social_seen {
                 social_seen = keys.social.0;
                 let id = keys.social.1;
-                if (id == 0x44 || id == 0x45) && !sitting {
-                    pending_messages.push(crate::feedback::plain("Feedback_MustSitToLoungeOrSleep"));
+                if let Some(refusal) = crate::actions::social_refusal(state.swimming.contains(&own), sitting, id) {
+                    pending_messages.push(crate::feedback::plain(refusal));
                 } else {
                     let _ = connection.send(&n3::social_action(own, id));
                 }
