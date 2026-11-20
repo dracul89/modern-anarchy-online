@@ -2104,12 +2104,27 @@ pub struct EntityInfo {
 }
 
 /// The dead character a corpse's announcement (`4f474e05` of an object 0xc76a) names: its stats 415 and 416 are that
-/// character's type and number. All of the captures' 371 corpses have them, and each one that follows a death seen
-/// names the one that died (245 of 245).
+/// character's type and number, read at their place in the corpse's stats ([`corpse_stats`]). All of the captures' 371
+/// corpses have them, and each one that follows a death seen names the one that died (245 of 245).
 pub fn corpse_of(data: &[u8]) -> Option<u32> {
-    const KEY: [u8; 12] = [0, 0, 0x01, 0x9f, 0, 0, 0xc3, 0x50, 0, 0, 0x01, 0xa0];
-    let at = data.windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
-    Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?))
+    corpse_stats(data)?.into_iter().find(|s| s.0 == 416).map(|s| s.1)
+}
+
+/// A corpse's stats, read where `CorpseFullUpdateIIR_t`'s reader has them (Gamecode FUN_1009fa4c → FUN_1009f88a →
+/// FUN_100a0c87 → FUN_100a1661): after the byte before the stream, the corpse's version word and the dynel's, its identity,
+/// the place and turn (seven floats) when the identity's type word is 0, a word, an identity and two bytes, the stat list
+/// (FUN_1002e7d9: a count word, `(n + 1) × 0x3f1`, and n pairs of words). None when the message is shorter. (Until
+/// 2026-11-20 the dead one was found by searching the bytes for stat 415 = 50000 and stat 416; the two agree on all of the
+/// captures' 371 corpses.)
+pub fn corpse_stats(data: &[u8]) -> Option<Vec<(u32, u32)>> {
+    let word = |at: usize| data.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+    let mut at = 9;
+    if word(at)? == 0 {
+        at += 28;
+    }
+    at += 8 + 4 + 8 + 2;
+    let pairs = (word(at)? as usize / 0x3f1).checked_sub(1)?;
+    (0..pairs).map(|i| Some((word(at + 4 + 8 * i)?, word(at + 8 + 8 * i)?))).collect()
 }
 
 /// How a corpse looks by its own announcement (`CorpseFullUpdateIIR_t`, Gamecode's reader FUN_1009fa4c): the corpse is
@@ -3068,9 +3083,10 @@ mod entity_tests {
         assert_eq!((rex.name.as_str(), rex.move_mode), ("Rex Larsson", Some(1)));
         // (the run speed is the byte after the head's mesh: 30 and 52)
         assert_eq!((wounded.run_speed, rex.run_speed), (Some(30), Some(52)));
-        // (a corpse names the one that died in its stats 415 and 416)
-        let corpse = hex("0000019c000000010000019f0000c350000001a07b1a64330000002a0000170c");
-        assert_eq!((corpse_of(&corpse), corpse_of(&corpse[..20])), (Some(0x7b1a6433), None));
+        // (a corpse names the one that died in its stats 415 and 416, read at their place: an unplaced corpse's header,
+        // 31 bytes, then the count of four stats, (4 + 1) x 0x3f1)
+        let corpse = hex("00000000080000000000000001000000000000000000000000000000000000000013b50000019c000000010000019f0000c350000001a07b1a64330000002a0000170c");
+        assert_eq!((corpse_of(&corpse), corpse_of(&corpse[..44])), (Some(0x7b1a6433), None));
     }
 
     /// The 2026-10-31 15:05 capture's pets (#290 and the drone): their health and maximum, as their info packets give them.

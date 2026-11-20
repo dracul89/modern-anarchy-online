@@ -15403,7 +15403,7 @@ mod door_tests {
         w.entities.insert(0x7b577b58, ([265.0, 8.1, 278.3], 0));
         w.names.insert(0x7b577b58, ("32-V Docker".into(), false));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x7b577b58), data: hex(die) }.frame(1));
-        let corpse = "00000000080000000b0000000000000000438a90bd410228f6438b24b0000000000000019f0000c350000001a07b577b580000002a0000170c";
+        let corpse = "00000000080000000b0000000000000000438a90bd410228f6438b24b000000000000000000000000000000000000000000000000000000000000000000fc40000019f0000c350000001a07b577b580000002a0000170c";
         w.add(&Message { kind: 0x4f474e05, identity: (0xc76a, 0x103e829), data: hex(corpse) }.frame(1));
         assert_eq!(w.corpses.get(&0x7b577b58), Some(&0x103e829));
         assert!((w.entities[&0x7b577b58].0[0] - 277.13).abs() < 0.01);
