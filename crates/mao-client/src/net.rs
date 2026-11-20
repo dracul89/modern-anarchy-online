@@ -8041,6 +8041,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let thread_db = db.clone();
     let mut current = playfield;
     state.playfield = playfield;
+    // (a new login starts with no stat held for a while: the skills window's list is the new character's, from its own
+    // lists, not what the last session left)
+    crate::skillwindow::TEMPORARY.lock().unwrap_or_else(|e| e.into_inner()).clear();
     connection.set_timeout(Duration::from_millis(12)).map_err(|e| e.to_string())?;
     // The first couple of seconds say where the character is.
     let until = Instant::now() + Duration::from_secs(3);
