@@ -418,6 +418,15 @@ fn shut(was_up: bool, window: Option<bool>) -> bool {
     was_up && window == Some(false)
 }
 
+/// The frame (plus one; 0 none) the bank's window last had an item taken up, for the other containers' windows, which
+/// may be drawn before or after it in a frame.
+static BANK_ITEM_HELD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Whether a bank item was in hand at `frame`: the bank's window had it taken up this frame or the last ([`BANK_ITEM_HELD`]).
+fn bank_item_in_hand(held: u64, frame: u64) -> bool {
+    held != 0 && held >= frame
+}
+
 /// Whether a plain right click on an item of a container takes it (FUN_1004141b's button 2, the use signal): not on a
 /// corpse, whose list FUN_100ce55d gives the feature flag 0x400.
 pub fn right_click_takes(kind: u32) -> bool {
@@ -794,6 +803,9 @@ impl LootWindow {
         tree.signals.clear();
         // (the item taken up follows the pointer; let go over the inventory window, it is taken into the backpack)
         if let Some(place) = self.dragging {
+            if view.identity.0 == BANK {
+                BANK_ITEM_HELD.store(ctx.cumulative_frame_nr() + 1, std::sync::atomic::Ordering::Relaxed);
+            }
             let pointer = ctx.input(|i| i.pointer.hover_pos());
             if let (Some(at), Some(icon)) = (pointer, view.items.iter().find(|i| i.slot == place).and_then(|i| i.icon.as_ref()).and_then(|icon| self.textures.get(&icon.id))) {
                 ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("dragged-loot"))).image(icon.id(), egui::Rect::from_center_size(at, egui::vec2(40.0, 40.0)), egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::from_white_alpha(200));
@@ -878,6 +890,16 @@ impl LootWindow {
                     }
                 }
             }
+        }
+        // (a bank item let go on another container's window, a bag's, a chest's or a corpse's, is refused with a line:
+        // GUI.dll FUN_100cc855, an item of the bank, 0xdead, dropped on a view of another container, raises text 10003
+        // `ItemsDraggedFromBankCanOnlyBeDroppedToBank` through GlobalSignals_c +0x17c, the feedback line's signal)
+        if view.identity.0 != BANK
+            && bank_item_in_hand(BANK_ITEM_HELD.load(std::sync::atomic::Ordering::Relaxed), ctx.cumulative_frame_nr())
+            && ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
+            && shown.as_ref().is_some_and(|s| s.response.contains_pointer())
+        {
+            self.feedback.push("ItemsDraggedFromBankCanOnlyBeDroppedToBank");
         }
         // An inventory item dropped on the window goes in (not into a corpse).
         if let Some(shown) = shown {
@@ -1111,6 +1133,16 @@ pub fn title(kind: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A bank item taken up at frame 10 is in hand for the windows drawn in frame 10 and, before the bank's, in frame 11;
+    /// none taken up, none in hand.
+    #[test]
+    fn a_bank_item_is_in_hand_for_the_frame_after() {
+        assert!(bank_item_in_hand(11, 10));
+        assert!(bank_item_in_hand(11, 11));
+        assert!(!bank_item_in_hand(11, 12));
+        assert!(!bank_item_in_hand(0, 0));
+    }
 
     /// FUN_1004141b with FUN_100ce55d's flag 0x400: a right click takes from a chest or the bank, not from a corpse.
     #[test]

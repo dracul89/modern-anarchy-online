@@ -49,8 +49,9 @@ fn line(name: &str, args: &[Arg]) -> String {
     if let Some(group) = crate::chatgroups::feedback_group(name) {
         GROUP.set(Some(group));
     }
-    // (`DroppedItemWasLocked` is of the inventory's own category, 10003: GUI.dll FUN_100cc855)
-    let text = texts().and_then(|t| t.named(ldb::FEEDBACK, name).or_else(|| t.named(10003, name).filter(|_| name == "DroppedItemWasLocked"))).unwrap_or_else(|| english(name));
+    // (`DroppedItemWasLocked` and `ItemsDraggedFromBankCanOnlyBeDroppedToBank` are of the inventory's own category, 10003:
+    // GUI.dll FUN_100cc855)
+    let text = texts().and_then(|t| t.named(ldb::FEEDBACK, name).or_else(|| t.named(10003, name).filter(|_| matches!(name, "DroppedItemWasLocked" | "ItemsDraggedFromBankCanOnlyBeDroppedToBank")))).unwrap_or_else(|| english(name));
     ldb::format(text, args)
 }
 
@@ -59,6 +60,7 @@ fn english(name: &str) -> &'static str {
     match name {
         "Feedback_FallDamage" => "You took %u points of fall damage.",
         "DroppedItemWasLocked" => "That item is locked.",
+        "ItemsDraggedFromBankCanOnlyBeDroppedToBank" => "An item from the bank can only go to your inventory.",
         "Feedback_CantLogOutInAFight" => "You can't log out while in a fight.",
         "FollowingX" => "Now following %s.",
         "Feedback_CantFollow" => "That target can't be followed.",
