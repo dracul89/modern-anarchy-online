@@ -6,17 +6,14 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
-### Documentation
+## 0.1.8 (2026-11-20)
 
-- The README lists the system requirements: what the client needs, what was measured, and which parts of the minimum
-  are still an estimate.
+### Performance
 
-### Items
-
-- With an item in hand, a right click in the world uses it there as a left click does (on a character, an object, or the
-  ground's question), as in the original. It did nothing.
-- An item used on one of the playfield's built-in objects (a lock pick on a strongbox, a key on a statue) reaches the
-  object: it was sent under the client's own number for it, which the server does not know, and nothing happened.
+- The skills window no longer halves the frame rate while it is open: it took 8 ms of every frame (measuring its whole view twice and searching it by name a thousand times); now about half a millisecond.
+- The chat window no longer searches the disk every frame (for the script names its command list offers): the interface takes about 0.6 ms a frame where it took 6.3, and the game ran at about 165 frames a second where it ran at about 80 in the same test.
+- Characters coming into sight no longer freeze the game for a tenth to a fifth of a second: their textures are decoded and compressed ahead on every core, not on the frame's thread.
+- The performance overlay no longer makes a hitch of its own every second: it reads the processor and memory on a thread of its own (it took about 10 ms of every second's frames, and opened with a 0.6 s freeze).
 
 ### Graphics
 
@@ -34,55 +31,15 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The halo suns over a character (e.g. template 43768) are eight turning halos as in the original, not 32 still ones.
 - An NPC whose update names its own head no longer shows its template's head through it (Pamela Borroel's dark hair and black wedge in Arete Landing).
 
-### Movement
-
-- Sneaking backwards plays the sneak animation in reverse, as the original does.
-- Taking off into flight now shows the original's short burst of light around the character, for others too.
-
-### Items
-
-- A bank item dropped on a bag, chest or corpse window now says it can only go to the inventory, as the original does.
-- More of the original's reasons are told when an item cannot be worn or used (combat mode, team, side, profession and others).
-
-### Windows
-
-- The knowledge window no longer refuses an item when its 30 cells are full: the board grows a row and scrolls.
-- The planet map opens at the zoom level you last used (the first level the very first time), as the original does.
-- Research window: a goal's requirements read as in the original, without the "Wear:"/"Use:" headings.
-- Skills window: a skill set for a while by a temporary effect can no longer be raised, as in the original.
-
-### Chat
-
-- Renaming a chat window uses the original's name box; a name another chat window has is refused and asked again.
-- /voice now speaks in the chat window's output group (a channel set with /ch, the team, the organization), as in the original; channels that take no voice lines refuse it.
-- Emotes are refused while swimming, as in the original.
-- Ctrl-clicking a name or a chat group in a chat line now acts as a plain click; Shift-click still types the tell or /group line, as in the original.
-- Chat lines that hold a tab or another control character are shown instead of silently dropped.
-- A chat window's menu (right click on it in the friends list) can turn off "Deactivate On Send", so the input bar stays active after a line is sent, as in the original.
-- Every chat window frame, not only the first, starts where the original client left it for the character.
-
-### Interface
-
-- The camera no longer creeps towards your character on slopes; it rests against the ground as in the original.
-- Dragging an entry of the control center's menus that runs a chat command (the Social menu's emotes, for example) makes a macro of it that can be dropped on a hotbar, as in the original.
-- The inspect, mail, nano programs, maps, signup terminal, teleport target, laser target and mech select windows and the compass first open where the original client left them for the character.
-- The control center's right target button attacks the target, as in the original (it selected the next enemy).
-- A new level shows the game's notice buttons near the lower right: new skill points, and when they come, a new perk or research; a click opens that window.
-- The skills window lists all its groups one under another, as in the original; a folded group kept its room, so only Abilities and Body & Defense showed, with a gap between.
-- An item handed to an NPC leaves its trade bar once the trade is done; the reward that came to the same inventory place showed in the bar instead, and pressing V again would have given it away.
-- The skills window no longer halves the frame rate while it is open: it took 8 ms of every frame (measuring its whole view twice and searching it by name a thousand times); now about half a millisecond.
-- The chat window no longer searches the disk every frame (for the script names its command list offers): the interface takes about 0.6 ms a frame where it took 6.3, and the game ran at about 165 frames a second where it ran at about 80 in the same test.
-- Characters coming into sight no longer freeze the game for a tenth to a fifth of a second: their textures are decoded and compressed ahead on every core, not on the frame's thread.
-- The performance overlay no longer makes a hitch of its own every second: it reads the processor and memory on a thread of its own (it took about 10 ms of every second's frames, and opened with a 0.6 s freeze).
-
 ### World
 
 - Going away (/afk, or by itself after three idle minutes) on a battlestation leaves the battle, as in the original.
 - While your character lies dead it no longer goes "Auto-away" by itself, and a key pressed meanwhile still brings you back from being away.
 
-### Sound
+### Movement
 
-- Changing the battle music setting in the options takes effect at once, as in the original.
+- Sneaking backwards plays the sneak animation in reverse, as the original does.
+- Taking off into flight now shows the original's short burst of light around the character, for others too.
 
 ### Fights
 
@@ -97,6 +54,60 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Nanos
 
 - Every nano program running on a character shows its effect, not only the first six.
+
+### Items
+
+- With an item in hand, a right click in the world uses it there as a left click does (on a character, an object, or the
+  ground's question), as in the original. It did nothing.
+- An item used on one of the playfield's built-in objects (a lock pick on a strongbox, a key on a statue) reaches the
+  object: it was sent under the client's own number for it, which the server does not know, and nothing happened.
+- A bank item dropped on a bag, chest or corpse window now says it can only go to the inventory, as the original does.
+- More of the original's reasons are told when an item cannot be worn or used (combat mode, team, side, profession and others).
+
+### Windows
+
+- The knowledge window no longer refuses an item when its 30 cells are full: the board grows a row and scrolls.
+- The planet map opens at the zoom level you last used (the first level the very first time), as the original does.
+- Research window: a goal's requirements read as in the original, without the "Wear:"/"Use:" headings.
+- Skills window: a skill set for a while by a temporary effect can no longer be raised, as in the original.
+
+### Interface
+
+- The camera no longer creeps towards your character on slopes; it rests against the ground as in the original.
+- Dragging an entry of the control center's menus that runs a chat command (the Social menu's emotes, for example) makes a macro of it that can be dropped on a hotbar, as in the original.
+- The inspect, mail, nano programs, maps, signup terminal, teleport target, laser target and mech select windows and the compass first open where the original client left them for the character.
+- The control center's right target button attacks the target, as in the original (it selected the next enemy).
+- A new level shows the game's notice buttons near the lower right: new skill points, and when they come, a new perk or research; a click opens that window.
+- The skills window lists all its groups one under another, as in the original; a folded group kept its room, so only Abilities and Body & Defense showed, with a gap between.
+- An item handed to an NPC leaves its trade bar once the trade is done; the reward that came to the same inventory place showed in the bar instead, and pressing V again would have given it away.
+
+### Chat
+
+- Renaming a chat window uses the original's name box; a name another chat window has is refused and asked again.
+- /voice now speaks in the chat window's output group (a channel set with /ch, the team, the organization), as in the original; channels that take no voice lines refuse it.
+- Emotes are refused while swimming, as in the original.
+- Ctrl-clicking a name or a chat group in a chat line now acts as a plain click; Shift-click still types the tell or /group line, as in the original.
+- Chat lines that hold a tab or another control character are shown instead of silently dropped.
+- A chat window's menu (right click on it in the friends list) can turn off "Deactivate On Send", so the input bar stays active after a line is sent, as in the original.
+- Every chat window frame, not only the first, starts where the original client left it for the character.
+
+### Sound
+
+- Changing the battle music setting in the options takes effect at once, as in the original.
+
+### Documentation
+
+- The README lists the system requirements: what the client needs, what was measured, and which parts of the minimum
+  are still an estimate.
+
+### Not yet seen in a live game
+
+Read from the original client and tried offline or by test only: the item use on built-in objects, the bank item
+refusals and the wear and use reasons, the effects changes (seen in pictures only), sneaking backwards and the flight
+burst, the knowledge, planet map, research and skills windows' changes (the skills list in a picture), the chat window
+renaming, /voice and the chat menu, the camera on slopes, the control center's macros and target button, the NPC trade
+bar after a hand-in, going away on a battlestation, the PvP districts' grace periods and the battle music setting. The
+speed changes were measured in a live game on a test account, and the level's notice buttons were seen there.
 
 ## 0.1.7 (2026-11-20)
 
