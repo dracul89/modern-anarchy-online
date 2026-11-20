@@ -3420,6 +3420,14 @@ impl ApplicationHandler for App {
                 }
                 crate::prof::lap("present", prof_t);
                 crate::prof::frame();
+                // (`MAO_QUIT_AFTER=<seconds>`: the window closes by itself that long after it opened, for a timed run such
+                // as a `MAO_PROFILE` one)
+                static QUIT_AFTER: std::sync::OnceLock<Option<(std::time::Instant, f32)>> = std::sync::OnceLock::new();
+                if let Some((opened, after)) = QUIT_AFTER.get_or_init(|| std::env::var("MAO_QUIT_AFTER").ok().and_then(|v| v.parse().ok()).map(|s| (std::time::Instant::now(), s)))
+                    && opened.elapsed().as_secs_f32() >= *after
+                {
+                    event_loop.exit();
+                }
             }
             _ => {}
         }
