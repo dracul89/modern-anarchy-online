@@ -5780,6 +5780,9 @@ struct Characters {
     /// Whether the body drawn next plays its movement backwards (FUN_1006c370's reverse flag: sneaking backwards); set for
     /// each character before it is drawn.
     backwards: bool,
+    /// Whether the body drawn next crawls (its `WaitState`, stat 430, at 14: only one's own is known), for its weapon's crawling
+    /// actions (`item::weapon_actions_as`); set for each character before it is drawn.
+    crawling: bool,
     /// The vehicle body (an NPC template) a vehicle program gives each body, by (program, body CAT mesh).
     vehicles: std::collections::HashMap<(u32, u32), Option<u32>>,
     /// Each character's attractors on its last posed body, by name: frames in its local space (Y up, the body's scale
@@ -6237,7 +6240,7 @@ impl Characters {
         let head_meshes = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, _, instance)| instance).collect();
         let head_races = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).map(|(_, name, instance)| (instance, crate::bareskin::race_of_head(name))).collect();
         let head_bodies = index.iter().filter(|(kind, name, _)| *kind == 0xf6951 && is_head_name(name)).filter_map(|(_, name, instance)| Some((instance, crate::bareskin::body_of_head(name)?))).collect();
-        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, morph_gear: false, build: 1, robe: 0, backwards: false, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default(), creature_last: Default::default() })
+        Ok(Characters { head_meshes, head_races, head_bodies, creature_body: None, morph_gear: false, build: 1, robe: 0, backwards: false, crawling: false, db, index, anims: Default::default(), ids: Default::default(), bodies: Default::default(), creatures: Default::default(), lying: Default::default(), mesh_templates: None, creature_anims: Default::default(), motions: Default::default(), segment: 0, stacks: Default::default(), anims_by_id: Default::default(), notes: Vec::new(), movement_keys: Default::default(), movement_handles: Default::default(), socials_started: Default::default(), swings_started: Default::default(), drawn: Default::default(), wielded: Default::default(), started: Instant::now(), props: Default::default(), statics: Default::default(), vehicles: Default::default(), frames: Default::default(), creature_fight: Default::default(), creature_fought: Default::default(), creature_last: Default::default() })
     }
 
     /// The parts of a machine's model (Y-up local space), loaded once.
@@ -6832,8 +6835,8 @@ impl Characters {
     /// `rand()`), its animation by FUN_10010cc2's file names, falling back along FUN_10010b3c's chain (a rifle's shot to the small
     /// arms'); no action at all plays the social 0x3e, `wave` (FUN_10010dee). Its speed: the animation's first note over the
     /// weapon's attack time (stat 294 × 10 ms), held to 1..2. The animation, its length, the layer it claims and the speed. Not
-    /// followed: the character's own animation set (its 0xfde97 map, which picks among an action's variants) and the crawling
-    /// variants. (FUN_1006a782's `param_3` is no height: it is the special flag, 1 from FUN_1006af0e and 0 from FUN_1006ae3c,
+    /// followed: the character's own animation set (its 0xfde97 map, which picks among an action's variants). A crawling body
+    /// (one's own) takes the weapon's crawling actions. (FUN_1006a782's `param_3` is no height: it is the special flag, 1 from FUN_1006af0e and 0 from FUN_1006ae3c,
     /// which FUN_1006a014 takes to swing the queued special's class, as the `SpecialAttackInfo` branch does.)
     /// The animation file of an action (along FUN_10010b3c's fallbacks) and the layer it claims.
     fn ensure_action_file(&mut self, breed: u8, sex: u8, mut action: u32) -> Option<(String, u32)> {
@@ -6856,7 +6859,7 @@ impl Characters {
     fn ensure_weapon_action(&mut self, breed: u8, sex: u8, template: u32, slot: u32, class: u32) -> Option<(String, u32)> {
         use mao_formats::resource::Id;
         let data = self.db.get(Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok()??;
-        let mut action = *mao_formats::item::weapon_actions(&data, slot, class).first()?;
+        let mut action = *mao_formats::item::weapon_actions_as(&data, slot, class, self.crawling).first()?;
         for _ in 0..8 {
             if let Some((files, claims)) = mao_formats::appearance::action_animation_names(breed, sex, action) {
                 if let Some(file) = files.into_iter().find(|f| self.ensure_file(f)) {
@@ -6875,9 +6878,9 @@ impl Characters {
     fn ensure_swing(&mut self, breed: u8, sex: u8, template: u32, slot: u32, pick: u32, class: u32) -> Option<((u32, f32), u32, f32)> {
         use mao_formats::resource::Id;
         let data = self.db.get(Id { kind: mao_formats::item::TEMPLATE, instance: template }).ok()??;
-        let mut actions = mao_formats::item::weapon_actions(&data, slot, class);
+        let mut actions = mao_formats::item::weapon_actions_as(&data, slot, class, self.crawling);
         if actions.is_empty() && class != 0xb {
-            actions = mao_formats::item::attack_actions(&data, slot);
+            actions = mao_formats::item::weapon_actions_as(&data, slot, 0xb, self.crawling);
         }
         let attack_ms = mao_formats::item::Item::parse(&data).and_then(|i| i.stat(294)).map_or(0.0, |d| d as f32 * 10.0);
         let (file, claims) = if actions.is_empty() {
@@ -7447,6 +7450,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
             // the robe flag of the full update and the appearance update (FUN_10057800))
             chars.build = world.fatness(id);
             chars.robe = info.robe.unwrap_or(0) as i32;
+            chars.crawling = id == world.own && world.own_crawling;
             // (a character running a vehicle program rides its board or bike)
             let vehicle = world.riding.get(&id).and_then(|&nano| chars.vehicle(nano, info.breed, info.sex));
             // (fly mode: one's own as the game loop has it; another's only when the server's spell list said so, `flying`.

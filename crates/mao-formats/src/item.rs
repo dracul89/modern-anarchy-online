@@ -356,7 +356,7 @@ pub fn anim_sets(template: &[u8]) -> Vec<(u32, Vec<u32>)> {
 /// template's own animation set gives (the martial arts items' and the monsters' innate weapons' swings), as does an item
 /// without the stat: the item's stat read (vtable +0x3c, FUN_10003d90) goes to its `StatHolder_t` at +0x34, whose getter
 /// (FUN_1002e62b) gives 1234567890 for a stat it lacks, as its table is filled with (FUN_10009d97), and FUN_1009d964 leaves
-/// the map alone for that. The crawling variants (the owner's stat 430 at 14) are not used.
+/// the map alone for that. A crawling holder's variants: [`weapon_actions_as`].
 pub fn attack_actions(template: &[u8], slot: u32) -> Vec<u32> {
     weapon_actions(template, slot, 0xb)
 }
@@ -365,9 +365,17 @@ pub fn attack_actions(template: &[u8], slot: u32) -> Vec<u32> {
 /// weapon's AnimSet (FUN_10065b56) and fills (the draw 0x1a, the idle 0x10 and the holster 0x1b; the attack 0xb and the
 /// specials' classes, 0x15 aimed shot, 0x16 burst, 0x17 full auto, 0x1c fling shot, 0x19 fast attack, 0x1d sneak attack; and
 /// for the two-handed sets 0x27 to 0x2b, the start, stop, idle, walk and run with it), else the template's own (its animation
-/// set, chunk 0x12 or 0x0e). A class erased and not filled has none. The crawling variants (the owner's stat 430 at 14) are not
-/// taken.
+/// set, chunk 0x12 or 0x0e). A class erased and not filled has none. The holder standing: see [`weapon_actions_as`].
 pub fn weapon_actions(template: &[u8], slot: u32, class: u32) -> Vec<u32> {
+    weapon_actions_as(template, slot, class, false)
+}
+
+/// [`weapon_actions`] with the holder crawling or not: FUN_1009d964 takes the crawling variants when the holder's `WaitState`
+/// (stat 430) is 14 as it fills the map (when the weapon is wielded, FUN_1009e84b, and again for places 6 and 8 as the movement
+/// state changes, FUN_10068a17): sets 0, 1, 2 and 6 draw, idle and holster with 0xe7, 0xe9 and 0xe8; set 0 also attacks with
+/// 0xeb (0xea in the left hand) for the attack, burst, aimed shot, full auto and fling shot; set 3 draws, idles and holsters
+/// with 0xcd, 0xce and 0xcf and attacks with 0xd1 for all five. Sets 7 and 8 have none.
+pub fn weapon_actions_as(template: &[u8], slot: u32, class: u32, crawling: bool) -> Vec<u32> {
     let left = slot == 8;
     let set = Item::parse(template).and_then(|i| i.stat(353));
     // (class, actions) as FUN_1009d964 inserts them, and the classes it erased first
@@ -390,10 +398,31 @@ pub fn weapon_actions(template: &[u8], slot: u32, class: u32) -> Vec<u32> {
         Some(8) => (&[0x1a, 0x10, 0x1b, 0xb, 0x27, 0x29, 0x28, 0x2a, 0x2b], vec![(0x10, 0x424), (0xb, 0x426), (0x29, 0x424), (0x2a, 0x421), (0x2b, 0x422)]),
         _ => (&[], vec![]),
     };
+    let filled = if crawling { crawling_variants(set, left, filled) } else { filled };
     if erased.contains(&class) {
         return filled.into_iter().filter(|(c, _)| *c == class).map(|(_, a)| a).collect();
     }
     anim_sets(template).into_iter().filter(|(c, _)| *c == class).flat_map(|(_, actions)| actions).collect()
+}
+
+/// FUN_1009d964's crawling branch over a set's standing actions (see [`weapon_actions_as`]).
+fn crawling_variants(set: Option<u32>, left: bool, filled: Vec<(u32, u32)>) -> Vec<(u32, u32)> {
+    let (draw, idle, holster, attack) = match set {
+        Some(0) => (0xe7, 0xe9, 0xe8, Some(if left { 0xea } else { 0xeb })),
+        Some(1 | 2 | 6) => (0xe7, 0xe9, 0xe8, None),
+        Some(3) => (0xcd, 0xce, 0xcf, Some(0xd1)),
+        _ => return filled,
+    };
+    filled
+        .into_iter()
+        .map(|(class, action)| match class {
+            0x1a => (class, draw),
+            0x10 => (class, idle),
+            0x1b => (class, holster),
+            0xb | 0x16 | 0x15 | 0x17 | 0x1c => (class, attack.unwrap_or(action)),
+            _ => (class, action),
+        })
+        .collect()
 }
 
 /// The walk and run a wielded weapon sets on its holder (Gamecode FUN_1009cda2: `walk` and `run`, but a rifle, AnimSet 3,

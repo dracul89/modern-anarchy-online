@@ -725,6 +725,17 @@ fn specials_swing_their_class_of_the_weapon() {
     assert_eq!(mao_formats::item::weapon_actions(&get(122829), 6, 0x10), vec![0x3e9]);
     // (a blade has no burst: the class is erased and not filled)
     assert!(mao_formats::item::weapon_actions(&get(122829), 6, 0x16).is_empty());
+    // (crawling, FUN_1009d964's other branch: the pistol shoots 0xeb, 0xea in the left hand, and idles 0xe9; the rifle 0xd1 and
+    // 0xce; the crowbar keeps its stab but idles 0xe9; the rifle's two-handed idle stays)
+    use mao_formats::item::weapon_actions_as;
+    assert_eq!(weapon_actions_as(&get(301709), 6, 0xb, true), vec![0xeb]);
+    assert_eq!(weapon_actions_as(&get(301709), 8, 0x17, true), vec![0xea]);
+    assert_eq!(weapon_actions_as(&get(301709), 6, 0x10, true), vec![0xe9]);
+    assert_eq!(weapon_actions_as(&get(265091), 6, 0x16, true), vec![0xd1]);
+    assert_eq!(weapon_actions_as(&get(265091), 6, 0x10, true), vec![0xce]);
+    assert_eq!(weapon_actions_as(&get(265091), 6, 0x29, true), vec![0x41e]);
+    assert_eq!(weapon_actions_as(&get(122829), 6, 0x1d, true), vec![0x3ec]);
+    assert_eq!(weapon_actions_as(&get(122829), 6, 0x10, true), vec![0xe9]);
     // (out of a fight a rifle is held two-handed, idle-2h, and walks and runs so; a pistol keeps the plain idle and walk)
     assert_eq!(mao_formats::item::weapon_actions(&get(265091), 6, 0x29), vec![0x41e]);
     assert_eq!(mao_formats::item::wielded_movement(&get(265091)), Some((0x421, 0x422)));
