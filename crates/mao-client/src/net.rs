@@ -1888,6 +1888,14 @@ impl World {
                     // send it — a safety of this client's)
                     let start = if on.1 == self.own { self.stats.get(&224).map_or(6, |&v| v as u32) } else { 0 };
                     self.state_flags.entry(on.1).or_insert_with(|| crate::spelllist::StateFlags::new(start)).stun(begin, npc);
+                    // (its beginning also stops the one stunned, FUN_1005a02c(1): the movement's own check (+0x9c, FUN_1006f52a)
+                    // then +0x98, for a creature `NPCVehicle_t`'s FUN_100713de, the full stop (0x15), its path cleared
+                    // (FUN_10070df1) and no target followed (FUN_1007034b with 0): the walk the server set it on ends. The
+                    // check is taken as passing. One's own, a `PlayerVehicle_t` (FUN_100718f0: the full stop alone), is held by
+                    // the state flags, above.)
+                    if begin && on.1 != self.own {
+                        self.paths.remove(&on.1);
+                    }
                 }
                 crate::spelllist::Outcome::Control { state, begin, told } => {
                     let start = if on.1 == self.own { self.stats.get(&224).map_or(6, |&v| v as u32) } else { 0 };
@@ -14622,9 +14630,11 @@ mod door_tests {
         assert!(w.own_stunned());
         w.spell_outcomes(vec![(me, crate::spelllist::Outcome::Stun { begin: false, npc: false })]);
         assert!(!w.own_stunned());
-        // (another character's stun does not hold one's own)
+        // (another character's stun does not hold one's own; it ends the walk the server set that one on, FUN_100713de)
+        w.paths.insert(5, Route::Waypoints(vec![[1.0, 0.0, 1.0]]));
         w.spell_outcomes(vec![((crate::requirements::CHARACTER, 5), crate::spelllist::Outcome::Stun { begin: true, npc: true })]);
         assert!(!w.own_stunned());
+        assert!(!w.paths.contains_key(&5));
         w.spell_outcomes(vec![(me, crate::spelllist::Outcome::SetStat { stat: 689, value: 3 }), ((crate::requirements::CHARACTER, 5), crate::spelllist::Outcome::SetStat { stat: 690, value: 1 })]);
         assert_eq!((w.stats.get(&689), w.stats.get(&690)), (Some(&3), None));
     }

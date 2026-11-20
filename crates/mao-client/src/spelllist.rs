@@ -29,8 +29,9 @@
 //! * 0xcf0a, 0xcf56, 0xcf4a, 0xcf70, 0xcf1b, 0xd003: outside the table or its default, nothing on the client.
 //! * 0xcf82 "Stun" (FUN_100a879c, the duel buffs' begin and end): the character's state flags, stat 224 ([`StateFlags`]): it
 //!   loses 6 (2 and 4, which let it move) and gains 0x400, an NPC also 0x100 and 0x4200; the ending list gives them back.
-//!   Ported: [`Outcome::Stun`]; one's own character cannot move meanwhile. (Its call to the vehicle's +0x9c/+0x98,
-//!   FUN_1005a02c(1), is not.)
+//!   Ported: [`Outcome::Stun`]; one's own character cannot move meanwhile. Its call to the character's movement vehicle,
+//!   FUN_1005a02c(1) (+0x9c, then +0x98: a creature's `NPCVehicle_t` FUN_100713de stops it and drops its path and its
+//!   followed target), ends the walk the server set a creature on (`World::paths`).
 //! * 0xcf22 (FUN_100a4f8a): stat 0 set to stat 39 (689 on pets, 359 MonsterData on two NPCs in the captures), except the
 //!   stats it leaves alone. Ported: [`Outcome::SetStat`], kept for one's own character only (the client has no stats of others).
 //! * 0xcf92 (FUN_100a8107, a hoverbike's program: "Phasefront Banshee - Red" in the 08:42 capture): on a character, its
