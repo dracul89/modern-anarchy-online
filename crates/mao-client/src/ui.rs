@@ -1137,14 +1137,16 @@ impl Ui {
         let mut cc_windows: Vec<(&'static str, bool)> = Vec::new();
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         let shortcut_bars = &mut self.shortcut_bars;
+        let remember_started = crate::prof::lap("ui-begin", now);
         crate::layout::remember(&self.ctx);
+        let rollup_started = crate::prof::lap("ui-remember", remember_started);
         crate::rollup::begin_frame();
         // (the options' slider: `zoom_factor` multiplies the window's own scale)
         if (self.ctx.zoom_factor() - settings.ui_scale).abs() > 1e-3 {
             self.ctx.set_zoom_factor(settings.ui_scale);
         }
         crate::gui::host::begin_frame();
-        let layout_started = std::time::Instant::now();
+        let layout_started = crate::prof::lap("ui-host", rollup_started);
         let output = self.ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
             // (away from the keyboard, `afk.rs`: the frame's input is looked at before anything typed or clicked is
