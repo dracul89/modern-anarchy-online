@@ -13,6 +13,13 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Fire effects with a gate (rage flames and the like) come in small bursts as in the original, not as an even stream.
 - Spiral buff effects are sized by the body: bigger on large creatures and on characters scaled up, smaller on small ones.
 - Creatures and players sitting on the ground now loop their idle there instead of freezing on its last frame.
+- The ripple of a body struck by a deforming hit now has the original's shape.
+- Shield effects' textures and shimmer turn with the character instead of staying fixed to the world.
+- The star bursts of mode-2 nano effects flicker through their colours as in the original.
+- Mode-3 star effects circle the character as in the original (they turned the other way and drifted off).
+- Repeating toggled effects (flag 0x400) play again each time they end instead of only once.
+- Thick clouds no longer darken the daylight beyond what the original does.
+- The halo suns over a character (e.g. template 43768) are eight turning halos as in the original, not 32 still ones.
 
 ### Movement
 

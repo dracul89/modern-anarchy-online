@@ -1276,3 +1276,10 @@ These were written before this list; some may have been seen working since witho
 - [ ] With a character whose original layout has a second chat frame (Window3 and its tabs), log in: that frame opens at the original's place.
 - [ ] In the option panel's sound page change the battle music mode, then start a fight: the battle music follows the new setting without a restart.
 - [ ] With a character the original has played with the planet map or mail window moved, delete that window's place from layout.ini and open it: it opens at the original's place.
+- [ ] A hit with a deform effect (the hit templates of kind 3001) ripples the target's body in a fine, fast pattern, not a slow wave up the body.
+- [ ] A buff with a shield shell keeps its texture pattern on the body when the character turns.
+- [ ] A mode-2 stars effect (template 13000) flickers through its colours, groups of stars changing together.
+- [ ] A mode-3 stars effect circles its point clockwise seen from above, stars bobbing up and down and flickering.
+- [ ] An effect built on a repeating toggle (kind 3036 with flag 0x400, no vehicle flag) keeps replaying its child while it runs.
+- [ ] Outdoors under thick clouds (a stormy area) the ground is lit as brightly as under a clear sky of the same hour; the fog still greys it.
+- [ ] A mode-0 suns effect shows eight halos two units above the character, turning, some clockwise and some anticlockwise, one still; check the sense of turn against the original.

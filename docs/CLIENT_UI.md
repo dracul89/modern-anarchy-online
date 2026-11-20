@@ -8099,3 +8099,35 @@ GUI.dll's `SoundOptionsMonitor_c` (FUN_100c573c) passes nine preferences to the 
 ### More windows start where the original left them (SET-023)
 
 The original keeps each window's place in its own `*Config` archive of the character's `Prefs.xml` (`WindowFrame`). Besides the twenty mapped before, the client now takes the original's frame for the inspect, laser target, mail, mech select, nano programs, playfield map, planet map, signup terminal and teleport target windows and the compass (`aoprefs::NAMES`), checked against the original's files on the user's machine; a place the client kept itself still comes first.
+
+### A door's mesh: its record's, else its template's (RND-008)
+
+A door of the playfield's dynel table draws its record's own mesh (stat 12 in the record's tail) and, without one, its item template's (main.rs `static_props`); the earlier rule of this client that a door without a mesh of its own drew nothing is gone (the sentence about it under "Doors in their doorways" is out of date).
+
+### The hit ripple's shape (RND-103)
+
+`_GfxControlDeformer_t`'s vertex callback (Gamecode FUN_100d776f) ripples a hit body in mode 1 with a phase of the vertex's place and of t = frequency × time: `((x + 13t) × 13 + (y − 11t) × 17 + 19tz) × 11 + t`, each vertex pushed along its normal by `amplitude × sin²(phase) × strength`; mode 3 swells the whole body by `sin(time) × 0.05 × strength`. The client does both now (`effects::deform_parts`); the earlier ripple up the body with invented factors is gone. Modes 0, 2 and 4 are not done.
+
+### Shield shells turn with the character (RND-071)
+
+The shield shells (`GfxVisualShield` FUN_1001c94f, `GfxVisualShield2` FUN_1001d569) take their texture mapping, fade point and shimmer in the model frame, Y up with the feet the origin, turned with the character. The client's shells did that in the world's frame; they now turn it by the wearer's heading (`effects::visual_shells`). A shield landing as a shot's hit still uses the unturned frame.
+
+### Stars mode 2 flickers (RND-084)
+
+`_GfxControlStars_t` mode 2 (Gamecode FUN_100f8491, `case 2`) draws eight colours every frame, each between a palette entry (0x102c5ee8) and the template's second colour, and star k takes the (k mod 8)th: the burst's stars flicker. The client does the same at 30 frames a second (`effects::stars_particles`); before, each star kept one colour.
+
+### Stars mode 3 circle the point (RND-086)
+
+`_GfxControlStars_t` mode 3 (Gamecode FUN_100f8491, `case 3`) bears two stars a frame at random points about the point (level reach the radius, word 29) moving level across the radius; each frame a star's velocity is pulled a tenth of the way toward the point and the star moves a tenth of its velocity, so the stars circle the point and bob about its height, each drawn anew in a colour between the template's two every frame, its sheet frame running from 0 to 15 over its life. The client steps this at 30 frames a second (`effects::stars_particles`).
+
+### Toggled effects that repeat (RND-091)
+
+A toggle effect (kind 3036, `GfxControlToggle_t`, Gamecode FUN_10112952) with flag 0x400 makes its child again each time the child ends, for as long as the toggle runs; without it the toggle ends with its child. The client restarts such a child every one of its lives (`effects::resolve_toggles`); the vehicle-start toggles (0x2000) already restarted at each start.
+
+### Thick clouds do not darken the daylight (RND-102)
+
+The weather's thick clouds set `VisualEnvFX_t` +0x1134 to `1 − clouds / 2.333`, which only becomes the effect scripts' `CloudTranspariency` (DisplaySystem FUN_1005cdcf); the environment light looks the variable up but never uses it, and only Outerspace's sunlight script reads it. The client used it to dim the sky's light under thick clouds; it no longer does (the scripts still get it).
+
+### The suns turn (RND-032)
+
+`_GfxControlSuns_t` in mode 0 (Gamecode FUN_100fc425) shows eight halos two units above the point, sun k (k from 0) `size + k × step` wide under the envelope `1 − (2u − 1)⁴`, each turning in the view at `(k − 4) × time × 0.5` radians (`GfxVisualSol`, DisplaySystem FUN_10020836): the inner ones one way, the outer ones the other, the fifth still. The client drew 32 unturned halos; it now draws the eight, turning (the renderer's billboards can spin: `mao_render::Particle::spin`).
