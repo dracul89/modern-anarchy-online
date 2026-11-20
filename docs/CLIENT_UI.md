@@ -7638,10 +7638,11 @@ FUN_10069a9f, the check behind the attack key and Ctrl + click, also looks at th
   `Feedback_TargetIsInADistrictWithHigherSuppression` (FUN_10069a9f, 0x10069e67); the attack still goes out;
 - **holds friendly nanos to one's own side** when either character is in mode 2 (FUN_1004ed2f): a team or raid mate, else
   one of one's own side (in a team: the target's side against one's stat 0xd5), else
-  `Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`.
+  `Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`. On a battlestation (the playfields 4380 to 4388,
+  `n3Playfield_t::IsBattleStation`) the side does not count: the target's stat 0x29c, its team in the battle, must be one's own.
 
 Not ported: the playfield's `FightModeHandler_t` changes to a district's mode (FUN_1011fddd's list: the server's, not kept),
-a dynel's own mode kept at +0xf4 while its +0x138 has bit 16 or 2, and the battlestation's side rule.
+and a dynel's own mode kept at +0xf4 while its +0x138 has bit 16 or 2.
 
 ### Tab: others' pets and characters not yet in play (TGT-005)
 

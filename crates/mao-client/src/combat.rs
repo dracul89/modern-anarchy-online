@@ -137,6 +137,12 @@ pub fn fight_mode(district: Option<Option<u8>>) -> i64 {
     }
 }
 
+/// `n3Playfield_t::IsBattleStation` (N3.dll 0x1000c5fa): the playfield's instance (+0x1c, `GetInstance`) is past 0x111b and
+/// before 0x1125, 4380 to 4388.
+pub fn battlestation(playfield: u32) -> bool {
+    0x111b < playfield && playfield < 0x1125
+}
+
 /// The text.mdb name (category 110) of a fight mode's line, which FUN_1003f4a3 tells when one's own character comes into a
 /// district of another fight mode (FUN_1003f5b2, from FUN_1003f6e6 as its zone changes): `SuppressionField100` for 0 ...
 /// `SuppressionField0` for 4.
@@ -499,6 +505,7 @@ mod tests {
         let fighting_me = Target::Character { dead: false, fights_me: true, mate: false, facts: Facts { fight_mode: 1, ..Facts::default() } };
         assert_eq!(default_attack(None, false, false, at_two, false, Some(9), fighting_me), start(9, 0));
         assert_eq!((fight_mode(None), fight_mode(Some(None)), fight_mode(Some(Some(1)))), (2, 2, 1));
+        assert!(!battlestation(0x111b) && battlestation(0x111c) && battlestation(0x1124) && !battlestation(0x1125));
         assert_eq!((suppression_field(0), suppression_field(4), suppression_field(5)), (Some("SuppressionField100"), Some("SuppressionField0"), None));
         // (held, +0x21d: `N3Msg_StopAttack` sends nothing and FUN_1006817d says the wait line)
         let held = Own { held: true, ..me };

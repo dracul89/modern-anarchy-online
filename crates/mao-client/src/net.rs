@@ -456,6 +456,8 @@ struct World {
     /// The playfield's districts (`sounds::DistrictMap`), for the characters' fight modes (`fight_mode`), and the fight mode
     /// of one's own character's district as last told (FUN_1003f5b2's +0x74; -1 before any).
     district_map: Option<std::sync::Arc<crate::sounds::DistrictMap>>,
+    /// The playfield the character is in (the network loop's `current`; `combat::battlestation` asks it).
+    playfield: u32,
     own_fight_mode: Option<i64>,
     /// The lightning's strikes heard (where, seed) and the eye's jolts, for the viewer.
     strikes: Vec<([f32; 3], u32)>,
@@ -5319,9 +5321,9 @@ impl World {
     /// Not ported: the "nano not in the list" warning (the client casts only from its list), the caster's +0x80 (silent,
     /// not read), the cast waiting on one of the same stat 0x195 (FUN_1004f3d9) and the program not yet ready (FUN_1004f0f9),
     /// the stacking against casts still under way on the target (FUN_1004f8ac's second list), and FUN_1004ed2f's
-    /// battlestation's side rule (stat 0x29c). FUN_1004ed2f's fight-mode rules are here (`fight_mode`): with either character
-    /// in mode 2 a friendly nano goes only to a team or raid mate or one of one's own side,
-    /// `Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`.
+    /// FUN_1004ed2f's fight-mode rules are here (`fight_mode`): with either character in mode 2 a friendly nano goes only to a
+    /// team or raid mate, on a battlestation (`combat::battlestation`) to one of the same stat 0x29c, elsewhere to one of
+    /// one's own side, else `Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`.
     fn nano_target_refusal(&self, nano: u32, target: Option<u32>, sight: &dyn Fn([f32; 3], [f32; 3]) -> bool) -> Option<Vec<String>> {
         let line = |name: &str| Some(vec![crate::feedback::plain(name)]);
         let data = ITEM_DB.get().and_then(|db| db.get(mao_formats::resource::Id { kind: mao_formats::item::NANO_TEMPLATE, instance: nano }).ok().flatten());
@@ -5389,13 +5391,16 @@ impl World {
         }
         // (FUN_1004ed2f by fight mode, FUN_1003e43a: neither in mode 2 (sides against sides) lets it go; else a team or raid
         // mate, or (not in a team) one of one's own side; in a team the target's side must be one's own stat 0xd5's. The
-        // battlestation's rule, stat 0x29c alike, is not here: the client does not know a playfield for one.)
+        // battlestation (`combat::battlestation`) lets only one of the same stat 0x29c, its team in the battle.)
         if pet || self.fight_mode(self.own) != 2 && self.fight_mode(t) != 2 {
             return None;
         }
         let (in_team, in_raid) = crate::team::with(|team| (!team.members.is_empty(), team.raid.is_some()));
         if Self::team_mate(t) && (in_team || in_raid) {
             return None;
+        }
+        if crate::combat::battlestation(self.playfield) {
+            return (stat(0x29c).unwrap_or(0) != self.stats.get(&0x29c).copied().unwrap_or(0)).then(|| vec![crate::feedback::plain("Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide")]);
         }
         if in_team && side != self.stats.get(&0xd5).copied().unwrap_or(0) {
             return line("Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide");
@@ -8001,6 +8006,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
     let game_dir = game.to_string();
     let thread_db = db.clone();
     let mut current = playfield;
+    state.playfield = playfield;
     connection.set_timeout(Duration::from_millis(12)).map_err(|e| e.to_string())?;
     // The first couple of seconds say where the character is.
     let until = Instant::now() + Duration::from_secs(3);
@@ -9135,6 +9141,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     goto = None;
                     teleport_try = None;
                     current = playfield;
+                    state.playfield = playfield;
                     state.last_move.clear_all();
                     state.jumped.clear_all();
                     state.last_seen.clear_all();
@@ -14955,6 +14962,13 @@ mod door_tests {
         // (a player of the other side, both in fight mode 2: FUN_1004ed2f's opposite side)
         w.stats.insert(33, base.side as i64 + 1);
         w.others_stats.entry(9).or_default().remove(&0x296);
+        assert_eq!(w.nano_target_refusal(nano, Some(9), &clear), plain("Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide"));
+        // (on a battlestation the side does not count, the battle's team does: stat 0x29c alike)
+        w.playfield = 0x111c;
+        w.stats.insert(0x29c, 1);
+        w.others_stats.entry(9).or_default().insert(0x29c, 1);
+        assert_eq!(w.nano_target_refusal(nano, Some(9), &clear), None);
+        w.others_stats.entry(9).or_default().insert(0x29c, 2);
         assert_eq!(w.nano_target_refusal(nano, Some(9), &clear), plain("Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide"));
     }
 
