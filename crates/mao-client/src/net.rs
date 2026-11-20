@@ -6832,8 +6832,9 @@ impl Characters {
     /// `rand()`), its animation by FUN_10010cc2's file names, falling back along FUN_10010b3c's chain (a rifle's shot to the small
     /// arms'); no action at all plays the social 0x3e, `wave` (FUN_10010dee). Its speed: the animation's first note over the
     /// weapon's attack time (stat 294 × 10 ms), held to 1..2. The animation, its length, the layer it claims and the speed. Not
-    /// followed: the character's own animation set (its 0xfde97 map, which picks among an action's variants), the height of
-    /// the target (FUN_1006a782's `param_3`, which FUN_1003cac9 does not pass on) and the crawling variants.
+    /// followed: the character's own animation set (its 0xfde97 map, which picks among an action's variants) and the crawling
+    /// variants. (FUN_1006a782's `param_3` is no height: it is the special flag, 1 from FUN_1006af0e and 0 from FUN_1006ae3c,
+    /// which FUN_1006a014 takes to swing the queued special's class, as the `SpecialAttackInfo` branch does.)
     /// The animation file of an action (along FUN_10010b3c's fallbacks) and the layer it claims.
     fn ensure_action_file(&mut self, breed: u8, sex: u8, mut action: u32) -> Option<(String, u32)> {
         for _ in 0..8 {
