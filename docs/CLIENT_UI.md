@@ -8059,3 +8059,43 @@ Gamecode's skill maximum is 0 for a skill a temporary list (spell 0xcf76, e.g. r
 ### The camera on slopes (CAM-009)
 
 The original's camera never gets pulled towards the character to clear the ground: its vehicle settles against the playfield's surfaces (Vehicle_t::EnsureSurfaceAlignment). The client used to shrink the camera's distance until the eye was 0.6 above the ground; now that its camera vehicle settles against the playfield's surfaces and tile-map ground as the original's does, that pull-in is kept only for playfields without surfaces.
+
+### Dragging a menu's chat command makes a macro (CHT-013)
+
+The original's menu entries can carry a `<RunChatScript value=... macro_name=...>` action (`ActionRunChatScript_c`, GUI.dll FUN_100656a4). Clicking the entry runs the line (FUN_10065798 with 0, GlobalSignals +0x180); beginning a drag on it runs its `on_begin_drag` actions (CCMenuEntry_c's list +0x1d0), and there the action makes a macro (FUN_10065798 with 1, the `/macro` signal +0x1a0) named by `macro_name`, else by the line without its slash. The client now does the same: dragging, for example, the Social menu's Bow makes a macro "bow" of `/bow`, saved and carried on the pointer to a hotbar slot like a `/macro` one.
+
+### /voice in the window's chat group (CHT-018)
+
+The original's `/voice` (GUI.dll FUN_100b88b1) speaks in the chat window's selected group (FUN_1009a9bd), not always the vicinity: a channel gets the line with the voice record in the message's blob (FUN_10085a42, FUN_1008a2c1), unless the channel's flags have 0x40, when it is refused. The client now does the same with the window's output group (`/ch`): the vicinity when there is none, else the channel, refused there with a line of its own words.
+
+### Social actions refused while swimming (CHT-024)
+
+The original's `N3Msg_DoSocialAction` (Gamecode 0x10026b4f) refuses every social action while the character swims (its movement mode 4, `Feedback_CantDoSocialActionsWhileSwimming`), before the lounge/sleep sitting rule. The client now does the same (`actions::social_refusal`); the third refusal, lounge or sleep with a vehicle equipped, reads an object of the character's (+0x2c8) the client does not know and is not done.
+
+### Shift on a name or group link (CHT-039)
+
+The chat's link handlers test the qualifiers' low two bits (FUN_100ac4c4 for a name, FUN_100ac4f0 for a group), which `WindowController_c::GetQualifiers` (GUI.dll 0x10156df6) sets for the left and right Shift keys; Ctrl and Alt are other bits. So Shift-click on a name types the start of a tell, and Shift-click on a group types `/group` and its name; Ctrl-click now acts as a plain click, as in the original.
+
+### Chat lines with control characters (CHT-045)
+
+The client used to drop any chat line whose text held a control character, a guard from its first chat parser. Packets it cannot read now make no line at all, so the guard is gone: every line shows, as the original's chat view takes whatever its parser (GUI.dll FUN_1016d6f4) read.
+
+### Going away on a battlestation (CHT-058)
+
+The original's `SetAFK` (GUI.dll 0x10087669) does more than keep the message: when a character that was not away goes away while on a battlestation (`N3Msg_IsBattleStation`, playfields 4380 to 4388), it leaves the battle (`N3Msg_LeaveBattle`). The client now does the same, for `/afk` and for going away by itself; the leave is the one the battle's end box sends.
+
+### A chat window's "Deactivate On Send" (CHT-059)
+
+The original's chat window menu (GUI.dll FUN_100a8a69) has "Deactivate On Send" (`deactivate_on_send`, on by default, FUN_1009e379): after a line is sent the window stops taking typing (FUN_100ab37b → FUN_10099084) only while it is on. The client now keeps the option for each window (from the original's Config.xml or its own chatwindows.ini) and the friends list's menu of a chat window toggles it; off, the input bar stays typed in after Enter. "Enable Clickthrough" and "Default Window" are still drawn without being choosable.
+
+### The chat frames' places from the original's files (CHT-064)
+
+A chat frame's place is kept in the `Config.xml` of the window whose folder the frame is named after (`window_name`, written by GUI.dll FUN_1009aecc); the windows sitting in another's frame keep none. The client now reads every frame's place so: the startup window's frame is its "Chat" window, each other frame `Chat:<frame>`, so a player's second chat window starts where the original left it, not only the first.
+
+### Sound preferences passed on as they change (SND-009)
+
+GUI.dll's `SoundOptionsMonitor_c` (FUN_100c573c) passes nine preferences to the sound module the moment they change: SoundOnOff, MasterVolume, SoundFXOn, FXVolume, MusicOn, MusicVolume, BattlemusicMode, VoiceSndFxOn, VoiceSndFxVolume (slots 0x100c5242 to 0x100c5329). The client's control center does the same for changes from its menus and the option panel; the battle music mode, which it used to read only at start, now follows too.
+
+### More windows start where the original left them (SET-023)
+
+The original keeps each window's place in its own `*Config` archive of the character's `Prefs.xml` (`WindowFrame`). Besides the twenty mapped before, the client now takes the original's frame for the inspect, laser target, mail, mech select, nano programs, playfield map, planet map, signup terminal and teleport target windows and the compass (`aoprefs::NAMES`), checked against the original's files on the user's machine; a place the client kept itself still comes first.

@@ -1266,3 +1266,13 @@ These were written before this list; some may have been seen working since witho
 - [ ] Planet map: zoom in twice, close and reopen it (and restart the client): it opens at that level.
 - [ ] Research window: hover a goal with requirements: the Requirements part lists the criteria with no "Wear:" or "Use:" heading.
 - [ ] Outdoors on a steep slope, swing the camera down into the hill: it rests on the ground without being pulled in towards the character, and the ground does not vanish (no sky showing through it).
+- [ ] Open the control center's Social menu, drag "Bow" onto a hotbar slot: a macro "bow" sits there and pressing it bows; a plain click on Bow still bows.
+- [ ] With a chat window's output set to the team or organization channel (/ch), type /voice heal: the line shows in that channel and the others in it hear the voice; with no output group it is still said in the vicinity.
+- [ ] Swim in water deep enough to swim and type /wave: the game says it cannot be done while swimming and no emote is sent.
+- [ ] Shift-click a name in a chat line: "/tell name " is typed; Ctrl-click the same name: its tell window opens.
+- [ ] Play an evening with the chat open: no garbled line shows up (one would mean a packet the client reads with the wrong layout).
+- [ ] On a battlestation, type /afk: the character leaves the battle (the server takes it out as with the end box's button).
+- [ ] Right-click a chat window in the friends list, untick "Deactivate On Send", type a line and press Enter: the bar keeps the cursor for the next line; ticked again, Enter gives the keys back to the game.
+- [ ] With a character whose original layout has a second chat frame (Window3 and its tabs), log in: that frame opens at the original's place.
+- [ ] In the option panel's sound page change the battle music mode, then start a fight: the battle music follows the new setting without a restart.
+- [ ] With a character the original has played with the planet map or mail window moved, delete that window's place from layout.ini and open it: it opens at the original's place.

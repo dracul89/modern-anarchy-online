@@ -3900,6 +3900,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no bug report goes to the makers
 - Where: `crates/mao-client/src/chat_commands.rs:144`; `crates/mao-client/src/chat_commands.rs:578`; `docs/CLIENT_UI.md:4270`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): /bug hands its text to BugReport_t::SendUserMadeBugReport, which reports into Funcom's own bug database (the makers' servers); the user chose to leave it out, and nothing may be sent there. The client's own "not available" line stays.
 - Looked at, left (2026-11-19, overnight): The user chose to leave /bug out (BugReport_t::SendUserMadeBugReport reports to the makers' bug database, which must not be sent to). Left.
 
 #### `CHT-004` /cc without a word prints the client's usage line
@@ -3960,6 +3961,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: tabs may come from another character's files
 - Where: `crates/mao-client/src/chatgroups.rs:20`; `crates/mao-client/src/chatgroups.rs:512`; `docs/CLIENT_UI.md:297`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Where the chat tabs' configuration is read from is the client's settings arrangement: the original's own character folder (its Chat/Windows config) is read first when it is there, and only otherwise the account's newest character or the original's two defaults; it is kept in the client's own chatwindows.ini, which stays by the user's decision on the client's ini files (SET-001/002/005). No rule left to port.
 - Looked at, left (2026-11-19, overnight): Where the tab configuration is read from is the client's settings arrangement (the original's character folder is read first when present); not a rule to port. Left.
 
 #### `CHT-010` Friend online/offline lines are the client's own notice
@@ -4001,7 +4003,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: file beside the client's settings; macro carried as egui drag payload and set down by a click; link right-click not done
 - A player notices: macros dragged differently; cannot make one from a link
 - Where: `docs/GUI_DLL_PARITY.md:144`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): The catalog's "right button on a chatcmd:// link" is a misreading: FUN_10065798 is the slot of `ActionRunChatScript_c` (vtable 0x101b3fc0, made by FUN_100656a4 from an XML action's `value` and `macro_name`), the `<RunChatScript>` action of the control center's menu entries. Called with 0 (the entry's invoke list +0x1c0, FUN_10065f9f) it raises GlobalSignals +0x180 (the line runs); called with 1 (the entry's `on_begin_drag` list +0x1d0, filled by FUN_100661a4) it raises +0x1a0 (the `/macro` signal) with the name `macro_name`, else the line without its first character. Ported: menu.rs keeps `macro_name` and `drag_macro` gives the macro; the control center's entry buttons sense drags and run `on_begin_drag`, and a dragged RunChatScript makes, saves and carries a macro exactly as `/macro` does (ui.rs, `chat_window.macro_made`). So dragging an emote from the Social menu onto a hotbar makes a macro of it. Test `gui::menu::tests::a_dragged_chat_script_makes_a_macro`. Left: the macro file's place and the egui drag (the client's own arrangement, SET-015). Commits: 0393ab9 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): Notes only: the macro file and the drag are the client's own arrangement; the right click on a chatcmd:// link (FUN_10065798) is a GUI feature not done tonight. Left.
 
 #### `CHT-014` Mail terminal looked up within 25 units
@@ -4023,6 +4026,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: wording may differ without the game files or where an entry is absent
 - Where: `crates/mao-client/src/chatwindow.rs:403`; `crates/mao-client/src/chatwindow.rs:419`; `crates/mao-client/src/chatconfig.rs:33`; `crates/mao-client/src/afk.rs:28`; `crates/mao-client/src/orgcommands.rs:40`; `crates/mao-client/src/feedback.rs:130` and 3 more
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The client's own wordings are only fallbacks used where the install's text.mdb has no entry (menus, chat settings, AFK, /org help, team lines, group commands), so with a full install the original's texts show; the client must not ship Funcom's texts, so the fallbacks stay. The catalog's one correction stands: "Error: Chat group %s is currently not available." is the original's own literal (GUI.dll FUN_10085a42), not the client's wording.
 - Looked at, left (2026-11-19, overnight): The fallbacks are only used where the install's text.mdb lacks an entry, so they do not show with a full install. One correction for the catalog: "Error: Chat group %s is currently not available." is the original's own literal (GUI.dll FUN_10085a42), not the client's wording. Left.
 
 ### Chat and commands: an approximation or a stand-in (13)
@@ -4045,6 +4049,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: simpler info for objects than the original's
 - Where: `crates/mao-client/src/net.rs:7468`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): A built-in terminal's description as an itemid:// link needs to know which item template describes each kind of object the client shows (the terminal's item behind the statel), which the client does not keep for objects and no capture shows; the "nothing targeted" line is the client's own /inspect-the-target path, now unreachable from the chat line (CHT-005).
 - Looked at, left (2026-11-19, overnight): A built-in terminal's description as an itemid:// link needs the terminal's item behind the object (which template describes it) found for each kind of object the client shows; the "nothing targeted" line belongs to the client's own /inspect-the-target path, which CHT-005 now leaves unreachable from the chat line (/inspect alone does nothing, as the original). Left.
 
 #### `CHT-018` /voice speaks only in the vicinity
@@ -4054,7 +4059,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: always the vicinity (no group selection; an earlier note said the organization channel, since replaced)
 - A player notices: /voice cannot go to the team, guild or another channel
 - Where: `crates/mao-client/src/net.rs:6418`; `crates/mao-client/src/voices.rs:22`; `docs/CLIENT_UI.md:2545`; `docs/ORIGINAL_AUDIT.md:98`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): FUN_100b88b1 says the voice line in the chat window's selected group (FUN_1009a9bd): if that group's flags (+0x50) have bit 6 it says the line may not be used there, else FUN_10085a42 sends the text with the voice record (FUN_1008a2c1 puts it in the group message's blob). Now `/voice` carries the window's output group (`output_channel`, the same group plain lines go to): with none it is spoken in the vicinity as before; with a channel the line goes there with its record as the blob (`mao_net::chat::channel_packet_with_blob`, already written from FUN_1008a2c1), refused with a line of the client's own words when the channel's flags have 0x40, and "Error: Chat group ... is currently not available." when the channel is gone. The checks before (Notum Wars stat 389, the effect installed) are unchanged and come first, as in the original. Test `chatwindow::tests::the_group_commands_find_their_groups` (extended). Private chat groups are not output groups in this client (`output_channel` only takes the server's channels), so a voice line is never sent to one. Commits: 2df37e4 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): FUN_100b88b1 says the voice line in the chat window's selected group; the client's chat windows have an output group per window (`/ch`), but the voice path (voices.rs) is fed only the vicinity, and sending a voice line into a channel must not be tried without a live check (nothing may be sent to channels tonight). Left.
 
 #### `CHT-019` Always behind / always on top stored with the window
@@ -4065,6 +4071,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/chatwindow.rs:559`; `crates/mao-client/src/chatwindow.rs:622`; `docs/CLIENT_UI.md:394`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The original's window flags 0x200 (always behind) and 0x100 (always on top) keep a window under or over the others; the client draws such a frame in egui's background or foreground layer, which is the same effect in its own window system, and keeps the choice with every window of the frame. No further rule to port.
 - Looked at, left (2026-11-19, overnight): The window flags 0x200/0x100 are honoured by egui layers, which is the same effect in this client's own window system; there is no further rule to port. Left.
 
 #### `CHT-020` Borderless chat window rule simplified
@@ -4075,6 +4082,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: borderless allowed in slightly different cases
 - Where: `crates/mao-client/src/chatwindow.rs:550`; `crates/mao-client/src/chatwindow.rs:1607`; `docs/CLIENT_UI.md:380`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The second name is now identified: FUN_10099a56 compares the window's frame name (`window_name`, +0x98, read by FUN_1009e379, written by FUN_1009aecc) with the window's own folder name (+0x7c, the `Chat/Windows/Window%d` directory FUN_10094701 makes, passed by FUN_10094579/FUN_10094701 to the constructor FUN_1009e379); the mode menu is disabled (FUN_1009a00d) when the two differ or another window's frame is named after this window's folder. So "borderless" is for a window that sits in the frame named after its own folder, alone. The client's windows carry no folder name (a window has its title and a frame; new and cloned windows take a free `Window%d` as their name, loaded ones keep their title), so porting means a folder per window, read from the original's directory names and kept in the client's own chatwindows.ini, and the frame naming of detach/attach checked against FUN_10097c6c/FUN_100984c2: more than this low entry is worth tonight. Left with the rule written down for that pass.
 - Looked at, left (2026-11-19, overnight): FUN_10099a56's second name is not identified in the reading; without it there is nothing to compare against. Left.
 
 #### `CHT-021` Chat line plain-text conversion is a simplified markup reader
@@ -4115,7 +4123,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: sitting is the camp's; swimming and vehicle checks not done (client knows neither)
 - A player notices: emotes allowed where the original refuses
 - Where: `docs/ORIGINAL_AUDIT.md:112`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): Gamecode's `N3Msg_DoSocialAction` (0x10026b4f) refuses in this order: the character's vehicle in mode 4 (swimming, FUN_10070a2f) refuses every social action with `Feedback_CantDoSocialActionsWhileSwimming`; then lounge/sleep (0x45, 0x44) with an object at the character's +0x2c8 whose +4 is set give `Feedback_YouCanNotDoThisWithAVehicleEquipped`; then lounge/sleep outside the sitting modes 8, 0xb, 0xc give `Feedback_MustSitToLoungeOrSleep`. The client knows its own swimming now (`World::swimming`, the server's swim mode and its own depth test), so the swimming refusal is ported: `actions::social_refusal` (test `actions::tests::social_actions_are_refused_swimming_and_lounging_unseated`), the line read from text.mdb with a fallback in the client's own words. Left: the vehicle refusal (the character's +0x2c8 object is not identified in the client; only lounge and sleep are touched by it), and the sitting is still the camp's. Commits: ca08d5b (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): Notes only: the swimming and vehicle checks of the emotes need the client to know swimming and vehicles at the place the emote is tested; the sitting is the camp's. Left.
 
 #### `CHT-025` Tells of other kinds shown as tells
@@ -4136,6 +4145,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: non-ASCII letters in game texts may show wrong
 - Where: `crates/mao-formats/src/ldb.rs:40`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Checked the shipped text.mdb: of all its texts only two hold bytes over 0x7f (category 508 a 0xA8, category 10001 three 0xA0 no-break spaces), and for 0xA0 and 0xA8 the Latin-1 reading the client does (each byte the character of the same number) gives the same character as the Windows code page the original draws with; the two only differ in 0x80 to 0x9F, which no text uses. So the client's reading shows every existing text as the original does; there is nothing to change.
 - Looked at, left (2026-11-19, overnight): Original not stated: text.mdb's texts are single-byte (the game's code page); a byte-to-character mapping is the same as the original's for the texts that exist (ASCII). Only a non-ASCII text would differ, and none was found to compare. Left.
 
 #### `CHT-027` Text formatting fills arguments by a simplified rule
@@ -4273,7 +4283,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: taken as Shift and Ctrl, "a guess at which keys they are"
 - A player notices: modifier clicks on names may do different things
 - Where: `crates/mao-client/src/chatwindow.rs:11`; `docs/CLIENT_UI.md:1158`; `docs/ORIGINAL_AUDIT.md:32`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): The qualifier bits are now traced: `WindowController_c::GetQualifiers` (GUI.dll 0x10156df6) sets bit 0 for VK_LSHIFT, bit 1 for VK_RSHIFT (both for VK_SHIFT alone), bits 2-3 for the Ctrl keys and 4-5 for Alt. FUN_100ac4c4 (a name) and FUN_100ac4f0 (a group) test `& 3`, so only Shift qualifies a click; the client took Shift or Ctrl. Now `gui::controls::qualified` is Shift alone, used by the chat's link clicks (test `gui::controls::slider_tests::a_link_is_qualified_by_shift_only`). Commits: edb5b19 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): FUN_100ac4c4's qualifier bits come from GUI.dll's input layer; which key sets which bit was not traced. Left.
 
 #### `CHT-040` Private group line sent with a zero-byte blob
@@ -4337,7 +4348,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: any chat line whose text holds a control character is dropped (a packet of another layout read wrongly)
 - A player notices: such a server line never shows
 - Where: `crates/mao-client/src/net.rs:6301`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): The guard came with the first chat connection (commit e56853f), when packets of other layouts were read as lines. Today every packet the client cannot decode comes back as `Packet::Other` and makes no line (CHT-066), so the guard could only drop real lines whose text holds a control character (a tab, a bell), which the original's chat view shows as its parser read them (GUI.dll FUN_1016d6f4). Removed: every line the parser makes is shown. No panic is possible from it (the text is only drawn). No test (the change is the removal of a filter in the chat thread). Commits: 5bea232 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): Safety kept: a line with control characters only comes from a packet of another layout read wrongly by this client's own parser (the original's parser reads every packet, CHT-066); dropping it stops garbage from showing, and it changes nothing for a packet the client reads rightly. Left.
 
 #### `CHT-046` Mail inbox list capped at 64 entries
@@ -4422,6 +4434,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible for a normal player
 - Where: `crates/mao-client/src/chatwindow.rs:1239`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): `/bank open` is a game master's command (Gamecode FUN_1003fe10's text commands): for a normal player the server does nothing with it, and a game master's commands cannot be tried without a game master account. Nothing for a player to see.
 - Looked at, left (2026-11-19, overnight): /bank open is a game master's command (Gamecode FUN_1003fe10); nothing for a player to see. Left.
 
 #### `CHT-054` /cc info <name> gets no answer
@@ -4442,6 +4455,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: /reclaim does nothing
 - Where: `crates/mao-client/src/chat_commands.rs:621`; `docs/LIVE_TEST_LIST.md:527`; `docs/SLASH_COMMANDS_STATUS.md:14`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): `/reclaim` toggles the reclaim window (N3Msg_ToggleReclaim) at a reclaim terminal; the client has no reclaim window, and what the window shows (the items to reclaim and their messages) is in no capture, so the window cannot be ported or tested here.
 - Looked at, left (2026-11-19, overnight): The client has no reclaim window; /reclaim (N3Msg_ToggleReclaim) needs that window ported first. Left.
 
 #### `CHT-056` /start does not ask first when full screen
@@ -4471,7 +4485,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: nothing (the client has no battle station queue); the box title "AFK" is the client's own
 - A player notices: none visible
 - Where: `crates/mao-client/src/afk.rs:6`; `docs/GUI_DLL_PARITY.md:283`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): The "battle station queue" is a misreading: `ChatGUIModule_c::SetAFK` (GUI.dll 0x10087669), for a character that was not away (its message empty), notes the time and, when `N3Msg_IsBattleStation` (Gamecode 0x100183a4, the playfield 4380 to 4388, `combat::battlestation`) holds, calls `N3Msg_LeaveBattle`: going away on a battlestation leaves the battle. Ported: `afk::Away::set` (which auto-away now goes through too, as `SlotAutoAFK` → `SetAFK`) asks `battlestation::went_away`, and the game connection sends the battlestation's leave (`mao_net::notum::leave`, the same as the end box's button) when the playfield is a battlestation. Targeted tests `afk` and `battlestation` pass; the playfield check is `combat::battlestation`, already tested. Left: the box's title. FUN_100b82a7 builds `AFKMessageDialog_c` (FUN_1008307e) as `Window(rect, name "", title = the text ChatCmdFeedback_AFKDialogBody, 1, 0x800)`, the same text its view shows as the body (FUN_100836ab); whether flags 0x800 show that title in a bar was not traced (NotificationWindow uses 0x800 too), so the client keeps its own short "AFK". Commits: 07ae780 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The client has no battle station queue to leave; the AFK window's flags were not followed. Left.
 
 #### `CHT-059` Chat configuration: click-through, deactivate on send, default-window options, menu separators
@@ -4481,7 +4496,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: not found in the code (the friends-list note also lists click-through as not done)
 - A player notices: missing options
 - Where: `docs/CLIENT_UI.md:397`; `crates/mao-client/src/friends.rs:20`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): The window menu (GUI.dll FUN_100a8a69) holds, after "Visual": Enable Clickthrough (config `is_clickthrough`, +0x166), Disable Text Input (+0x167), Deactivate On Send (`deactivate_on_send`, +0x168), Default Window (`is_default_window`, +0x162), Auto Subscribe Channels (+0x163). Ported: "Deactivate On Send". FUN_1009e379 starts it on (`*(u16*)(+0x168) = 1`) and reads it from the window's config; after a line is sent FUN_100ab37b ends the typing (FUN_10099084) only when it is on. The client always ended the typing (as the default); now each window keeps the flag (`chatgroups::Look::deactivate`, read from the original's Config.xml, kept as an eighth number of the look line in chatwindows.ini, old seven-number lines read as on), the friends list's window menu toggles it, and with it off the input bar keeps the focus after Enter. Tests `chatgroups::tests::*` (config and file round trip) and `chatwindow::tests::a_chat_windows_menu_from_the_friends_list`. Left: click-through (the window letting the mouse through to the world, which needs egui's input pass-through and a look at the screen), the default window (FUN_10099361: which window takes new lines, not read), and the menus' separators, which the client's menus already draw. Commits: 3a93fca (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): Notes only: the configuration options are GUI features judged by use. Left.
 
 #### `CHT-060` Chat configuration: no window-row menu, no disbanding one's own private group
@@ -4503,6 +4519,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no head flash
 - Where: `docs/ORIGINAL_AUDIT.md:99`; `crates/mao-client/src/chat_commands.rs:272`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The rule is now read: with the `ChatIndicator` preference on (IndependentPrefs; the client's option panel has it), `N3Msg_FlashHead` (Gamecode 0x100169f5) makes effect 0x2cf3 on the speaker with `CreateEffect2`: for a group message whose group an open chat window shows (`HandleGroupMessage` 0x1008692a, FUN_1008543d(1)), for vicinity speech (`HandleVicinityMessage` 0x10086c53, same check), for a tell (`HandlePrivateMessage` 0x10087e59), and on one's own head for one's own vicinity, tell and group lines (FUN_10089669, FUN_10089940, FUN_1008a2c1). Not ported because the client's way to show an effect on a character (`World::spell_effects`, drawn as an aura with the running programs) keeps an effect without a duration for ever, and whether 0x2cf3 is a one-shot whose own life should end it, and how it looks over a head, can only be judged on screen; making it a lasting aura over every speaker would be worse than none. The port is small once that is seen: a queue of speakers from the chat thread into `spell_effects_made` with the effect's own length.
 - Looked at, left (2026-11-19, overnight): Notes only: the head flash is a visual of the chat indicator. Left.
 
 #### `CHT-062` chatgroup:// links not made
@@ -4534,7 +4551,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: the windows and tab order are read from the original's Config.xml; the frames' places could not be confirmed
 - A player notices: frame placement differs
 - Where: `docs/CLIENT_UI.md:368`; `crates/mao-client/src/chatgroups.rs:453`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): The original's files do give the frames' places: every `Chat/Windows/<folder>/Config.xml` the original wrote on this machine has a `WindowFrame` exactly when its folder is the frame it sits in (`window_name`: 167 such owners, all with a frame; 170 windows in another's frame, none with one; FUN_1009aecc writes them, FUN_10094701 names the folders `Window%d`). The client took only the startup window's own frame (and the first found when the startup window sat in another's frame, which could be the wrong one). Now `aoprefs::chat_frames` reads the place of every frame from its owner's config: the startup window's frame is the client's "Chat", each other is `Chat:<frame>`, the names the chat windows already use for their places. Test `aoprefs::tests::the_chat_frames_come_from_their_owners_configs`. Commits: 28ae194 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): Notes only: the frames' places could not be confirmed from the original's files. Left.
 
 #### `CHT-065` Server lines for a named window go to the system lines
@@ -8863,6 +8881,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible in normal play
 - Where: `crates/mao-client/src/audio.rs:632`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Safety kept: for a large variant index the original reads past the variant array (whatever memory follows); in Rust that index is a panic that ends the client, so playing nothing is the closest outcome that keeps it running.
 - Looked at, left (2026-11-19, overnight): Kept: the original reads past the variant array for a large index, which reads garbage; in Rust that is a panic that ends the client. Playing nothing is the closest safe outcome.
 
 #### `SND-004` Liquid depth probed at the character, not under it
@@ -8873,6 +8892,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: splash/wade step sounds may change at slightly different heights
 - Where: `crates/mao-client/src/sounds.rs:141`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): FUN_100452d3 reads the vehicle's +0x10c as a depth (> 0 in a liquid, 0.35 the deep/shallow line) and +0x110 as the liquid's kind. In the vehicle's `ensure_surface_alignment` (drop-in `vehicle/src/motion.rs`) +0x10c is written three ways: the ground probe (`ground`, N3's surface, given +0x10c as its `LiquidMediumData_t`) fills it first, it becomes `liquid - y` when the character is under the surface, and -9999 when 0.1 or more above it (liquid modes 0 and 2); between the surface and 0.1 above it keeps what the probe wrote. What the probe writes there (the surface's height, or nothing) is N3's surface code, not read, so the in-between value the sounds would see cannot be stated; the client's own test at the character (depth = surface - y under it, none above) stays until that is read with the client's vehicle.
 - Looked at, left (2026-11-19, overnight): The original's probe is the vehicle's surface alignment (`Vehicle_t` +0x10c kept within 0.1 above the surface between frames, the ground point under the character with its height); porting it needs that state carried in the client's movement, which keeps none for the liquid. Left for a pass on the character's vehicle.
 
 #### `SND-005` Music player's random choices start from a fixed seed
@@ -8893,6 +8913,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/music.rs:14`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): `AIL_digital_latency` is the Miles driver's own figure for its output buffer; the client's mixer has no such driver and its output starts at once, so there is no number to put in.
 - Looked at, left (2026-11-19, overnight): `AIL_digital_latency` is Miles' driver's own figure; the client's mixer has no such driver, and its output starts at once. Nothing to read it from.
 
 #### `SND-007` Sample memory budget is fixed
@@ -8914,6 +8935,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none visible
 - Where: `crates/mao-client/src/audio.rs:237`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The original orders a frame's plays by the sources' memory addresses (its map's key), which the allocator decides and which differ from run to run; no fixed order reproduces that, and creation order is as good as any.
 - Looked at, left (2026-11-19, overnight): The original orders the frame's plays by the sources' memory addresses, which are the allocator's and differ from run to run; no fixed order can match it.
 
 #### `SND-009` Sound preferences read once from LoginPrefs.xml
@@ -8923,7 +8945,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: reads LoginPrefs.xml once when the sound system starts and passes the values on
 - A player notices: volume changes depend on the options window feeding the same module
 - Where: `crates/mao-client/src/audio.rs:1627`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done (2026-11-20, long tail): Checked: the option panel and the menus change the control center's values, and every change of a sound preference is passed to the sound module the same frame (`controlcenter::apply_sound`, as GUI.dll's `SoundOptionsMonitor_c` slots do), not only read once at start. One was missing: `SoundOptionsMonitor_c` (FUN_100c573c) observes nine preferences and the client eight; `BattlemusicMode` (`SlotPrefBattlemusicModeChanged` 0x100c52d5 → `SandyInterfaceModule_t::SetBattleMusicMode(AsInt32)`) was only read at start from LoginPrefs.xml. Now it is passed on when it changes too. Test `gui::controlcenter::tests::the_sound_preferences_are_the_monitors_nine`. Commits: 7325149 (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): Whether the client's option panel passes each change to the sound module (as GUI.dll's slots do) was not traced; the settings are read at start and the control center's switches set the volumes (audio.rs). Left for a check of the option panel's sound pages.
 
 #### `SND-010` Thunder only on playfields with a tile map
@@ -8934,6 +8957,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no thunder on room playfields
 - Where: `crates/mao-client/src/ambience.rs:163`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): Read the original's room case: FUN_100b1bff and FUN_100b1d1f (the strike's x and z) return 0 without a tile map, without drawing the schedule's numbers and without setting the cell size (+0x38/+0x3c of the strike schedule, FUN_100b15a4 never sets them), and FUN_100b9da8 then takes the thunder's volume from that +0x3c: in a room playfield the strike falls at the world's origin and its loudness divides by a cell size left over from the last outdoor playfield, or never set at all. That stale or unset value cannot be reproduced faithfully (and a room's weather usually has no rain to thunder in), so the client keeps its own "no thunder without a tile map".
 - Looked at, left (2026-11-19, overnight): The strike cell needs the zone's side from the tile map; a room playfield has none, and what the original does there was not stated. Left until the original's room weather is read.
 
 ### Sound and music: the original was not read: inferred or measured (1)
@@ -8946,6 +8970,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: district music may be wrong in places
 - Where: `docs/ORIGINAL_AUDIT.md:92`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The districts' spawn data the original reads for its music districts (GameData's `PlayfieldDistrictInfo_t` placement) is not decoded in the client's formats yet; until it is, the heads are found by their shape. Needs that record's layout read first, more than this entry.
 - Looked at, left (2026-11-19, overnight): Notes only: the districts' spawn data the original reads is not decoded yet; until it is, the heads are found by their shape.
 
 ### Sound and music: the original does it, the client does not (6)
@@ -8968,6 +8993,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: none stated
 - Where: `docs/ORIGINAL_AUDIT.md:94`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The zones' own sound lists: the positional ambience zones (FUN_100ad1f8 over DAT_102e43f0) are only ever made and freed in the original, so there is nothing to play; the env FX pools and the water level in the ground's height are further parts of the ambience port, each larger than this low entry and only judged by ear and eye.
 - Looked at, left (2026-11-19, overnight): Notes only: the zones' own sound lists and the env FX pools are more of the ambience port, a part larger than this entry.
 
 #### `SND-014` Environment type's indoor sounds and effects not followed
@@ -8978,6 +9004,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: indoor ambient sounds/effects by environment type absent
 - Where: `docs/CLIENT_UI.md:2605`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The environment type's indoor sounds and effects (PlayfieldInit FUN_100b2478's switch on the environment byte) are a part of the ambience port of their own: which sounds and FX each case starts needs that switch's cases followed into the sound module and the FX scripts, and the result can only be judged by ear and eye.
 - Looked at, left (2026-11-19, overnight): Notes only: the environment type's indoor sounds and effects (FUN_100b2478's switch) are a part of their own in the ambience port.
 
 #### `SND-015` Fly-mode step sound not played
@@ -9008,6 +9035,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: only distant thunder and near jolts
 - Where: `crates/mao-client/src/ambience.rs:8`; `docs/ORIGINAL_AUDIT.md:94`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The sender was looked for: AFCM message 0x7f is registered by FUN_100b6e05 to FUN_100b2d7e, which plays "walkie_01.wav" and strikes at the character (FUN_100b9068, FUN_100bde3c); no function in Gamecode, GUI, DisplaySystem, GameData or SIMPlayer pushes 0x7f to `AFCM::Send`. It looks like a developers' hook with no sender in the game's own code, so a strike at the character never happens in the original either; nothing to port.
 - Looked at, left (2026-11-19, overnight): The strike at the character (FUN_100bde3c, AFCM message 0x7f, FUN_100b2d7e) has no sender found: who posts 0x7f to the weather module was not traced. Left until the sender is found.
 
 ## Launcher, login, character creation
@@ -9624,6 +9652,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Bag names live in a different file and are renamed from a different gesture.
 - Where: `crates/mao-client/src/loot.rs:14`; `docs/CLIENT_UI.md:1793`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The original renames a bag from its backpack window's own menu (FUN_100cbace's Rename, the dialog FUN_100cb852) and keeps the name in the bag's `Containers/Container_%ux%u.xml`; the client's backpack windows have no window-menu button yet, so the right click on empty space stands in, and the name stays in the client's own backpacks.ini (the client's own files are kept by the user's decision, SET-001/002/005). Porting the gesture needs the container windows' menu button first.
 - Looked at, left (2026-11-19, overnight): The original renames from its backpack window's own menu (FUN_100cbace's Rename, dialog FUN_100cb852) and keeps the name in the bag's `Containers/Container_%ux%u.xml`; the client's backpack windows have no window-menu button yet, so the right click stands in, and the original's files are not written (SET-001). Porting needs the window menu of the container windows.
 
 #### `SET-007` Default key map replaced; key table version resets custom keys
@@ -9634,6 +9663,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: custom old bindings lost once when the table version changes
 - Where: `docs/CLIENT_UI.md:2013`; `crates/mao-client/src/settings.rs:286`; `crates/mao-client/src/settings.rs:288`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The keymap is the original's defaults and the player's own bindings are taken from the original's Prefs.xml `KeyBindings` each session (`keybindings.rs`); the key-table version only brings the client's own mao.ini up to date when its table changes. That is the client's settings arrangement (its ini files are kept by the user's decision); nothing of the original's to port.
 - Looked at, left (2026-11-19, overnight): The key-table version is how the client brings its own mao.ini up to date; the original's keys come from its Prefs.xml archive, which the client reads (`keybindings.rs`) but does not write. A player's own changes made in the original are still taken over each session. Nothing to port.
 
 #### `SET-008` Folders page shows this client's folders
@@ -9654,6 +9684,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: friends folder state is not shared with the original
 - Where: `crates/mao-client/src/friends.rs:4`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The friends window's open folders are the original's `FriendsWindowConfig` values; only where they are kept differs (the client's own tabs.ini), and the client's own files stay by the user's decision (SET-001/002/005).
 - Looked at, left (2026-11-19, overnight): As SET-001: the state is the original's `FriendsWindowConfig` values, kept in the client's own file because the original's Prefs files are not written by this client.
 
 #### `SET-010` Hidden nano programs kept in hiddennanos.ini
@@ -9664,6 +9695,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: Hidden programs are kept per client install, not in the original's files.
 - Where: `crates/mao-client/src/nanoprograms.rs:166`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): `HideNano`'s list 6 is ported; only where the hidden set is kept differs (the client's own hiddennanos.ini), which stays by the user's decision on the client's own files (SET-001/002/005).
 - Looked at, left (2026-11-19, overnight): As SET-001: `HideNano`'s list 6 is the original's rule; only where the hidden set is kept differs.
 
 #### `SET-011` Knowledge window board kept in knowledge.ini
@@ -9684,6 +9716,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: stored elsewhere than original
 - Where: `crates/mao-client/src/automap.rs:232`; `docs/CAPTURE_GAPS.md:217`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): `RenderLandControlData` (FUN_100ebfdc) is the original's state and the client keeps it; only the file differs (automap.ini, the client's own, kept by the user's decision, SET-001/002/005).
 - Looked at, left (2026-11-19, overnight): As SET-001: `RenderLandControlData` is the original's state, kept in the client's own file.
 
 #### `SET-013` Launcher dimension list copy in the client's folder, own wording
@@ -9715,6 +9748,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: macros are not shared with the original client or per character
 - Where: `crates/mao-client/src/macros.rs:8`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The original keeps `TextMacro.bin` per character (`Init` 0x100236ec). Making the client's macros per character would break what players have now: the client's hotbars, which hold macros by number (`hotbar::Action::Macro`), are one set for all characters (`hotbar::load()`), so every other character's bar would show "Broken macro" for the macros made by another. It needs the hotbars made per character first, a storage change of the user's to decide (the client's own files are kept by the user's decision).
 - Looked at, left (2026-11-19, overnight): The original keeps TextMacro.bin per character in its preferences folder (`Init` 0x100236ec); making the client's macros per character means keying macros.rs's file by the character id at load and save, a storage change of SET-001's kind that also loses players' current macros unless migrated. Left for a storage pass.
 
 #### `SET-016` Option panel "Fixed keys" shows the client's own keys
@@ -9735,6 +9769,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: preferences and window archives are not shared with the original
 - Where: `docs/CLIENT_UI.md:2650`; `crates/mao-client/src/gui/dvalue.rs:7`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The option panel's values go to the client's own prefs.xml because the original's Prefs folders are not written by this client; the `<Archive>` entries are the windows' configs, which the client keeps in its own ini files. Both are the client's own files, kept by the user's decision (SET-001/002/005).
 - Looked at, left (2026-11-19, overnight): As SET-001: the option panel's values go to the client's own prefs.xml because the original's Prefs folders are not written; the `<Archive>` entries are the windows' configs, kept in the client's own ini files (SET-005).
 
 #### `SET-018` Remembered looks cache in looks.ini
@@ -9745,6 +9780,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: stored looks may not appear
 - Where: `crates/mao-client/src/look.rs:2`; `docs/CLIENT_UI.md:1979`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The remembered looks (looks.ini) are LCH-044's matter, an addition of the client's (the original shows another character's gear only after a first login, as the client does without the cache); the recommendation belongs to that entry.
 - Looked at, left (2026-11-19, overnight): The looks cache is LCH-044's matter (an addition, recommendation there).
 
 #### `SET-019` Screenshot capture off Windows renders the scene offscreen
@@ -9765,6 +9801,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: settings are not in the original's preference folders
 - Where: `crates/mao-client/src/settings.rs:790`; `crates/mao-client/src/settings.rs:726`; `docs/PLATFORMS.md:19`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The client's settings cannot live in the original's Prefs folders without writing into the installed original client's files, and the user kept the client's own mao.ini (SET-001/002/005); the clamps keep a hand-edited file from making the window unusable (a value the original's options cannot produce).
 - Looked at, left (2026-11-19, overnight): The client's settings cannot live in the original's Prefs folders without writing into the installed original client's files; the clamps keep a hand-edited file from making the window unusable.
 
 #### `SET-021` Tip settings in one tips.ini for all characters
@@ -9775,6 +9812,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: disabled tips are shared by all characters and not shared with the original
 - Where: `crates/mao-client/src/tips.rs:19`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The original keeps switched-off tips per character (`DisabledTipsMap.xml`) and `IsTipEnabled` with the global preferences. Keying the client's tips.ini by character would make every "do not show this tip again" a player has ticked come back on their other characters (today's file has no character to migrate from), a change to the client's own files that the user should decide; their place is kept by the user's decision (SET-001/002/005).
 - Looked at, left (2026-11-19, overnight): The original keeps switched-off tips per character (DisabledTipsMap.xml); making tips.ini per character means keying it by the character id at load and save (tips.rs) and migrating today's file; a storage change of SET-015's kind, left for that pass.
 
 #### `SET-022` Tradeskill window key Shift+T is the user's word
@@ -9796,7 +9834,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: maps 20 config names to its windows (NAMES) and the chat startup window to "Chat"; others start at the client's own place; rollup pages have no frame.
 - A player notices: windows not in the list start elsewhere.
 - Where: `crates/mao-client/src/aoprefs.rs:28`
-- Decision: [ ] port  [ ] leave
+- Decision: [x] port  [ ] leave
+- Done in part (2026-11-20, long tail): Checked the original's window configs against every character `Prefs.xml` the original wrote on this machine (163 of them): ten more `*Config` archives belong to windows the client has and are now mapped (`aoprefs::NAMES`): InspectViewConfig → Inspect, LaserTargetConfig → LaserTarget, MailWindowConfig → Mail, MechSelectConfig → MechSelect, NanoViewConfig → Nano programs, PFMapWindowConfig → map_window, PlanetMapViewConfig → PlanetMap, SignupTerminalConfig → SignupTerminal, TeleportTargetConfig → TeleportTarget, CompassWindowConfig → compass (each holds a `WindowFrame` while its window floats). Test `aoprefs::tests::the_originals_configs_name_this_clients_windows`. Left: the configs whose window the client draws differently or not at all (the control center's bars CC*BarConfig, RaidBarConfig, BattlestationConfig, TweakPanelConfig, ChatGroupWindowConfig, ItemShopWindowConfig, CityTerminal*, PetitionWindowConfig, ShopViewConfig whose window takes no kept place here) and the rollup pages, which have no frame. Commits: 036ba5c (branch nightt, cherry-picked).
 - Looked at, left (2026-11-19, overnight): The 20 names are the windows the client has a counterpart for and that the original's Prefs files were seen to hold (`aoprefs::NAMES`); the original's other `*Config` archives belong to windows the client draws differently (rollups, docked bars) or not at all. Mapping more needs each window's original name checked against a real Prefs file; left.
 
 #### `SET-024` Screenshot file names fall back to UTC off Windows
@@ -9818,6 +9857,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: The choice is stored in the client's own file.
 - Where: `crates/mao-client/src/stats.rs:10`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The bars and their menu are the original's (FUN_1007fe87, `StatViewConfig`'s AIXPBar, XPBar, DuelScoreBar, TeamScoreBar, SoloScoreBar) and are ported; only where the ticks are kept differs (the client's own tabs.ini, kept by the user's decision, SET-001/002/005).
 - Looked at, left (2026-11-19, overnight): The bars and their menu are the original's (FUN_1007fe87, `StatViewConfig`'s AIXPBar, XPBar, DuelScoreBar, TeamScoreBar, SoloScoreBar); only where the ticks are kept differs, as for SET-001: the original's config files are its own client's and are not written by this one.
 
 ### Settings and files: the original was not read: inferred or measured (3)
@@ -9851,6 +9891,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: ignoring is local to this client and not shared with the original
 - Where: `crates/mao-client/src/chatwindow.rs:267`; `docs/CLIENT_UI.md:1834`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): What was portable of `/ignore` (GUI.dll FUN_100bafeb) was done the night before (the words, the texts, the own-character refusal). Still left, each for a reason: a number as a character's id needs the id's name, which only the chat connection's thread knows (the window's list is by name), so the toggle would have to go through the chat thread and back; the target's kind check (`CanOnlyIgnoreCharacters`) never fires here, since only characters get the client's target bars that `/ignore` takes the name from; keeping the list in the original's `IgnoreList.bin` by character identity would write the original's files (the client's own ignore.ini is kept, SET-001/002/005).
 - Done in part (2026-11-19, overnight): Read the original's `/ignore` (GUI.dll FUN_100bafeb, registered by FUN_100bb3e0; `IgnoreSystem_t` keeps the list in `IgnoreList.bin` by character identity): more than one word is `ChatCmdFeedback_Ignore_ToManyArguments`; `list` prints a line of its own and one per ignored character; a number is a character's id; no word takes the selected target, else `ChatCmdFeedback_Ignore_NoTargetOrNick`; a target that is not a character is `CanOnlyIgnoreCharacters`; the own character `CantIgnoreYourself`; otherwise it toggles and says `IgnoringCharacter` / `UnignoringCharacter` with the name (text.mdb 10001, read at run time). Ported: `chatwindow::ignore_request` (the words: too many, `list`, a name, the target or nobody; test `chatwindow::tests::ignore_takes_one_name_the_list_or_the_target`) and `toggle_ignore`'s texts and the own-character refusal (test `an_ignored_character_is_not_shown_and_the_command_toggles` updated). Left: ignoring by character id (the client's list is by name, and the window has no ids), the target's kind check, and keeping the list in the original's `IgnoreList.bin` (SET-001's matter).
 
 ### Settings and files: a guard or fallback the original lacks (1)
@@ -9950,6 +9991,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: no texture quality choice
 - Where: `crates/mao-client/src/launchwindow.rs:28`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The original's Texture Quality, Compressed Textures and Texture Color Depth chose Direct3D 7 texture formats and mip levels on the card; wgpu has no 16-bit colour formats to pick and the client draws every texture whole (its own "Compressed textures" box keeps them BC-compressed on the card). A port would be a texture-downscaling option of the client's own, not the original's rule.
 - Looked at, left (2026-11-19, overnight): The original's Texture Quality, Compressed Textures and Texture Color Depth chose Direct3D 7 texture formats and mip levels on the card; wgpu has no 16-bit texture formats to choose and the client draws every texture whole (its own "Compressed textures" box keeps them BC-compressed on the card). A port would be a texture-downscaling option of the client's own, not the original's rule.
 
 ### Settings and files: the client has it, the original does not (17)
@@ -10153,6 +10195,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: a short wait per request
 - Where: `crates/mao-client/src/charcreate.rs:182`
 - Decision: [ ] port  [ ] leave
+- Looked at, left (2026-11-20, long tail): The original's character creation runs on the login connection it already holds (the character list's); the client's launcher closes that connection as soon as the list is read, because the game runs in a process of its own that must make its own login first (LCH-001, launcher.rs `log_in`: the login connection must be gone before the game's own). Keeping one connection through the creation means holding it across the launcher's stages and closing it before Play, a restructuring of the launcher's threads for a wait of under a second per request, and it can only be tried against the live login server.
 - Looked at, left (2026-11-19, overnight): The original's creation runs on the login connection it already has (the character list's), but the client's launcher closes that connection as soon as the list is read, because the game runs in a process of its own that must make its own login (LCH-001; "the login connection must be gone before the game's own login", launcher.rs `log_in`). Keeping one connection open through the creation means holding it across the launcher's stages and closing it before Play: a restructuring of the launcher's threads for a wait of under a second per request; left.
 
 #### `NET-002` Ping reply uses one clock value for receive and transmit

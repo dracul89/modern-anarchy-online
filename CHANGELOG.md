@@ -33,10 +33,26 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Chat
 
 - Renaming a chat window uses the original's name box; a name another chat window has is refused and asked again.
+- /voice now speaks in the chat window's output group (a channel set with /ch, the team, the organization), as in the original; channels that take no voice lines refuse it.
+- Emotes are refused while swimming, as in the original.
+- Ctrl-clicking a name or a chat group in a chat line now acts as a plain click; Shift-click still types the tell or /group line, as in the original.
+- Chat lines that hold a tab or another control character are shown instead of silently dropped.
+- A chat window's menu (right click on it in the friends list) can turn off "Deactivate On Send", so the input bar stays active after a line is sent, as in the original.
+- Every chat window frame, not only the first, starts where the original client left it for the character.
 
 ### Interface
 
 - The camera no longer creeps towards your character on slopes; it rests against the ground as in the original.
+- Dragging an entry of the control center's menus that runs a chat command (the Social menu's emotes, for example) makes a macro of it that can be dropped on a hotbar, as in the original.
+- The inspect, mail, nano programs, maps, signup terminal, teleport target, laser target and mech select windows and the compass first open where the original client left them for the character.
+
+### World
+
+- Going away (/afk, or by itself after three idle minutes) on a battlestation leaves the battle, as in the original.
+
+### Sound
+
+- Changing the battle music setting in the options takes effect at once, as in the original.
 
 ## 0.1.7 (2026-11-20)
 
