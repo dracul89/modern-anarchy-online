@@ -3,7 +3,7 @@
 // its own right and up (a quad laid in the world, the original's `GfxVisualVolGrid` slices) uses those as half extents instead,
 // and its size is a flag: 1 fades it by how squarely it faces the camera (`GfxVisualVolGrid`'s flag 0x4000), 0 does not. An
 // instance with an up but no right (a quad standing on its up, the original's `GfxVisualSprite3` turned to the camera) turns
-// about that up to face the eye, its size the half width.
+// about that up to face the eye, its size the half width. A billboard turns in its own plane by its spin (right.w, radians).
 
 struct Globals {
     view_proj: mat4x4<f32>,
@@ -31,7 +31,7 @@ struct In {
     @location(1) colour: vec4<f32>,
     // The part of the sprite sheet to show: left, top, width and height (a width of 0: no sheet, a soft dot).
     @location(2) rect: vec4<f32>,
-    // The half extents of a laid quad (both zero: a billboard; right alone zero: a standing quad).
+    // The half extents of a laid quad (both zero: a billboard; right alone zero: a standing quad); w a billboard's spin.
     @location(3) right: vec4<f32>,
     @location(4) up: vec4<f32>,
 }
@@ -72,7 +72,11 @@ fn vs_particle(in: In) -> Out {
         }
         world = in.centre.xyz + normalize(side) * c.x * in.centre.w + in.up.xyz * c.y;
     } else {
-        world = in.centre.xyz + (globals.right.xyz * c.x + globals.up.xyz * c.y) * in.centre.w * 0.5;
+        // (GfxVisualSol's draw, FUN_10020836: a growing angle turns the quad's up toward the view's right, clockwise)
+        let cs = cos(in.right.w);
+        let sn = sin(in.right.w);
+        let turned = vec2(c.x * cs + c.y * sn, c.y * cs - c.x * sn);
+        world = in.centre.xyz + (globals.right.xyz * turned.x + globals.up.xyz * turned.y) * in.centre.w * 0.5;
     }
     var out: Out;
     out.position = globals.view_proj * vec4(world, 1.0);

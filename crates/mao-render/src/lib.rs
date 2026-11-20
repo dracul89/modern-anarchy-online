@@ -567,6 +567,8 @@ pub struct Particle {
     /// The half extents of a quad laid in the world (both zero for a billboard).
     pub right: [f32; 3],
     pub up: [f32; 3],
+    /// A billboard's turn in its own plane, radians (the original's sprites' +0x14: the suns of `_GfxControlSuns_t`).
+    pub spin: f32,
 }
 
 /// The sprite number of a particle that is a soft dot, not cut from a sheet.
@@ -809,13 +811,13 @@ pub fn sun() -> Vec3 {
 impl Particle {
     /// A soft round dot.
     pub fn dot(position: [f32; 3], size: f32, colour: [f32; 4]) -> Particle {
-        Particle { position, size, colour, sprite: NO_SPRITE, rect: [0.0; 4], right: [0.0; 3], up: [0.0; 3] }
+        Particle { position, size, colour, sprite: NO_SPRITE, rect: [0.0; 4], right: [0.0; 3], up: [0.0; 3], spin: 0.0 }
     }
 
     /// A quad laid in the world: its centre, its half extents, its colour, the sheet and the part of it, and whether it fades by
     /// its facing.
     pub fn quad(position: [f32; 3], right: [f32; 3], up: [f32; 3], colour: [f32; 4], sprite: u16, rect: [f32; 4], facing: bool) -> Particle {
-        Particle { position, size: if facing { 1.0 } else { 0.0 }, colour, sprite, rect, right, up }
+        Particle { position, size: if facing { 1.0 } else { 0.0 }, colour, sprite, rect, right, up, spin: 0.0 }
     }
 }
 
@@ -2699,7 +2701,7 @@ impl Renderer {
                         let rect = if self.sprites.contains_key(&p.sprite) { p.rect } else { [0.0; 4] };
                         [
                             p.position[0], p.position[1], p.position[2], p.size, p.colour[0], p.colour[1], p.colour[2], p.colour[3], rect[0], rect[1], rect[2], rect[3],
-                            p.right[0], p.right[1], p.right[2], 0.0, p.up[0], p.up[1], p.up[2], 0.0,
+                            p.right[0], p.right[1], p.right[2], p.spin, p.up[0], p.up[1], p.up[2], 0.0,
                         ]
                     })
                     .collect();

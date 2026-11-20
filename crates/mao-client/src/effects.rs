@@ -682,7 +682,8 @@ pub fn cast_particles_on(c: &CastShow, t: f32, place: &dyn Fn(i32) -> Option<[f3
 const SUN_COLOURS: [u32; 8] = [0xffffc0c0, 0xffffff00, 0xffff00ff, 0xff00ffff, 0xff0000ff, 0xff00ff00, 0xffff0000, 0xffc0ffc0];
 
 /// `_GfxControlSuns_t`'s suns `time` seconds in, about `at` (world, Z up), as FUN_100fc425 places them (see
-/// `mao_formats::gfx::Visual::Suns`). The quads' turn is not drawn (the client's billboards do not turn).
+/// `mao_formats::gfx::Visual::Suns`). Mode 0 sets eight of the visual's sprites (0x28 bytes each, up to 0x140), sun k
+/// turned `(k − 4) × time × 0.5` (0x10161ad0, 0x10156f00) in its plane.
 pub fn suns_particles(s: &Suns, at: [f32; 3], time: f32) -> Vec<Particle> {
     let mut out = Vec::new();
     if time < 0.0 || (s.duration > 0.0 && time >= s.duration) {
@@ -693,11 +694,13 @@ pub fn suns_particles(s: &Suns, at: [f32; 3], time: f32) -> Vec<Particle> {
             let f = if s.duration > 0.0 { time / s.duration } else { 0.5 };
             let e = 2.0 * f - 1.0;
             let envelope = 1.0 - e.powi(4);
-            for k in 0..32u32 {
+            for k in 0..8u32 {
                 let c = SUN_COLOURS[(k & 7) as usize] & 0xc0ff_ffff;
                 let channel = |shift: u32| ((c >> shift) & 0xff) as f32 / 255.0;
                 let size = (k as f32 * s.step + s.size) * envelope;
-                out.push(sprite(s.material, 0.0, [at[0], at[1], at[2] + 2.0], size.max(0.0), [channel(16), channel(8), channel(0), channel(24)]));
+                let mut p = sprite(s.material, 0.0, [at[0], at[1], at[2] + 2.0], size.max(0.0), [channel(16), channel(8), channel(0), channel(24)]);
+                p.spin = (k as f32 - 4.0) * (time * 0.5);
+                out.push(p);
             }
         }
         4 => {
@@ -3239,7 +3242,7 @@ fn sprite(material: i32, t: f32, position: [f32; 3], size: f32, colour: [f32; 4]
             let frame = first as u32 + (t.clamp(0.0, 0.999) * frames).floor() as u32;
             let (col, row) = (frame % cols.max(1) as u32, frame / cols.max(1) as u32);
             let (du, dv) = (1.0 / cols.max(1) as f32, 1.0 / rows.max(1) as f32);
-            Particle { position, size, colour, sprite: material as u16, rect: [col as f32 * du, row as f32 * dv, du, dv], right: [0.0; 3], up: [0.0; 3] }
+            Particle { position, size, colour, sprite: material as u16, rect: [col as f32 * du, row as f32 * dv, du, dv], right: [0.0; 3], up: [0.0; 3], spin: 0.0 }
         }
         None => Particle::dot(position, size, colour),
     }
@@ -5243,12 +5246,13 @@ mod tests {
         assert!(at.len() >= 20 && at.len() <= 32, "{}", at.len());
         assert!(at.iter().all(|p| p.position == [1.0, 2.0, 3.0] && p.size == 0.4 && p.colour == [0.3, 0.3, 1.0, 1.0]));
         assert!(suns_particles(&four, [1.0, 2.0, 3.0], 1.0).is_empty());
-        // (template 43768: 32 halos two above, 0.6 growing by 0.25 each, over 180 s)
+        // (template 43768: eight halos two above, 0.6 growing by 0.25 each, over 180 s, turning (k − 4) × time / 2)
         let zero = Suns { mode: 0, attach: 1000, material: 8, colour_a: [0.0; 4], colour_b: [0.0; 4], duration: 180.0, size: 0.6, step: 0.25, life: 0.0 };
         let mid = suns_particles(&zero, [0.0; 3], 90.0);
-        assert_eq!(mid.len(), 32);
+        assert_eq!(mid.len(), 8);
         assert!(mid.iter().all(|p| p.position == [0.0, 0.0, 2.0] && (p.colour[3] - 0xc0 as f32 / 255.0).abs() < 1e-5));
-        assert!((mid[31].size - (0.6 + 31.0 * 0.25)).abs() < 1e-3);
+        assert!((mid[7].size - (0.6 + 7.0 * 0.25)).abs() < 1e-3);
+        assert!((mid[0].spin - -180.0).abs() < 1e-3 && mid[4].spin == 0.0 && (mid[7].spin - 135.0).abs() < 1e-3);
         assert!(suns_particles(&zero, [0.0; 3], 0.0).iter().all(|p| p.size == 0.0));
     }
 
