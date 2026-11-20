@@ -6697,7 +6697,10 @@ impl Characters {
         // (the meshes the creature's update lists are worn as a player's are, `wear`: a helmet in the head's place, with
         // which the template's own head is not drawn, what is in the hands, on the shoulders and the back. The Male
         // Watchers of Old Athen stood bare-headed: their update names `opifex_male_helmet_techarmour` for the head.)
-        let custom_head = gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED);
+        // A head the update lists in the head's place is the character's head (Gamecode FUN_100598bd sets stat 64 to it and
+        // takes the one before off the head's place), so the template's own is not hung beside it: Arete's Pamela Borroel
+        // showed her template's dark hair through her listed blonde head. (`vehicle_parts` has kept this rule.)
+        let custom_head = gear.iter().any(|g| g.0 == mao_net::n3::HEAD_REPLACED || (g.0 == 0 && self.head_meshes.contains(&g.1)));
         if let (Some(head), Some(attractor), false) = (head, mesh.attractor_named("Attractor01_head"), custom_head) {
             parts.extend(mesh.attach(&bones, attractor, head));
         }
@@ -7428,7 +7431,9 @@ pub(crate) fn creature_preview(db: Arc<ResourceDatabase>, template: u32, out: &s
     let held = std::env::var("MAO_HELD").ok().and_then(|v| u32::from_str_radix(v.trim(), 16).ok());
     // (`MAO_CREATURE_BODY=<breed>,<sex>`: what the server would say of it, for its skin)
     chars.creature_body = std::env::var("MAO_CREATURE_BODY").ok().and_then(|v| Some((v.split(',').next()?.parse().ok()?, v.split(',').nth(1)?.parse().ok()?)));
-    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &[], None, held, None, &gear).ok_or("that template has no mesh")?;
+    // (`MAO_CREATURE_CLOTHES=<part>:<texture instance>,...` in decimal, as a screenshot's notes list them: what it wears)
+    let clothes: Vec<(String, u32)> = std::env::var("MAO_CREATURE_CLOTHES").unwrap_or_default().split(',').filter_map(|c| Some((c.split(':').next()?.trim().to_string(), c.split(':').nth(1)?.trim().parse().ok()?))).collect();
+    let parts = chars.creature_parts(0, template, action, 0.0, 1.0, &[], &clothes, None, held, None, &gear).ok_or("that template has no mesh")?;
     let swap = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let model = Model { instances: (0..parts.len()).map(|i| (i, swap)).collect(), parts, water: None, lod_groups: Vec::new() };
     crate::viewer::headless(&model, &crate::Textures::new(db), out)

@@ -27,6 +27,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Repeating toggled effects (flag 0x400) play again each time they end instead of only once.
 - Thick clouds no longer darken the daylight beyond what the original does.
 - The halo suns over a character (e.g. template 43768) are eight turning halos as in the original, not 32 still ones.
+- An NPC whose update names its own head no longer shows its template's head through it (Pamela Borroel's dark hair and black wedge in Arete Landing).
 
 ### Movement
 

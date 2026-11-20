@@ -3529,7 +3529,12 @@ with a build that has the notes).
   template's head, the others go on their attachment points. Offline picture of the template with that list
   (`MAO_CREATURE_GEAR=80:4e6d:7be0,1:25a1d:0 mao-client <game> creature 661b out.png`): the helmet on, the cannon
   in the hand. Every NPC with listed meshes changes with this (Arete's dock workers carry their tools); how a
-  two-handed gun is held at rest was not compared with the original.
+  two-handed gun is held at rest was not compared with the original. A listed *head* in the head's place stands for
+  the template's head too (2026-11-20): the check knew only a helmet, so Pamela Borroel in Arete Landing wore her
+  template's dark-haired head and her listed blonde one at once, the dark hair showing through as a black wedge.
+  Gamecode's FUN_100598bd puts one head in that place (it takes the one before off and sets stat 64), and
+  `vehicle_parts` already had the rule. Offline: `MAO_CREATURE_CLOTHES=<part>:<texture>,...` (decimal, as a
+  screenshot's notes list them) gives the preview what the update wears.
 - **What was sold leaves the backpack when the trade completes.** The log of a sale: `Trade` `AddItem` naming the
   character, container 0x68 and the place, once for each item; `Complete`; then the shop opened anew. The server
   says nothing more of the items, and the client kept them until the next full inventory (a zoning). The places

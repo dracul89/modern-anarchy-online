@@ -1255,6 +1255,8 @@ These were written before this list; some may have been seen working since witho
   team mate) says a better program is running and nothing is cast; recasting the same buff to refresh it still works.
 - [ ] Natural weapons (CMB-016, 2026-11-19): a creature with weapon points that fights with its own weapons (Engineer
   Automatons, cleaning robots at Arete Landing) swings its own attack animation, not the generic unarmed push.
+- [ ] NPC heads (2026-11-20): Pamela Borroel in Arete Landing's shop has one blonde head, with no dark hair or black
+  wedge through it; other NPCs' heads unchanged.
 - [ ] Morphed bodies (RND-142 taken out, 2026-11-20): a polymorphed character shows the creature's body and face alone,
   no human head or face on it.
 - [ ] Icon time text (CMB-023, 2026-11-19): after a special or a nano, the Actions window tile and the nano programs'
