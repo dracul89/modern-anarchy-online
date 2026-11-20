@@ -31,6 +31,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Movement
 
 - Sneaking backwards plays the sneak animation in reverse, as the original does.
+- Taking off into flight now shows the original's short burst of light around the character, for others too.
 
 ### Items
 
@@ -60,10 +61,12 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Dragging an entry of the control center's menus that runs a chat command (the Social menu's emotes, for example) makes a macro of it that can be dropped on a hotbar, as in the original.
 - The inspect, mail, nano programs, maps, signup terminal, teleport target, laser target and mech select windows and the compass first open where the original client left them for the character.
 - The control center's right target button attacks the target, as in the original (it selected the next enemy).
+- A new level shows the game's notice buttons near the lower right: new skill points, and when they come, a new perk or research; a click opens that window.
 
 ### World
 
 - Going away (/afk, or by itself after three idle minutes) on a battlestation leaves the battle, as in the original.
+- While your character lies dead it no longer goes "Auto-away" by itself, and a key pressed meanwhile still brings you back from being away.
 
 ### Sound
 
@@ -77,6 +80,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The alien experience gained with an alien level-up is told (it was not).
 - While crawling, your weapon is drawn, held and fired with the crawling animations.
 - A stunned creature stops where it is instead of walking on along its path.
+- Entering or leaving a PvP district now gives the original's grace and disgrace periods with their messages, and the server's changes to districts' fight modes are followed.
 
 ### Nanos
 

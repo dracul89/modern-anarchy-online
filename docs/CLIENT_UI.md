@@ -8205,3 +8205,43 @@ The original draws the effect (EffectType, stat 413) of every program running on
 ### Spell lists setting another's stat (NAN-022)
 
 Gamecode FUN_100a4f8a (spell 0xcf22) sets a stat on any character, pets and NPCs included; the client now keeps it for others too (`World::others_stats`), and a Fatness set so is the build the body is drawn with.
+
+## Remainders of part-done entries (2026-11-20, day)
+
+Five porters took what was left of seven part-done entries in parallel, each in its own worktree, and ported what the original's code settles without the live game. None of it was seen in a live game.
+
+### PvP grace and disgrace periods, and the server's fight-mode changes (TGT-004)
+
+Crossing into a district of another fight mode (FUN_1003f4a3), the original gives one's character a grace period on entering a fighting district from a suppressed one (FUN_1003ed59: 60 s where the district has a land control range, else 15 s; none while attacking, `Feedback_NoPvPGracePeriod`) and a disgrace period of 60 s on leaving it for a suppressed one (FUN_1003ef7f); during either its fight mode is the one it came with (FUN_1003e43a, the dynel's +0x138 bits 2 and 16 and +0xf4). Each ends on its timer with `Feedback_PvPGracePeriodEnded` / `Feedback_PvPDisgracePeriodEnded`; an attack at a character ends the grace at once (FUN_1006a1b1). The server's `FightModeUpdate` changes districts' modes through the playfield's `FightModeHandler_t` (FUN_101250c3, FUN_1011fddd). The client now does both for its own character (`combat::Periods`, `destinations::FightModeHandler`); other players' periods are not followed.
+
+### Dead: the away timer and the two keys that pass (DTH-014)
+
+The original's input stop at one's own death (`DisableUserInputMessage`, GUI.dll 0x100286e2) also stops the
+180-second timer of going away by itself, and its end (`InputConfig_t::EnableUserInput` 0x1001a127) starts it anew.
+Every press still reaches `InputConfig_t::AddUserInput` (0x1001b115) before the frame drops it, so input while dead
+restarts that timer and ends being away. And `InputConfig_t::FrameProcess` (0x1001b253) lets two chords through the
+stop: the inputs 0x8002a and 0xe002f, Alt+F4 and Shift+Ctrl+Alt+F9 (pressed, not released). The client now does the
+same: `afk::Away::input_off`, `afk::INPUT_WHILE_STOPPED`, `viewer::passes_input_stop`.
+
+### A new level's notice buttons (OTH-012)
+
+At a new level (`NewLevel`, Gamecode FUN_10075f55) the original sets the values `got_ip` (always), `got_perk` (every
+tenth level, with Shadowlands: stat 389 & 2) and `got_tech` (level 5, with Lost Eden: & 0x20); a new shadow level
+(FUN_10077ae7) sets `got_ip` and `got_perk`. GUI.dll's watchers (FUN_1002e9d4, FUN_1002eb2d, FUN_1002ec86) show each as
+a `NotifyButton` (FUN_1005370d): the skin's `GFX_GUI_NEW_IP`, `GFX_GUI_NEW_PERK` or `GFX_GUI_NEW_TECH`, its corner 60
+pixels left of the screen's right edge and 273, 333 or 393 above its bottom, unless the preference `ShowIPPerkbutton`
+is off (and `got_tech` not while the research window is open). A click opens the skill, perk or research window
+(FUN_100536a6), and that window's opening takes the button away (FUN_100fef4c, FUN_10061a07). The client does the same
+(`notices.rs`, `Ui::notice`).
+
+### Combat numbers over oneself in first person (CMB-038)
+
+In first person the original does not make the floating number over one's own character; Gamecode (FUN_10012c3e, FUN_100044c2) sends GUI.dll's RenderTextModule_t a damage-text message (module 0x19, message 0x3b) instead, which DamageTextMessage (0x1004b4f2) turns into a flat screen number 50 pixels from the left (plus a random -20..20), rising 70 pixels over 2.3 s. Its height is taken from a value GUI.dll never sets (DAT_102761c0, always 0), so the number always stands above the screen's top edge and is never seen. The client draws nothing over its own character in first person, which looks the same.
+
+### The flash on switching to fly mode (MOV-021)
+
+The original's switch to fly mode (FUN_1006e4f8) makes effect 2000 at the lifted body in the colour 0xfff0e0ff, for any character. It is a kind-1006 flare (`_GfxControlFlare1_t`: words FUN_100ddf10, run FUN_100def53, burst FUN_100de65e, streak FUN_100de366, SetColor FUN_100dde25): after 0.02 s one burst of thirteen short streaks (0.08 s), four rounds of three fanning up and out a quarter turn apart plus one straight up, jittered, fading from the given colour to nothing. The client now draws kind 1006 (`gfx::Flare1`, `effects::flare1_particles`) and makes the flash for its own character at the switch and for another character as it is first seen in fly mode. The spells 0xcf4b / 0xcf4c begun with stat 0x19 above 0 also queue their undoing for that many seconds later (FUN_1002dfc8, FUN_1002dc9e, FUN_10059e90's events 0x80 / 0x40), which the client now does (`Outcome::FlagsLater`).
+
+### Trade and corpse reach inside dungeons by room (INV-055)
+
+The original decides whether a trade partner or an open corpse is in reach inside a dungeon by the rooms the two bodies' sphere centres are in (Gamecode FUN_1005a1e7: `PosToRoom` with the character's room as the hint, `FindDoorIDFromRoomLink`, `IsDoorOpenBetweenRooms`); a point in no room is in reach. The client now uses the same centres and one shared rule (`interior::RoomState::rooms_reach`) for both the trade start and the walk-away check of corpses; before, it looked the rooms up at the feet.

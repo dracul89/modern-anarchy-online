@@ -1297,3 +1297,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] Start a fight with a weapon whose template has no start animation: the character plays idle-stand once.
 - [ ] Click the right target button with an enemy selected: the fight starts.
 - [ ] A character with more than six buffs running: every buff's effect shows, and the frame rate holds.
+- [ ] Walk from a suppressed district into a PvP one (e.g. a land control area): the suppression line, then about 60 s (15 s outside land control) later "grace period ended"; walk back: disgrace for 60 s and its ending line
+- [ ] In a playfield that sends a fight-mode update (Pandemonium's areas), the log has no "fight mode update dropped" line and the suppression line follows the change
+- [ ] Die, wait over three minutes without touching anything: no "Auto-away"; alive again, three idle minutes later it goes away as usual.
+- [ ] Level up: the new-IP button stands near the lower right; a click opens the skills window and the button goes.
+- [ ] Take off on a hoverboard/Yalmaha (and watch another player take off): a brief pale burst of streaks fans upward at the body, then is gone.
