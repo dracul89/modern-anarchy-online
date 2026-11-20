@@ -8521,11 +8521,19 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                     buddies.1.remove(&id);
                                     buddies.0 += 1;
                                 }
-                                // `/voice` (FUN_100b88b1): its line and record, said in the vicinity (the chat window's selected group in the
-                                // original, Vicinity unless another is picked: this client has no other to pick)
-                                Out::Voice { line } => match crate::voices::command(&line) {
-                                    Err(e) => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, e)),
-                                    Ok((text, blob)) => speak(0, text, blob),
+                                // `/voice` (FUN_100b88b1): its line and record, said in the chat window's selected group
+                                // (FUN_1009a9bd): the vicinity, or a channel with the record as the message's blob
+                                // (FUN_10085a42, FUN_1008a2c1), unless the channel's flags have 0x40
+                                Out::Voice { line, channel } => match (crate::voices::command(&line), channel) {
+                                    (Err(e), _) => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, e)),
+                                    (Ok((text, blob)), None) => speak(0, text, blob),
+                                    (Ok((text, blob)), Some(name)) => match channels.iter().find(|(_, (_, n))| n.eq_ignore_ascii_case(&name)) {
+                                        Some((id, _)) if channel_flags.get(id).is_some_and(|f| f & 0x40 != 0) => {
+                                            CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, "Voice lines may not be used in the selected chat group."))
+                                        }
+                                        Some((&id, (kind, _))) => chat.send(&mao_net::chat::channel_packet_with_blob(*kind, id, &text, &blob))?,
+                                        None => CHAT_LINES.lock().unwrap().push(Line::new(Kind::System, format!("Error: Chat group {name} is currently not available."))),
+                                    },
                                 },
                                 Out::Vicinity { kind, text } => speak(kind, text, Vec::new()),
                                 Out::Social { .. } => {}

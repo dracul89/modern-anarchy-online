@@ -19,8 +19,8 @@
 //!   `VoiceSndFxType` mood (`CharPrefs.xml`: 0 simple, 1 distunguished, as the files spell it, 2 cool, 3 military;
 //!   FUN_1008c472), when some name tried has both its `.wav` and its `.txt` (FUN_1008cbc2; else "You do not have that voice
 //!   effect installed."); its text the first line of the first `.txt` (FUN_1008cfe3), any leading `[tags]` taken off
-//!   (FUN_1008c5db), sent with record 1 (`BBBSS`, FUN_10089628) as the blob, said in the vicinity (the original's selected
-//!   group, Vicinity by default; this client has no other to pick).
+//!   (FUN_1008c5db), sent with record 1 (`BBBSS`, FUN_10089628) as the blob, said in the chat window's selected group
+//!   (FUN_1009a9bd: the vicinity, or the window's output channel, refused when the channel's flags have 0x40).
 //!
 //! * A sender on the ignore list is neither shown nor heard unless record 2's flag has bit 0 ([`heard`]:
 //!   `HandleVicinityMessage`, `HandleGroupMessage`).

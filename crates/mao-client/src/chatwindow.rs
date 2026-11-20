@@ -261,8 +261,9 @@ pub enum Out {
     /// Open the tell window for a character, once the chat server knows the name (it comes back through
     /// `chatgroups::open_tell`).
     TellWindow { name: String },
-    /// `/voice`: a voice line to speak (its checks and text are the chat connection's, `voices::command`).
-    Voice { line: String },
+    /// `/voice`: a voice line to speak (its checks and text are the chat connection's, `voices::command`), in the
+    /// window's output group: a channel, else (`None`) the vicinity (FUN_100b88b1's FUN_1009a9bd).
+    Voice { line: String, channel: Option<String> },
     /// Vicinity speech (0 say, 1 whisper, 2 shout, 3 emote), sent on the game connection.
     Vicinity { kind: u8, text: String },
     /// An emote: the social action's `AbstractAnimID`.
@@ -1547,7 +1548,7 @@ impl ChatWindow {
                     None
                 }
             },
-            Parsed::Voice { line } => Some(Out::Voice { line }),
+            Parsed::Voice { line } => Some(Out::Voice { line, channel: self.output_channel(pane).map(str::to_string) }),
             Parsed::Camp => Some(Out::Camp),
             Parsed::Pet { mut line } => {
                 line.text = self.expand(&line.text);
@@ -2329,6 +2330,9 @@ mod tests {
         assert_eq!((w.run("/ch \"yy c\""), w.panes[0].output.as_str()), (None, "Yy Clan Chat"));
         // (a plain line then goes there; `/group` sends one line elsewhere and warns when the window does not show it)
         assert_eq!(w.run("hello"), Some(Out::Channel { name: "Yy Clan Chat".into(), text: "hello".into() }));
+        // (and `/voice` speaks there too, FUN_100b88b1's selected group)
+        assert_eq!(w.run("/voice heal"), Some(Out::Voice { line: "heal".into(), channel: Some("Yy Clan Chat".into()) }));
+        assert_eq!(ChatWindow::default().run("/voice heal"), Some(Out::Voice { line: "heal".into(), channel: None }));
         let before = w.lines.len();
         assert_eq!(w.run("/g \"Yy Team\" over here"), Some(Out::Channel { name: "Yy Team".into(), text: "over here".into() }));
         assert_eq!(w.lines.len(), before + 1);
