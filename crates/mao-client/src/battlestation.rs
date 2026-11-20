@@ -48,6 +48,8 @@ pub enum Command {
     Points,
     Accept((u32, u32)),
     Leave,
+    /// The character went away (`SetAFK`): it leaves the battle when its playfield is a battlestation.
+    Away,
 }
 
 static COMMANDS: Mutex<Vec<Command>> = Mutex::new(Vec::new());
@@ -58,6 +60,12 @@ pub fn take_commands() -> Vec<Command> {
 
 fn send(c: Command) {
     COMMANDS.lock().unwrap_or_else(|e| e.into_inner()).push(c);
+}
+
+/// `ChatGUIModule_c::SetAFK` (GUI.dll 0x10087669) for a character that was not away: on a battlestation
+/// (`N3Msg_IsBattleStation`) it leaves the battle (`N3Msg_LeaveBattle`).
+pub fn went_away() {
+    send(Command::Away);
 }
 
 /// How long a box waits for its answer.

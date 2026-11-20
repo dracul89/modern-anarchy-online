@@ -9401,6 +9401,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     crate::battlestation::Command::Points => connection.send(&n3::character_action(own, mao_net::notum::POINT_LOCATIONS, (n3::CHARACTER, own), (0, 0))),
                     crate::battlestation::Command::Accept(identity) => connection.send(&mao_net::notum::accept(own, identity)),
                     crate::battlestation::Command::Leave => connection.send(&mao_net::notum::leave(own)),
+                    // (going away on a battlestation leaves the battle, `SetAFK` 0x10087669)
+                    crate::battlestation::Command::Away if crate::combat::battlestation(state.playfield) => connection.send(&mao_net::notum::leave(own)),
+                    crate::battlestation::Command::Away => Ok(()),
                 };
             }
             for check in crate::towerbuild::take_checks() {

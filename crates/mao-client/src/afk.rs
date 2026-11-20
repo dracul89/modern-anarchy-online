@@ -3,7 +3,7 @@
 //!
 //! * **The state** (`ChatGUIModule_c`): the away message at +0x294. The character is away while it is not empty
 //!   (`IsAFK` 0x1001b7c2); +0x2b0 is when it went away (`SetAFK` 0x10087669 notes the time when it was not away
-//!   before, and leaves a battle station's queue, which this client has none of).
+//!   before, and then, on a battlestation (`N3Msg_IsBattleStation`), leaves the battle, `N3Msg_LeaveBattle`).
 //! * **`/afk`** (FUN_100b82a7). `/afk status` says the message, or that the character is not away. `/afk` alone while
 //!   away ends it: a line to oneself and "is back" as an emote to the vicinity. `/afk` alone while not away goes away
 //!   with the default message at once and opens a box to change it ([`Dialog`]). `/afk <text>` goes away with the
@@ -114,10 +114,12 @@ impl Away {
         &self.message
     }
 
-    /// `SetAFK`: the message; the time is noted when the character was not away before.
+    /// `SetAFK`: the message; the time is noted when the character was not away before, and a character on a
+    /// battlestation leaves the battle (the game connection asks the playfield, `battlestation::Command::Away`).
     fn set(&mut self, message: &str, now: Instant) {
         if !self.is_away() {
             self.since = Some(now);
+            crate::battlestation::went_away();
         }
         self.message = message.to_string();
     }
@@ -204,8 +206,8 @@ impl Away {
         if game_master || !auto || self.is_away() {
             return Did::default();
         }
-        self.since = Some(now);
-        self.message = AUTO_MESSAGE.to_string();
+        // (`SlotAutoAFK` → `SetAFK`)
+        self.set(AUTO_MESSAGE, now);
         Did { lines: Vec::new(), emote: (!sneaking).then(|| text("ChatCmdFeedback_AFK_IsAFK")) }
     }
 
