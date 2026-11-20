@@ -100,6 +100,8 @@ pub enum Target {
 /// `NPCSurrenderInstance` (451) is the own character's (FUN_10001ddc: `(0xc350, stat 451)` against the own identity).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
+    /// The fight mode of its district ([`fight_mode`]).
+    pub fight_mode: i64,
     pub flags: i64,
     pub stat_215: i64,
     pub health: i64,
@@ -119,6 +121,27 @@ pub struct Own {
     /// The character's byte +0x21d (`spelllist::Control`: feared, or held by the spell 0xcff0), which `N3Msg_StopAttack` and
     /// the attack's sender FUN_1006817d ask (not FUN_10069a9f).
     pub held: bool,
+    /// The fight mode of the character's district (FUN_1003e3e2: [`fight_mode`]).
+    pub fight_mode: i64,
+}
+
+/// The fight mode (`FightTypeAllowed_e`) of a character's district: FUN_1003e3e2 takes the playfield's district info for the
+/// character's zone, its district's mode (`DistrictData_t` +0x54, 0 to 4: text.mdb's `SuppressionField100`, 75, 25, 5 and
+/// 0) through the playfield's `FightModeHandler_t` (FUN_1011fddd: the district's base and the handler's changes for it,
+/// clamped to 0..4); 2 when the playfield has no district info or none for the zone. The handler's changes come from the
+/// server and are not kept here: the base stands.
+pub fn fight_mode(district: Option<Option<u8>>) -> i64 {
+    match district {
+        Some(Some(mode)) => mode as i64,
+        _ => 2,
+    }
+}
+
+/// The text.mdb name (category 110) of a fight mode's line, which FUN_1003f4a3 tells when one's own character comes into a
+/// district of another fight mode (FUN_1003f5b2, from FUN_1003f6e6 as its zone changes): `SuppressionField100` for 0 ...
+/// `SuppressionField0` for 4.
+pub fn suppression_field(mode: i64) -> Option<&'static str> {
+    ["SuppressionField100", "SuppressionField75", "SuppressionField25", "SuppressionField5", "SuppressionField0"].get(usize::try_from(mode).ok()?).copied()
 }
 
 /// FUN_10069a9f(target, with feedback), for a player's own character: whether the target may be attacked, and the line
@@ -132,10 +155,29 @@ pub struct Own {
 /// surrendering (stat 449 1 or 2, 0x10069d64): to oneself (stat 451) and done (2) `Feedback_YouAcceptedSurrender`, to
 /// another `Feedback_TargetIsSurrendering` (1) or `Feedback_TargetHasSurrendered` (2); one that fights oneself may be
 /// attacked; a team or raid member is refused with the local `CharacterAction` 0x76 of parameter 5 (FUN_100692b4, which
-/// FUN_1005d61f's table 0x1005f62e says as `Feedback_NotAllowedToAttackTeamMembers`). Not checked: the suppression gas line (the districts' fight modes, FUN_1003e3e2, which
-/// only tells and refuses nothing), the own stat 673 test at the start, and the team check's word at the character's
+/// FUN_1005d61f's table 0x1005f62e says as `Feedback_NotAllowedToAttackTeamMembers`). The suppression gas line, which only tells, is
+/// [`can_attack_told`]'s. Not checked: the own stat 673 test at the start, and the team check's word at the character's
 /// +0x1f0 (5 lets a team member be attacked).
 pub fn can_attack(own: Own, kind: Target) -> Result<(), Option<&'static str>> {
+    can_attack_told(own, kind).0
+}
+
+/// [`can_attack`] with whether FUN_10069a9f also told `Feedback_TargetIsInADistrictWithHigherSuppression` on the way: for a
+/// character target that got past the surrender checks and does not fight oneself, when its district's fight mode is
+/// below one's own (0x10069e67..0x10069ee8). The line refuses nothing.
+pub fn can_attack_told(own: Own, kind: Target) -> (Result<(), Option<&'static str>>, bool) {
+    let told = matches!(kind, Target::Character { fights_me: false, facts, .. } if facts.fight_mode < own.fight_mode);
+    let result = judge(own, kind);
+    // (the line is said only on the way past the checks before it: an attack refused before then never reaches it)
+    let reached = match result {
+        Ok(()) => true,
+        Err(Some(line)) => line == "Feedback_NotAllowedToAttackTeamMembers",
+        Err(None) => false,
+    };
+    (result, told && reached && !matches!(kind, Target::Character { facts, .. } if (facts.flags as u32 & 0x8000_0000 != 0 && facts.stat_215 != 0) || (own.flags as u32 & 0x8000_0000 != 0 && own.stat_215 != 0)))
+}
+
+fn judge(own: Own, kind: Target) -> Result<(), Option<&'static str>> {
     let Target::Character { dead, fights_me, mate, facts } = kind else {
         return match kind {
             Target::Yourself => Err(Some("Feedback_YouCantAttackYourself")),
@@ -195,7 +237,11 @@ pub fn default_attack(fought: Option<u32>, fighting: bool, switching: bool, own:
     if fighting && (!switching || (target.is_some() && target == fought)) {
         return a;
     }
-    match (can_attack(own, kind), target) {
+    let (judged, told) = can_attack_told(own, kind);
+    if told {
+        a.lines.push("Feedback_TargetIsInADistrictWithHigherSuppression");
+    }
+    match (judged, target) {
         (Ok(()), Some(t)) if !pending && !own.held => a.start = Some((t, if fighting { 2 } else { 0 })),
         (Ok(()), Some(_)) => a.lines.push("Feedback_PleaseWaitUntilPreviousAction"),
         (refusal, _) => {
@@ -445,6 +491,15 @@ mod tests {
         assert_eq!(default_attack(None, false, false, me, false, None, Target::Nothing), refuse(&["Feedback_UnableToAttackTarget"]));
         assert_eq!(default_attack(None, false, false, me, false, Some(7), Target::Other), refuse(&["Feedback_UnableToAttackTarget"]));
         assert_eq!(default_attack(None, false, false, me, true, Some(9), alive), refuse(&["Feedback_PleaseWaitUntilPreviousAction"]));
+        // (a target in a district of more suppression: the line, and the attack goes out all the same)
+        let suppressed = Target::Character { dead: false, fights_me: false, mate: false, facts: Facts { fight_mode: 1, ..Facts::default() } };
+        let at_two = Own { fight_mode: 2, ..me };
+        assert_eq!(default_attack(None, false, false, at_two, false, Some(9), suppressed), Attack { start: Some((9, 0)), lines: vec!["Feedback_TargetIsInADistrictWithHigherSuppression"], ..Attack::default() });
+        assert_eq!(default_attack(None, false, false, Own { fight_mode: 1, ..me }, false, Some(9), suppressed), start(9, 0));
+        let fighting_me = Target::Character { dead: false, fights_me: true, mate: false, facts: Facts { fight_mode: 1, ..Facts::default() } };
+        assert_eq!(default_attack(None, false, false, at_two, false, Some(9), fighting_me), start(9, 0));
+        assert_eq!((fight_mode(None), fight_mode(Some(None)), fight_mode(Some(Some(1)))), (2, 2, 1));
+        assert_eq!((suppression_field(0), suppression_field(4), suppression_field(5)), (Some("SuppressionField100"), Some("SuppressionField0"), None));
         // (held, +0x21d: `N3Msg_StopAttack` sends nothing and FUN_1006817d says the wait line)
         let held = Own { held: true, ..me };
         assert_eq!(default_attack(Some(9), true, false, held, false, Some(9), alive), Attack::default());
@@ -476,7 +531,7 @@ mod tests {
         assert_eq!(can_attack(Own { flags: 0x406, ..me }, alive), Err(Some("Feedback_YoureUnableToAttack")));
         // (CMB-003: one's own flag 0x80000000 with stat 215 lets one attack any character, even the dead and while
         // flying, but not oneself)
-        let free = Own { flags: 0x8000_0006u32 as i64, stat_215: 1, flying: true, swimming: false, held: false };
+        let free = Own { flags: 0x8000_0006u32 as i64, stat_215: 1, flying: true, swimming: false, held: false, fight_mode: 0 };
         assert_eq!(default_attack(None, false, false, free, false, Some(9), Target::Character { dead: true, fights_me: false, mate: true, facts: Facts::default() }), Attack { start: Some((9, 0)), ..Attack::default() });
         assert_eq!(can_attack(free, Target::Yourself), Err(Some("Feedback_YouCantAttackYourself")));
         assert_eq!(can_attack(Own { flags: 0x8000_0000u32 as i64, ..me }, Target::Character { dead: true, fights_me: false, mate: false, facts: Facts::default() }), Err(Some("Feedback_TargetIsAlreadyDead")));

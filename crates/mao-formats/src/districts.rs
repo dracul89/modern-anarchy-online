@@ -20,6 +20,10 @@ pub struct District {
     pub centre: [f32; 3],
     pub music: [u16; 9],
     pub control: (u16, u16),
+    /// The district's fight mode (`DistrictData_t` +0x54, `GetFightMode`): GameData's `operator>>` (0x100049be) reads, after
+    /// the ranges, a respawn chance (a byte up to 100), a respawn time (an `i32`, -1 and up) and this byte (below 5, the
+    /// `FightTypeAllowed_e`). `None` where those do not read as such.
+    pub fight_mode: Option<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -60,13 +64,22 @@ fn head(object: &[u8], at: usize, old: bool) -> Option<(District, usize)> {
         if music.iter().any(|&m| m != 0xffff && m >= 1000) || min > max {
             return None;
         }
-        return Some((District { name: name.iter().map(|&b| b as char).collect(), centre, music, control: (0, 0) }, at + 6));
+        return Some((District { name: name.iter().map(|&b| b as char).collect(), centre, music, control: (0, 0), fight_mode: fight_mode(object, at + 6) }, at + 6));
     }
     let (npc, control) = ((h(at)?, h(at + 2)?), (h(at + 4)?, h(at + 6)?));
     if npc.0 > 1024 || npc.1 > 1024 || control.0 > 1024 || control.1 > 1024 || music.iter().any(|&m| m != 0xffff && m >= 1000) {
         return None;
     }
-    Some((District { name: name.iter().map(|&b| b as char).collect(), centre, music, control }, at + 8))
+    Some((District { name: name.iter().map(|&b| b as char).collect(), centre, music, control, fight_mode: fight_mode(object, at + 8) }, at + 8))
+}
+
+/// The fight mode after a district's ranges at `at`: the respawn chance (a byte, at most 100), the respawn time (an `i32`,
+/// -1 and up) and the mode (a byte below 5), as `operator>>` checks them.
+fn fight_mode(object: &[u8], at: usize) -> Option<u8> {
+    let chance = *object.get(at)?;
+    let time = i32::from_le_bytes(object.get(at + 1..at + 5)?.try_into().ok()?);
+    let mode = *object.get(at + 5)?;
+    (chance <= 100 && time >= -1 && mode < 5).then_some(mode)
 }
 
 pub fn parse(object: &[u8]) -> Option<Districts> {

@@ -757,7 +757,7 @@ mod tests {
     /// SND-002: indoors the zone is the room the character is in, 0 while it is in none.
     #[test]
     fn indoors_the_zone_is_the_room() {
-        let district = |name: &str| mao_formats::districts::District { name: name.to_string(), centre: [0.0; 3], music: [0xffff; 9], control: (0, 0) };
+        let district = |name: &str| mao_formats::districts::District { name: name.to_string(), centre: [0.0; 3], music: [0xffff; 9], control: (0, 0), fight_mode: None };
         let map = DistrictMap { districts: mao_formats::districts::Districts { districts: vec![district("Hall"), district("Cellar")], zones: vec![0, 0, 1] }, grid: None };
         assert_eq!(map.district_at([0.0; 3], Some(2)).map(|d| d.name.as_str()), Some("Cellar"));
         assert_eq!(map.district_at([0.0; 3], Some(1)).map(|d| d.name.as_str()), Some("Hall"));

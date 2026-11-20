@@ -453,6 +453,10 @@ struct World {
     /// Each character's control state (`spelllist::Control`: fear, the spell 0xcff0) and its byte +0x21d, taken from its full
     /// update as it is made; one's own special attacks go nowhere while the byte is set.
     control: BTreeMap<u32, crate::spelllist::Control>,
+    /// The playfield's districts (`sounds::DistrictMap`), for the characters' fight modes (`fight_mode`), and the fight mode
+    /// of one's own character's district as last told (FUN_1003f5b2's +0x74; -1 before any).
+    district_map: Option<std::sync::Arc<crate::sounds::DistrictMap>>,
+    own_fight_mode: Option<i64>,
     /// The lightning's strikes heard (where, seed) and the eye's jolts, for the viewer.
     strikes: Vec<([f32; 3], u32)>,
     jolts: Vec<f32>,
@@ -5226,6 +5230,7 @@ impl World {
                     fights_me: self.fighting.get(&t) == Some(&self.own),
                     mate: Self::team_mate(t),
                     facts: crate::combat::Facts {
+                        fight_mode: self.fight_mode(t),
                         flags: stat(224).unwrap_or(0),
                         stat_215: stat(215).unwrap_or(0),
                         // (its stat 27: the last the client heard of it, from a hit, a `Stat`, an info packet or its announcement)
@@ -5242,7 +5247,7 @@ impl World {
 
     /// What FUN_10069a9f asks of the own character.
     fn attacker(&self) -> crate::combat::Own {
-        crate::combat::Own { swimming: self.swimming.contains(&self.own), flying: self.own_flying, flags: self.stats.get(&224).copied().unwrap_or(0), stat_215: self.stats.get(&215).copied().unwrap_or(0), held: self.own_held() }
+        crate::combat::Own { swimming: self.swimming.contains(&self.own), flying: self.own_flying, flags: self.stats.get(&224).copied().unwrap_or(0), stat_215: self.stats.get(&215).copied().unwrap_or(0), held: self.own_held(), fight_mode: self.fight_mode(self.own) }
     }
 
     /// One's own character's byte +0x21d is set (`spelllist::Control`: feared, or held by the spell 0xcff0): its special
@@ -5272,6 +5277,22 @@ impl World {
         self.in_play.get(&id).copied().unwrap_or(true)
     }
 
+    /// A character's fight mode (`combat::fight_mode`): its district's, by the zone it stands in. One's own as the frame last
+    /// found it (with the room it is in); another's by its place outdoors, and indoors as one's own room's (the client does
+    /// not know which room another stands in). (FUN_1003e43a's own `+0xf4` taken over the district's while the dynel's
+    /// +0x138 has bit 16 or 2 is not ported: what sets those bits was not read.)
+    fn fight_mode(&self, id: u32) -> i64 {
+        if id == self.own {
+            return self.own_fight_mode.unwrap_or(2);
+        }
+        let Some(map) = self.district_map.as_ref() else { return 2 };
+        let Some(place) = self.position_of(id) else { return self.own_fight_mode.unwrap_or(2) };
+        if map.zone_side().is_none() {
+            return self.own_fight_mode.unwrap_or(2);
+        }
+        crate::combat::fight_mode(map.district_at(place, None).map(|d| d.fight_mode))
+    }
+
     /// One's own state flags (stat 224) as the spell lists left them (`state_flags`), else as the server told them; 6, free,
     /// when it told none (the client's safety, as for the stun).
     fn own_state_bits(&self) -> u32 {
@@ -5298,8 +5319,9 @@ impl World {
     /// Not ported: the "nano not in the list" warning (the client casts only from its list), the caster's +0x80 (silent,
     /// not read), the cast waiting on one of the same stat 0x195 (FUN_1004f3d9) and the program not yet ready (FUN_1004f0f9),
     /// the stacking against casts still under way on the target (FUN_1004f8ac's second list), and FUN_1004ed2f's
-    /// rules by fight mode (team, raid, battlestation side, `Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`): the
-    /// client keeps no fight mode, so it takes neither side's to be 2, which passes.
+    /// battlestation's side rule (stat 0x29c). FUN_1004ed2f's fight-mode rules are here (`fight_mode`): with either character
+    /// in mode 2 a friendly nano goes only to a team or raid mate or one of one's own side,
+    /// `Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`.
     fn nano_target_refusal(&self, nano: u32, target: Option<u32>, sight: &dyn Fn([f32; 3], [f32; 3]) -> bool) -> Option<Vec<String>> {
         let line = |name: &str| Some(vec![crate::feedback::plain(name)]);
         let data = ITEM_DB.get().and_then(|db| db.get(mao_formats::resource::Id { kind: mao_formats::item::NANO_TEMPLATE, instance: nano }).ok().flatten());
@@ -5361,10 +5383,27 @@ impl World {
             };
         }
         let side = self.infos.get(&t).map_or(0, |i| i.side as i64);
-        if !pet && side == 3 && self.stats.get(&33).copied().unwrap_or(0) != 3 && !self.own_held() {
+        let own_side = self.stats.get(&33).copied().unwrap_or(0);
+        if !pet && side == 3 && own_side != 3 && !self.own_held() {
             return line("Feedback_YouAreNotAllowedToExecuteFriendlyOnEnemy");
         }
-        None
+        // (FUN_1004ed2f by fight mode, FUN_1003e43a: neither in mode 2 (sides against sides) lets it go; else a team or raid
+        // mate, or (not in a team) one of one's own side; in a team the target's side must be one's own stat 0xd5's. The
+        // battlestation's rule, stat 0x29c alike, is not here: the client does not know a playfield for one.)
+        if pet || self.fight_mode(self.own) != 2 && self.fight_mode(t) != 2 {
+            return None;
+        }
+        let (in_team, in_raid) = crate::team::with(|team| (!team.members.is_empty(), team.raid.is_some()));
+        if Self::team_mate(t) && (in_team || in_raid) {
+            return None;
+        }
+        if in_team && side != self.stats.get(&0xd5).copied().unwrap_or(0) {
+            return line("Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide");
+        }
+        if side == own_side {
+            return None;
+        }
+        line("Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide")
     }
 
     fn special_refusal(&self, number: u32, target: Option<u32>, sight: &dyn Fn([f32; 3], [f32; 3]) -> bool) -> Option<Vec<String>> {
@@ -8542,7 +8581,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut lightning: Option<crate::ambience::Lightning> = None;
         let mine_spheres: std::cell::RefCell<std::collections::HashMap<u32, Option<u32>>> = Default::default();
         // The district's music (FUN_100b72bf, once a second) and the playfield whose districts are loaded.
-        let (mut districts, mut district_tick): (Option<(u32, Option<crate::sounds::DistrictMap>)>, Instant) = (None, Instant::now());
+        let (mut districts, mut district_tick): (Option<(u32, Option<std::sync::Arc<crate::sounds::DistrictMap>>)>, Instant) = (None, Instant::now());
         // The district and the weather at the character, for the environment's sounds (refreshed with the music).
         let (mut ambient_district, mut ambient_weather): (Option<u32>, [f32; 14]) = (None, [0.0; 14]);
         // (the effect scripts' playfield and expansion, and Gamecode's `rand()` for the script events)
@@ -11424,7 +11463,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     if districts.is_some() {
                         state.music_overrides.clear();
                     }
-                    districts = Some((current, crate::sounds::DistrictMap::load(&gear_db, current)));
+                    districts = Some((current, crate::sounds::DistrictMap::load(&gear_db, current).map(std::sync::Arc::new)));
+                    state.district_map = districts.as_ref().and_then(|d| d.1.clone());
                     // (FUN_1011f406: the land-control map is read with the area and district info)
                     let object = gear_db.get(mao_formats::resource::Id { kind: mao_formats::landcontrolmap::KIND, instance: current }).ok().flatten();
                     state.land_map = object.and_then(|o| mao_formats::landcontrolmap::parse(&o)).map(std::sync::Arc::new);
@@ -11435,6 +11475,17 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 if info != state.lc_district {
                     state.lc_district = info;
                     state.lc_district_changed = true;
+                }
+                // (the fight mode of the district the character stands in: a change tells the district's suppression line,
+                // FUN_1003f6e6 → FUN_1003f5b2 → FUN_1003f4a3, text.mdb 110 `SuppressionField<n>`; told as a system line here,
+                // where the original sends it as AFCM module 0x19's message 4 with the colour 0xf, whose window was not traced)
+                let district = districts.as_ref().and_then(|d| d.1.as_ref()).map(|d| d.district_at(position, room_state.current).map(|x| x.fight_mode));
+                let mode = district.flatten().map(|found| crate::combat::fight_mode(Some(found)));
+                if mode != state.own_fight_mode {
+                    if let Some(name) = mode.and_then(crate::combat::suppression_field) {
+                        state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
+                    }
+                    state.own_fight_mode = mode;
                 }
                 ambient_weather = crate::environment::compute(&areas, base_environment.as_ref(), position, state.game_clock.day(), state.game_clock.seconds(), state.game_clock.day_intensity()).weather;
                 // (FUN_100b1f3c: the expansion flag, set once the character's stat 389 has bit 0)
@@ -14878,7 +14929,9 @@ mod door_tests {
         assert_eq!(w.nano_target_refusal(nano, Some(8), &clear), plain("Feedback_YouCantExecuteNanoprogramsOnItems"));
         let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
         let base = Message { kind: n3::ENTITY_INFO, identity: (0xc350, 1), data: hex("003a04206aca0000021c43f5f0c7410028f643dc31c6000000003f38bec4000000003f31371600000741094d6f7068696e673400001812410001000100000f7e00000000") }.entity_info().unwrap();
-        // (a player two metres away: the bodies touch, the gap is nothing)
+        // (a player of one's own side two metres away: the bodies touch, the gap is nothing. With no districts both are in
+        // fight mode 2, where a friendly nano goes to one's own side only)
+        w.stats.insert(33, base.side as i64);
         w.infos.insert(9, base.clone());
         w.names.insert(9, ("Someone".into(), true));
         w.objects.insert(9, [12.0, 2.0, 20.0]);
@@ -14899,6 +14952,10 @@ mod door_tests {
         assert_eq!(w.nano_target_refusal(nano, Some(5), &clear), plain("Feedback_MolecularStructurePreventsUse"));
         w.pets.insert(1, (0, 5));
         assert_eq!(w.nano_target_refusal(nano, Some(5), &clear), None);
+        // (a player of the other side, both in fight mode 2: FUN_1004ed2f's opposite side)
+        w.stats.insert(33, base.side as i64 + 1);
+        w.others_stats.entry(9).or_default().remove(&0x296);
+        assert_eq!(w.nano_target_refusal(nano, Some(9), &clear), plain("Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide"));
     }
 
     /// CMB-022: a fear (spell 0xcf81) on one's own character sets its byte +0x21d, and the special attacks go nowhere without

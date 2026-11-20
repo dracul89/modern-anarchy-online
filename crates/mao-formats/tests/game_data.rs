@@ -970,6 +970,19 @@ fn zones_and_districts() {
         read += 1;
     }
     eprintln!("{read} district lists");
+    // (every district has its fight mode, `DistrictData_t` +0x54; Rubi-Ka's cities and their outskirts are not all of one)
+    let mut modes = std::collections::BTreeMap::new();
+    for id in db.ids().unwrap().filter_map(Result::ok).filter(|i| i.kind == mao_formats::districts::KIND) {
+        let Some(d) = mao_formats::districts::parse(&db.get(id).unwrap().unwrap()) else { continue };
+        for x in &d.districts {
+            if x.fight_mode.is_none() && modes.get(&None).copied().unwrap_or(0) < 8 {
+                eprintln!("no fight mode: playfield {} {:?} version {}", id.instance, x.name, u16::from_le_bytes([db.get(id).unwrap().unwrap()[12], db.get(id).unwrap().unwrap()[13]]));
+            }
+            *modes.entry(x.fight_mode).or_insert(0) += 1;
+        }
+    }
+    eprintln!("fight modes: {modes:?}");
+    assert!(modes.len() > 1);
     for pf in [0x2a8u32, 760, 567, 655] {
         let Some(object) = db.get(Id { kind: 0xf4241, instance: pf }).unwrap() else { continue };
         let word = |o: usize| u32::from_le_bytes(object[12 + o..16 + o].try_into().unwrap());

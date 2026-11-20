@@ -1238,6 +1238,9 @@ These were written before this list; some may have been seen working since witho
   click stands up; while swimming it does nothing.
 - [ ] Launcher PATCH (LCH-036, 2026-11-19): only when a dimension really is newer than the game folder (do not fake
   it: the patcher changes the game folder). PATCH opens AnarchyPatcher.exe for that dimension and the launcher closes.
+- [ ] Suppression fields (fight mode, 2026-11-19): walking from a city into the wilds (and zoning in) tells the district's
+  suppression line ("...75%..." and the like) once at each change; compare where and how the original shows it (a screen
+  text rather than a chat line is likely). Attacking a player standing in a district of more suppression first says so.
 - [ ] Nano stacking (NAN-041, 2026-11-19): casting a weaker buff of a line already running stronger (on yourself or a
   team mate) says a better program is running and nothing is cast; recasting the same buff to refresh it still works.
 - [ ] Natural weapons (CMB-016, 2026-11-19): a creature with weapon points that fights with its own weapons (Engineer

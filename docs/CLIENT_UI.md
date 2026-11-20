@@ -7625,7 +7625,23 @@ Besides the end of the spell list that began it, the original takes a character 
 
 ### The attack key reads the target's own stats (CMB-003, TGT-004)
 
-FUN_10069a9f, the check behind the attack key and Ctrl + click, also looks at the target. Its state flag 0x20000000 refuses with "Feedback_CantbeAttacked" (Arete's newcomers carry it). Its flag 0x80000000 with its stat 215 lets anyone attack it. A dead target that still has health is refused without a word. An NPC surrendering (stats 449/451) is refused with the surrender lines; "You accepted surrender" is said when it surrendered to oneself. An item standing in the world is judged by its flag 0x10000000 and its requirements for action 11, whose lines come first. The client now holds other characters' stats as the server's Stat messages set them, and does all of this. Not done: the suppression gas line (it only tells), the stat 673 test at the start (its map keys are unidentified), and the team check's +0x1f0 exception.
+FUN_10069a9f, the check behind the attack key and Ctrl + click, also looks at the target. Its state flag 0x20000000 refuses with "Feedback_CantbeAttacked" (Arete's newcomers carry it). Its flag 0x80000000 with its stat 215 lets anyone attack it. A dead target that still has health is refused without a word. An NPC surrendering (stats 449/451) is refused with the surrender lines; "You accepted surrender" is said when it surrendered to oneself. An item standing in the world is judged by its flag 0x10000000 and its requirements for action 11, whose lines come first. The client now holds other characters' stats as the server's Stat messages set them, and does all of this. Not done: the stat 673 test at the start (its map keys are unidentified), and the team check's +0x1f0 exception.
+
+**Fight modes (2026-11-19).** Each district of a playfield has a fight mode, 0 to 4 (`DistrictData_t` +0x54; text.mdb's
+`SuppressionField100`, 75, 25, 5 and 0), and a character's mode is its district's, found by the zone it stands in (FUN_1003e3e2;
+2 where the playfield has no district info). The client reads it from the districts' records (`District::fight_mode`) and:
+
+- **tells the district's line** when one's own character comes into a district of another mode, on zoning in too
+  (FUN_1003f6e6 → FUN_1003f5b2 → FUN_1003f4a3). The original sends it as AFCM module 0x19's message 4; which window shows
+  that was not traced, so it is a system line here, a guess;
+- **warns before an attack** at a character in a district of a lower mode than one's own:
+  `Feedback_TargetIsInADistrictWithHigherSuppression` (FUN_10069a9f, 0x10069e67); the attack still goes out;
+- **holds friendly nanos to one's own side** when either character is in mode 2 (FUN_1004ed2f): a team or raid mate, else
+  one of one's own side (in a team: the target's side against one's stat 0xd5), else
+  `Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`.
+
+Not ported: the playfield's `FightModeHandler_t` changes to a district's mode (FUN_1011fddd's list: the server's, not kept),
+a dynel's own mode kept at +0xf4 while its +0x138 has bit 16 or 2, and the battlestation's side rule.
 
 ### Tab: others' pets and characters not yet in play (TGT-005)
 
