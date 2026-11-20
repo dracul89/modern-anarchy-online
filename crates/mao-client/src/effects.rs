@@ -88,19 +88,28 @@ pub fn cords_particles(c: &Cords, from: [f32; 3], to: [f32; 3], time: f32) -> Ve
     out
 }
 
-/// `_GfxControlDeformer_t`'s mode 1 on a body's skinned parts (its vertex callback FUN_100d776f): each vertex pushed along its
-/// normal by `amplitude × sin²(phase) × strength`, the phase running with the frequency over time and along the body, so the
-/// mesh ripples for the hit's duration. `age` is seconds since the hit; nothing once the deform is over.
+/// `_GfxControlDeformer_t`'s modes 1 and 3 on a body's skinned parts (its vertex callback FUN_100d776f), `age` seconds
+/// since the hit (the control's time, +0xc); nothing once the deform is over. Mode 1 pushes each vertex along its normal by
+/// `amplitude × sin²(phase) × strength`, the phase taken of the vertex's place in the body's frame and of
+/// `t = frequency × age`: `((x + 13t) × 13 + (y − 11t) × 17 + 19tz) × 11 + t`, so the mesh ripples for the hit's duration.
+/// Mode 3 pushes every vertex alike by `sin(age) × 0.05 × strength`.
 pub fn deform_parts(parts: &mut [mao_formats::model::Part], d: &Deform, age: f32) {
     let strength = d.strength_at(age);
     if strength <= 0.0 {
         return;
     }
+    let t = d.frequency * age;
+    let swell = (age as f64).sin() as f32 * 0.05 * strength;
     for part in parts {
         for v in &mut part.vertices {
-            // (the original's two phase constants on the vertex's place are not legible; the ripple runs up the body)
-            let phase = d.frequency * age * std::f32::consts::TAU * 4.0 + v.position[1] * 6.0;
-            let push = d.amplitude * phase.sin().powi(2) * strength;
+            let push = if d.mode == 3 {
+                swell
+            } else {
+                let [x, y, z] = v.position.map(|c| c as f64);
+                let t64 = t as f64;
+                let s = ((((x + t64 * 13.0) * 13.0 + (y - t64 * 11.0) * 17.0 + z * t64 * 19.0) * 11.0) + t64).sin() as f32;
+                s * s * d.amplitude * strength
+            };
             for c in 0..3 {
                 v.position[c] += v.normal[c] * push;
             }
@@ -5383,7 +5392,7 @@ broken line
 
     #[test]
     fn a_deform_ramps_in_ripples_and_ramps_out() {
-        let d = Deform { duration: 1.1, strength: 1.0, ramp_in: 0.1, ramp_out: 1.0, frequency: 0.1, amplitude: 0.05 };
+        let d = Deform { mode: 1, duration: 1.1, strength: 1.0, ramp_in: 0.1, ramp_out: 1.0, frequency: 0.1, amplitude: 0.05 };
         assert!((d.strength_at(0.05) - 0.5).abs() < 1e-5);
         assert!((d.strength_at(0.1) - 1.0).abs() < 1e-5);
         assert!(d.strength_at(0.6) < 1.0 && d.strength_at(0.6) > 0.0);
@@ -5393,6 +5402,14 @@ broken line
         let x = parts[0].vertices[0].position[0];
         assert!(x >= 0.0 && x <= 0.05 + 1e-6, "{x}");
         assert_eq!(parts[0].vertices[0].position[1], 1.0);
+        // (FUN_100d776f's phase: t = 0.03, ((0 + 13t) × 13 + (1 − 11t) × 17 + 0) × 11 + t = 181.09; 0.05 × sin² of it × the
+        // strength, 0.8 here, ramping out)
+        assert!((x - 0.032482).abs() < 1e-4, "{x}");
+        // mode 3 swells every vertex alike by sin(age) × 0.05 × strength
+        let swell = Deform { mode: 3, ..d };
+        parts[0].vertices[0].position = [0.0, 1.0, 0.0];
+        deform_parts(&mut parts, &swell, 0.3);
+        assert!((parts[0].vertices[0].position[0] - 0.011821).abs() < 1e-5, "{:?}", parts[0].vertices[0].position);
     }
 
     #[test]

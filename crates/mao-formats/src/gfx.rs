@@ -511,11 +511,14 @@ pub struct Sparks {
 /// vertex callback it registers on the target's `CATRender_t`): the target's mesh itself is bent. Word 8 is the duration, 10
 /// the mode, 11 the strength, 12 the seconds the strength ramps in over and 13 the seconds it ramps out over once stopped
 /// (`Stop`, slot 6, at `duration − word 13`). Mode 1 (the three hit templates: 1.1 or 3.1 s, strength 1, in 0.1 s, out 1–3
-/// s) ripples every vertex by `amplitude × sin²(frequency × time + the vertex's phase) × strength`, words 15 and 14. Mode 0
-/// pulses the vertices round named bones (a list of attach points, frequencies and radii) and mode 4 fades a second body
-/// mesh over the character; neither is ported.
+/// s) ripples every vertex by `amplitude × sin²(frequency × time + the vertex's phase) × strength`, words 15 and 14. Mode 3
+/// pushes every vertex along its normal by `sin(time) × 0.05 × strength`. Mode 0 pulses the vertices round named bones (a
+/// list of attach points, frequencies and radii), mode 2 bends them toward a bone's line and mode 4 fades a second body
+/// mesh over the character; none of those is ported.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Deform {
+    /// Word 10: 1 the ripple, 3 the swell (the two read here).
+    pub mode: i32,
     pub duration: f32,
     pub strength: f32,
     pub ramp_in: f32,
@@ -2585,7 +2588,7 @@ impl Gfx {
             3017 => GlobalSmoke::read(r).map(Visual::GlobalSmoke),
             1012 => Sprite::read(r).map(Visual::Sprite),
             3028 => BParticles::read(r).map(Visual::BParticles),
-            3001 if r.payload.len() >= 16 && r.int(10) == 1 => Some(Visual::Deform(Deform { duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
+            3001 if r.payload.len() >= 16 && matches!(r.int(10), 1 | 3) => Some(Visual::Deform(Deform { mode: r.int(10), duration: r.float(8), strength: r.float(11), ramp_in: r.float(12), ramp_out: r.float(13), frequency: r.float(14), amplitude: r.float(15) })),
             2005 if r.payload.len() >= 32 && matches!(r.int(10), 0 | 4) => Some(Visual::Suns(Suns {
                 mode: r.int(10),
                 attach: r.int(7),
