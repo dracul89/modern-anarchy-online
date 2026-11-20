@@ -22,6 +22,36 @@ pub struct Label {
     pub text: String,
 }
 
+/// A fight line's floating text: Gamecode FUN_10012c3e, after each feedback event's line, makes its amount (`"%d"`) over the
+/// event's character as effect 0x2f5a (FUN_10011171), a `_GfxControlFont_t` (kind 2014, FUN_100df982; words FUN_100df218):
+/// its text set (FUN_100df37e) as a row of glyph sprites centred on the place, 1.5 above it (0x1015e7ac), each glyph 12 of the
+/// font's pixels high at 0.01 a pixel (word 28, 0x1016ce20); its run (FUN_100df059) lifts it 0.4 a second (word 29) for its
+/// life of 1.3 s (word 26); its colour (SetColor, FUN_100df166) is the event's from the table at 0x10157b08, start and end
+/// alike. Over one's own character it is made only with the third-person camera (DAT_102e1640); in first person the original
+/// sends AFCM module 0x19's message 0x3b instead, which is not ported. The glyphs are the effect's material 40's, by a table
+/// Gamecode fills at run time (0x102c5608, not in the file): the client's own font stands in for them, a guess at the look.
+pub struct CombatText {
+    pub world: Vec3,
+    pub text: String,
+    /// ARGB.
+    pub colour: u32,
+    pub own: bool,
+    pub born: Instant,
+}
+
+/// A floating fight text's life (word 26 of effect 0x2f5a), its rise a second (word 29), how far above the place its glyphs
+/// stand (0x1015e7ac) and their height (12 pixels at word 28's 0.01).
+pub const COMBAT_TEXT_LIFE: f32 = 1.3;
+pub const COMBAT_TEXT_RISE: f32 = 0.4;
+pub const COMBAT_TEXT_LIFT: f32 = 1.5;
+pub const COMBAT_TEXT_HEIGHT: f32 = 0.12;
+
+/// Where a floating fight text's middle stands `age` seconds after it was made over `world` (Z up), and its glyphs' top.
+pub fn combat_text_place(world: Vec3, age: f32) -> (Vec3, Vec3) {
+    let middle = world + Vec3::new(0.0, 0.0, COMBAT_TEXT_LIFT + COMBAT_TEXT_RISE * age);
+    (middle, middle + Vec3::new(0.0, 0.0, COMBAT_TEXT_HEIGHT * 0.5))
+}
+
 /// What the display shows besides the options.
 #[derive(Default)]
 pub struct Hud {
@@ -53,6 +83,9 @@ pub struct Hud {
     pub lc_district: Option<(String, i32, i32)>,
     /// The names floating over the characters and creatures near.
     pub nameplates: Vec<crate::nametag::Tag>,
+    /// The fight lines' floating texts ([`CombatText`]), and whether the camera is in first person (one's own are not drawn then).
+    pub combat_texts: Vec<CombatText>,
+    pub first_person: bool,
     pub labels: Vec<Label>,
     /// The friends list.
     pub friends: Vec<crate::friends::Friend>,
@@ -2612,6 +2645,23 @@ fn hud_layer(ctx: &egui::Context, hud: &Hud, project: &dyn Fn(Vec3) -> Option<[f
     crate::whiteout::draw(ctx, &painter, screen);
     // (no tags over the Whom-Pah booths: each booth's own sign says where it leads, and the tags stood over them on
     // top of everything. The booths' labels still fill the Whom-Pah window and the corner map's dots.)
+    // The fight lines' floating texts (`CombatText`): centred, rising, in the event's colour; one's own not in first person.
+    for t in &hud.combat_texts {
+        let age = t.born.elapsed().as_secs_f32();
+        if age >= COMBAT_TEXT_LIFE || (t.own && hud.first_person) {
+            continue;
+        }
+        let (middle, top) = combat_text_place(t.world, age);
+        let (Some(m), Some(top)) = (project(middle), project(top)) else { continue };
+        let size = ((m[1] - top[1]) * screen.height()).abs() * 2.0;
+        if size < 1.0 {
+            continue;
+        }
+        let colour = egui::Color32::from_rgba_unmultiplied((t.colour >> 16) as u8, (t.colour >> 8) as u8, t.colour as u8, (t.colour >> 24) as u8);
+        let galley = painter.layout_no_wrap(t.text.clone(), egui::FontId::proportional(size), colour);
+        let at = egui::pos2(screen.left() + m[0] * screen.width(), screen.top() + m[1] * screen.height());
+        painter.galley(at - galley.size() * 0.5, galley, colour);
+    }
     // The tags over the characters (`Indicator_t`): the selected one's, the fought one's, and with `ShowAllNames` everyone's.
     crate::nametag::draw(ctx, &painter, screen, &hud.nameplates, project, palette);
     camp_bar(ctx, screen, palette);
@@ -2972,6 +3022,13 @@ fn options_window(ctx: &egui::Context, open: &mut bool, rebinding: &mut Option<A
 
 #[cfg(test)]
 mod tests {
+    /// CMB-038: a floating fight text stands 1.5 above its place and rises 0.4 a second, 0.12 high.
+    #[test]
+    fn a_fight_text_rises_from_head_height() {
+        let (middle, top) = super::combat_text_place(super::Vec3::new(1.0, 2.0, 3.0), 1.0);
+        assert!((middle.z - 4.9).abs() < 1e-5 && (top.z - middle.z - 0.06).abs() < 1e-5 && middle.x == 1.0);
+    }
+
     /// The interface size slider: nothing is taken while it is dragged, the value it stopped at when it is let go, a
     /// typed value at once.
     #[test]

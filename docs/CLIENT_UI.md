@@ -7984,6 +7984,23 @@ Every command GUI.dll registers for a player now has its piece count in the clie
 
 A key bound to several of the original's actions now does them all, as GUI.dll's input (FUN_10018376) does, and only when none takes it does a fixed key act. OK in the Bind Key box with no key pressed binds the original's "no key", a row of its own kept in mao.ini as `Inactive`. The original's team, raid, LFT, research, knowledge, daily login and item shop window keys are actions with the shipped keys (Ctrl+5, Ctrl+Shift+R, Shift+F, Shift+O, Ctrl+3). Mouse buttons as keys and the team, pet, camera-view, reference, switch-target, copy and per-slot shortcut keys are not done yet.
 
+## Combat text over characters (2026-11-20, CMB-038 corrected)
+
+The removal of the client's floating numbers (CMB-038, 2026-11-19) rested on a wrong reading: the original does float
+combat text. Gamecode's fight-line formatter (FUN_10012c3e) ends each event that has an amount by making it (`"%d"`) over
+the event's character as effect 0x2f5a (FUN_10011171), a `_GfxControlFont_t` text effect, coloured by the event from the
+table at 0x10157b08. The client now does the same (`World::combat_text`, `ui::CombatText`):
+
+- **Where and how:** centred 1.5 above the character's place, 0.12 high (12 glyph pixels at word 28's 0.01), rising 0.4 a
+  second (word 29), gone after 1.3 s (word 26); over one's own character only with the third-person camera.
+- **Colours, by event** (`feedback::text_colour`): your hits light grey; hits on you red; others' hits olive (orange when
+  your pet is in it); nano damage to you white; your nano damage pale blue; healing light blue; experience,
+  alien experience and shadowknowledge yellow.
+- **A guess:** the glyphs are the effect's material's, placed by a table Gamecode fills at run time; the client's own font
+  stands in for them.
+
+Not ported: the first-person message, and the special attacks' names ("Burst!" and the like) over the attacker (CMB-033).
+
 ## The long tail of low-weight entries (2026-11-20)
 
 Six readers went through the catalog's open low-weight entries in parallel, each in its own worktree, and ported what the original's code settles without the live game. None of it was seen in a live game.

@@ -216,6 +216,88 @@ pub fn weapon_damage_type(stat_436: Option<i64>) -> u32 {
     }
 }
 
+/// The colour of a feedback event's floating text (Gamecode FUN_10012c3e, after the line: its amount, `"%d"`, made over the
+/// event's character by FUN_10011171 as effect 0x2f5a, `_GfxControlFont_t`, coloured from the table at 0x10157b08 by the
+/// index the event's case sets, ARGB with the alpha full), `None` for an event that makes none (0x3b, 0x41 to 0x44 and 0x47
+/// clear the amount). By event: 0x1a white; 0x1b pale blue, 0x1c orange (FUN_10012f2d: the index 0x16, or 0x1b for 0x1c);
+/// 0x1d, 0x1e, 0x25, 0x27, 0x30, 0x34 red; 0x1f and 0x32 light grey; 0x20, 0x26, 0x28, 0x2c, 0x35, 0x3f olive, 0x21 orange
+/// (FUN_10013725: 0x1a, or 0x1b for 0x21); 0x22 and 0x23 light blue; 0x24, 0x3e, 0x45 yellow; 0x40 pale blue. 0x31 and 0x33
+/// reach FUN_10013725's choice without its flag being set for them (it reads a byte of an argument): taken as 0x20 and 0x21.
+pub fn text_colour(event: u32) -> Option<u32> {
+    const TABLE: [u32; 9] = [0xffffff, 0x9ad5d9, 0xff0000, 0xff0000, 0xd9d9d2, 0x999926, 0xff7718, 0x8cb6ff, 0xffff00];
+    let index = match event {
+        0x1a => 0x15,
+        0x1b | 0x40 => 0x16,
+        0x1d | 0x25 | 0x27 | 0x30 | 0x34 => 0x17,
+        0x1e => 0x18,
+        0x1f | 0x32 => 0x19,
+        0x20 | 0x26 | 0x28 | 0x2c | 0x31 | 0x35 | 0x3f => 0x1a,
+        0x1c | 0x21 | 0x33 => 0x1b,
+        0x22 | 0x23 => 0x1c,
+        0x24 | 0x3e | 0x45 => 0x1d,
+        _ => return None,
+    };
+    Some(0xff00_0000 | TABLE[index - 0x15])
+}
+
+/// The event of a weapon hit's line ([`attack`]): 0x1e a player hit the client, 0x1d anything else did (or it hit itself),
+/// 0x1f the client hit something, 0x20 others, 0x21 others where one is the client's pet.
+pub fn attack_event(victim: Who, attacker: Who, pet: bool) -> u32 {
+    match (victim, attacker) {
+        (Who::You, Who::Named(_, true)) => 0x1e,
+        (Who::You, _) => 0x1d,
+        (_, Who::You) => 0x1f,
+        _ if pet => 0x21,
+        _ => 0x20,
+    }
+}
+
+/// The event of a special attack's line ([`special`]): 0x32 the client's own, 0x30 one at the client, 0x31 others', 0x33
+/// others' where one is the client's pet.
+pub fn special_event(victim: Who, attacker: Who, pet: bool) -> u32 {
+    match (victim, attacker) {
+        (_, Who::You) => 0x32,
+        (Who::You, _) => 0x30,
+        _ if pet => 0x33,
+        _ => 0x31,
+    }
+}
+
+/// The event of a health change's line ([`health`]): healing 0x22; damage to the client 0x1a, by the client 0x40, to the
+/// client's pet 0x1c, between others 0x1b.
+pub fn health_event(victim: Who, source: Who, amount: i64, pet: bool) -> u32 {
+    match (victim, source) {
+        _ if amount > 0 => 0x22,
+        (Who::You, _) => 0x1a,
+        _ if pet => 0x1c,
+        (_, Who::You) => 0x40,
+        _ => 0x1b,
+    }
+}
+
+/// The event of a damage or reflect shield's line ([`shield`]): 0x25 / 0x27 the client hurt, 0x26 / 0x28 another.
+pub fn shield_event(victim: Who, reflect: bool) -> u32 {
+    match (victim, reflect) {
+        (Who::You, false) => 0x25,
+        (_, false) => 0x26,
+        (Who::You, true) => 0x27,
+        (_, true) => 0x28,
+    }
+}
+
+/// The event of a change of one's own stat's line ([`own_stat`]): health 0x1a / 0x22, experience 0x24, alien experience 0x45,
+/// shadowknowledge 0x3e.
+pub fn own_stat_event(stat: u32, change: i64) -> Option<u32> {
+    match stat {
+        27 if change < 0 => Some(0x1a),
+        27 => Some(0x22),
+        52 => Some(0x24),
+        40 => Some(0x45),
+        573 => Some(0x3e),
+        _ => None,
+    }
+}
+
 /// Who is in a line: the client's own character, another one by name (and whether a player), or one the client doesn't know.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Who<'a> {
@@ -546,6 +628,25 @@ pub fn following(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CMB-038: each fight event's floating text colour, from FUN_10012c3e's cases and the table at 0x10157b08; the events
+    /// that clear their amount have none.
+    #[test]
+    fn fight_texts_take_their_events_colour() {
+        let rat = Who::Named("Rollerrat", false);
+        assert_eq!(text_colour(attack_event(rat, Who::You, false)), Some(0xffd9d9d2), "the client's hit: light grey");
+        assert_eq!(text_colour(attack_event(Who::You, rat, false)), Some(0xffff0000), "hit by a creature: red");
+        assert_eq!(attack_event(Who::You, Who::Named("Bob", true), false), 0x1e);
+        assert_eq!(text_colour(attack_event(rat, Who::Named("Bob", true), false)), Some(0xff999926), "others: olive");
+        assert_eq!(text_colour(attack_event(rat, Who::Named("Bob", true), true)), Some(0xffff7718), "one's pet in it: orange");
+        assert_eq!(text_colour(health_event(Who::You, Who::Unknown, -5, false)), Some(0xffffffff), "nano damage to the client: white");
+        assert_eq!(text_colour(health_event(rat, Who::You, -5, false)), Some(0xff9ad5d9), "the client's nano damage: pale blue");
+        assert_eq!(text_colour(health_event(Who::You, Who::You, 116, false)), Some(0xff8cb6ff), "healing: light blue");
+        assert_eq!(own_stat_event(52, 10).and_then(text_colour), Some(0xffffff00), "experience: yellow");
+        assert_eq!((special_event(rat, Who::You, false), special_event(Who::You, rat, false)), (0x32, 0x30));
+        assert_eq!((shield_event(Who::You, false), shield_event(rat, true)), (0x25, 0x28));
+        assert!([0x3b, 0x41, 0x42, 0x43, 0x44, 0x47, 0x29].iter().all(|&e| text_colour(e).is_none()));
+    }
 
     #[test]
     fn attack_lines() {

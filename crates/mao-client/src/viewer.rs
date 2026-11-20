@@ -165,6 +165,9 @@ pub struct Update {
     pub lc_district: Option<Option<(String, i32, i32)>>,
     /// The names to float over the characters and creatures near (Z-up position over the head).
     pub nameplates: Vec<crate::nametag::Tag>,
+    /// The fight lines' floating texts (`ui::CombatText`): the character's place (Z up), the text, its colour (ARGB) and
+    /// whether the character is one's own.
+    pub combat_texts: Vec<([f32; 3], String, u32, bool)>,
     /// Who is under running nano programs: the character's id (0 for the player's own), whether it is the character itself, the feet
     /// (Z-up), its heading, the body (breed, sex, fatness) when known, and each program with its running effect. The whole list when it is given
     /// (an update without one leaves the last in place).
@@ -2019,6 +2022,12 @@ impl ApplicationHandler for App {
                             self.hud.lc_district = info;
                         }
                         self.hud.nameplates = std::mem::take(&mut update.nameplates);
+                        let now = std::time::Instant::now();
+                        for (at, text, colour, own) in std::mem::take(&mut update.combat_texts) {
+                            self.hud.combat_texts.push(crate::ui::CombatText { world: mao_render::glam::Vec3::from(at), text, colour, own, born: now });
+                        }
+                        self.hud.combat_texts.retain(|t| t.born.elapsed().as_secs_f32() < crate::ui::COMBAT_TEXT_LIFE);
+                        self.hud.first_person = self.steering.is_first_person();
                         if let Some(h) = update.heading {
                             self.heading = h;
                             if !self.behind_set {

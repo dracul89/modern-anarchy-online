@@ -514,6 +514,9 @@ struct World {
     special_locks: std::collections::HashMap<u32, Instant>,
     /// Lines the server's game messages made (damage, healing, "You successfully perform ..."), for the chat window.
     game_lines: Vec<crate::chatwindow::Line>,
+    /// The floating texts the fight lines made (FUN_10012c3e → FUN_10011171, `feedback::text_colour`), not yet handed to the
+    /// viewer: the character over whom, the text and its colour (ARGB).
+    combat_texts: Vec<(u32, String, u32)>,
     /// The containers (corpses, chests, the bank, the overflow, the organization's) the character has open, each in a window
     /// of its own (GUI.dll's `SlotContainerOpened`, 0x100c7bef: one view per container identity), and whether that changed.
     loots: Vec<Loot>,
@@ -3030,6 +3033,7 @@ impl World {
                 // experience the message has just set, so no other line tells of it.)
                 if let Some(line) = field("LastAwardedXp").filter(|x| *x != 0).and_then(|x| crate::feedback::own_stat(52, x)) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                    self.combat_text(self.own, 0x24, field("LastAwardedXp").unwrap_or(0));
                 }
                 if let Some(level) = field("Level") {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::with_number("Feedback_NewLevel", level)));
@@ -3129,10 +3133,13 @@ impl World {
                 }
                 if let Some(line) = crate::feedback::attack(self.who(target), self.who(m.identity.1), int("Amount"), kind, int("HitType")) {
                     // (one's pet the one hit or the attacker, neither being oneself: the pets' group, FUN_1009b6b7's 0x21)
-                    if target != self.own && m.identity.1 != self.own && (self.is_own_pet(target) || self.is_own_pet(m.identity.1)) {
+                    let pet = target != self.own && m.identity.1 != self.own && (self.is_own_pet(target) || self.is_own_pet(m.identity.1));
+                    if pet {
                         crate::feedback::of_pet();
                     }
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                    let event = crate::feedback::attack_event(self.who(target), self.who(m.identity.1), pet);
+                    self.combat_text(target, event, int("Amount"));
                 }
                 // (the hit that kills names what the target died of, the word after the target, `Unk1`: FUN_1009f257 and
                 // FUN_1009b6b7 hand it to FUN_1005b3d8, which tells the client's own character the game's line for it
@@ -3171,10 +3178,13 @@ impl World {
                 }
                 if let Some(line) = crate::feedback::special(self.who(target), self.who(m.identity.1), amount, &crate::gui::criteria::stat_name(stat)) {
                     // (FUN_1006af0e's 0x33 for others' where one's pet is in it)
-                    if target != self.own && m.identity.1 != self.own && (self.is_own_pet(target) || self.is_own_pet(m.identity.1)) {
+                    let pet = target != self.own && m.identity.1 != self.own && (self.is_own_pet(target) || self.is_own_pet(m.identity.1));
+                    if pet {
                         crate::feedback::of_pet();
                     }
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                    let event = crate::feedback::special_event(self.who(target), self.who(m.identity.1), pet);
+                    self.combat_text(target, event, amount);
                 }
             }
         }
@@ -3321,6 +3331,7 @@ impl World {
                 let stat = p.value.get("DmgType").and_then(mao_net::schema::Value::as_int).unwrap_or(0) as u32;
                 if let Some(line) = crate::feedback::absorb(self.who(m.identity.1), amount, stat) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                    self.combat_text(m.identity.1, if m.identity.1 == self.own { 0x34 } else { 0x35 }, amount);
                 }
             }
         }
@@ -3347,6 +3358,8 @@ impl World {
                 }
                 if let Some(line) = crate::feedback::shield(self.who(victim), self.who(owner), amount, m.kind == 0x1c3a4f77) {
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                    let event = crate::feedback::shield_event(self.who(victim), m.kind == 0x1c3a4f77);
+                    self.combat_text(victim, event, amount);
                 }
             }
         }
@@ -3860,7 +3873,9 @@ impl World {
                     if pet {
                         crate::feedback::of_pet();
                     }
+                    let event = crate::feedback::health_event(self.who(target), source_who, amount, pet);
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                    self.combat_text(target, event, amount);
                 }
             }
         }
@@ -4819,6 +4834,8 @@ impl World {
                             let change = (hp - old).min(0);
                             if let Some(line) = crate::feedback::health(self.who(id), crate::feedback::Who::Unknown, change, 0, None) {
                                 self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                                let event = crate::feedback::health_event(self.who(id), crate::feedback::Who::Unknown, change, false);
+                                self.combat_text(id, event, change);
                             }
                         }
                         if let Some(entry) = self.health.get_mut(&id) {
@@ -4856,6 +4873,9 @@ impl World {
                     let change = new - old + if stat == 40 { alien_extra } else { 0 };
                     if let Some(line) = crate::feedback::own_stat(stat, change) {
                         self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
+                        if let Some(event) = crate::feedback::own_stat_event(stat, change) {
+                            self.combat_text(self.own, event, change);
+                        }
                     }
                 }
             }
@@ -5350,6 +5370,17 @@ impl World {
             return self.own_fight_mode.unwrap_or(2);
         }
         crate::combat::fight_mode(map.district_at(place, None).map(|d| d.fight_mode))
+    }
+
+    /// The floating text a fight line makes after it (FUN_10012c3e's end): the event's amount, `"%d"`, over the event's
+    /// character, in the event's colour (`feedback::text_colour`); none for an amount of 0 or an event without a colour.
+    fn combat_text(&mut self, over: u32, event: u32, amount: i64) {
+        if amount == 0 {
+            return;
+        }
+        if let Some(colour) = crate::feedback::text_colour(event) {
+            self.combat_texts.push((over, amount.abs().to_string(), colour));
+        }
     }
 
     /// One's own state flags (stat 224) as the spell lists left them (`state_flags`), else as the server told them; 6, free,
@@ -12319,6 +12350,14 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         .into_iter()
                         .filter_map(|(id, at)| Some(([at[0], at[2], at[1]], mao_formats::gfx::Flare::read(gfx.as_ref()?.get(id)?)?)))
                         .collect(),
+                    // (the fight lines' floating texts, over their characters: one's own at `position`)
+                    combat_texts: std::mem::take(&mut state.combat_texts)
+                        .into_iter()
+                        .filter_map(|(id, text, colour)| {
+                            let at = if id == own { position } else { state.position_of(id)? };
+                            Some(([at[0], at[2], at[1]], text, colour, id == own))
+                        })
+                        .collect(),
                     // (`TargetingModule_t`'s tags: the selection's and the attack's indicators, everyone's with `ShowAllNames`)
                     nameplates: {
                         let own_level = state.stats.get(&54).copied().unwrap_or(1);
@@ -15480,6 +15519,8 @@ mod door_tests {
         // an AttackInfo from the client: 1913 at 0x7b017c26 (no weapon known: projectile)
         w.add(&Message { kind: 0x46002f16, identity: (0xc350, 0x4bc80), data: hex("0000000779ffffffff000000080000c3507b017c26000000040000000300000000") }.frame(1));
         assert_eq!(lines(&mut w), ["You hit Rollerrat for 1913 points of projectile damage."]);
+        // (CMB-038: the line's amount floats over the one hit, in the client's hits' light grey)
+        assert_eq!(std::mem::take(&mut w.combat_texts).last(), Some(&(0x7b017c26, "1913".to_string(), 0xffd9d9d2)));
         // a miss at the client
         w.add(&Message { kind: 0x5c654b28, identity: (0xc350, 0x4bc80), data: hex("01ffffffff000000060000c3507b017c260000c3500004bc8000000000") }.frame(1));
         assert_eq!(lines(&mut w), ["Rollerrat tried to hit you, but missed!"]);

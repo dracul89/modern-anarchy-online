@@ -64,6 +64,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### Fights
 
+- Combat text floats over characters again, now as the original shows it: the amount of each hit, nano damage, heal and
+  experience gain rises briefly over the one it is about, in that kind of event's colour (your own only in third person).
 - A hit that lands just as a creature dies is told with the creature's name, not its remains'.
 - The alien experience gained with an alien level-up is told (it was not).
 - While crawling, your weapon is drawn, held and fired with the crawling animations.
