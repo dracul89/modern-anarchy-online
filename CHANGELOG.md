@@ -10,6 +10,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - With an item in hand, a right click in the world uses it there as a left click does (on a character, an object, or the
   ground's question), as in the original. It did nothing.
+- An item used on one of the playfield's built-in objects (a lock pick on a strongbox, a key on a statue) reaches the
+  object: it was sent under the client's own number for it, which the server does not know, and nothing happened.
 
 ### Graphics
 

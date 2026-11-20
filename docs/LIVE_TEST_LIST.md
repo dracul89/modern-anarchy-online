@@ -1241,6 +1241,8 @@ These were written before this list; some may have been seen working since witho
 - [ ] Item in hand, right click in the world (2026-11-20): with an item taken up from the inventory, a right click on a
   character uses it on them, on an object uses it on that, on the ground asks the drop question, exactly as a left click
   does; the hand is empty after. A right click on another item in the inventory still uses one on the other.
+- [ ] Item on a built-in object (2026-11-20): the starter mission's Lock Pick let go (left or right click) on the
+  Merchant's Strongbox picks the lock; the log says `items: ... used on ... (sent for ...)` with the server's id.
 - [ ] Combat text (CMB-038, 2026-11-20): hits, nano damage, healing and experience float their amount over the character
   at about head height, rising briefly (1.3 s), in the event's colour; your own only in third person. Compare the size,
   height and font with the original's (the font is the client's own here).

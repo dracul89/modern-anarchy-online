@@ -5644,6 +5644,16 @@ impl World {
         }
     }
 
+    /// The message for an item used on something (GUI.dll FUN_100cbcb5): on a character `N3Msg_UseItemOnCharacter`
+    /// (action 0x20, the identity type 50000), on anything else `UseItemOnItem` (action 5). The target goes by the
+    /// server's identity, as a click's use does ([`World::used`]): a built-in object's id in this client, `0xc0NNpppp`,
+    /// is its own and unknown to the server, and a dead creature's corpse is the corpse object. Until 2026-11-20 the
+    /// client's own id was sent, so a lock pick on the Merchant's Strongbox did nothing.
+    fn item_used_on(&self, own: u32, sequence: u32, item: (u32, u32), target: (u32, u32)) -> frame::Frame {
+        let target = self.used(target.0, target.1);
+        if target.0 == n3::CHARACTER { n3::use_item_on_character(own, sequence, item, target) } else { n3::use_item_on(own, sequence, item, target) }
+    }
+
     fn used(&self, kind: u32, id: u32) -> (u32, u32) {
         if let Some(&corpse) = self.corpses.get(&id).filter(|c| self.objects.contains_key(c)) {
             return (OBJECT_TYPE, corpse);
@@ -10375,10 +10385,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             if keys.use_on.0 != use_on_seen {
                 use_on_seen = keys.use_on.0;
                 uses += 1;
-                // (on a character it is `N3Msg_UseItemOnCharacter`, action 0x20: GUI.dll's FUN_100cbcb5 for the
-                // identity type 50000)
                 let (item, target) = (keys.use_on.1, keys.use_on.2);
-                let _ = connection.send(&if target.0 == n3::CHARACTER { n3::use_item_on_character(own, uses, item, target) } else { n3::use_item_on(own, uses, item, target) });
+                let message = state.item_used_on(own, uses, item, target);
+                eprintln!("items: {item:x?} used on {target:x?} (sent for {:x?})", state.used(target.0, target.1));
+                let _ = connection.send(&message);
             }
             // An item put on the ground (`N3Msg_DropItem`): `DropTemplateIIR_t`, which no capture has. Said in the
             // log, with whatever the server answers going to the message log as any message does.
@@ -16534,6 +16544,11 @@ mod prop_anim_tests {
         assert_eq!(w.used(0xc73d, 0xc000_1999), (0xc73d, 0x58b158e3));
         // (a thing that is not the table's keeps its id)
         assert_eq!(w.used(0xc73d, 0x58b15906), (0xc73d, 0x58b15906));
+        // An item let go over a built-in object is used on the server's identity for it, as a click's use is (a lock pick
+        // on the Merchant's Strongbox went to the client's own id and did nothing); a character stays a character.
+        let pick = (0x68, 0x42);
+        assert_eq!(w.item_used_on(1, 7, pick, (0xc73d, 0xc010_1999)), mao_net::n3::use_item_on(1, 7, pick, (0xc73d, 0x58b158e2)));
+        assert_eq!(w.item_used_on(1, 7, pick, (mao_net::n3::CHARACTER, 0x7b1e5470)), mao_net::n3::use_item_on_character(1, 7, pick, (mao_net::n3::CHARACTER, 0x7b1e5470)));
     }
 
     /// A new level's message (this client's test character reaching level 3, 2026-11-10: the first 28 bytes as the trace
