@@ -466,6 +466,9 @@ struct World {
     /// Each character's state flags (stat 224) as the spell lists' stuns change them (`spelllist::StateFlags`): one's own
     /// cannot move while neither bit 2 nor 4 is set.
     state_flags: BTreeMap<u32, crate::spelllist::StateFlags>,
+    /// The state flags' changes queued for later (`spelllist::Outcome::FlagsLater`, the character's signal holder's timed
+    /// events, FUN_1002dfc8 / FUN_1002dc9e): (character, flags, added or taken away, due on the spell runner's clock).
+    flag_events: Vec<(u32, u32, bool, f64)>,
     /// Each character's control state (`spelllist::Control`: fear, the spell 0xcff0) and its byte +0x21d, taken from its full
     /// update as it is made; one's own special attacks go nowhere while the byte is set.
     control: BTreeMap<u32, crate::spelllist::Control>,
@@ -1895,6 +1898,10 @@ impl World {
                         self.end_flight(on.1);
                     }
                 }
+                crate::spelllist::Outcome::FlagsLater { mask, add, seconds } => {
+                    let due = self.spell_now() + seconds as f64;
+                    self.flag_events.push((on.1, mask, add, due));
+                }
                 crate::spelllist::Outcome::Stun { begin, npc } => {
                     // (FUN_1004496c starts the counts from stat 224; one's own taken as 6, free to move, when the server did not
                     // send it — a safety of this client's)
@@ -1973,6 +1980,13 @@ impl World {
 
     /// The waiting spell runs' turn (FUN_10002fc7), each frame.
     fn tick_spells(&mut self) {
+        // (the queued flag changes that are due, each as FUN_10059e90 makes it: 0x80 FUN_10044c71, 0x40 FUN_10044aac)
+        if !self.flag_events.is_empty() {
+            let now = self.spell_now();
+            let (due, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.flag_events).into_iter().partition(|e| e.3 <= now);
+            self.flag_events = waiting;
+            self.spell_outcomes(due.into_iter().map(|(id, mask, add, _)| ((crate::requirements::CHARACTER, id), crate::spelllist::Outcome::Flags { mask, add })).collect());
+        }
         if self.spell_queue.runs.is_empty() {
             return;
         }
@@ -2975,6 +2989,7 @@ impl World {
                 self.spell_colours.retain(|k, _| k.0 != id);
                 self.spell_queue.forget((crate::requirements::CHARACTER, id));
                 self.state_flags.remove(&id);
+                self.flag_events.retain(|e| e.0 != id);
                 self.control.remove(&id);
                 self.others_stats.remove(&id);
                 self.in_play.remove(&id);
@@ -9417,6 +9432,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // stat 224, FUN_1004496c)
                     state.spell_queue = Default::default();
                     state.state_flags.clear();
+                    state.flag_events.clear();
                     state.control.clear();
                     // (one's own character's PvP periods and district go with it, and the playfield's fight-mode changes with
                     // the playfield; updates already sent for the new one wait for its districts)
@@ -14945,6 +14961,16 @@ mod door_tests {
         w.own_flying = false;
         w.end_flight(w.own);
         assert!(!w.flight_cut);
+        // (a flag change queued for later, FUN_1002dfc8, waits for its time, then is made as FUN_10059e90 makes it: here a
+        // 0xcf4c's undoing, the flag 0x2000000 added, which ends the flight)
+        w.flying.insert(other);
+        w.state_flags.clear();
+        w.spell_outcomes(vec![((crate::requirements::CHARACTER, other), crate::spelllist::Outcome::FlagsLater { mask: 0x2000000, add: true, seconds: 3600.0 })]);
+        w.tick_spells();
+        assert!(w.flying.contains(&other) && w.flag_events.len() == 1);
+        w.flag_events[0].3 = 0.0;
+        w.tick_spells();
+        assert!(!w.flying.contains(&other) && w.flag_events.is_empty());
     }
 
     /// The Arete Landing capture's team: the invitation from Nihiltech (0x7b1a0022), both members, a health update, then

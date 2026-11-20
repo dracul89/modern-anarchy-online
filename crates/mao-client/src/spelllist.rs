@@ -40,8 +40,9 @@
 //!   makes a sitting, sleeping or lounging character do (0x25 after 0x29 / 0x2a; a crawler's 0x28: no crawling is kept).
 //! * 0xcf4b (FUN_100a7bd4) and 0xcf4c (FUN_100a7c79): on a character, the flags of stat 0x49 added to its state flags (stat
 //!   224, FUN_10044aac) or taken away (FUN_10044c71): 0xcf4b adds them as it begins and takes them away as its list ends,
-//!   0xcf4c the other way round. Ported: [`Outcome::Flags`]. (With stat 0x19 set the begun spell also queues its undoing for
-//!   later, FUN_1002dfc8 → FUN_10059e90's events 0x40 / 0x80: not ported.)
+//!   0xcf4c the other way round. Ported: [`Outcome::Flags`]. With stat 0x19 above 0 the begun spell also queues its undoing
+//!   for that many seconds later (FUN_1002dfc8 on the character's signal holder, +0xe8, counted down each frame by
+//!   FUN_1002dc9e, then FUN_10059e90's event 0x80 takes the flags away, 0x40 adds them): [`Outcome::FlagsLater`].
 //! * 0xcf7d (FUN_100a83d8): the caster's right to attack whom it runs on, told to the client's own caster when it has none.
 //!   Ported: [`Outcome::AttackCheck`].
 //! * 0xcf81 "Fear" (FUN_100a86b7) and 0xcff0 (FUN_100a8741): on a character, its control state (the object at +0x1f0,
@@ -142,6 +143,10 @@ pub enum Outcome {
     /// 0xcf4b (FUN_100a7bd4) or 0xcf4c (FUN_100a7c79) on a character: the flags (the spell's stat 0x49) added to its state flags
     /// (stat 224, [`StateFlags::add`]) or taken away ([`StateFlags::remove`]).
     Flags { mask: u32, add: bool },
+    /// 0xcf4b or 0xcf4c begun with the spell's stat 0x19 above 0: the undoing of [`Outcome::Flags`] queued for that many
+    /// seconds later (FUN_1002dfc8: 0xcf4b's event 0x80, which takes the flags away, 0xcf4c's 0x40, which adds them,
+    /// FUN_10059e90), whether or not the list has ended by then.
+    FlagsLater { mask: u32, add: bool, seconds: f32 },
     /// 0xcf7d (FUN_100a83d8): whether the caster may attack whom the spell runs on. Nothing on an item or a player; on
     /// anything not a character, and on an NPC the caster may not attack (FUN_10069a9f without its own lines), the caster
     /// is told why when it is the client's own: `Feedback_NeedTargetForItem`, `Feedback_NotAllowedToAttackTarget`.
@@ -292,7 +297,14 @@ pub fn fire(run: &mut Run, scene: &dyn Scene, now: f64) -> Vec<Outcome> {
         // (FUN_100a8107: on a `SimpleChar_t` only; 0x1d, or 0x27 from an ending list)
         mao_formats::item::FLY_SPELL if run.on.0 == crate::requirements::CHARACTER => vec![Outcome::Fly { begin: !run.ending }],
         // (FUN_100a7bd4 and FUN_100a7c79: on a `SimpleChar_t` only, the run's bit 0 of +0x24 telling the ending)
-        0xcf4b | 0xcf4c if run.on.0 == crate::requirements::CHARACTER => vec![Outcome::Flags { mask: spell.stat(0x49) as u32, add: (spell.kind == 0xcf4b) != run.ending }],
+        0xcf4b | 0xcf4c if run.on.0 == crate::requirements::CHARACTER => {
+            let mask = spell.stat(0x49) as u32;
+            let mut out = vec![Outcome::Flags { mask, add: (spell.kind == 0xcf4b) != run.ending }];
+            if !run.ending && spell.stat(0x19) > 0 {
+                out.push(Outcome::FlagsLater { mask, add: spell.kind == 0xcf4c, seconds: spell.stat(0x19) as f32 });
+            }
+            out
+        }
         // (FUN_100a95c7: on a character, FUN_100aa80d; stat 0x167 `MonsterData` also has its mesh taken anew, FUN_10052686,
         // not ported)
         0xcf76 if run.on.0 == crate::requirements::CHARACTER && spell.stat(0) > 0 => vec![Outcome::TempStat { stat: spell.stat(0) as u32, value: spell.stat(39), begin: !run.ending }],
@@ -726,6 +738,7 @@ mod tests {
                             Outcome::Fly { begin: false } => "fly ends",
                             Outcome::Flags { add: true, .. } => "flags on",
                             Outcome::Flags { add: false, .. } => "flags off",
+                            Outcome::FlagsLater { .. } => "flags later",
                             Outcome::AttackCheck { .. } => "attack check",
                             Outcome::Control { .. } => "control",
                         })
@@ -839,6 +852,12 @@ mod tests {
         // (its 0xcf4c takes the state flag 2 away as it begins and gives it back as it ends)
         assert_eq!(shown(&fly(false)), vec![Outcome::Flags { mask: 2, add: false }, Outcome::Fly { begin: true }]);
         assert_eq!(shown(&fly(true)), vec![Outcome::Flags { mask: 2, add: true }, Outcome::Fly { begin: false }]);
+        // (with stat 0x19 the begun 0xcf4c also queues its undoing, the flags given back that many seconds later; 0xcf4b's
+        // undoing takes them away; an ending list queues nothing)
+        let later = |kind: u32, ending: bool| list(vec![spell(kind, 1, 0, 1, &[(73, 0x2000000), (25, 30)])], ending);
+        assert_eq!(shown(&later(0xcf4c, false)), vec![Outcome::Flags { mask: 0x2000000, add: false }, Outcome::FlagsLater { mask: 0x2000000, add: true, seconds: 30.0 }]);
+        assert_eq!(shown(&later(0xcf4b, false)), vec![Outcome::Flags { mask: 0x2000000, add: true }, Outcome::FlagsLater { mask: 0x2000000, add: false, seconds: 30.0 }]);
+        assert_eq!(shown(&later(0xcf4b, true)), vec![Outcome::Flags { mask: 0x2000000, add: false }]);
         let mut q = Queue::default();
         assert!(run(&fly(false), (0xc73d, 7), &World::default(), &mut q, 0.0).is_empty() && q.runs.is_empty());
     }
