@@ -6480,7 +6480,7 @@ impl Characters {
             p.world = model::IDENTITY;
         }
         // (the attractors, then the bones the effects' locators 1000–1018 name: FUN_10105e6d)
-        self.frames.insert(id, mesh.attractor_frames(&bones).into_iter().chain(mesh.bone_frames(&bones)).collect());
+        self.frames.insert(id, mesh.attractor_frames(&bones).into_iter().chain(mesh.bone_frames(&bones)).chain([crate::effects::torso_frame(mesh)]).collect());
         Some(parts)
     }
 
@@ -6602,7 +6602,7 @@ impl Characters {
         for p in &mut parts {
             p.world = world;
         }
-        let frames = mesh.attractor_frames(&bones).into_iter().chain(mesh.bone_frames(&bones)).map(|(name, m)| (name, model::multiply(&m, &world))).collect();
+        let frames = mesh.attractor_frames(&bones).into_iter().chain(mesh.bone_frames(&bones)).chain([crate::effects::torso_frame(mesh)]).map(|(name, m)| (name, model::multiply(&m, &world))).collect();
         self.frames.insert(id, frames);
         Some(parts)
     }
@@ -7058,7 +7058,7 @@ impl Characters {
         for p in &mut parts {
             p.world = world;
         }
-        let frames = body.attractor_frames(&bones).into_iter().chain(body.bone_frames(&bones)).map(|(name, m)| (name, model::multiply(&m, &world))).collect();
+        let frames = body.attractor_frames(&bones).into_iter().chain(body.bone_frames(&bones)).chain([crate::effects::torso_frame(body)]).map(|(name, m)| (name, model::multiply(&m, &world))).collect();
         self.frames.insert(id, frames);
         Some(parts)
     }

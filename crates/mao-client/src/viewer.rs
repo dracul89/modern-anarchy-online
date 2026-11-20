@@ -2410,7 +2410,7 @@ impl ApplicationHandler for App {
                                 // (an Atrox's hoverbike circles are its own meshes: FUN_1010d457 with the breed 4)
                                 let atrox = body.is_some_and(|b| b.0 == 4);
                                 meshes.extend(crate::effects::visual_meshes(aura, crate::effects::Locator::feet(feet, heading), age, &|attach| crate::effects::Locator::attractor(attach, attractors)).into_iter().map(|(m, l, t)| (m, l, t, atrox)));
-                                shells.extend(crate::effects::visual_ground_shells(aura, feet, age, &ground));
+                                shells.extend(crate::effects::visual_ground_shells_on(aura, feet, age, &ground, crate::effects::torso_scale(attractors)));
                                 shaking = shaking.max(crate::effects::shake(aura, feet, age, eye_now));
                                 rocks.extend(crate::effects::visual_rocks(aura, feet, age).into_iter().map(|(r, at, t)| (r, at, t, id ^ nano.rotate_left(16))));
                                 // (the trails, each keeping its samples from frame to frame)

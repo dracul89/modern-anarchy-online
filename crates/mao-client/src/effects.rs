@@ -1606,15 +1606,17 @@ pub fn groundgrid_shells(g: &mao_formats::gfx::GroundGrid, at: [f32; 3], t: f32,
 /// `turn s` and the radius (the radius curve at the fraction of the duration) out, the band `±word 13` about the height
 /// `rise s`; all turned about the up axis by the spin (its rate and acceleration run over the time); coloured by the colour
 /// curve, its alpha times (flag 0x400) `(sin(pulse × fraction + 4 × angle) + 1) / 2` and faded in over `fade_in` of the
-/// ribbon and out over its last `fade_out`; the texture `word 17 × s` along it; added with 0x200. Not: the body's torso
-/// scale on the radius, rise and turn (taken as 1).
-pub fn spiral2_shells(s: &mao_formats::gfx::Spiral2, at: [f32; 3], t: f32) -> Vec<Shell> {
+/// ribbon and out over its last `fade_out`; the texture `word 17 × s` along it; added with 0x200. The radius, the rise
+/// (word 14) and the turn (word 16) times the body's torso scale `scale` ([`torso_scale`]: FUN_1011230d sets +0x80, which
+/// FUN_10111fdb multiplies words 14 and 16 by and FUN_10111c40 the radius curve).
+pub fn spiral2_shells(s: &mao_formats::gfx::Spiral2, at: [f32; 3], t: f32, scale: f32) -> Vec<Shell> {
     if t < 0.0 || (s.duration > 0.0 && t >= s.duration) {
         return Vec::new();
     }
     let f = if s.duration > 0.0 { t / s.duration } else { 0.0 };
     let colour = mao_formats::gfx::key_colour(&s.colours, f);
-    let radius = mao_formats::gfx::key_curve(&s.radii, f);
+    let radius = mao_formats::gfx::key_curve(&s.radii, f) * scale;
+    let (rise, turn) = (s.rise * scale, s.turn * scale);
     let spin = s.spin.0 * t + 0.5 * s.spin.1 * t * t;
     let first = if s.angle == 999.0 { hash(0x3033, 1) * 6.28 } else { s.angle };
     let base = shell_colour(colour);
@@ -1625,7 +1627,7 @@ pub fn spiral2_shells(s: &mao_formats::gfx::Spiral2, at: [f32; 3], t: f32) -> Ve
         let mut strip = Vec::new();
         for j in 0..n {
             let along = j as f32 / n as f32;
-            let angle = start + s.turn / n as f32 * j as f32;
+            let angle = start + turn / n as f32 * j as f32;
             let pulse = if s.flags & 0x400 != 0 { ((s.pulse * f + angle * 4.0).sin() + 1.0) * 0.5 } else { 1.0 };
             let mut fade = 1.0;
             if s.fade_in != 0.0 && s.fade_in > along {
@@ -1638,7 +1640,7 @@ pub fn spiral2_shells(s: &mao_formats::gfx::Spiral2, at: [f32; 3], t: f32) -> Ve
             // (the original's x sin, z cos about its y, turned by the spin; the client's y is its z)
             let a = angle + spin;
             let (x, y) = (a.sin() * radius, a.cos() * radius);
-            let h = s.rise * along;
+            let h = rise * along;
             strip.push(ShellVertex { position: [at[0] + x, at[1] + y, at[2] + h + s.band], uv: [s.texture * along, 0.0], colour });
             strip.push(ShellVertex { position: [at[0] + x, at[1] + y, at[2] + h - s.band], uv: [s.texture * along, 1.0], colour });
         }
@@ -2242,21 +2244,63 @@ fn strip_triangles(strip: &[ShellVertex]) -> Vec<ShellVertex> {
 }
 
 /// The shells a visual lays round a point `t` seconds in (world, Z up): a shock wave's rings and cones, or (a scatter) its
-/// copies'.
+/// copies'. On no body: the torso scale 1 ([`visual_ground_shells_on`]).
 pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) -> Vec<Shell> {
+    visual_ground_shells_on(v, feet, t, ground, 1.0)
+}
+
+/// The name of the torso sphere among a body's frames (`Characters::frames`, the caster's attractors): not a mesh
+/// attractor but the CAT mesh's own frame with the sphere its packed word holds (`CatMesh::torso_sphere`): its first axis
+/// of unit length (so, taken through the body's scale with the attractors, its length is the body's scale), its second
+/// axis the radius long and its translation the centre.
+pub const TORSO_SPHERE: &str = "(torso sphere)";
+
+/// The frame [`TORSO_SPHERE`] names for a CAT mesh, in the mesh's own space (Y up).
+pub fn torso_frame(mesh: &mao_formats::catmesh::CatMesh) -> (String, mao_formats::model::Matrix) {
+    let (r, c) = mesh.torso_sphere();
+    (TORSO_SPHERE.to_string(), [1.0, 0.0, 0.0, 0.0, 0.0, r, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, c[0], c[1], c[2], 1.0])
+}
+
+/// The body's scale and its torso radius times it, from the [`TORSO_SPHERE`] among its frames: the first axis's length,
+/// and the second's (its sign that of the radius: against the third axis crossed with the first).
+fn torso_lengths(frames: &[(String, mao_formats::model::Matrix)]) -> Option<(f32, f32)> {
+    let (_, m) = frames.iter().find(|(name, _)| name == TORSO_SPHERE)?;
+    let row = |i: usize| [m[4 * i], m[4 * i + 1], m[4 * i + 2]];
+    let length = |r: [f32; 3]| (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+    let (a, b, c) = (row(0), row(1), row(2));
+    let cross = [c[1] * a[2] - c[2] * a[1], c[2] * a[0] - c[0] * a[2], c[0] * a[1] - c[1] * a[0]];
+    let sign = if b[0] * cross[0] + b[1] * cross[1] + b[2] * cross[2] < 0.0 { -1.0 } else { 1.0 };
+    Some((length(a), sign * length(b)))
+}
+
+/// The scale of the frame a body's dynel stands in (the CAT mesh's frame scale, `n3VisualDynel_t::SetBodyScale`), from
+/// its frames; 1 without a torso sphere.
+pub fn body_scale(frames: &[(String, mao_formats::model::Matrix)]) -> f32 {
+    torso_lengths(frames).map_or(1.0, |(k, _)| k)
+}
+
+/// The torso scale a Spiral2 takes on a body (FUN_1011230d): `GetTorsoSphereRadi` over 0.25075 (the radius of the usual
+/// body's word, 0x05000500) times the CAT mesh's frame scale (the body's scale); 1 (FUN_101121e9's default) for a body
+/// without one.
+pub fn torso_scale(frames: &[(String, mao_formats::model::Matrix)]) -> f32 {
+    torso_lengths(frames).map_or(1.0, |(_, r)| r / 0.25075000524520874)
+}
+
+/// [`visual_ground_shells`] on a body of the torso scale `torso` ([`torso_scale`]).
+pub fn visual_ground_shells_on(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(f32, f32) -> Option<f32>, torso: f32) -> Vec<Shell> {
     match v {
         Visual::ShockWave(s) => shockwave_shells(s, feet, t, ground),
         Visual::TParticle2 { particles, length, head } => {
             let up = if particles.attach == 0 { 0.0 } else { anchor(particles.attach).0 };
             tparticle2_shells(particles, *length, head, [feet[0], feet[1], feet[2] + up], t)
         }
-        Visual::Spiral2(s) => spiral2_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t),
+        Visual::Spiral2(s) => spiral2_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t, torso),
         Visual::GroundGrid(g) => groundgrid_shells(g, feet, t, ground),
         Visual::SkyFlash(s) => skyflash_shells(s, [feet[0], feet[1], feet[2] + if s.attach == 0 { 0.0 } else { anchor(s.attach).0 }], t, ground),
         Visual::CrazyCone(c) => crazycone_shells(c, [feet[0], feet[1], feet[2] + if c.attach == 0 { 0.0 } else { anchor(c.attach).0 }], t, ground),
         Visual::TParticle(p) => tparticle_shells(p, [feet[0], feet[1], feet[2] + if p.attach == 0 { 0.0 } else { anchor(p.attach).0 }], t),
-        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells(c, feet, t, ground)).collect(),
-        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_ground_shells(child, feet, t - start, ground) } else { Vec::new() },
+        Visual::Meta(children) => children.iter().filter(|c| t < pulse_timing(c).1).flat_map(|c| visual_ground_shells_on(c, feet, t, ground, torso)).collect(),
+        Visual::Delayed(child, start) => if t >= *start && t - start < pulse_timing(child).1 { visual_ground_shells_on(child, feet, t - start, ground, torso) } else { Vec::new() },
         Visual::Scatter { child, children, looping } => {
             let life = pulse_timing(child).1.max(0.05);
             let round = children.iter().map(|c| c.0).fold(0.0, f32::max) + life;
@@ -2264,7 +2308,7 @@ pub fn visual_ground_shells(v: &Visual, feet: [f32; 3], t: f32, ground: &dyn Fn(
             children
                 .iter()
                 .filter(|(born, _)| t >= *born && t - born < life)
-                .flat_map(|(born, at)| visual_ground_shells(child, [feet[0] + at[0], feet[1] + at[1], feet[2] + at[2]], t - born, ground))
+                .flat_map(|(born, at)| visual_ground_shells_on(child, [feet[0] + at[0], feet[1] + at[1], feet[2] + at[2]], t - born, ground, torso))
                 .collect()
         }
         _ => Vec::new(),
@@ -4586,17 +4630,50 @@ mod tests {
             colours: vec![(0.0, 0x0040_7040), (0.5, 0xff40_7040), (0.9, 0xff40_7040), (1.0, 0)],
             radii: vec![(0.0, 1.0), (0.9, 1.0), (1.0, 1.0)],
         };
-        let at = spiral2_shells(&s, [0.0; 3], 6.0);
+        let at = spiral2_shells(&s, [0.0; 3], 6.0, 1.0);
         assert_eq!(at.len(), 5);
         assert_eq!(at[0].vertices.len(), (50 - 2) * 3);
         for v in &at[0].vertices {
             assert!((v.position[0].hypot(v.position[1]) - 1.0).abs() < 1e-4);
             assert!(v.position[2] >= -0.5 - 1e-4 && v.position[2] <= 3.0 + 0.5);
         }
-        assert!(spiral2_shells(&s, [0.0; 3], 10.0).is_empty());
+        assert!(spiral2_shells(&s, [0.0; 3], 10.0, 1.0).is_empty());
         // (the spin turns the ribbons)
-        let later = spiral2_shells(&s, [0.0; 3], 6.1);
+        let later = spiral2_shells(&s, [0.0; 3], 6.1, 1.0);
         assert!((at[0].vertices[0].position[0] - later[0].vertices[0].position[0]).abs() > 1e-3);
+        // (on a body of twice the torso: twice the radius and the rise, the band as it was)
+        let big = spiral2_shells(&s, [0.0; 3], 6.0, 2.0);
+        for v in &big[0].vertices {
+            assert!((v.position[0].hypot(v.position[1]) - 2.0).abs() < 1e-4);
+            assert!(v.position[2] >= -0.5 - 1e-4 && v.position[2] <= 6.0 + 0.5 + 1e-4);
+        }
+        assert!(big[0].vertices.iter().any(|v| v.position[2] > 3.0 + 0.5 + 0.1));
+    }
+
+    #[test]
+    fn the_torso_scale_is_the_sphere_over_the_usual_bodys_times_the_body_scale() {
+        // (the usual body's word 0x05000500: radius 0.25075, so scale 1; none: 1)
+        let usual = mao_formats::catmesh::CatMesh { colour: 0x0500_0500, ..Default::default() };
+        let frame = torso_frame(&usual);
+        assert!((torso_scale(&[frame.clone()]) - 1.0).abs() < 1e-6);
+        assert_eq!(torso_scale(&[]), 1.0);
+        // (a body at 150%: its frames taken through the scale)
+        let k = 1.5;
+        let scaled: mao_formats::model::Matrix = [k, 0.0, 0.0, 0.0, 0.0, k, 0.0, 0.0, 0.0, 0.0, k, 0.0, 0.0, 0.0, 0.0, 1.0];
+        let m = mao_formats::model::multiply(&frame.1, &scaled);
+        assert!((torso_scale(&[(frame.0.clone(), m)]) - 1.5).abs() < 1e-5);
+        assert!((body_scale(&[(frame.0.clone(), m)]) - 1.5).abs() < 1e-5);
+        assert_eq!(body_scale(&[]), 1.0);
+        // (turned a quarter about the up axis as well: the same)
+        let turned: mao_formats::model::Matrix = [0.0, 0.0, -k, 0.0, 0.0, k, 0.0, 0.0, k, 0.0, 0.0, 0.0, 3.0, 4.0, 5.0, 1.0];
+        let m = mao_formats::model::multiply(&frame.1, &turned);
+        assert!((torso_scale(&[(frame.0.clone(), m)]) - 1.5).abs() < 1e-5 && (body_scale(&[(frame.0.clone(), m)]) - 1.5).abs() < 1e-5);
+        // (a word whose top byte is over 127: a negative radius, kept)
+        let odd = mao_formats::catmesh::CatMesh { colour: 0xff00_0000, ..Default::default() };
+        assert!(torso_scale(&[torso_frame(&odd)]) < 0.0);
+        // (a big creature's word 0x19001900: radius 1.34375)
+        let big = mao_formats::catmesh::CatMesh { colour: 0x1900_1900, ..Default::default() };
+        assert!((torso_scale(&[torso_frame(&big)]) - 1.34375 / 0.25075).abs() < 1e-4);
     }
 
     #[test]
