@@ -349,6 +349,10 @@ struct World {
     /// The corpse (its 0xc76a instance, from `CorpseFullUpdate`) left by each dead character: the one announced where the
     /// body lies. Using the body uses the corpse, as clicking a body does in the original (the corpse is what the server opens).
     corpses: BTreeMap<u32, u32>,
+    /// The name a dead character had before its body took its corpse's name ("Remains of ..."), kept until its own
+    /// `Despawn`: the original's dynel keeps its name until it goes (the corpse is a dynel of its own), so a hit or heal
+    /// told about it meanwhile names the one that died (FUN_10012c3e, the name from the victim's stat holder).
+    died_as: BTreeMap<u32, (String, bool)>,
     /// The corpses this client has no body for (one that lay there before the character came, or whose creature it
     /// never had): where each lies and how it looks by its own announcement (`mao_net::n3::corpse_look`). The
     /// original draws such a corpse by its own mesh, FUN_1007eaf0.
@@ -2209,7 +2213,7 @@ impl World {
         if id == self.own {
             crate::feedback::Who::You
         } else {
-            self.names.get(&id).map_or(crate::feedback::Who::Unknown, |n| crate::feedback::Who::Named(&n.0, n.1))
+            self.died_as.get(&id).or_else(|| self.names.get(&id)).map_or(crate::feedback::Who::Unknown, |n| crate::feedback::Who::Named(&n.0, n.1))
         }
     }
 
@@ -2898,6 +2902,9 @@ impl World {
         // 2026-11-17 every dead body stayed, and one with no corpse lay there for good under its own name.)
         if m.kind == 0x36510078 && m.identity.1 != self.own {
             let id = m.identity.1;
+            if m.identity.0 != OBJECT_TYPE && m.identity.0 != 0xc73d {
+                self.died_as.remove(&id);
+            }
             if m.identity.0 == OBJECT_TYPE {
                 self.objects.remove(&id);
                 self.remains.remove(&id);
@@ -4560,7 +4567,9 @@ impl World {
                     }
                     let name = corpse_name(&m.data).unwrap_or_else(|| format!("Remains of {}", self.names.get(&body).map(|n| n.0.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| "the dead".into())));
                     self.names.insert(m.identity.1, (name.clone(), false));
-                    self.names.insert(body, (name, false));
+                    if let Some(was) = self.names.insert(body, (name, false)) {
+                        self.died_as.entry(body).or_insert(was);
+                    }
                 }
                 // (a corpse of one this client never had, lying there before it came: by the corpse's own name, and
                 // drawn by its own mesh, as the original draws a corpse whose character is not there)
@@ -4847,6 +4856,7 @@ impl World {
                 self.weapon_flag.insert(m.identity.1);
             }
             self.dead.remove(&m.identity.1);
+            self.died_as.remove(&m.identity.1);
             match info.fighting {
                 Some((_, target)) => {
                     self.fighting.insert(m.identity.1, target);
@@ -15341,6 +15351,11 @@ mod door_tests {
         assert_eq!(w.corpses.get(&0x7b577b58), Some(&0x103e829));
         assert!((w.entities[&0x7b577b58].0[0] - 277.13).abs() < 0.01);
         assert_eq!(w.names[&0x7b577b58].0, "Remains of 32-V Docker");
+        // (CMB-009: a hit told about it until its own despawn names the one that died, as the original's dynel keeps its
+        // name, FUN_10012c3e; after the despawn the body is the corpse's alone)
+        assert!(matches!(w.who(0x7b577b58), crate::feedback::Who::Named("32-V Docker", false)));
+        w.add(&Message { kind: 0x36510078, identity: (0xc350, 0x7b577b58), data: hex("00") }.frame(1));
+        assert!(matches!(w.who(0x7b577b58), crate::feedback::Who::Named("Remains of 32-V Docker", false)));
         // (one that dies and leaves no corpse goes with its despawn; it lay there for good)
         w.entities.insert(0x7b577bdd, ([200.0, 8.1, 200.0], 0));
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, 0x7b577bdd), data: hex(die) }.frame(1));
