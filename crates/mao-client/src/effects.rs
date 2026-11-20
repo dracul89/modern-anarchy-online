@@ -293,7 +293,9 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
     // Mode 2 (`case 2`): all 128 stars from the start, each at a random point of the unit sphere, for 1.5 s; the sphere grows
     // to `√frac × 0.7 + 0.6`, the stars shrink by `(1 − frac) × word 28 × 20 / table[frame]`, their sheet frame
     // `(1 − frac) × 15` clamped to 1..15 (the odd stars one behind) and their colours random between the template's second
-    // colour and a palette of eight (0x102c5ee8: pink, yellow, magenta, cyan, blue, green, red, mint), one per star in turn.
+    // colour and a palette of eight (0x102c5ee8: pink, yellow, magenta, cyan, blue, green, red, mint): eight colours drawn
+    // anew every frame (FUN_10108663, each channel at random in its range), star k taking the (k mod 8)th, so the stars
+    // flicker. (The frames at 30 a second; the original's `rand()` stood in for by a hash of the frame.)
     if s.mode == 2 {
         const DURATION: f32 = 1.5;
         const DIVISORS: [f32; 16] = [10.0, 6.0, 7.0, 7.0, 9.0, 11.0, 16.0, 19.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0];
@@ -305,14 +307,20 @@ pub fn stars_particles(s: &Stars, centre: [f32; 3], time: f32, stopped: bool) ->
         let reach = frac.sqrt() * 0.7 + 0.6;
         let frame = (((1.0 - frac) * 15.0) as i32).clamp(1, 15);
         let size = (1.0 - frac) * s.size * 20.0 / DIVISORS[frame as usize];
+        let drawn = (time * 30.0) as u32;
+        let colours: [[f32; 4]; 8] = std::array::from_fn(|i| {
+            let roll = |c: u32| hash(drawn.wrapping_mul(8).wrapping_add(i as u32), 0x5ee8 + c);
+            let own = PALETTE[i];
+            let [r, g, b] = [1, 2, 3].map(|c| own[c - 1] + (s.colour_b[c] - own[c - 1]) * roll(c as u32));
+            [r, g, b, s.colour_a[0] + (s.colour_b[0] - s.colour_a[0]) * roll(0)]
+        });
         for k in 0..STARS {
             let salt = k.wrapping_mul(7919);
             let (a, b, r) = (hash(salt, 5) * std::f32::consts::TAU, hash(salt, 6) * 2.0 - 1.0, hash(salt, 7).cbrt());
             let flat = (1.0 - b * b).sqrt();
             let p = [flat * a.cos() * r, flat * a.sin() * r, b * r];
-            let own = PALETTE[k as usize & 7];
-            let colour = [1, 2, 3].map(|c| own[c - 1] + (s.colour_b[c] - own[c - 1]) * hash(salt, c as u32));
-            let alpha = s.colour_a[0] + (s.colour_b[0] - s.colour_a[0]) * hash(salt, 0);
+            let [cr, cg, cb, alpha] = colours[k as usize & 7];
+            let colour = [cr, cg, cb];
             let star_frame = (frame - (k as i32 & 1)).max(0) as f32 / 15.0;
             out.push(sprite(s.material, star_frame, [centre[0] + p[0] * reach, centre[1] + p[1] * reach, centre[2] + p[2] * reach], size.max(0.0), [colour[0], colour[1], colour[2], alpha]));
         }
@@ -4202,6 +4210,10 @@ mod tests {
         assert!(late.iter().any(|p| reach(p) > 1.0) && late.iter().all(|p| p.size < 0.5));
         assert!(stars_particles(&s, centre, 1.5, false).is_empty());
         assert_eq!(pulse_timing(&Visual::Stars(s.clone())).1, 1.5);
+        // eight colours a frame, star k the (k mod 8)th, drawn anew the next frame
+        assert!((0..128).all(|k| early[k].colour == early[k & 7].colour));
+        let next = stars_particles(&s, centre, 1.0 / 30.0, false);
+        assert!((0..8).any(|k| next[k].colour != early[k].colour));
     }
 
     #[test]
