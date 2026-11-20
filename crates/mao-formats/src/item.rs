@@ -354,8 +354,9 @@ pub fn anim_sets(template: &[u8]) -> Vec<(u32, Vec<u32>)> {
 /// (`smallarms-shot`, `-shotl` in the left hand, place 8), 1 a one-handed blade (slash, stab, slash; the left hand's), 2 a
 /// two-handed blade (chop, downcut, slash, stab), 3 a rifle, 6 a bow, 7 `spell-sys`, 8 a bazooka; other sets keep what the
 /// template's own animation set gives (the martial arts items' and the monsters' innate weapons' swings), as does an item
-/// without the stat (taken as unset: FUN_1009d964's stat read was not traced to its default). The crawling variants (the
-/// owner's stat 430 at 14) are not used.
+/// without the stat: the item's stat read (vtable +0x3c, FUN_10003d90) goes to its `StatHolder_t` at +0x34, whose getter
+/// (FUN_1002e62b) gives 1234567890 for a stat it lacks, as its table is filled with (FUN_10009d97), and FUN_1009d964 leaves
+/// the map alone for that. The crawling variants (the owner's stat 430 at 14) are not used.
 pub fn attack_actions(template: &[u8], slot: u32) -> Vec<u32> {
     weapon_actions(template, slot, 0xb)
 }
