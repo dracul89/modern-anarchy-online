@@ -1224,6 +1224,8 @@ These were written before this list; some may have been seen working since witho
   activated" line shows), a special attack does nothing and says nothing until the fear ends; then specials go out again.
   While feared, a nano says "unable to execute on this target" and is not cast; the attack key says "please wait until
   previous action" and neither starts nor stops a fight; sitting down does not stop a fight.
+- [ ] A refused nano (2026-11-19): casting while running, swimming or short of nano shows the reason and then "unable to
+  execute on this target", two lines.
   New to the client: no capture has a fear.
 - [ ] Pick-Up and Crawl tiles (WIN-112, 2026-11-19): Pick-Up with an item on the ground selected takes it into the
   inventory (with a full inventory the game's "inventory full" line, nothing sent); what the server answers to it is

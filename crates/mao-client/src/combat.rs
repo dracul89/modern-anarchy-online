@@ -268,6 +268,15 @@ pub fn cast_refusal(caster: Caster, cost: i64, modifier: i64) -> Option<(&'stati
     (caster.nano < needed).then_some(("Feedback_YouNeedAtLeastRemainingNano", Some(needed)))
 }
 
+/// The lines a refused cast tells, in order (`N3Msg_CastNanoSpell` 0x1001b5d4): the check's own line, when it has one, then
+/// `Feedback_UnableToExecuteOnThisTarget`, which the cast tells after every refusal of FUN_1004fbe4 (and alone for a held
+/// character, `refusal` `None`).
+pub fn refused_cast_lines(refusal: Option<(&'static str, Option<i64>)>) -> Vec<(&'static str, Option<i64>)> {
+    let mut lines: Vec<_> = refusal.into_iter().filter(|r| !r.0.is_empty()).collect();
+    lines.push(("Feedback_UnableToExecuteOnThisTarget", None));
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     /// CMB-022: Brawl's item reaches 3 m past the two bodies, so a target 4.9 m away is reached and one 5 m away is not;
@@ -287,6 +296,10 @@ mod tests {
         assert_eq!(cast_refusal(Caster { moving: true, ..still }, 80, 100), Some(("Feedback_UnableToExecuteProgramsMustStandStill", None)));
         assert_eq!(cast_refusal(Caster { falling: true, ..still }, 80, 100), Some(("Feedback_YouCantExecuteNanoprogramsWhileFalling", None)));
         assert_eq!(cast_refusal(still, 300, 50), Some(("Feedback_YouNeedAtLeastRemainingNano", Some(150))));
+        // (every refusal ends with the cast's own line; one that says nothing of itself has that line alone)
+        assert_eq!(refused_cast_lines(cast_refusal(still, 300, 50)), [("Feedback_YouNeedAtLeastRemainingNano", Some(150)), ("Feedback_UnableToExecuteOnThisTarget", None)]);
+        assert_eq!(refused_cast_lines(cast_refusal(Caster { dead: true, ..still }, 80, 100)), [("Feedback_UnableToExecuteOnThisTarget", None)]);
+        assert_eq!(refused_cast_lines(None), [("Feedback_UnableToExecuteOnThisTarget", None)]);
         assert_eq!(nano_cost_modifier(30, 3, true), 45);
         assert_eq!(nano_cost_modifier(100, 3, true), 100);
         assert_eq!(nano_cost_modifier(30, 3, false), 30);

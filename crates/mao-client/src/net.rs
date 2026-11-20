@@ -10674,16 +10674,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 'cast: {
                 // (0x1001b5d4 asks the character's byte +0x21d before anything: set, feared or held by the spell 0xcff0,
                 // nothing is cast and `Feedback_UnableToExecuteOnThisTarget` is told, with its category 0x42000018)
-                if state.own_held() {
-                    state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, crate::feedback::plain("Feedback_UnableToExecuteOnThisTarget")));
-                    break 'cast;
-                }
-                // (the client's own check first: FUN_1004fbe4)
+                // (the client's own check first: FUN_1004fbe4; every refusal ends with the cast's own
+                // `Feedback_UnableToExecuteOnThisTarget`, which a held character gets alone)
                 let stat = |s: u32| state.stats.get(&s).copied();
                 let caster = crate::combat::Caster { dead: state.own_dead, swimming: state.swimming.contains(&own), falling: airborne, moving: keys.forward || keys.back || keys.strafe != 0 || goto.is_some(), nano: stat(214).unwrap_or(0) };
                 let modifier = crate::combat::nano_cost_modifier(stat(318).unwrap_or(100), stat(4).unwrap_or(0), true);
-                if let Some((name, number)) = crate::combat::cast_refusal(caster, nano_stat(keys.cast.1, 407).unwrap_or(0), modifier) {
-                    if !name.is_empty() {
+                let held = state.own_held();
+                let refusal = if held { None } else { crate::combat::cast_refusal(caster, nano_stat(keys.cast.1, 407).unwrap_or(0), modifier) };
+                if held || refusal.is_some() {
+                    for (name, number) in crate::combat::refused_cast_lines(refusal) {
                         let line = number.map_or_else(|| crate::feedback::plain(name), |n| crate::feedback::with_number(name, n));
                         state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                     }

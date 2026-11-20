@@ -6729,7 +6729,9 @@ it; the client still moves it as before. States 2-4 (0xcf7e, mind control, daze)
 **The rest the byte holds back (2026-11-19, late evening).** The same byte is asked by:
 
 - **A nano cast** (`N3Msg_CastNanoSpell` 0x1001b5d4, before its own checks): nothing is cast and
-  `Feedback_UnableToExecuteOnThisTarget` is told (its category 0x42000018 is shown here as a combat line).
+  `Feedback_UnableToExecuteOnThisTarget` is told (its category 0x42000018 is shown here as a combat line). The cast tells
+  the same line after every refusal of its check FUN_1004fbe4 too, after that check's own line
+  (`combat::refused_cast_lines`; until 2026-11-19 the client told only the check's line).
 - **Stopping a fight** (`N3Msg_StopAttack` 0x100280e0, which the attack key, sitting down and /camp call): no `StopFight`
   is sent, so the fight goes on.
 - **Starting an attack** (FUN_1006817d, the sender behind the attack key and Ctrl + click): no `Attack` is sent and
