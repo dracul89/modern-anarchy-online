@@ -1060,6 +1060,59 @@ impl Flare {
     }
 }
 
+/// A kind-1006 template as `_GfxControlFlare1_t` reads it (Gamecode FUN_100ddf10; the point constructor FUN_100dea3d, its run
+/// FUN_100def53, a burst FUN_100de65e, a streak FUN_100de366 into displaysystem's `GfxVisualFlareType0::NewSprite`): word 0
+/// the flags (0x100 the two ends' travels swapped, 0x800 each streak's angles jittered, 0x1000 the other set of three
+/// streaks), 8 the duration, 9 the material, 12–13 a streak's width from birth to death (times word 35), 16–19 and 20–23 its
+/// colour (alpha, red, green, blue) from birth to death, 32 and 33 how far its two ends travel along the streak, 34 its life,
+/// 35 the streak's length, 36 the delay before each burst (not below 0), 37 how many bursts (at least 1). Templates
+/// 2000–2004; 2000 is the flash at a character switched to fly mode.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Flare1 {
+    pub flags: u32,
+    pub duration: f32,
+    pub material: i32,
+    pub width: (f32, f32),
+    pub colour_a: [f32; 4],
+    pub colour_b: [f32; 4],
+    pub head: f32,
+    pub tail: f32,
+    pub life: f32,
+    pub length: f32,
+    pub delay: f32,
+    pub bursts: i32,
+}
+
+impl Flare1 {
+    pub fn read(r: &Record) -> Option<Flare1> {
+        if r.kind != 1006 || r.payload.len() < 38 {
+            return None;
+        }
+        Some(Flare1 {
+            flags: r.int(0) as u32,
+            duration: r.float(8),
+            material: r.int(9),
+            width: (r.float(12), r.float(13)),
+            colour_a: [r.float(16), r.float(17), r.float(18), r.float(19)],
+            colour_b: [r.float(20), r.float(21), r.float(22), r.float(23)],
+            head: r.float(32),
+            tail: r.float(33),
+            life: r.float(34),
+            length: r.float(35),
+            delay: r.float(36).max(0.0),
+            bursts: r.int(37).max(1),
+        })
+    }
+
+    /// `_EffectHandler_t::SetColor` on this control (its slot 0x34, FUN_100dde25): the colour at birth from the four bytes
+    /// (alpha, red, green, blue, each over 255 and no more than 1), at death the same with no alpha.
+    pub fn set_colour(&mut self, argb: u32) {
+        let c = [24, 16, 8, 0].map(|shift| (((argb >> shift) & 0xff) as f32 / 255.0).min(1.0));
+        self.colour_a = c;
+        self.colour_b = [0.0, c[1], c[2], c[3]];
+    }
+}
+
 /// A kind-1010 template, the cast effect, as `_GfxControlSpell1_t` reads it (made by the point-and-number `CreateGfxControl`,
 /// FUN_100d15d0 / FUN_100f331d, from `CreateEffect2`; FUN_100f2789 the words, FUN_100f3f59 the run, FUN_100f3f30 its phases):
 /// three locators, the left hand (attractor 2001), the right hand (2000) and the target's point, and its words: 9 the material,

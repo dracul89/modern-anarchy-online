@@ -447,8 +447,9 @@ struct World {
     script_events: Vec<crate::sounds::ScriptIir>,
     /// The hazards' sounds to play: (sound, where).
     hazard_sounds: Vec<(u32, [f32; 3])>,
-    /// Effects to make at a place (`CreateEffect2` at a dynel): (template, where), for the viewer.
-    placed_effects: Vec<(i32, [f32; 3])>,
+    /// Effects to make at a place (`CreateEffect2` at a dynel): (template, where, the colour `_EffectHandler_t::SetColor`
+    /// gives it), for the viewer.
+    placed_effects: Vec<(i32, [f32; 3], Option<u32>)>,
     /// The effects the server's spell lists made on characters (`SpellListIIR_t`, `spelllist`), not yet started: (character,
     /// effect template, seconds when the spell sets them).
     spell_effects_made: Vec<(u32, i32, Option<f32>)>,
@@ -3013,7 +3014,7 @@ impl World {
             crate::hazards::ACTION => {
                 let out = self.hazards.action(m.identity.1, &m.data, self.own);
                 self.hazard_sounds.extend(out.sounds);
-                self.placed_effects.extend(out.effects);
+                self.placed_effects.extend(out.effects.into_iter().map(|(effect, at)| (effect, at, None)));
                 if let Some(name) = out.line {
                     // (FUN_10059047: the feedback told as it is)
                     self.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain(name)));
@@ -6156,6 +6157,11 @@ const SWIM_SINK: f32 = 0.01;
 /// How far a flying vehicle's body is lifted as flight starts (FUN_1006e4f8's `SetRelPos` by `_DAT_1015e0e4`).
 const FLY_LIFT: f32 = 0.5;
 
+/// The effect a character switched to fly mode makes, and the colour it is given (FUN_1006e4f8: `CreateEffect2(2000)`,
+/// `SetColor(0xfff0e0ff)`).
+const FLY_FLASH: i32 = 2000;
+const FLY_FLASH_COLOUR: u32 = 0xfff0e0ff;
+
 /// A craft's body scale (`World::crafts`: the `Scale` stat in hundredths, `SetBodyScale`), applied before its place as a
 /// creature's own scale is.
 fn craft_scale(percent: u32) -> mao_formats::model::Matrix {
@@ -9003,6 +9009,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             connection.send(&n3::position_update_pitched(own, kind, heading, own_pitch.get(), position, ms)).is_ok()
         };
         let (mut was_flying, mut sent_pitch, mut flying_told) = (false, 0.0f32, false);
+        // (the other characters in fly mode the last pass saw: one new among them was switched to it, and makes the flash)
+        let mut others_flying_seen = std::collections::BTreeSet::<u32>::new();
         let mut sent = Instant::now();
         let mut prof_iter = Instant::now();
         // (a message that came while one was handled waits here: up to `BURST` are handled in a row before the frame's
@@ -11367,14 +11375,26 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 sitting = false;
                 state.stand_up(own);
             }
+            // The switch also makes effect 2000 (a kind-1006 flare, `_GfxControlFlare1_t`) at the lifted body, in the
+            // colour 0xfff0e0ff (`CreateEffect2` and `SetColor`, the effect handler's category 0x20 set first); the
+            // original's switch is the same for every character, so another one new in fly mode makes it too.
             if flying != was_flying {
                 was_flying = flying;
                 if flying {
                     position[1] += FLY_LIFT;
+                    state.placed_effects.push((FLY_FLASH, position, Some(FLY_FLASH_COLOUR)));
                 }
                 (airborne, vy) = (false, 0.0);
                 body_reset = true;
             }
+            let others_flying: std::collections::BTreeSet<u32> = state.flying.iter().copied().filter(|&id| id != own).collect();
+            for &id in others_flying.difference(&others_flying_seen) {
+                if let Some(mut at) = state.position_of(id) {
+                    at[1] += FLY_LIFT;
+                    state.placed_effects.push((FLY_FLASH, at, Some(FLY_FLASH_COLOUR)));
+                }
+            }
+            others_flying_seen = others_flying;
             // The rooms: the character crosses from one to another only through a door that lets it (`IsDynelRoomTransitionAllowed`);
             // the step that would have taken it elsewhere is undone. The rooms it can see are told to the viewer when they change.
             if let Some(interior) = &interior {
@@ -12000,7 +12020,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         crate::audio::with(|m| m.play_sound_command(s.id, p, s.velocity, s.volume, s.range, s.delay, s.defer, s.pitch));
                     }
                     if g.get(effect).and_then(mao_formats::gfx::Flare::read).is_some() {
-                        state.placed_effects.push((effect, p));
+                        state.placed_effects.push((effect, p, None));
                     } else if g.visual(effect).is_some() {
                         state.spell_effects.entry(who).or_default().insert(effect, (Instant::now(), seconds));
                     }
@@ -12455,9 +12475,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             (*key, [at[0], at[2], at[1]], [[x[0], x[2], x[1]], [z[0], z[2], z[1]]], visual)
                         })
                         .collect(),
-                    flares: std::mem::take(&mut state.placed_effects)
+                    flares: state
+                        .placed_effects
+                        .iter()
+                        .filter_map(|&(id, at, _)| Some(([at[0], at[2], at[1]], mao_formats::gfx::Flare::read(gfx.as_ref()?.get(id)?)?)))
+                        .collect(),
+                    // (a kind-1006 flare, `_GfxControlFlare1_t`, with the colour SetColor gave it, FUN_100dde25)
+                    flare1s: std::mem::take(&mut state.placed_effects)
                         .into_iter()
-                        .filter_map(|(id, at)| Some(([at[0], at[2], at[1]], mao_formats::gfx::Flare::read(gfx.as_ref()?.get(id)?)?)))
+                        .filter_map(|(id, at, colour)| {
+                            let mut f = mao_formats::gfx::Flare1::read(gfx.as_ref()?.get(id)?)?;
+                            if let Some(c) = colour {
+                                f.set_colour(c);
+                            }
+                            Some(([at[0], at[2], at[1]], f))
+                        })
                         .collect(),
                     // (the fight lines' floating texts, over their characters: one's own at `position`)
                     combat_texts: std::mem::take(&mut state.combat_texts)

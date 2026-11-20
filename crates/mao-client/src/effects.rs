@@ -4,7 +4,7 @@
 //! ([`ring`]: the cord ribbon `_GfxControlBuffPlaceHolder_t` lays as its point turns, of which the original only ever draws the
 //! forward-spinning one).
 
-use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, GlobalSmoke, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
+use mao_formats::gfx::{colour_curve, curve, unpack_argb, BParticles, Cast, Cords, Deform, Emitter, Flare, Flare1, GlobalSmoke, Helix, Smoke, Sparks, Sprite, Stars, Visual, VolGrid};
 use mao_formats::gfx::{EffectMesh, Nano, Shield, Shield2, ShockWave, Suns, Trail2, Tracer1, Tracer3, Tracer5, VulcanRocks};
 use mao_render::{Particle, Shell, ShellVertex, NO_SPRITE};
 
@@ -608,6 +608,83 @@ pub fn flare_particles(f: &Flare, at: [f32; 3], t: f32, stop: f32, colours: Opti
             let w = s as f32 / 2.0;
             let p = [0, 1, 2].map(|i| head[i] + (tail[i] - head[i]) * w);
             out.push(sprite(f.material, u, p, width, c));
+        }
+    }
+    out
+}
+
+/// One burst of a [`Flare1`] (FUN_100de65e): its streaks as (length, azimuth, elevation). Four rounds a quarter turn apart
+/// (0x10168570), each of three streaks: half, three quarters and the whole length at 0.2π, 0.3π and 0.4π up (0x10156f00,
+/// 0x10168ec8, 0x1016cdbc–0x1016cdb4), or with flag 0x1000 three quarters, 0.7 and the whole at 0, 0.1π and 0.425π
+/// (0x10168fd0, 0x1016cdc4, 0x1016cdc0); then one of twice the length straight up (0x1016cdb0). With flag 0x800 each of
+/// the twelve has its elevation and then its azimuth moved by a random amount between −0.2 and 0.2 (`rand × 0.4 − 0.2`,
+/// 0x10168450, 0x10159ba8); `random` gives those draws in turn, each in [0, 1).
+pub fn flare1_streaks(f: &Flare1, random: &mut dyn FnMut() -> f32) -> Vec<(f32, f32, f32)> {
+    let l = f.length;
+    let set: [(f32, f32); 3] = if f.flags & 0x1000 == 0 { [(l * 0.5, 0.628_318_55), (l * 0.75, 0.942_477_9), (l, 1.256_637_1)] } else { [(l * 0.75, 0.0), (l * 0.7, 0.314_159_27), (l, 1.335_177)] };
+    let mut out = Vec::with_capacity(13);
+    let mut az = 0.0f32;
+    for _ in 0..4 {
+        for &(length, el) in &set {
+            if f.flags & 0x800 == 0 {
+                out.push((length, az, el));
+            } else {
+                let el = random() * 0.4 - 0.2 + el;
+                let a = random() * 0.4 - 0.2 + az;
+                out.push((length, a, el));
+            }
+        }
+        az += std::f32::consts::FRAC_PI_2;
+    }
+    out.push((l + l, az, std::f32::consts::FRAC_PI_2));
+    out
+}
+
+/// When a [`Flare1`] has ended, in seconds from its start: its bursts come once no streak of it is alive, the delay later
+/// (FUN_100def53), so burst `b` at `delay + b × (life + delay)`, and the control ends a life after its last burst
+/// (FUN_100de65e), or at its duration (word 8, the control's end, FUN_100ddf10) if that is sooner.
+pub fn flare1_end(f: &Flare1) -> f32 {
+    let last = f.delay + (f.bursts.max(1) - 1) as f32 * (f.life + f.delay) + f.life;
+    if f.duration >= 0.0 { last.min(f.duration) } else { last }
+}
+
+/// A [`Flare1`]'s streaks `t` seconds into its run, made at `at` (world, Z up), as `_GfxControlFlare1_t` makes them
+/// (FUN_100def53, FUN_100de65e) and `GfxVisualFlareType0` moves them: each streak (FUN_100de366) along `(cos el cos az,
+/// cos el sin az, sin el) × length` (up as in [`flare_particles`]), its two ends starting a quarter of their travel out
+/// (0x101584f8, when its life is more than two frames, as it is here) and covering the rest over the life, the first end
+/// travelling word 32 of that line and the second word 33 (flag 0x100 swaps them); its width from word 12 to 13 times word 35,
+/// its colour from the first colour to the second, its frames through the material over the life. The streak is drawn as
+/// sprites from one end to the other. `salt` makes the jitter of one effect its own.
+pub fn flare1_particles(f: &Flare1, at: [f32; 3], t: f32, salt: u32) -> Vec<Particle> {
+    let mut out = Vec::new();
+    if t < 0.0 || t >= flare1_end(f) || f.life <= 0.0 {
+        return out;
+    }
+    let lerp = |(a, b): (f32, f32), r: f32| a + (b - a) * r;
+    let (first, second) = if f.flags & 0x100 == 0 { (f.head, f.tail) } else { (f.tail, f.head) };
+    for burst in 0..f.bursts.max(1) as u32 {
+        let born = f.delay + burst as f32 * (f.life + f.delay);
+        let age = t - born;
+        if age < 0.0 || age >= f.life {
+            continue;
+        }
+        let u = age / f.life;
+        let mut draw = 0u32;
+        let mut random = || {
+            draw += 1;
+            hash(salt ^ burst.wrapping_mul(0x9e37), 0x1006 + draw)
+        };
+        let travel = 0.25 + 0.75 * u;
+        let width = lerp(f.width, u).max(0.0) * f.length;
+        let c = [1, 2, 3, 0].map(|i| f.colour_a[i] + (f.colour_b[i] - f.colour_a[i]) * u);
+        for (length, az, el) in flare1_streaks(f, &mut random) {
+            let d = [el.cos() * az.cos() * length, el.cos() * az.sin() * length, el.sin() * length];
+            let one = [0, 1, 2].map(|i| at[i] + d[i] * first * travel);
+            let two = [0, 1, 2].map(|i| at[i] + d[i] * second * travel);
+            for s in 0..3 {
+                let w = s as f32 / 2.0;
+                out.push(sprite(f.material, u, [0, 1, 2].map(|i| one[i] + (two[i] - one[i]) * w), width, c));
+            }
         }
     }
     out
@@ -5533,5 +5610,50 @@ broken line
         assert_eq!(born.len(), 1);
         assert_eq!(born[0].colour[3], 1.0);
         assert_eq!(born[0].position, [1.0, 2.0, 3.0]);
+    }
+
+    /// The fly-mode flash's kind (1006, `_GfxControlFlare1_t`): a burst of thirteen streaks (FUN_100de65e), four rounds of
+    /// three a quarter turn apart and one twice as long straight up; flag 0x800 jitters the twelve by up to 0.2 each way; the
+    /// burst comes after the delay and lives one life, its streaks' ends a quarter out at birth, in the colour SetColor gave
+    /// (FUN_100dde25) fading to none.
+    #[test]
+    fn a_flare1_bursts_thirteen_streaks() {
+        let mut f = Flare1 { flags: 0x101, duration: 5.0, material: 15, width: (0.1, 0.1), colour_a: [1.0, 1.0, 0.6, 0.3], colour_b: [0.0, 1.0, 0.6, 0.3], head: -0.1, tail: 0.6, life: 0.08, length: 0.75, delay: 0.02, bursts: 1 };
+        let still = flare1_streaks(&f, &mut || 0.5);
+        assert_eq!(still.len(), 13);
+        assert_eq!(&still[..3], &[(0.375, 0.0, 0.628_318_55), (0.5625, 0.0, 0.942_477_9), (0.75, 0.0, 1.256_637_1)]);
+        assert_eq!(still[3].1, std::f32::consts::FRAC_PI_2);
+        assert_eq!(still[12], (1.5, 2.0 * std::f32::consts::PI, std::f32::consts::FRAC_PI_2));
+        let other = flare1_streaks(&Flare1 { flags: 0x1000, ..f.clone() }, &mut || 0.5);
+        assert_eq!((other[0], other[2]), ((0.5625, 0.0, 0.0), (0.75, 0.0, 1.335_177)));
+        assert!((other[1].0 - 0.525).abs() < 1e-6 && other[1].2 == 0.314_159_27);
+        // (jittered: the elevation drawn first, then the azimuth; the last streak is not)
+        let mut draws = [0.0f32, 1.0].into_iter().cycle();
+        let jittered = flare1_streaks(&Flare1 { flags: 0x900, ..f.clone() }, &mut || draws.next().unwrap());
+        assert!((jittered[0].2 - (0.628_318_55 - 0.2)).abs() < 1e-6 && (jittered[0].1 - 0.2).abs() < 1e-6);
+        assert_eq!(jittered[12], still[12]);
+        // the burst: none before the delay, thirteen streaks of three sprites in its life, none after; the effect then ends
+        assert!(flare1_particles(&f, [0.0; 3], 0.01, 1).is_empty());
+        assert!((flare1_end(&f) - 0.1).abs() < 1e-6);
+        assert!(flare1_particles(&f, [0.0; 3], 0.11, 1).is_empty());
+        f.set_colour(0xfff0e0ff);
+        assert_eq!(f.colour_a, [1.0, 240.0 / 255.0, 224.0 / 255.0, 1.0]);
+        assert_eq!(f.colour_b, [0.0, 240.0 / 255.0, 224.0 / 255.0, 1.0]);
+        let born = flare1_particles(&f, [0.0; 3], 0.02, 1);
+        assert_eq!(born.len(), 39);
+        assert_eq!(born[0].colour, [240.0 / 255.0, 224.0 / 255.0, 1.0, 1.0]);
+        assert!((born[0].size - 0.075).abs() < 1e-6);
+        // (the straight-up streak, flag 0x100: the first end 0.6 of 1.5 up, the second −0.1 of it, a quarter of each at birth)
+        let up = &born[36..];
+        assert!((up[0].position[2] - 1.5 * 0.6 * 0.25).abs() < 1e-5 && (up[2].position[2] + 1.5 * 0.1 * 0.25).abs() < 1e-5);
+        // `MAO_GAME`: template 2000 is this kind, one burst of 0.08 s streaks 0.75 long after 0.02 s, jittered and swapped
+        if let Some(game) = std::env::var_os("MAO_GAME") {
+            let data = std::fs::read(std::path::Path::new(&game).join("Setupf").join("gfxtweak.bin")).unwrap();
+            let gfx = mao_formats::gfx::Gfx::parse(&data).unwrap();
+            let flash = gfx.get(2000).and_then(Flare1::read).expect("2000 is a kind-1006 flare");
+            assert_eq!((flash.flags & 0x1900, flash.bursts, flash.life, flash.length, flash.delay, flash.material), (0x900, 1, 0.08, 0.75, 0.02, 15));
+        }
+        let late = flare1_particles(&f, [0.0; 3], 0.06, 1);
+        assert!((late[0].colour[3] - 0.5).abs() < 1e-4 && (late[36].position[2] - 1.5 * 0.6 * (0.25 + 0.75 * 0.5)).abs() < 1e-4);
     }
 }
