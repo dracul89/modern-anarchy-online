@@ -44,27 +44,27 @@ Counted from the entries' own marks on 2026-11-19. "Open" is not looked at yet; 
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 54 | 0 | 0 | 0 | 0 | **0** |
 | **medium** | 159 | 64 | 28 | 39 | 28 | 0 | **0** |
-| **low** | 725 | 165 | 39 | 465 | 56 | 0 | **0** |
-| **all** | 938 | 283 | 67 | 504 | 84 | 0 | **0** |
+| **low** | 725 | 219 | 45 | 405 | 56 | 0 | **0** |
+| **all** | 938 | 337 | 73 | 444 | 84 | 0 | **0** |
 
 ### By area
 
 | Area | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Movement (`MOV`) | 33 | 11 | 1 | 17 | 4 | 0 | **0** |
-| Combat (`CMB`) | 39 | 12 | 5 | 21 | 1 | 0 | **0** |
-| Targeting and mouse (`TGT`) | 17 | 4 | 3 | 10 | 0 | 0 | **0** |
-| Death and revival (`DTH`) | 14 | 5 | 0 | 9 | 0 | 0 | **0** |
-| NPCs and creatures (`NPC`) | 40 | 18 | 6 | 15 | 1 | 0 | **0** |
-| Inventory and items (`INV`) | 84 | 36 | 10 | 33 | 5 | 0 | **0** |
-| Nano programs (`NAN`) | 60 | 14 | 5 | 38 | 3 | 0 | **0** |
-| Zoning and playfields (`ZON`) | 28 | 6 | 1 | 17 | 4 | 0 | **0** |
-| Chat and commands (`CHT`) | 80 | 34 | 3 | 37 | 6 | 0 | **0** |
-| Windows and interface (`WIN`) | 180 | 65 | 16 | 76 | 23 | 0 | **0** |
-| Camera (`CAM`) | 13 | 6 | 0 | 7 | 0 | 0 | **0** |
-| Rendering and world (`RND`) | 194 | 33 | 10 | 143 | 8 | 0 | **0** |
-| Sound and music (`SND`) | 17 | 4 | 0 | 13 | 0 | 0 | **0** |
-| Launcher, login, character creation (`LCH`) | 51 | 21 | 3 | 21 | 6 | 0 | **0** |
+| Movement (`MOV`) | 33 | 13 | 1 | 15 | 4 | 0 | **0** |
+| Combat (`CMB`) | 39 | 20 | 6 | 12 | 1 | 0 | **0** |
+| Targeting and mouse (`TGT`) | 17 | 8 | 2 | 7 | 0 | 0 | **0** |
+| Death and revival (`DTH`) | 14 | 7 | 0 | 7 | 0 | 0 | **0** |
+| NPCs and creatures (`NPC`) | 40 | 19 | 2 | 18 | 1 | 0 | **0** |
+| Inventory and items (`INV`) | 84 | 38 | 12 | 29 | 5 | 0 | **0** |
+| Nano programs (`NAN`) | 60 | 16 | 6 | 35 | 3 | 0 | **0** |
+| Zoning and playfields (`ZON`) | 28 | 8 | 1 | 15 | 4 | 0 | **0** |
+| Chat and commands (`CHT`) | 80 | 38 | 7 | 29 | 6 | 0 | **0** |
+| Windows and interface (`WIN`) | 180 | 75 | 17 | 65 | 23 | 0 | **0** |
+| Camera (`CAM`) | 13 | 7 | 0 | 6 | 0 | 0 | **0** |
+| Rendering and world (`RND`) | 194 | 48 | 13 | 125 | 8 | 0 | **0** |
+| Sound and music (`SND`) | 17 | 5 | 0 | 12 | 0 | 0 | **0** |
+| Launcher, login, character creation (`LCH`) | 51 | 21 | 2 | 22 | 6 | 0 | **0** |
 | Settings and files (`SET`) | 54 | 9 | 3 | 25 | 17 | 0 | **0** |
 | Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 2 | 0 | **0** |
 | Other (`OTH`) | 21 | 3 | 1 | 13 | 4 | 0 | **0** |
@@ -1251,6 +1251,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: combat numbers over characters
 - Where: `crates/mao-client/src/ui.rs:2179`; `docs/CLIENT_UI.md:1844`
 - Decision: [ ] keep  [x] remove
+- Correction (2026-11-20, long tail, reader of CMB-007): the removal's premise was wrong. The original does draw combat text over characters: Gamecode's combat-line formatter FUN_10012c3e ends each event with an amount by calling FUN_10011171, which makes effect 0x2f5a over the character (`_EffectHandler_t::CreateEffect2`) with the line's text (`SetText`) and a colour from the table at 0x10157b08 (`SetColor`); over one's own character only with the 3rd-person camera (DAT_102e1640), else AFCM 0x19 message 0x3b. The same effect shows "Sneak Attack!", "Burst!" and the like over the attacker (CMB-033). The client's removed floaters were its own drawing, not this effect; porting the original's is the user's call.
 - Done (2026-11-19, overnight): The floating combat numbers (damage dealt in yellow, taken in red, healing in green, rising 38 px a second over the one hit for 1.6 s) are removed entirely, as the user chose: `ui::Floater`, `FLOATER_LIFE`, the hud's `floaters` and their drawing in `hud_layer`, the viewer update's `floaters`, the network thread's `damage` list filled from each `HealthDamage` (0x3710256c), and the `MAO_PLATES` preview's sample numbers. The original has no such view or setting (GUI.dll, DisplaySystem and Gamecode have none; Gamecode FUN_100a0611 tells a HealthDamage as a chat line only). Unchanged: the Combat tab's lines, the health kept per target and the damage meter, all read from the same message. Test: `net::tests::fight_lines_follow_the_originals_feedback` (its check on the removed list dropped; the hurt one is still checked by its health), 3 fight_lines tests pass; no new warnings.
 - Recommendation (2026-11-19, overnight): Addition: recommend REMOVE (or put behind an option, off by default): the original draws no damage numbers over characters (no such view or setting in GUI.dll, DisplaySystem or Gamecode strings; the fight is told in chat only), and it changes what the player sees in the world.
 
