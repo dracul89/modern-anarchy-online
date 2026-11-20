@@ -4597,9 +4597,11 @@ impl World {
                     }
                 }
                 // (a corpse of one this client never had, lying there before it came: by the corpse's own name, and
-                // drawn by its own mesh, as the original draws a corpse whose character is not there)
+                // drawn by its own mesh, as the original draws a corpse whose character is not there. The name is read
+                // whether or not the corpse names its dead, as `CorpseFullUpdateIIR_t`'s reader always reads it; the
+                // id stands in only for a message too short to hold one.)
                 None => {
-                    let name = named.and_then(|_| corpse_name(&m.data)).unwrap_or_else(|| format!("Object {:x}", m.identity.1 & 0xffff));
+                    let name = corpse_name(&m.data).unwrap_or_else(|| format!("Object {:x}", m.identity.1 & 0xffff));
                     self.names.entry(m.identity.1).or_insert_with(|| (name, false));
                     if let Some(look) = named.and_then(|_| mao_net::n3::corpse_look(&m.data)) {
                         self.remains.insert(m.identity.1, (at, look));
