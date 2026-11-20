@@ -6013,6 +6013,14 @@ fn movement_action(mode: Mode, moving: bool, strafe: i8, backing: bool) -> Optio
     }
 }
 
+/// Whether a held action's animation loops rather than stopping at its end: the ground's idle, 0xd7 `idle-ground` (or a
+/// creature's own for it), which the original plays as the idle of the sitting-on-the-ground mode 8 (FUN_1006c5ae through
+/// FUN_1003c6f3, with the endless count a movement's cycle has); deaths, sitting down (0xd5) and lying down are played once
+/// and held.
+fn held_loops(action: u32) -> bool {
+    action == 0xd7
+}
+
 /// Whether [`movement_action`]'s animation plays backwards: FUN_1006c370, moving against the facing (FUN_10070a37 = 2) in the
 /// sneaking mode, plays the sneak action with its reverse flag set (the fourth argument of the controller's play, +0x18);
 /// the walking and running modes have back animations of their own (0x88, 0xde) and clear it.
@@ -6260,8 +6268,8 @@ impl Characters {
         let (record, mesh, head) = entry.as_ref()?;
         // (an action with variants: the one this character picks, standing in for FUN_10045976's `rand()` at each start)
         let seed = id;
-        // (a body with no idle for the ground, 0xd7, holds the end of sitting down, 0xd5, as the seated do)
-        let dying = dying.map(|a| if a == 0xd7 && record.variant(0xd7, seed).is_none() { 0xd5 } else { a });
+        // (a body with no idle for the ground, 0xd7, stands in its idle: FUN_1006c5ae in mode 8 plays 0xd7, else 0x78)
+        let dying = dying.filter(|&a| a != 0xd7 || record.variant(0xd7, seed).is_some());
         let death = dying.and_then(|mut a| {
             for _ in 0..8 {
                 if let Some(anim) = record.variant(a, seed) {
@@ -6424,7 +6432,9 @@ impl Characters {
         });
         let dt = tick.elapsed().as_secs_f32().min(0.5);
         *tick = Instant::now();
-        let stack_key = (action, if death.is_some() { 9 } else { hold as u8 }, anim_id);
+        // (the ground's idle, 0xd7, loops as an idle does: `held_loops`)
+        let looped = death.is_some_and(|d| held_loops(d.0));
+        let stack_key = (action, if death.is_some() && !looped { 9 } else { hold as u8 }, anim_id);
         // (a kept animation is not started again: it goes on as it plays)
         let stack_key = match self.movement_keys.get(&id) {
             Some(&playing) if kept && playing.2 == anim_id => playing,
@@ -6432,7 +6442,7 @@ impl Characters {
         };
         if self.movement_keys.get(&id) != Some(&stack_key) {
             // (a death is held at its end: direction 3 plays it once and keeps the last frame)
-            let handle = stack.set_animation(anim_id, 0, -1, 2, if death.is_some() { 3 } else { 0 }, 1.0, length);
+            let handle = stack.set_animation(anim_id, 0, -1, 2, if death.is_some() && !looped { 3 } else { 0 }, 1.0, length);
             // (remains found lying are at the death's end from the first)
             let from = if death.is_some() && self.lying.contains(&id) { length } else { 0.0 };
             stack.set_time(handle, from, if hold { 0.0 } else { length });
@@ -6995,7 +7005,8 @@ impl Characters {
             Some((file, _)) => self.anim_by_name(file),
             None => self.anim_by_name(&name),
         };
-        let key = (action, if death.is_some() { 9 } else { self.segment }, movement.map_or(0, |m| m.0));
+        // (the ground's idle loops whole, segment 0, as an idle does: `held_loops`)
+        let key = (action, if dying.is_some_and(held_loops) && death.is_some() { 0 } else if death.is_some() { 9 } else { self.segment }, movement.map_or(0, |m| m.0));
         // (a weapon's own movement has its cycle between its own notes, as the plain one has: a rifle's `run-2h` is four
         // seconds of a start, the strides and a stop with the cycle from 1166 to 1966 ms. Looped whole, as it was, the
         // runner started, ran a few strides and stopped, over and over. An idle has no notes and loops whole.)
@@ -15652,6 +15663,9 @@ mod movement_tests {
         assert!(!movement_backwards(Mode::Sneak, true, 1, true));
         assert!(!movement_backwards(Mode::Walk, true, 0, true));
         assert!(!movement_backwards(Mode::Sneak, false, 0, true));
+        // (the ground's idle loops; a death or sitting down is held at its end)
+        assert!(held_loops(0xd7));
+        assert!(!held_loops(0xd5) && !held_loops(0x1f4) && !held_loops(0xed));
         assert_eq!(movement_action(Mode::Sneak, false, 0, false), Some(Action::SneakStand));
         assert_eq!(movement_action(Mode::Sneak, true, -1, false), Some(Action::StrafeLeft));
         assert_eq!(movement_action(Mode::Run, true, 0, true), Some(Action::RunBack));
