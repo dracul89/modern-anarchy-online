@@ -57,6 +57,9 @@ pub struct PerkRecord {
     /// `N3Msg_GetUseByString` and the modifiers (`N3Msg_GetModifierString` of lists 14 and 0), for the tip.
     pub use_by: Option<String>,
     pub modifiers: String,
+    /// `N3Msg_GetPerkDescription`'s requirements: `N3Msg_GetCriteriaString` of the wear action (6), then of the use
+    /// action (3).
+    pub requirements: String,
 }
 
 #[derive(Default)]
@@ -110,6 +113,7 @@ pub fn catalog(db: &ResourceDatabase) -> Arc<Catalog> {
                         more_flags,
                         use_by: crate::gui::criteria::use_by(&actions),
                         modifiers,
+                        requirements: crate::gui::criteria::criteria_string(&actions, 6, more_flags) + &crate::gui::criteria::criteria_string(&actions, 3, more_flags),
                     })
                 })
                 .collect();
@@ -713,7 +717,7 @@ mod tests {
     use super::*;
 
     fn record(id: u32, prev: u32, flags: u32, professions: u32, name: &str, criteria: Vec<(u32, i32, u32)>) -> PerkRecord {
-        PerkRecord { id, prev, flags, professions, total: 0, name: name.into(), description: String::new(), criteria, item_flags: 0x10000005, more_flags: 0, use_by: None, modifiers: String::new() }
+        PerkRecord { id, prev, flags, professions, total: 0, name: name.into(), description: String::new(), criteria, item_flags: 0x10000005, more_flags: 0, use_by: None, modifiers: String::new(), requirements: String::new() }
     }
 
     fn sample() -> Catalog {

@@ -445,6 +445,15 @@ pub fn list_to_string(list: &[Criterion]) -> String {
     out
 }
 
+/// `N3Msg_GetCriteriaString` (0x1002135d): one action's requirements as text, without a heading: nothing when the
+/// template has no such action or its criteria are none, or when its stat 177 (`MoreFlags`) has bit 4.
+pub fn criteria_string(actions: &[mao_formats::item::Action], kind: u32, more_flags: u32) -> String {
+    if more_flags & 4 != 0 {
+        return String::new();
+    }
+    actions.iter().find(|a| a.kind == kind).filter(|a| !a.criteria.is_empty()).map_or_else(String::new, |a| list_to_string(&a.criteria))
+}
+
 /// `N3Msg_GetUseByString` (0x100230a3): each action's heading and requirements; `None` without any.
 pub fn use_by(actions: &[mao_formats::item::Action]) -> Option<String> {
     const NAMES: [&str; 10] = ["Get:", "Drop:", "Use:", "Repair:", "UseOn:", "Wear:", "Unwear:", "Wield:", "Unwield:", "Split:"];
@@ -465,6 +474,18 @@ pub fn use_by(actions: &[mao_formats::item::Action]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_criteria_string_is_one_actions_requirements_without_a_heading() {
+        use mao_formats::item::Action;
+        let actions = [Action { kind: 3, criteria: vec![(16, 99, 2)] }, Action { kind: 6, criteria: vec![] }];
+        assert_eq!(criteria_string(&actions, 3, 0), list_to_string(&[(16, 99, 2)]));
+        assert!(!criteria_string(&actions, 3, 0).is_empty());
+        // (an action without criteria, none of the kind, and MoreFlags' bit 4: nothing)
+        assert_eq!(criteria_string(&actions, 6, 0), "");
+        assert_eq!(criteria_string(&actions, 1, 0), "");
+        assert_eq!(criteria_string(&actions, 3, 4), "");
+    }
 
     #[test]
     fn an_and_of_two_stats() {

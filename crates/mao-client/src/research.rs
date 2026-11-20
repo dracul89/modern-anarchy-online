@@ -49,9 +49,8 @@
 //! Escape closes it by `esc_research`; `MAO_UI_PREVIEW=research` (`MAO_RESEARCH_TAB` 0 to 2) shows it on the 2026-10-30
 //! capture's data.
 //!
-//! Left out: the "got_tech" distributed value the window clears on opening (the control center's research blink), the
-//! window's `ResearchConfig` placement, and the requirements text is `N3Msg_GetUseByString`'s rather than
-//! `N3Msg_GetCriteriaString`'s. Whether the server answers `SetStat` 265 / 266 with the stat was not captured; the window
+//! Left out: the "got_tech" distributed value the window clears on opening (the control center's research blink, which
+//! this client never sets), and the window's `ResearchConfig` placement. Whether the server answers `SetStat` 265 / 266 with the stat was not captured; the window
 //! keeps its own choice until the stat changes.
 
 use std::collections::{BTreeMap, HashSet};
@@ -282,10 +281,11 @@ impl<'a> Model<'a> {
         line
     }
 
-    /// `N3Msg_GetPerkDescription`: the description, the modifiers (lists 14 and 0) and the requirements.
+    /// `N3Msg_GetPerkDescription` (Gamecode 0x10029d14): the description, the modifiers (lists 14 and 0), the
+    /// requirements (`N3Msg_GetCriteriaString` of the wear action, then of the use action) and a new line.
     pub fn description(&self, id: u32) -> String {
         let Some(r) = self.catalog.get(id) else { return String::new() };
-        format!("{}\n<font color=yellow>Modifiers</font>:\n{}\n<font color=yellow>Requirements</font>:\n{}", r.description, r.modifiers, r.use_by.clone().unwrap_or_default())
+        format!("{}\n<font color=yellow>Modifiers</font>:\n{}\n<font color=yellow>Requirements</font>:\n{}\n", r.description, r.modifiers, r.requirements)
     }
 }
 
@@ -682,7 +682,7 @@ mod tests {
     use super::*;
 
     fn record(id: u32, prev: u32, flags: u32, total: u32, name: &str, criteria: Vec<(u32, i32, u32)>) -> PerkRecord {
-        PerkRecord { id, prev, flags, professions: 0, total, name: name.into(), description: String::new(), criteria, item_flags: 0x10000005, more_flags: 0, use_by: None, modifiers: String::new() }
+        PerkRecord { id, prev, flags, professions: 0, total, name: name.into(), description: String::new(), criteria, item_flags: 0x10000005, more_flags: 0, use_by: None, modifiers: String::new(), requirements: String::new() }
     }
 
     /// Two personal lines (a fixer's and a soldier's) and a global line of two ranks.
