@@ -5260,6 +5260,91 @@ impl World {
         self.in_play.get(&id).copied().unwrap_or(true)
     }
 
+    /// One's own state flags (stat 224) as the spell lists left them (`state_flags`), else as the server told them; 6, free,
+    /// when it told none (the client's safety, as for the stun).
+    fn own_state_bits(&self) -> u32 {
+        self.state_flags.get(&self.own).map(|f| f.bits).unwrap_or_else(|| self.stats.get(&224).map_or(6, |&v| v as u32))
+    }
+
+    /// FUN_1004fbe4 (`N3Msg_CastNanoSpell`'s check) after the cost (`combat::cast_refusal` has what comes before), for the nano
+    /// `nano` at the selection `target`: the lines it tells, none for a silent refusal; `None` when the cast may go. In order:
+    /// * the nano's requirements for action 3 (FUN_100816f6, its lines told as the evaluator tells them);
+    /// * whom it is cast on: the caster when nothing is selected and the nano is not hostile (flag 0x8000 of its stat 0), or
+    ///   when it is for oneself only (+0xbc, `ncu::self_only`); else the selection. An item `Feedback_YouCantExecuteNanoprogramsOnItems`;
+    ///   no character there (FUN_1005937d: type 50000 only) `Feedback_UnableToExecuteNanoprogramTargetNotFound`; one in a vehicle
+    ///   (its stat 0x296) `Feedback_YouCantUseOnVehicles`;
+    /// * a nano that is not hostile at an NPC that is not one's own pet (the caster neither an NPC nor held)
+    ///   `Feedback_MolecularStructurePreventsUse`;
+    /// * the range (`combat::nano_range_line`: `Feedback_TargetOutOfRangeForNanoprogram`), the line of sight from eyes to
+    ///   eyes (FUN_10058e4f, as a special's) `Feedback_TargetNotInLineOfSight`;
+    /// * FUN_1004ed2f, for another than oneself: the gap past the range `Feedback_TargetIsOutsideRange`; a hostile nano asks
+    ///   FUN_10069a9f (`combat::can_attack`, its own line) and then says `Feedback_YouAreNotAllowedToExecuteNanoprogram`; a
+    ///   friendly one at a monster (side 3, the caster not one, not held, not its pet)
+    ///   `Feedback_YouAreNotAllowedToExecuteFriendlyOnEnemy`.
+    ///
+    /// Not ported: the "nano not in the list" warning (the client casts only from its list), the caster's +0x80 (silent,
+    /// not read), the cast waiting on one of the same stat 0x195 (FUN_1004f3d9) and the program not yet ready (FUN_1004f0f9),
+    /// the stacking rules (FUN_1004fb6a `Feedback_NCUErrorBetterProgramRunning`, FUN_1004fb8d: NAN-041), and FUN_1004ed2f's
+    /// rules by fight mode (team, raid, battlestation side, `Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`): the
+    /// client keeps no fight mode, so it takes neither side's to be 2, which passes.
+    fn nano_target_refusal(&self, nano: u32, target: Option<u32>, sight: &dyn Fn([f32; 3], [f32; 3]) -> bool) -> Option<Vec<String>> {
+        let line = |name: &str| Some(vec![crate::feedback::plain(name)]);
+        let data = ITEM_DB.get().and_then(|db| db.get(mao_formats::resource::Id { kind: mao_formats::item::NANO_TEMPLATE, instance: nano }).ok().flatten());
+        let template = data.as_deref().and_then(mao_formats::item::Item::parse);
+        let hostile = template.as_ref().and_then(|t| t.stat(0)).unwrap_or(0) & 0x8000 != 0;
+        if let Some(action) = data.as_deref().and_then(|d| mao_formats::item::actions(d).into_iter().find(|a| a.kind == 3)) {
+            let (met, told) = crate::requirements::evaluate_told(&action.criteria, (crate::requirements::CHARACTER, self.own), self);
+            if met == Ok(false) {
+                return Some(told.iter().map(crate::feedback::requirement).collect());
+            }
+        }
+        let lists = data.as_deref().map(mao_formats::spell::lists).unwrap_or_default();
+        let alone = data.is_some() && crate::ncu::self_only(&lists, template.as_ref().and_then(|t| t.stat(30)).unwrap_or(0));
+        let on = if (target.is_none() && !hostile) || alone { Some(self.own) } else { target };
+        if on.is_some_and(|t| self.item_dynels.contains_key(&t)) {
+            return line("Feedback_YouCantExecuteNanoprogramsOnItems");
+        }
+        let Some(t) = on.filter(|&t| t == self.own || self.infos.contains_key(&t)) else {
+            return line("Feedback_UnableToExecuteNanoprogramTargetNotFound");
+        };
+        let stat = |s: u32| if t == self.own { self.stats.get(&s).copied() } else { self.others_stats.get(&t).and_then(|m| m.get(&s)).copied() };
+        if stat(0x296).unwrap_or(0) != 0 {
+            return line("Feedback_YouCantUseOnVehicles");
+        }
+        let npc = t != self.own && self.names.get(&t).is_some_and(|n| !n.1);
+        let pet = self.pets.values().any(|p| p.1 == t);
+        if !hostile && npc && !self.own_held() && !pet {
+            return line("Feedback_MolecularStructurePreventsUse");
+        }
+        if t == self.own {
+            return None;
+        }
+        let (Some(a), Some(b)) = (self.position_of(self.own), self.position_of(t)) else { return None };
+        let distance = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
+        let range = crate::combat::nano_range_line(distance, template.as_ref().and_then(|t| t.stat(287)).unwrap_or(0) as i64, self.stats.get(&381).copied().unwrap_or(0));
+        if range == Some("Feedback_TargetOutOfRangeForNanoprogram") {
+            return line("Feedback_TargetOutOfRangeForNanoprogram");
+        }
+        let eyes = |p: [f32; 3]| [p[0], p[1] + 1.6, p[2]];
+        if !sight(eyes(a), eyes(b)) {
+            return line("Feedback_TargetNotInLineOfSight");
+        }
+        if let Some(name) = range {
+            return line(name);
+        }
+        if hostile {
+            return match crate::combat::can_attack(self.attacker(), self.attack_target(Some(t))) {
+                Ok(()) => None,
+                Err(own) => Some(own.into_iter().chain(["Feedback_YouAreNotAllowedToExecuteNanoprogram"]).map(crate::feedback::plain).collect()),
+            };
+        }
+        let side = self.infos.get(&t).map_or(0, |i| i.side as i64);
+        if !pet && side == 3 && self.stats.get(&33).copied().unwrap_or(0) != 3 && !self.own_held() {
+            return line("Feedback_YouAreNotAllowedToExecuteFriendlyOnEnemy");
+        }
+        None
+    }
+
     fn special_refusal(&self, number: u32, target: Option<u32>, sight: &dyn Fn([f32; 3], [f32; 3]) -> bool) -> Option<Vec<String>> {
         let line = |name: &str| Some(vec![crate::feedback::plain(name)]);
         if self.specials_told.as_ref().is_some_and(|s| !s.contains(&number)) && number != crate::actions::SEARCH {
@@ -10674,16 +10759,40 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 'cast: {
                 // (0x1001b5d4 asks the character's byte +0x21d before anything: set, feared or held by the spell 0xcff0,
                 // nothing is cast and `Feedback_UnableToExecuteOnThisTarget` is told, with its category 0x42000018)
-                // (the client's own check first: FUN_1004fbe4; every refusal ends with the cast's own
+                // (the client's own check first: FUN_1004fbe4, the character's state and the cost (`combat::cast_refusal`),
+                // then the nano and its target (`World::nano_target_refusal`); every refusal ends with the cast's own
                 // `Feedback_UnableToExecuteOnThisTarget`, which a held character gets alone)
                 let stat = |s: u32| state.stats.get(&s).copied();
-                let caster = crate::combat::Caster { dead: state.own_dead, swimming: state.swimming.contains(&own), falling: airborne, moving: keys.forward || keys.back || keys.strafe != 0 || goto.is_some(), nano: stat(214).unwrap_or(0) };
+                let bits = state.own_state_bits();
+                let caster = crate::combat::Caster {
+                    dead: state.own_dead,
+                    vehicle: stat(0x296).unwrap_or(0) != 0,
+                    forbidden: bits & 0x800 != 0,
+                    unavailable: bits & 2 == 0,
+                    moving: keys.forward || keys.back || keys.strafe != 0 || goto.is_some(),
+                    swimming: state.swimming.contains(&own),
+                    crawling: state.own_crawling,
+                    falling: airborne,
+                    sitting,
+                    nano: stat(214).unwrap_or(0),
+                };
                 let modifier = crate::combat::nano_cost_modifier(stat(318).unwrap_or(100), stat(4).unwrap_or(0), true);
                 let held = state.own_held();
                 let refusal = if held { None } else { crate::combat::cast_refusal(caster, nano_stat(keys.cast.1, 407).unwrap_or(0), modifier) };
-                if held || refusal.is_some() {
-                    for (name, number) in crate::combat::refused_cast_lines(refusal) {
-                        let line = number.map_or_else(|| crate::feedback::plain(name), |n| crate::feedback::with_number(name, n));
+                let mut lines: Option<Vec<String>> = (held || refusal.is_some()).then(|| refusal.into_iter().filter(|r| !r.0.is_empty()).map(|(name, number)| number.map_or_else(|| crate::feedback::plain(name), |n| crate::feedback::with_number(name, n))).collect());
+                if lines.is_none() {
+                    // (the requirements' "On Target" reads the selection, and the line of sight is the special attack's)
+                    state.selected = target;
+                    let sight_terrain = terrain.clone().map(|t| (t, offset));
+                    let sight_ground = zones.clone().map(|z| crate::vehicle::Ground { zones: z, terrain: terrain.clone().map(|t| {
+                        let s = t.height_scale;
+                        (t, s)
+                    }), offset });
+                    let sight = |a: [f32; 3], b: [f32; 3]| crate::camera::playfield_line_of_sight(sight_ground.as_ref(), sight_terrain.as_ref(), Some(&*collision), interior.as_deref(), &rooms_shown, None, a, b);
+                    lines = state.nano_target_refusal(keys.cast.1, target, &sight);
+                }
+                if let Some(lines) = lines {
+                    for line in lines.into_iter().chain([crate::feedback::plain("Feedback_UnableToExecuteOnThisTarget")]) {
                         state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::Combat, line));
                     }
                     break 'cast;
@@ -14712,6 +14821,47 @@ mod door_tests {
         assert_eq!(w.special_refusal(148, Some(9), &clear), None);
         assert_eq!(w.special_refusal(148, Some(9), &wall), Some(vec![crate::feedback::plain("Feedback_NoLineOfSight")]));
         assert_eq!(seen.get(), Some(([10.0, 3.6, 20.0], [13.0, 2.6, 20.0])), "from the attacker's eyes to the target's");
+    }
+
+    /// CMB-039: a nano's target as FUN_1004fbe4 checks it: nothing selected is oneself; an item, nothing there, a vehicle, an
+    /// NPC that is not one's pet each have their line; the range cut to metres, then the line of sight, then the gap itself
+    /// (FUN_1004ed2f).
+    #[test]
+    fn a_nano_needs_a_character_in_reach_and_in_sight() {
+        let own = 0x4bc80;
+        let mut w = World { own, ..World::default() };
+        w.objects.insert(own, [10.0, 2.0, 20.0]);
+        // (no such nano: not hostile, no requirements, for anyone, no range)
+        let nano = 0xffff_fff0;
+        let plain = |name: &str| Some(vec![crate::feedback::plain(name)]);
+        let blocked = |_: [f32; 3], _: [f32; 3]| false;
+        assert_eq!(w.nano_target_refusal(nano, None, &clear), None, "nothing selected: cast on oneself");
+        assert_eq!(w.nano_target_refusal(nano, Some(9), &clear), plain("Feedback_UnableToExecuteNanoprogramTargetNotFound"));
+        w.item_dynels.insert(8, (0, 1));
+        assert_eq!(w.nano_target_refusal(nano, Some(8), &clear), plain("Feedback_YouCantExecuteNanoprogramsOnItems"));
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let base = Message { kind: n3::ENTITY_INFO, identity: (0xc350, 1), data: hex("003a04206aca0000021c43f5f0c7410028f643dc31c6000000003f38bec4000000003f31371600000741094d6f7068696e673400001812410001000100000f7e00000000") }.entity_info().unwrap();
+        // (a player two metres away: the bodies touch, the gap is nothing)
+        w.infos.insert(9, base.clone());
+        w.names.insert(9, ("Someone".into(), true));
+        w.objects.insert(9, [12.0, 2.0, 20.0]);
+        assert_eq!(w.nano_target_refusal(nano, Some(9), &clear), None);
+        assert_eq!(w.nano_target_refusal(nano, Some(9), &blocked), plain("Feedback_TargetNotInLineOfSight"));
+        w.objects.insert(9, [12.5, 2.0, 20.0]);
+        assert_eq!(w.nano_target_refusal(nano, Some(9), &blocked), plain("Feedback_TargetNotInLineOfSight"), "cut to 0 m, the range passes first");
+        assert_eq!(w.nano_target_refusal(nano, Some(9), &clear), plain("Feedback_TargetIsOutsideRange"));
+        w.objects.insert(9, [13.0, 2.0, 20.0]);
+        assert_eq!(w.nano_target_refusal(nano, Some(9), &blocked), plain("Feedback_TargetOutOfRangeForNanoprogram"));
+        w.objects.insert(9, [12.0, 2.0, 20.0]);
+        w.others_stats.entry(9).or_default().insert(0x296, 1);
+        assert_eq!(w.nano_target_refusal(nano, Some(9), &clear), plain("Feedback_YouCantUseOnVehicles"));
+        // (an NPC: a nano that is not hostile only on one's own pet)
+        w.infos.insert(5, base.clone());
+        w.names.insert(5, ("Creature".into(), false));
+        w.objects.insert(5, [11.0, 2.0, 20.0]);
+        assert_eq!(w.nano_target_refusal(nano, Some(5), &clear), plain("Feedback_MolecularStructurePreventsUse"));
+        w.pets.insert(1, (0, 5));
+        assert_eq!(w.nano_target_refusal(nano, Some(5), &clear), None);
     }
 
     /// CMB-022: a fear (spell 0xcf81) on one's own character sets its byte +0x21d, and the special attacks go nowhere without

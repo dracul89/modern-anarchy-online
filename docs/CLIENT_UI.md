@@ -6709,6 +6709,32 @@ Not ported: the tiles' places kept per character (`SpecialActions.xml`).
 Tests: `the_window_lists_what_the_character_has_in_the_original_order`, `a_pairs_tile_shows_what_a_click_does_next`. The
 pictures `MAO_UI_PREVIEW=actions` and, with every state on, `MAO_ACTION_TOGGLES=1`.
 
+### A nano cast is checked as the original checks it (CMB-039)
+
+`N3Msg_CastNanoSpell` (Gamecode 0x1001b5d4) asks FUN_1004fbe4 before it sends the cast; every refusal tells its line
+(category 0x42000018, shown as combat lines) and then `Feedback_UnableToExecuteOnThisTarget`. In its order:
+
+- **The character** (`combat::cast_refusal`): in a vehicle (stat 0x296) `Feedback_NotInVehicle`; state flag 0x800
+  `Feedback_ExecutingProgramsForbidden`; without state flag 2 (a fear takes it) `Feedback_ExecutingProgramsUnavailable`;
+  moving `Feedback_UnableToExecuteProgramsMustStandStill`; swimming, crawling, falling each their line; sitting, sleeping or
+  lounging `Feedback_YouMustBeStandingUpToExecuteNanoprogram`; then less nano than the cost
+  `Feedback_YouNeedAtLeastRemainingNano`. (Dead: the client's own silent refusal, kept.)
+- **The nano's requirements** for action 3 (FUN_100816f6), told as the evaluator tells them.
+- **Whom it is cast on** (`World::nano_target_refusal`): oneself when nothing is selected and the nano is not hostile
+  (flag 0x8000), or when it is for oneself only (`ncu::self_only`); else the selection. An item
+  `Feedback_YouCantExecuteNanoprogramsOnItems`; no character `Feedback_UnableToExecuteNanoprogramTargetNotFound` (a
+  terminal or door selected included); one in a vehicle `Feedback_YouCantUseOnVehicles`; a friendly nano at an NPC that is
+  not one's pet `Feedback_MolecularStructurePreventsUse`.
+- **Reach and sight**: the range is the nano's stat 287 with one's stat 381 share, at most 40 (FUN_1008658e), against the
+  distance less both bodies cut to metres (`Feedback_TargetOutOfRangeForNanoprogram`); then the line of sight as a special
+  attack's (`Feedback_TargetNotInLineOfSight`); then FUN_1004ed2f: the gap uncut (`Feedback_TargetIsOutsideRange`); a
+  hostile nano asks the attack check and then says `Feedback_YouAreNotAllowedToExecuteNanoprogram`; a friendly one at a
+  monster (side 3) `Feedback_YouAreNotAllowedToExecuteFriendlyOnEnemy`.
+
+Not ported: a cast waiting on one of the same stat 0x195 (FUN_1004f3d9) and a program not ready (FUN_1004f0f9); the
+caster's +0x80; the stacking rules (NAN-041); and the rules by fight mode (team, raid, battlestation, sides:
+`Feedback_YouAreNotAllowedToExecuteFriendlyOnOppositeSide`), as the client keeps no fight mode.
+
 ### A special attack's range is checked before it is sent (CMB-022)
 
 **Fear holds the specials back (2026-11-19, evening).** 0x100281fc's first check is the character's byte +0x21d: set, it
@@ -6730,8 +6756,8 @@ it; the client still moves it as before. States 2-4 (0xcf7e, mind control, daze)
 
 - **A nano cast** (`N3Msg_CastNanoSpell` 0x1001b5d4, before its own checks): nothing is cast and
   `Feedback_UnableToExecuteOnThisTarget` is told (its category 0x42000018 is shown here as a combat line). The cast tells
-  the same line after every refusal of its check FUN_1004fbe4 too, after that check's own line
-  (`combat::refused_cast_lines`; until 2026-11-19 the client told only the check's line).
+  the same line after every refusal of its check FUN_1004fbe4 too, after that check's own line (until 2026-11-19 the
+  client told only the check's line; the check itself is the next section).
 - **Stopping a fight** (`N3Msg_StopAttack` 0x100280e0, which the attack key, sitting down and /camp call): no `StopFight`
   is sent, so the fight goes on.
 - **Starting an attack** (FUN_1006817d, the sender behind the attack key and Ctrl + click): no `Attack` is sent and

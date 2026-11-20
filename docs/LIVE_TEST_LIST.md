@@ -1226,6 +1226,11 @@ These were written before this list; some may have been seen working since witho
   previous action" and neither starts nor stops a fight; sitting down does not stop a fight.
 - [ ] A refused nano (2026-11-19): casting while running, swimming or short of nano shows the reason and then "unable to
   execute on this target", two lines.
+- [ ] Nano checks (CMB-039, 2026-11-19): a buff cast while sitting says you must be standing up; a buff with a terminal or
+  door selected says the target is not found; a buff on a creature that is not your pet says its molecular structure
+  prevents it; a nano at a player far off says out of range, at one behind a wall not in line of sight; a buff with
+  nothing selected lands on yourself as before; an attack nano at a fair target still goes out. If a nano you could cast
+  before is now refused, note which nano and the line.
   New to the client: no capture has a fear.
 - [ ] Pick-Up and Crawl tiles (WIN-112, 2026-11-19): Pick-Up with an item on the ground selected takes it into the
   inventory (with a full inventory the game's "inventory full" line, nothing sent); what the server answers to it is

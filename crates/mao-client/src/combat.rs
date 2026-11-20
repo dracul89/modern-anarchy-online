@@ -237,44 +237,71 @@ pub fn special_reaches(distance: f32, character: bool, range: i64, bonus: i64) -
     special_range(range, bonus) as f64 > gap as f64
 }
 
-/// What casting depends on: how the character moves and its nano.
+/// What casting depends on: the character's own state and its nano.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Caster {
+    /// Dead: the client's own refusal, without a line (the original's check has none for it).
     pub dead: bool,
-    pub swimming: bool,
-    pub falling: bool,
+    /// Its stat 0x296 (662) is set: it is in a vehicle.
+    pub vehicle: bool,
+    /// Its state flags (stat 224) have 0x800.
+    pub forbidden: bool,
+    /// Its state flags lack 2 (a fear takes it, `spelllist::Control`).
+    pub unavailable: bool,
     pub moving: bool,
+    /// Movement mode 4.
+    pub swimming: bool,
+    /// Movement mode 5 (`WaitState` 0xe here).
+    pub crawling: bool,
+    pub falling: bool,
+    /// Movement modes 8, 0xb and 0xc: sitting, sleeping, lounging (and 9, which the client does not keep).
+    pub sitting: bool,
     /// The current nano (stat 214).
     pub nano: i64,
 }
 
-/// FUN_1004fbe4 (`N3Msg_CastNanoSpell`'s check): why a nano program can't be cast, with the feedback line (and its number):
-/// swimming, falling, moving (the program's cast needs standing still), or less nano than its cost (stat 407 times the
-/// modifier, in percent). Dead casts nothing, silently (the movement states 8, 9, 11 and 12).
+/// FUN_1004fbe4 (`N3Msg_CastNanoSpell`'s check) up to the nano's cost: why a nano program can't be cast, with the feedback line
+/// (and its number), in the original's order (every line with the category 0x42000018): in a vehicle (stat 0x296)
+/// `Feedback_NotInVehicle`; state flag 0x800 `Feedback_ExecutingProgramsForbidden`; without state flag 2
+/// `Feedback_ExecutingProgramsUnavailable`; moving (FUN_1005a00b, the vehicle's +0x9c) `..._MustStandStill`; swimming (mode
+/// 4), crawling (5), falling (+0x52); sitting, sleeping or lounging (modes 8, 9, 0xb, 0xc)
+/// `Feedback_YouMustBeStandingUpToExecuteNanoprogram`; then less nano (stat 0xd6) than the cost (stat 0x197, FUN_1008648b, times
+/// the modifier FUN_1004e925, in percent, cut). Dead casts nothing and says nothing of itself: the client's own.
 pub fn cast_refusal(caster: Caster, cost: i64, modifier: i64) -> Option<(&'static str, Option<i64>)> {
     if caster.dead {
         return Some(("", None));
     }
-    if caster.swimming {
-        return Some(("Feedback_YouCantExecuteNanoprogramsWhileSwimming", None));
-    }
-    if caster.falling {
-        return Some(("Feedback_YouCantExecuteNanoprogramsWhileFalling", None));
-    }
-    if caster.moving {
-        return Some(("Feedback_UnableToExecuteProgramsMustStandStill", None));
+    let state = [
+        (caster.vehicle, "Feedback_NotInVehicle"),
+        (caster.forbidden, "Feedback_ExecutingProgramsForbidden"),
+        (caster.unavailable, "Feedback_ExecutingProgramsUnavailable"),
+        (caster.moving, "Feedback_UnableToExecuteProgramsMustStandStill"),
+        (caster.swimming, "Feedback_YouCantExecuteNanoprogramsWhileSwimming"),
+        (caster.crawling, "Feedback_YouCantExecuteNanoprogramsWhileCrawling"),
+        (caster.falling, "Feedback_YouCantExecuteNanoprogramsWhileFalling"),
+        (caster.sitting, "Feedback_YouMustBeStandingUpToExecuteNanoprogram"),
+    ];
+    if let Some(&(_, line)) = state.iter().find(|s| s.0) {
+        return Some((line, None));
     }
     let needed = (cost as f64 * modifier as f64 / 100.0) as i64;
     (caster.nano < needed).then_some(("Feedback_YouNeedAtLeastRemainingNano", Some(needed)))
 }
 
-/// The lines a refused cast tells, in order (`N3Msg_CastNanoSpell` 0x1001b5d4): the check's own line, when it has one, then
-/// `Feedback_UnableToExecuteOnThisTarget`, which the cast tells after every refusal of FUN_1004fbe4 (and alone for a held
-/// character, `refusal` `None`).
-pub fn refused_cast_lines(refusal: Option<(&'static str, Option<i64>)>) -> Vec<(&'static str, Option<i64>)> {
-    let mut lines: Vec<_> = refusal.into_iter().filter(|r| !r.0.is_empty()).collect();
-    lines.push(("Feedback_UnableToExecuteOnThisTarget", None));
-    lines
+/// FUN_1004fbe4's range for a nano (FUN_1008658e): its stat 0x11f (287) with the caster's stat 0x17d (381) share of it, cut,
+/// at most 40 (as a special's, [`special_range`]); the gap is the distance less both bodies.
+/// `Feedback_TargetOutOfRangeForNanoprogram` when the gap, cut to whole metres, is past it (FUN_1004fbe4);
+/// `Feedback_TargetIsOutsideRange` when the gap itself is (FUN_1004ed2f, after the line of sight).
+pub fn nano_range_line(distance: f32, range: i64, bonus: i64) -> Option<&'static str> {
+    let reach = special_range(range, bonus);
+    let gap = distance - BODY_RADIUS - BODY_RADIUS;
+    if gap as i64 > reach {
+        Some("Feedback_TargetOutOfRangeForNanoprogram")
+    } else if (reach as f64) < gap as f64 {
+        Some("Feedback_TargetIsOutsideRange")
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -293,13 +320,23 @@ mod tests {
     fn casting_needs_standing_and_nano() {
         let still = Caster { nano: 100, ..Default::default() };
         assert_eq!(cast_refusal(still, 80, 100), None);
+        // (FUN_1004fbe4's order: a vehicle before the state flags, moving before swimming, sitting last)
+        let all = Caster { vehicle: true, forbidden: true, unavailable: true, moving: true, swimming: true, crawling: true, falling: true, sitting: true, ..still };
+        assert_eq!(cast_refusal(all, 80, 100), Some(("Feedback_NotInVehicle", None)));
+        assert_eq!(cast_refusal(Caster { vehicle: false, ..all }, 80, 100), Some(("Feedback_ExecutingProgramsForbidden", None)));
+        assert_eq!(cast_refusal(Caster { forbidden: false, vehicle: false, ..all }, 80, 100), Some(("Feedback_ExecutingProgramsUnavailable", None)));
+        assert_eq!(cast_refusal(Caster { moving: true, swimming: true, ..still }, 80, 100), Some(("Feedback_UnableToExecuteProgramsMustStandStill", None)));
+        assert_eq!(cast_refusal(Caster { crawling: true, ..still }, 80, 100), Some(("Feedback_YouCantExecuteNanoprogramsWhileCrawling", None)));
+        assert_eq!(cast_refusal(Caster { sitting: true, ..still }, 80, 100), Some(("Feedback_YouMustBeStandingUpToExecuteNanoprogram", None)));
+        // (the range: 10 m and the two bodies; the gap cut to whole metres first, then the gap itself)
+        assert_eq!(nano_range_line(12.0, 10, 0), None);
+        assert_eq!(nano_range_line(12.5, 10, 0), Some("Feedback_TargetIsOutsideRange"));
+        assert_eq!(nano_range_line(13.0, 10, 0), Some("Feedback_TargetOutOfRangeForNanoprogram"));
+        assert_eq!(nano_range_line(14.9, 10, 30), None);
         assert_eq!(cast_refusal(Caster { moving: true, ..still }, 80, 100), Some(("Feedback_UnableToExecuteProgramsMustStandStill", None)));
         assert_eq!(cast_refusal(Caster { falling: true, ..still }, 80, 100), Some(("Feedback_YouCantExecuteNanoprogramsWhileFalling", None)));
         assert_eq!(cast_refusal(still, 300, 50), Some(("Feedback_YouNeedAtLeastRemainingNano", Some(150))));
-        // (every refusal ends with the cast's own line; one that says nothing of itself has that line alone)
-        assert_eq!(refused_cast_lines(cast_refusal(still, 300, 50)), [("Feedback_YouNeedAtLeastRemainingNano", Some(150)), ("Feedback_UnableToExecuteOnThisTarget", None)]);
-        assert_eq!(refused_cast_lines(cast_refusal(Caster { dead: true, ..still }, 80, 100)), [("Feedback_UnableToExecuteOnThisTarget", None)]);
-        assert_eq!(refused_cast_lines(None), [("Feedback_UnableToExecuteOnThisTarget", None)]);
+        assert_eq!(cast_refusal(Caster { dead: true, ..still }, 80, 100), Some(("", None)));
         assert_eq!(nano_cost_modifier(30, 3, true), 45);
         assert_eq!(nano_cost_modifier(100, 3, true), 100);
         assert_eq!(nano_cost_modifier(30, 3, false), 30);
