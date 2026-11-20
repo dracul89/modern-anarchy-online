@@ -19,7 +19,8 @@ use std::sync::Arc;
 use crate::gear::{GearItem, GearWindow, Icon};
 use crate::theme::Palette;
 
-/// The board's columns and rows (the original's grid grows; six by five fits its first window).
+/// The board's columns and the rows its window shows before it scrolls (six by five fits the original's first window).
+/// The rows grow as the original's grid does: a drop on a full board goes to a new row (`GetFirstFreePos`).
 pub const COLUMNS: usize = 6;
 pub const ROWS: usize = 5;
 const CELL: f32 = 40.0;
@@ -73,7 +74,7 @@ pub fn parse(text: &str) -> BTreeMap<(usize, usize), Entry> {
         let mut words = line.split_whitespace();
         let (Some(low), Some(high), Some(quality), Some(x), Some(y)) = (words.next(), words.next(), words.next(), words.next(), words.next()) else { continue };
         let (Ok(low), Ok(high), Ok(quality), Ok(x), Ok(y)) = (low.parse(), high.parse(), quality.parse(), x.parse::<usize>(), y.parse::<usize>()) else { continue };
-        if x < COLUMNS && y < ROWS {
+        if x < COLUMNS {
             cells.insert((x, y), Entry { low, high, quality, name: words.collect::<Vec<_>>().join(" "), icon: None });
         }
     }
@@ -85,9 +86,15 @@ pub fn render(cells: &BTreeMap<(usize, usize), Entry>) -> String {
 }
 
 impl KnowledgeWindow {
-    /// The first free cell, in rows.
+    /// The first free cell, in rows (`MultiListView_c::GetFirstFreePos`, FUN_100cf299): past the last row when every
+    /// cell is taken, so the board grows.
     fn first_free(&self) -> Option<(usize, usize)> {
-        (0..ROWS).flat_map(|y| (0..COLUMNS).map(move |x| (x, y))).find(|c| !self.cells.contains_key(c))
+        (0..).flat_map(|y| (0..COLUMNS).map(move |x| (x, y))).find(|c| !self.cells.contains_key(c))
+    }
+
+    /// The rows the board shows: the window's five, or as many as its items reach.
+    pub fn rows(&self) -> usize {
+        self.cells.keys().map(|(_, y)| y + 1).max().unwrap_or(0).max(ROWS)
     }
 
     /// Puts an item on the board at `cell` (the first free one when `cell` is taken by another); an item already on the
@@ -158,12 +165,15 @@ impl KnowledgeWindow {
         let mut drop_at = None;
         let mut clicked = None;
         let mut menu_action: Option<(usize, usize, bool)> = None;
+        let rows = self.rows();
         let menu = &mut self.menu;
         let mut menu_at = None;
         let cells = &self.cells;
         crate::chrome::window(ctx, palette, "Knowledge", "Knowledge", &mut is_open, |w| w.resizable(false).default_pos(crate::layout::pos("Knowledge", egui::pos2(80.0, 120.0))), |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-            for y in 0..ROWS {
+            // (more rows than the window's five scroll, as the grown grid does)
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().id_salt("knowledge-board").max_height(ROWS as f32 * (CELL + 2.0)), |ui| {
+            for y in 0..rows {
                 ui.horizontal(|ui| {
                     for x in 0..COLUMNS {
                         let (rect, response) = ui.allocate_exact_size(egui::vec2(CELL, CELL), egui::Sense::click());
@@ -196,6 +206,7 @@ impl KnowledgeWindow {
                     }
                 });
             }
+            });
             ui.add_space(4.0);
             ui.label(egui::RichText::new("Drag items from the inventory onto the board. Click one for its information.").small().weak());
         });
@@ -263,13 +274,19 @@ mod tests {
         assert_eq!(back.get(&(5, 4)).map(|e| (e.low, e.name.as_str())), Some((10, "Item 10")));
         w.remove((0, 0));
         assert_eq!(w.cells.len(), 1);
-        // (a full board refuses)
+        // (a full board grows a row: the drop goes to the first cell past it)
+        w.cells.clear();
         for y in 0..ROWS {
             for x in 0..COLUMNS {
                 w.drop((x, y), entry(100 + (y * COLUMNS + x) as u32));
             }
         }
         assert_eq!(w.cells.len(), COLUMNS * ROWS);
-        assert!(!w.drop((0, 0), entry(999)));
+        assert_eq!(w.rows(), ROWS);
+        assert!(w.drop((0, 0), entry(999)));
+        assert_eq!(w.cells.get(&(0, ROWS)).map(|e| e.low), Some(999));
+        assert_eq!(w.rows(), ROWS + 1);
+        // (and the grown rows come back from the file)
+        assert_eq!(parse(&render(&w.cells)).get(&(0, ROWS)).map(|e| e.low), Some(999));
     }
 }
