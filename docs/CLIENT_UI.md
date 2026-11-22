@@ -7100,7 +7100,7 @@ The launcher's list says so after the name (in the client's own words), and PLAY
 game's `AnarchyPatcher.exe` (ShellExecuteEx "open", 0x407d37) in the game's folder with the dimension's version and the
 game's expansion mark (`18.8.63_EP1`), and the launcher closes as Cancel closes it (mfc100 ordinal 8137, EndDialog(2)).
 The original closes whether the patcher started or not (a failure is only written down, in `Anarchy.err`); since
-2026-11-21 the client's launcher stays and says why (see "The launcher's PATCH crashed it" below). The
+2026-11-21 the client also tells why in a box once the launcher is gone (see "The launcher's PATCH crashed it" below). The
 client's own fallback dimension (no list kept or downloaded) takes the game's version, so it never asks for a patch.
 An older server is refused with a line, as the original's click check (0x40b60f) refuses it. The licence
 (`anarchy.eula`, dialog 152) is shown until it is accepted; I decline ends the launcher. Where the original remembers the
@@ -8390,13 +8390,15 @@ line says "Starting the patcher (Windows asks for permission)..." and PLAY is sw
 started, the launcher closes as the original's does. When it could not be (no `AnarchyPatcher.exe` in the folder, the
 consent refused: the shell's code 1223, any other code, or a folder name with `%` or `"` or a version from the
 dimension list with anything but letters, digits, dots, underscores and dashes, which are not put on a command line),
-the launcher stays and shows a message window "Patch" with the reason, the two versions, and that Funcom's own
-launcher (Anarchy.exe in the game's folder) can patch too; it is also written to `crash.log`. That is the client's own
-rule (LCH-052): the original closes either way. When the patch is done the patcher restarts Anarchy.exe, the
-original's launcher (its own strings: "Restarting launcher"), not this one; the message says to start Modern Anarchy
-Online again.
+the launcher closes all the same, as the original's does (the user's answer to LCH-052 on 2026-11-21: the launcher
+may be among what a patch replaces, so it is not left running), and then a box of the system's ("Modern Anarchy
+Online: Patch", rfd, on the main thread after the window is gone) gives the reason, the two versions, and that Funcom's
+own launcher (Anarchy.exe in the game's folder) can patch too; it is also written to `crash.log`. The box is the
+client's own (the original only wrote a line in `Anarchy.err`). (A first version that day kept the launcher open with
+the message in it.) When the patch is done the patcher restarts Anarchy.exe, the original's launcher (its own strings:
+"Restarting launcher"), not this one; the message says to start Modern Anarchy Online again.
 
-`MAO_LAUNCH_DEMO=patch-failed` shows the message without a patch. Tests:
+`MAO_LAUNCH_DEMO=patch-failed` closes the launcher at once and shows the box without a patch. Tests:
 `launchwindow::tests::the_patcher_is_started_through_the_shell` (the shell's line, the refused characters, a folder
 without the patcher, the message's words). Not tried: the consent box itself and a real patch (it would change the
 installed game; there is no dimension of a newer version to patch to here).

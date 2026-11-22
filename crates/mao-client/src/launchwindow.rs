@@ -52,9 +52,10 @@
 //! - PLAY is PATCH while the chosen dimension needs a patch; PATCH starts the game's `AnarchyPatcher.exe` with the
 //!   dimension's version and the game's expansion mark, in the game's folder, and the launcher closes (Anarchy.exe
 //!   0x40c13d, 0x407d37). It is started through the shell (`start_patcher`), as the original's `ShellExecuteEx` does, so
-//!   that Windows asks for the administrator's rights the patcher's manifest wants; a patcher that cannot be started is
-//!   told in a message and the launcher stays (the original closed with a line in Anarchy.err). (The page of an error
-//!   code, `ERRORURL`, is the login's: `launcher.rs`.)
+//!   that Windows asks for the administrator's rights the patcher's manifest wants. The launcher closes whatever came of
+//!   it, as the original's does (it may be among what a patch replaces); a patcher that could not be started is told in a
+//!   box of the system's once the launcher is gone (the original only wrote a line in Anarchy.err). (The page of an
+//!   error code, `ERRORURL`, is the login's: `launcher.rs`.)
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -823,12 +824,12 @@ struct Launch {
     eula: Option<String>,
     /// The licence was declined: the launcher ends.
     declined: bool,
-    /// PATCH started the patcher: the launcher ends.
+    /// PATCH was pressed and the patcher's start is answered: the launcher ends, whether it started or not.
     patching: bool,
     /// PATCH is starting the patcher: what came of it.
     patcher: Option<Receiver<Result<(), String>>>,
-    /// A message over the window until OK (the patcher could not be started).
-    notice: Option<String>,
+    /// Why the patcher could not be started: told in a box of the system's once the launcher's window is gone.
+    patch_failed: Option<String>,
 }
 
 impl Launch {
@@ -857,14 +858,14 @@ impl Launch {
             if let Some(result) = got {
                 self.patcher = None;
                 self.status.clear();
-                match result {
-                    Ok(()) => self.patching = true,
-                    Err(why) => {
-                        eprintln!("could not start the patcher: {why}");
-                        crate::crash::note(&format!("the launcher could not start the patcher: {why}"));
-                        let (name, wanted) = self.dimension().map_or((String::new(), String::new()), |d| (d.name.clone(), d.version.clone()));
-                        self.notice = Some(patch_failed_text(&why, &name, &wanted, &self.local_version, &self.game));
-                    }
+                // (the launcher closes either way, as the original's EndDialog(2) after its ShellExecuteEx: the launcher
+                // may be among what a patch replaces)
+                self.patching = true;
+                if let Err(why) = result {
+                    eprintln!("could not start the patcher: {why}");
+                    crate::crash::note(&format!("the launcher could not start the patcher: {why}"));
+                    let (name, wanted) = self.dimension().map_or((String::new(), String::new()), |d| (d.name.clone(), d.version.clone()));
+                    self.patch_failed = Some(patch_failed_text(&why, &name, &wanted, &self.local_version, &self.game));
                 }
             }
         }
@@ -897,12 +898,12 @@ impl Launch {
         let screen = ctx.content_rect();
         // (a window of no size, as a minimized one is told to be on some systems: nothing to lay out)
         if screen.width() < 8.0 || screen.height() < 8.0 {
-            return self.dialog.is_none() && self.notice.is_none() && self.prefs.page;
+            return self.dialog.is_none() && self.prefs.page;
         }
         let k = screen.width() / WIDTH;
         let at = |r: [f32; 4]| egui::Rect::from_min_size(screen.min + egui::vec2(r[0], r[1]) * k, egui::vec2(r[2], r[3]) * k);
         let whole = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        let enabled = self.dialog.is_none() && self.eula.is_none() && self.notice.is_none();
+        let enabled = self.dialog.is_none() && self.eula.is_none();
         let mut open_settings = false;
         egui::Area::new(egui::Id::unique("launcher")).order(egui::Order::Background).fixed_pos(screen.min).show(ctx, |ui| {
             ui.set_min_size(screen.size());
@@ -967,9 +968,9 @@ impl Launch {
                         // (the game's AnarchyPatcher.exe, opened in the game's folder with the dimension's version and
                         // the game's expansion mark, and the launcher closes, as Cancel closes it: Anarchy.exe 0x40c13d,
                         // 0x407d37 ShellExecuteEx "open", mfc100 ordinal 8137 EndDialog(2). The original closes on a
-                        // failure too, with only a line in Anarchy.err; here the launcher stays and says why, since a
-                        // window that just goes looks like a crash. Started off the window's thread: Windows' box
-                        // asking for the administrator's rights waits for an answer)
+                        // failure too, with only a line in Anarchy.err; here the failure is also told in a box once the
+                        // launcher is gone, since a window that just goes looks like a crash. Started off the window's
+                        // thread: Windows' box asking for the administrator's rights waits for an answer)
                         let argument = dimensions::patcher_argument(self.dimension().map_or("", |d| d.version.as_str()), self.episode);
                         let folder = PathBuf::from(&self.game);
                         let (tx, rx) = channel();
@@ -1039,19 +1040,6 @@ impl Launch {
                 None => {}
             }
         }
-        if let Some(text) = &self.notice {
-            let mut close = false;
-            egui::Window::new("Patch").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).default_width(screen.width().min(480.0) - 40.0).show(ctx, |ui| {
-                ui.label(text.as_str());
-                ui.separator();
-                if ui.button("   OK   ").clicked() {
-                    close = true;
-                }
-            });
-            if close || ctx.input(|i| i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::Enter)) {
-                self.notice = None;
-            }
-        }
         if let Some(dialog) = self.dialog.as_mut() {
             match dialog.show(ctx) {
                 Some(Closed::Ok) => {
@@ -1077,7 +1065,7 @@ impl Launch {
         }
         // (the page is a window of its own over the top: away while the settings are open over it, and when the
         // launcher's settings leave it out)
-        self.dialog.is_none() && self.eula.is_none() && self.notice.is_none() && self.prefs.page
+        self.dialog.is_none() && self.eula.is_none() && self.prefs.page
     }
 }
 
@@ -1405,7 +1393,7 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         declined: false,
         patching: false,
         patcher: None,
-        notice: None,
+        patch_failed: None,
     };
     // (the list kept from before until the server's comes; with neither, the one dimension the client knows itself, at
     // the game's own version, as it is not known: the original has no such dimension, and an empty version would need
@@ -1431,9 +1419,11 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         dialog.tab = 1;
         launch.dialog = Some(dialog);
     }
-    // (MAO_LAUNCH_DEMO=patch-failed: the message of a patcher that could not be started, for pictures)
+    // (MAO_LAUNCH_DEMO=patch-failed: the launcher closes at once and tells a patcher that could not be started, for
+    // pictures of the box)
     if std::env::var("MAO_LAUNCH_DEMO").as_deref() == Ok("patch-failed") {
-        launch.notice = Some(patch_failed_text("Windows was not given the permission it asked for (the patcher changes the game's files, so it runs as an administrator).","Rubi-Ka", "18.8.63", &launch.local_version, game));
+        launch.patching = true;
+        launch.patch_failed = Some(patch_failed_text("Windows was not given the permission it asked for (the patcher changes the game's files, so it runs as an administrator).","Rubi-Ka", "18.8.63", &launch.local_version, game));
     }
     // (MAO_LAUNCH_SETTINGS=<page 0-2>: the settings open at that page, for pictures)
     if let Some(tab) = std::env::var("MAO_LAUNCH_SETTINGS").ok().and_then(|v| v.parse::<usize>().ok()) {
@@ -1448,6 +1438,18 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
     }
     if launch.prefs != prefs {
         launch.prefs.save();
+    }
+    // (the patcher could not be started: the launcher's window is gone, as after a patch that did start, and the reason
+    // is told in a box of the system's, on this, the main thread)
+    if let Some(text) = launch.patch_failed.take() {
+        launch.gfx = None;
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            let _ = rfd::MessageDialog::new().set_level(rfd::MessageLevel::Warning).set_title("Modern Anarchy Online: Patch").set_description(text).set_buttons(rfd::MessageButtons::Ok).show();
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        eprintln!("{text}");
+        return Ok(());
     }
     if launch.restart {
         launch.gfx = None;

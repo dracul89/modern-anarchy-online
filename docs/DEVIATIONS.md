@@ -44,8 +44,8 @@ Counted from the entries' own marks on 2026-11-21. "Open" is not looked at yet; 
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 54 | 0 | 0 | 0 | 0 | **0** |
 | **medium** | 159 | 64 | 27 | 39 | 29 | 0 | **0** |
-| **low** | 727 | 222 | 53 | 394 | 56 | 0 | **2** |
-| **all** | 940 | 340 | 80 | 433 | 85 | 0 | **2** |
+| **low** | 727 | 223 | 53 | 394 | 56 | 0 | **1** |
+| **all** | 940 | 341 | 80 | 433 | 85 | 0 | **1** |
 
 ### By area
 
@@ -64,7 +64,7 @@ Counted from the entries' own marks on 2026-11-21. "Open" is not looked at yet; 
 | Camera (`CAM`) | 13 | 7 | 0 | 6 | 0 | 0 | **0** |
 | Rendering and world (`RND`) | 194 | 47 | 13 | 125 | 9 | 0 | **0** |
 | Sound and music (`SND`) | 17 | 5 | 0 | 12 | 0 | 0 | **0** |
-| Launcher, login, character creation (`LCH`) | 52 | 21 | 3 | 21 | 6 | 0 | **1** |
+| Launcher, login, character creation (`LCH`) | 52 | 22 | 3 | 21 | 6 | 0 | **0** |
 | Settings and files (`SET`) | 55 | 9 | 4 | 24 | 17 | 0 | **1** |
 | Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 2 | 0 | **0** |
 | Other (`OTH`) | 21 | 4 | 0 | 13 | 4 | 0 | **0** |
@@ -9689,13 +9689,14 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `LCH-052` A patcher that cannot be started is told, and the launcher stays
+- Done (2026-11-21, the user: "should close the launcher in case the launcher is part of a patch"): the launcher closes whether the patcher started or not, as the original's EndDialog(2) after its ShellExecuteEx; a patcher that could not be started is told in a box of the system's once the launcher's window is gone (the client's own: the original only writes Anarchy.err).
 
 - SAFETY, low (added 2026-11-21 for a tester's report)
 - Original: Anarchy.exe's PATCH (0x40c13d) starts AnarchyPatcher.exe with ShellExecuteEx "open" (0x407d37) and closes the launcher (EndDialog(2)) whether it started or not; a failure is only written to Anarchy.err.
 - Client: the patcher is started through the shell's `start` (the same ShellExecuteEx, so Windows asks for the administrator's rights); when it cannot be started the launcher stays open and a "Patch" message says why, the two versions, and that Anarchy.exe can patch too.
 - A player notices: a refused consent box or a missing patcher leaves the launcher up with a reason, where the original's launcher just went.
-- Where: `crates/mao-client/src/launchwindow.rs` (`start_patcher`, `patch_failed_text`, `Launch::screen`); `docs/CLIENT_UI.md` ("The launcher's PATCH "crashed" it")
-- Decision: [ ] keep  [ ] remove
+- Where: `crates/mao-client/src/launchwindow.rs` (`start_patcher`, `patch_failed_text`, `Launch::screen`, `run`); `docs/CLIENT_UI.md` ("The launcher's PATCH "crashed" it")
+- Decision: [ ] keep  [x] remove
 
 ## Settings and files
 

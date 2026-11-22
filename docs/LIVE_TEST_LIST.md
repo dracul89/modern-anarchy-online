@@ -1328,8 +1328,8 @@ These were written before this list; some may have been seen working since witho
 ## The tester's launcher report (2026-11-21)
 
 - [ ] **1** With a game folder older than the dimension (the list says "(needs a patch)", PLAY shows PATCH), press
-  PATCH: Windows' consent box comes; Yes starts Funcom's patcher and the launcher closes; No leaves the launcher open
-  with a "Patch" message saying the permission was not given.
+  PATCH: Windows' consent box comes; Yes starts Funcom's patcher and the launcher closes; No closes the launcher too,
+  and a "Modern Anarchy Online: Patch" box says the permission was not given.
 - [ ] **1** Launcher, SETTINGS: every page's text reads clearly on your screen, the window is solid (nothing of the
   launcher's picture shows through), and the faded window-size fields (borderless mode) are still readable.
 - [ ] **1** Launcher, SETTINGS, GUI: "Anarchy Online folder" is the first group; Browse to another copy of the game and
