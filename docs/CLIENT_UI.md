@@ -8463,17 +8463,19 @@ it); `MoveWindow`, then `GetClientRect` gives the size the device is made at.
 
 Now (`viewer.rs`, `fit_window` and `keep_on_screen`, called from `apply_mode`'s windowed branch, so for the login's
 window, the game's, F11/Alt+Enter back to a window, and after the options window sets a size): the frame is the window's
-outer size less its inner size; the framed window is made no larger than the monitor's area less a taskbar of 48
-points along the bottom (scaled by the monitor's scale), and it stays where it is when it fits there, else it is
-centred in that area. The settings keep the size asked for. The work area itself would need a Windows call the
-workspace's ban on unsafe code rules out, and winit does not give it: the 48 points are Windows 11's own taskbar, a
-guess (SET-055) that is right for a taskbar along the bottom and leaves a strip free where it is elsewhere or hidden.
+outer size less its inner size; the framed window is made no larger than the monitor's work area, and it stays where
+it is when it fits there, else it is centred in that area. The settings keep the size asked for. The work area is the
+system's, as the original reads it (`work_area`: `GetMonitorInfoW` on winit's monitor handle, `rcWork`), so a taskbar on
+any side, of any size or hidden is allowed for. That is the workspace's one call of unsafe code: the rule is `deny`
+(no longer `forbid`) with `#[allow(unsafe_code)]` on that function alone (the user's answer to SET-055 on 2026-11-21;
+the first version that day guessed a 48-point taskbar along the bottom). Other systems, and a failed call, keep that
+guess (`TASKBAR_POINTS`). The log line of a fitted window names the area and whether it was the system's.
 The client keeps no window place of its own (the original's `DisplayXPos`/`DisplayYPos`); the login's place is handed
 to the game's window (`MAO_WINDOW_AT`) as before.
 
 Seen in a test window (`mao-client <game> map 655` with `mode = windowed`, 6000x2400, on a 2560x1600 screen at 200%
-whose work area is 2560x1504): "the window's size 6000x2400 is larger than the screen: 2534x1433", the framed window
-at 0,0 to 2560,1504. Test: `viewer::window_tests::a_framed_window_is_kept_on_its_monitor`.
+whose work area is 2560x1504): "the window's size 6000x2400 is larger than the screen: 2534x1433 (the system's work
+area 0,0 2560x1504)", the framed window at 0,0 to 2560,1504. Test: `viewer::window_tests::a_framed_window_is_kept_on_its_monitor`.
 
 ### The right button's turn turns the character alone (2026-11-21, the tester's "can't turn sharply, drifts")
 

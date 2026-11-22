@@ -9,7 +9,9 @@ license = "MIT"
 publish = false
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# (deny, not forbid: one call of the system's is allowed where nothing safe gives what the original reads, marked
+# `#[allow(unsafe_code)]` and kept to a few lines: the monitor's work area, mao-client viewer.rs `work_area`)
+unsafe_code = "deny"
 
 [workspace.dependencies]
 mao-formats = { path = "crates/mao-formats" }

@@ -44,8 +44,8 @@ Counted from the entries' own marks on 2026-11-21. "Open" is not looked at yet; 
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 54 | 0 | 0 | 0 | 0 | **0** |
 | **medium** | 159 | 64 | 27 | 39 | 29 | 0 | **0** |
-| **low** | 727 | 223 | 53 | 394 | 56 | 0 | **1** |
-| **all** | 940 | 341 | 80 | 433 | 85 | 0 | **1** |
+| **low** | 727 | 223 | 54 | 394 | 56 | 0 | **0** |
+| **all** | 940 | 341 | 81 | 433 | 85 | 0 | **0** |
 
 ### By area
 
@@ -65,7 +65,7 @@ Counted from the entries' own marks on 2026-11-21. "Open" is not looked at yet; 
 | Rendering and world (`RND`) | 194 | 47 | 13 | 125 | 9 | 0 | **0** |
 | Sound and music (`SND`) | 17 | 5 | 0 | 12 | 0 | 0 | **0** |
 | Launcher, login, character creation (`LCH`) | 52 | 22 | 3 | 21 | 6 | 0 | **0** |
-| Settings and files (`SET`) | 55 | 9 | 4 | 24 | 17 | 0 | **1** |
+| Settings and files (`SET`) | 55 | 9 | 5 | 24 | 17 | 0 | **0** |
 | Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 2 | 0 | **0** |
 | Other (`OTH`) | 21 | 4 | 0 | 13 | 4 | 0 | **0** |
 
@@ -10296,13 +10296,14 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
 #### `SET-055` A framed window is kept above a guessed taskbar, not the monitor's work area
+- Done in part (2026-11-21, the user: "Read the real area"): the framed window is fitted to the monitor's work area read from the system (`viewer::work_area`, `GetMonitorInfoW` `rcWork`, as FUN_10002c67), the workspace's unsafe-code rule made `deny` with the one call allowed; other systems keep the 48-point guess. Not ported: the kept window place (`DisplayXPos`/`DisplayYPos`).
 
 - SIMPLIFIED, low (added 2026-11-21 for a tester's report)
 - Original: DisplaySystem.dll's windowed Init (FUN_10002c67) makes the framed window no larger than the monitor's work area (GetMonitorInfo rcWork) and centres it there unless its kept place (DisplayXPos/DisplayYPos) fits the virtual screen.
 - Client: the framed window is made no larger than the monitor less a 48-point taskbar along the bottom, kept where it is when it fits and else centred (`viewer::fit_window`); the work area is not read (no unsafe code; winit does not give it) and no window place is kept.
 - A player notices: with the taskbar elsewhere or hidden, an oversized window is a strip shorter than the original's; a framed window opens where Windows puts it, not where it was last.
 - Where: `crates/mao-client/src/viewer.rs` (`fit_window`, `keep_on_screen`, `apply_mode`); `docs/CLIENT_UI.md` ("A windowed size larger than the screen")
-- Decision: [ ] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
 
 ## Network and protocol
 

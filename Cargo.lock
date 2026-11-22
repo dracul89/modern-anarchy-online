@@ -2776,6 +2776,7 @@ dependencies = [
  "sysinfo",
  "time",
  "ureq",
+ "windows-sys 0.52.0",
  "winit",
  "winresource",
  "wry",

@@ -46,6 +46,9 @@ wry = { version = "=0.53.5", default-features = false, features = ["protocol"] }
 [target.'cfg(windows)'.dependencies]
 # The screenshot key's picture: the game window as it shows on the screen, its open windows and web page too.
 xcap = { version = "=0.7.1", default-features = false }
+# The monitor's work area (the screen less the taskbar), as the original's windowed start reads it: `GetMonitorInfoW`,
+# viewer.rs `work_area`. The version winit itself uses.
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 
 [lints]
 workspace = true

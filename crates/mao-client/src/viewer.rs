@@ -958,10 +958,29 @@ pub(crate) fn apply_mode(window: &Window, mode: WindowMode, monitor: u32) {
     }
 }
 
-/// The taskbar's height a framed window is kept above, in the monitor's points (Windows 11's own taskbar; the system's
-/// work area, which the original reads, is not to be had without unsafe code: a guess that holds for a taskbar along
-/// the bottom, and costs a strip of the screen where it is elsewhere or hidden).
+/// The taskbar's height a framed window is kept above, in the monitor's points, where the system does not say its work
+/// area ([`work_area`]: on other systems than Windows): Windows 11's own taskbar along the bottom.
 const TASKBAR_POINTS: f64 = 48.0;
+
+/// The monitor's work area (left, top, width, height in pixels: the screen less the taskbar, wherever it stands and
+/// however big, or hidden), as DisplaySystem.dll's windowed start reads it (FUN_10002c67: `MonitorFromWindow`,
+/// `GetMonitorInfo`, `rcWork`). `None` where the system cannot say.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn work_area(monitor: &winit::monitor::MonitorHandle) -> Option<(i32, i32, u32, u32)> {
+    use winit::platform::windows::MonitorHandleExtWindows;
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITORINFO};
+    let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, rcMonitor: windows_sys::Win32::Foundation::RECT { left: 0, top: 0, right: 0, bottom: 0 }, rcWork: windows_sys::Win32::Foundation::RECT { left: 0, top: 0, right: 0, bottom: 0 }, dwFlags: 0 };
+    // SAFETY: the handle is winit's live monitor's, and `info` is a MONITORINFO of its own size, written by the call only.
+    let ok = unsafe { GetMonitorInfoW(monitor.hmonitor(), &mut info) };
+    let r = info.rcWork;
+    (ok != 0 && r.right > r.left && r.bottom > r.top).then(|| (r.left, r.top, (r.right - r.left) as u32, (r.bottom - r.top) as u32))
+}
+
+#[cfg(not(windows))]
+fn work_area(_monitor: &winit::monitor::MonitorHandle) -> Option<(i32, i32, u32, u32)> {
+    None
+}
 
 /// A framed window's inside and place kept on its monitor, as DisplaySystem.dll's windowed start does
 /// (`D3DDisplaySystem_t` slot 3, FUN_10002c67): the framed window no wider and no taller than the monitor's work area
@@ -985,12 +1004,16 @@ pub(crate) fn keep_on_screen(window: &Window) {
     let frame = (outer.width.saturating_sub(inner.width), outer.height.saturating_sub(inner.height));
     // (a window with no place yet, as one not shown on some systems: centred)
     let place = window.outer_position().map_or((i32::MIN, i32::MIN), |p| (p.x, p.y));
-    let (at, size) = (monitor.position(), monitor.size());
-    let taskbar = (TASKBAR_POINTS * monitor.scale_factor()).round() as u32;
-    let area = (at.x, at.y, size.width, size.height.saturating_sub(taskbar));
+    let system = work_area(&monitor);
+    let area = system.unwrap_or_else(|| {
+        let (at, size) = (monitor.position(), monitor.size());
+        let taskbar = (TASKBAR_POINTS * monitor.scale_factor()).round() as u32;
+        (at.x, at.y, size.width, size.height.saturating_sub(taskbar))
+    });
     let (fitted, moved) = fit_window((inner.width, inner.height), frame, place, area);
     if fitted != (inner.width, inner.height) {
-        eprintln!("the window's size {}x{} is larger than the screen: {}x{}", inner.width, inner.height, fitted.0, fitted.1);
+        let source = if system.is_some() { "the system's" } else { "a guessed" };
+        eprintln!("the window's size {}x{} is larger than the screen: {}x{} ({source} work area {},{} {}x{})", inner.width, inner.height, fitted.0, fitted.1, area.0, area.1, area.2, area.3);
         let _ = window.request_inner_size(PhysicalSize::new(fitted.0, fitted.1));
     }
     if moved != place {
