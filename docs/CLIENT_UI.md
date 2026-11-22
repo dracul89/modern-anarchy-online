@@ -8414,3 +8414,31 @@ colour lightened 55% of the way to white (0x99ccaa becomes 209,232,217), and a s
 colour where egui's keeps 50%. Only the launcher's windows change; the game's own windows keep the theme as it is.
 Seen in pictures of the Visual and GUI pages with the original theme and with aou_slim_cni (PrintWindow of a test
 launcher started with a scratch settings folder). Test: `launchwindow::tests::the_launcher_windows_are_easy_to_read`.
+
+## A windowed size larger than the screen (2026-11-21, a tester's report)
+
+"Resolution when windowed will make a window larger than your screen. Seems like when I touched the corner it resized
+but moved." The settings' width and height (the launcher's Custom fields, its Predefined list, which offers the
+monitor's own size, and the options window) went straight to `with_inner_size`: a framed window of the monitor's own
+size or more, plus its frame, ran off the screen, and Windows cut it down to its largest size (the screen and the
+frame) at the first drag of a corner, which moved it.
+
+The original (DisplaySystem.dll, `D3DDisplaySystem_t` slot 3 Init, FUN_10002c67, windowed): the client size is
+grown by its frame (`AdjustWindowRectEx`); where the framed window is wider or taller than the monitor's work area
+(`GetMonitorInfo`'s `rcWork`) it is made the work area's width or height; it goes to its kept place
+(`DisplayXPos`/`DisplayYPos`) when it fits the virtual screen there, else it is centred (on the work area when it fits
+it); `MoveWindow`, then `GetClientRect` gives the size the device is made at.
+
+Now (`viewer.rs`, `fit_window` and `keep_on_screen`, called from `apply_mode`'s windowed branch, so for the login's
+window, the game's, F11/Alt+Enter back to a window, and after the options window sets a size): the frame is the window's
+outer size less its inner size; the framed window is made no larger than the monitor's area less a taskbar of 48
+points along the bottom (scaled by the monitor's scale), and it stays where it is when it fits there, else it is
+centred in that area. The settings keep the size asked for. The work area itself would need a Windows call the
+workspace's ban on unsafe code rules out, and winit does not give it: the 48 points are Windows 11's own taskbar, a
+guess (SET-055) that is right for a taskbar along the bottom and leaves a strip free where it is elsewhere or hidden.
+The client keeps no window place of its own (the original's `DisplayXPos`/`DisplayYPos`); the login's place is handed
+to the game's window (`MAO_WINDOW_AT`) as before.
+
+Seen in a test window (`mao-client <game> map 655` with `mode = windowed`, 6000x2400, on a 2560x1600 screen at 200%
+whose work area is 2560x1504): "the window's size 6000x2400 is larger than the screen: 2534x1433", the framed window
+at 0,0 to 2560,1504. Test: `viewer::window_tests::a_framed_window_is_kept_on_its_monitor`.

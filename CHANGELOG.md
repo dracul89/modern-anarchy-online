@@ -6,6 +6,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Windows
+
+- A window size larger than the screen (Run In Window) no longer makes a game window that runs off the screen and jumps when a corner is touched: the window is made to fit above the taskbar and centred, as the original does with its work area.
+
 ### Launcher
 
 - PATCH no longer just closes the launcher: the game's patcher must run as an administrator, and the launcher started it in a way Windows refuses for such a program, so nothing came and the launcher was gone. It is now started as the original launcher starts it, so Windows asks for that permission; if it still cannot be started, the launcher says why and stays open.

@@ -1334,3 +1334,6 @@ These were written before this list; some may have been seen working since witho
   launcher's picture shows through), and the faded window-size fields (borderless mode) are still readable.
 - [ ] **1** Launcher, SETTINGS, GUI: "Anarchy Online folder" is the first group; Browse to another copy of the game and
   OK: the launcher starts again with it (its version in the title), and the next start keeps it.
+- [ ] **1** Launcher, SETTINGS, Visual: Run In Window without Borderless, Predefined the monitor's own size (or Custom
+  larger than the screen), OK, PLAY: the login and the game windows fit above the taskbar with their title bars on the
+  screen; dragging a corner resizes from that corner without the window jumping.
