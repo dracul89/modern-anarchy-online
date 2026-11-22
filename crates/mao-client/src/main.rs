@@ -1186,6 +1186,12 @@ fn run(args: &[String]) -> Result<(), String> {
                 println!("effect {id} ({id:#x}): {} places ({own} with a colour or size of their own), template {:?}, first at {:.1?}", places.len(), kind, places[0]);
             }
             println!("{} effects, {} with a colour or a radius of their own", effects.len(), effects.iter().filter(|(e, _)| e.colour.is_some() || e.radius.is_some()).count());
+            // (MAO_EFFECT_PLACES=1: every place, with the colour and radius its connector's name gives)
+            if std::env::var("MAO_EFFECT_PLACES").is_ok() {
+                for (e, at) in &effects {
+                    println!("  {} at {:.1?} colour {:.3?} radius {:?}", e.id, at, e.colour, e.radius);
+                }
+            }
             return Ok(());
         }
     }

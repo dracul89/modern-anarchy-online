@@ -18,6 +18,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### Graphics
 
+- Lamp halos are soft glows round the lamp again: they drew as big pale see-through boxes with the glow pushed into a corner (a random piece of the halo's picture each frame, cut off by the quad's edges). The same was wrong for every single-quad effect: the tower beams and the halos over a character.
 - A nano program that takes time to cast has its caster work the nano with both hands for the whole of the cast, then throw it at the target (or take it in, cast at oneself), as in the original; before, the throw played once as the cast began and the caster stood still through the rest. (Programs the original casts at once, such as the Bureaucrat's Commanding Presence, still show no casting, as in the original.)
 
 ### Movement

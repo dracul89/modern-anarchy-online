@@ -781,8 +781,10 @@ impl GlobalSmoke {
 /// about the up axis with flag 0x2000, or set from the locator's turn with flags 0x8 and 0x10), anything else nothing. Flag 0x10
 /// follows the locator every frame; 0x20 runs the sheet's frame from the first to the last over the cycle; 0x80 blends the colour
 /// from words 15–18 to 19–22 (alpha, red, green, blue) over the cycle; 0x100 runs the width from word 11 to 12 and the height
-/// from 13 to 14, and with 0x800 adds `word 25 × sin(2π × word 26 × elapsed)` to both; 0x4 clear samples a random spot of the
-/// texture each frame instead of its frame; 0x1000 clear adds the quad to the scene, set blends it.
+/// from 13 to 14, and with 0x800 adds `word 25 × sin(2π × word 26 × elapsed)` to both; 0x1000 clear adds the quad to the scene,
+/// set blends it; 0x4 picks how (FUN_100f64a7 hands `!flag 0x4` to the visual's +0x190: clear, a `GfxVisualSprite2` adds
+/// by the source alpha, set it blends by it). The quad always shows its frame of the sheet: the visual's random spot
+/// (+0x198) is never asked for (it is not flag 0x4 clear, as this said until 2026-11-21).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sprite {
     pub attach: i32,
