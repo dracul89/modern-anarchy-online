@@ -6895,7 +6895,7 @@ Not ported:
 - **The red fade of a shortcut that cannot be used** (`GFX_GUI_ICONFADER32`).
 - **Stack counts.**
 - **A new nano program put on the primary bar** (`ShortcutNewNanos`).
-- **The bars' close**, which hides them all (`shortcutbar_window`).
+- ~~The bars' close, which hides them all (`shortcutbar_window`)~~: the option panel's hide/show box does it since 2026-11-21.
 
 Tests: `the_keys_go_to_the_primary_bars_shown_page`, `the_bars_round_trip_through_text`, `the_timer_says_seconds_then_minutes`.
 The picture is `MAO_UI_PREVIEW=shortcutbar` (`MAO_HOTBARS=2`, `MAO_HOTBAR_UPRIGHT=1`).
@@ -8388,3 +8388,16 @@ bottom in the strip, as the original's own screenshots show them.
 
 Picture: `MAO_UI_PREVIEW=chat` (now with `MAO_PREVIEW_SIZE=<w>x<h>`, the picture's size, for a screen like the
 tester's) with the game's skin and with `aou_slim_cni`: the chat window covers the menu row and the target buttons.
+
+### Adding shortcut bars from the option panel
+
+The tester: new bars "did not appear on screen" when chosen. The option panel (Interface page of the skins' own
+`OptionPanel/Root.xml`) has "Number of shortcut bars" (`NumHotbars`), "Lock shortcut bars" (`LockHotbars`) and the
+hide/show box (`shortcutbar_window`): they set the control center's values, which nothing read: the bars followed only
+this client's settings (`hotbars`, `lock_hotbars`). `ShortcutBarWindow_c` (FUN_100d9e5f) reads `NumHotbars` for the bars
+it shows. Now the panel's two options set the settings (saved in `mao.ini`, `shortcutbar::follow_options`), the
+settings are written back into the values (so the panel shows what the client's settings page set), and
+`shortcutbar_window` off hides the bars (it was listed as not ported). A new bar stands where the original's saved one
+does, else stacked up from the bottom left, as before.
+
+Test: `the_option_panel_sets_the_bars_shown_and_their_lock`.

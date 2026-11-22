@@ -196,6 +196,27 @@ pub fn save(bars: &ShortcutBars) {
     }
 }
 
+/// The option panel's shortcut bar options as they changed this frame (`changed`: the control center's values that
+/// changed, by name, as numbers): "Number of shortcut bars" (`NumHotbars`, 1 to 10, which `ShortcutBarWindow_c` FUN_100d9e5f
+/// reads for the bars it shows) and "Lock shortcut bars" (`LockHotbars`), taken into this client's own settings of them,
+/// which the bars are drawn by. Whether either changed.
+pub fn follow_options(changed: &[(String, f64)], hotbars: &mut u8, locked: &mut bool) -> bool {
+    let mut any = false;
+    if let Some(n) = changed.iter().rev().find(|c| c.0 == "NumHotbars").map(|c| c.1.round().clamp(1.0, BARS as f64) as u8)
+        && *hotbars != n
+    {
+        *hotbars = n;
+        any = true;
+    }
+    if let Some(on) = changed.iter().rev().find(|c| c.0 == "LockHotbars").map(|c| c.1 != 0.0)
+        && *locked != on
+    {
+        *locked = on;
+        any = true;
+    }
+    any
+}
+
 /// A shortcut's time left as the original writes it over the icon (`ItemIconView_c`, `IconTimerText`): seconds up to a
 /// minute (`%2ds`), else whole minutes (`%2dm`).
 pub fn timer_text(left: f32) -> String {
@@ -241,6 +262,20 @@ mod tests {
         bars.bars[2].cells[0] = Some(Action::Item { id: 291043, name: "Health and Nano Stim".into(), icon: Some(17) });
         assert_eq!(from_text(&to_text(&bars)), bars);
         assert_eq!(from_text(""), ShortcutBars::default());
+    }
+
+    /// The option panel's slider and check box set the bars shown and the lock (they set values nothing read before).
+    #[test]
+    fn the_option_panel_sets_the_bars_shown_and_their_lock() {
+        let (mut n, mut locked) = (1u8, false);
+        assert!(!follow_options(&[("ViewDistance".into(), 0.5)], &mut n, &mut locked));
+        assert!(follow_options(&[("NumHotbars".into(), 3.0)], &mut n, &mut locked));
+        assert_eq!((n, locked), (3, false));
+        assert!(!follow_options(&[("NumHotbars".into(), 3.0)], &mut n, &mut locked));
+        assert!(follow_options(&[("NumHotbars".into(), 14.0), ("LockHotbars".into(), 1.0)], &mut n, &mut locked));
+        assert_eq!((n, locked), (10, true));
+        assert!(follow_options(&[("NumHotbars".into(), 0.0), ("LockHotbars".into(), 0.0)], &mut n, &mut locked));
+        assert_eq!((n, locked), (1, false));
     }
 
     #[test]

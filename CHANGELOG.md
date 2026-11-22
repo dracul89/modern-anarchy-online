@@ -9,6 +9,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Interface
 
 - The control center lies behind every window, as in the original: a window moved to the bottom of the screen goes over its buttons, wings and strips alike, no longer between its buttons and the NCU/credits strip.
+- The option panel's "Number of shortcut bars", "Lock shortcut bars" and "Hide/show shortcut bars" work: more bars appear when the number is raised (the options set values the bars did not read).
 
 ## 0.1.8 (2026-11-20)
 

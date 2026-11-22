@@ -1210,6 +1210,7 @@ impl Ui {
             if control_center.is_none() && crate::skin::skin(&ctx).is_some() {
                 *control_center = crate::gui::controlcenter::ControlCenter::load(&ctx);
             }
+            let mut shortcut_bars_shown = true;
             if let Some(cc) = control_center.as_mut() {
                 let out = cc.show(&ctx, palette, &hud.stats, &|n| cc_open.iter().any(|(m, on)| *m == n && *on));
                 cc_windows = out.windows;
@@ -1231,6 +1232,24 @@ impl Ui {
                     settings.char_distance = if (5.0..=80.0).contains(&metres) { metres.round() } else { 70.0 };
                     settings.save();
                 }
+                // (the option panel's "Number of shortcut bars" and "Lock shortcut bars" are this client's settings of them,
+                // `NumHotbars` and `LockHotbars`, which FUN_100d9e5f reads: until 2026-11-21 they set values nothing read,
+                // and a bar added there never came. The other way too: the settings into the values, which the panel
+                // shows.)
+                if crate::shortcutbar::follow_options(&out.changed, &mut settings.hotbars, &mut settings.lock_hotbars) {
+                    settings.save();
+                }
+                {
+                    use crate::gui::variant::Variant;
+                    if cc.store.get("NumHotbars").map(Variant::as_double) != Some(f64::from(settings.hotbars)) {
+                        cc.store.set("NumHotbars", Variant::from(i32::from(settings.hotbars)));
+                    }
+                    if cc.store.get("LockHotbars").map(Variant::as_bool) != Some(settings.lock_hotbars) {
+                        cc.store.set("LockHotbars", Variant::from(settings.lock_hotbars));
+                    }
+                }
+                // (and its "Hide/show shortcut bars", `shortcutbar_window`)
+                shortcut_bars_shown = cc.store.get("shortcutbar_window").is_none_or(|v| v.as_bool());
                 for command in out.commands {
                     if let Some(line) = chat_window.run(&command) {
                         requests.chat.push(line);
@@ -1277,7 +1296,7 @@ impl Ui {
             }
             if settings.smart_hotbar {
                 hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
-            } else {
+            } else if shortcut_bars_shown {
                 shortcut_layer(&ctx, shortcut_bars, settings.hotbars as usize, settings.lock_hotbars, gear, &hud.gear, &*actions, &mut requests);
             }
             wt = crate::prof::lap("ui-w-cc", wt);

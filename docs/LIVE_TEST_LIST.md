@@ -1330,3 +1330,6 @@ These were written before this list; some may have been seen working since witho
 - [ ] **1** Drag the chat window down over the bottom of the screen: it covers the control center's buttons (the menu
   row, the target buttons, the rollup) as it covers its wings and strips. The buttons still work where nothing covers
   them, and a menu a button opens shows over the windows.
+- [ ] **1** In the option panel (Options menu), set "Number of shortcut bars" to 3: two more bars appear, stacked up from
+  the bottom left (or where the original's prefs had them). Tick "Lock shortcut bars": a bar's strip no longer drags.
+  Untick the hide/show box: the bars go; tick it: they come back. Restart: the number and the lock are kept (`mao.ini`).
