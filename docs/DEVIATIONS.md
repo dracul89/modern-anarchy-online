@@ -38,34 +38,34 @@ client does today, what a player notices, and where it is in the code.
 <!-- status: made by status.py; run it again after marking entries -->
 ## Where it stands
 
-Counted from the entries' own marks on 2026-11-20. "Open" is not looked at yet; "looked at, left" was read and not ported for a reason its entry gives; "kept by decision" is your answer to keep the client's way.
+Counted from the entries' own marks on 2026-11-21. "Open" is not looked at yet; "looked at, left" was read and not ported for a reason its entry gives; "kept by decision" is your answer to keep the client's way.
 
 | | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **high** | 54 | 54 | 0 | 0 | 0 | 0 | **0** |
 | **medium** | 159 | 64 | 27 | 39 | 29 | 0 | **0** |
-| **low** | 725 | 220 | 51 | 398 | 56 | 0 | **0** |
-| **all** | 938 | 338 | 78 | 437 | 85 | 0 | **0** |
+| **low** | 727 | 222 | 53 | 394 | 56 | 0 | **2** |
+| **all** | 940 | 340 | 80 | 433 | 85 | 0 | **2** |
 
 ### By area
 
 | Area | all | done | part done | looked at, left | kept by decision | your call | open |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Movement (`MOV`) | 33 | 14 | 0 | 15 | 4 | 0 | **0** |
+| Movement (`MOV`) | 33 | 15 | 1 | 13 | 4 | 0 | **0** |
 | Combat (`CMB`) | 39 | 20 | 7 | 11 | 1 | 0 | **0** |
-| Targeting and mouse (`TGT`) | 17 | 8 | 2 | 7 | 0 | 0 | **0** |
+| Targeting and mouse (`TGT`) | 17 | 8 | 3 | 6 | 0 | 0 | **0** |
 | Death and revival (`DTH`) | 14 | 7 | 0 | 7 | 0 | 0 | **0** |
 | NPCs and creatures (`NPC`) | 40 | 19 | 5 | 15 | 1 | 0 | **0** |
 | Inventory and items (`INV`) | 84 | 38 | 11 | 30 | 5 | 0 | **0** |
-| Nano programs (`NAN`) | 60 | 16 | 6 | 35 | 3 | 0 | **0** |
+| Nano programs (`NAN`) | 60 | 17 | 6 | 34 | 3 | 0 | **0** |
 | Zoning and playfields (`ZON`) | 28 | 8 | 1 | 15 | 4 | 0 | **0** |
 | Chat and commands (`CHT`) | 80 | 38 | 7 | 29 | 6 | 0 | **0** |
 | Windows and interface (`WIN`) | 180 | 75 | 19 | 63 | 23 | 0 | **0** |
 | Camera (`CAM`) | 13 | 7 | 0 | 6 | 0 | 0 | **0** |
 | Rendering and world (`RND`) | 194 | 47 | 13 | 125 | 9 | 0 | **0** |
 | Sound and music (`SND`) | 17 | 5 | 0 | 12 | 0 | 0 | **0** |
-| Launcher, login, character creation (`LCH`) | 51 | 21 | 3 | 21 | 6 | 0 | **0** |
-| Settings and files (`SET`) | 54 | 9 | 4 | 24 | 17 | 0 | **0** |
+| Launcher, login, character creation (`LCH`) | 52 | 21 | 3 | 21 | 6 | 0 | **1** |
+| Settings and files (`SET`) | 55 | 9 | 4 | 24 | 17 | 0 | **1** |
 | Network and protocol (`NET`) | 13 | 2 | 0 | 9 | 2 | 0 | **0** |
 | Other (`OTH`) | 21 | 4 | 0 | 13 | 4 | 0 | **0** |
 
@@ -9690,7 +9690,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 #### `LCH-052` A patcher that cannot be started is told, and the launcher stays
 
-- SAFETY, low (added by hand on 2026-11-21 for a tester's report; the counts in the tables above were not raised)
+- SAFETY, low (added 2026-11-21 for a tester's report)
 - Original: Anarchy.exe's PATCH (0x40c13d) starts AnarchyPatcher.exe with ShellExecuteEx "open" (0x407d37) and closes the launcher (EndDialog(2)) whether it started or not; a failure is only written to Anarchy.err.
 - Client: the patcher is started through the shell's `start` (the same ShellExecuteEx, so Windows asks for the administrator's rights); when it cannot be started the launcher stays open and a "Patch" message says why, the two versions, and that Anarchy.exe can patch too.
 - A player notices: a refused consent box or a missing patcher leaves the launcher up with a reason, where the original's launcher just went.
@@ -10293,7 +10293,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 
 #### `SET-055` A framed window is kept above a guessed taskbar, not the monitor's work area
 
-- SIMPLIFIED, low (added by hand on 2026-11-21 for a tester's report; the counts in the tables above were not raised)
+- SIMPLIFIED, low (added 2026-11-21 for a tester's report)
 - Original: DisplaySystem.dll's windowed Init (FUN_10002c67) makes the framed window no larger than the monitor's work area (GetMonitorInfo rcWork) and centres it there unless its kept place (DisplayXPos/DisplayYPos) fits the virtual screen.
 - Client: the framed window is made no larger than the monitor less a 48-point taskbar along the bottom, kept where it is when it fits and else centred (`viewer::fit_window`); the work area is not read (no unsafe code; winit does not give it) and no window place is kept.
 - A player notices: with the taskbar elsewhere or hidden, an oversized window is a strip shorter than the original's; a framed window opens where Windows puts it, not where it was last.
