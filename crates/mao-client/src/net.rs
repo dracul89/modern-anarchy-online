@@ -188,6 +188,12 @@ struct World {
     entities: BTreeMap<u32, ([f32; 3], usize)>,
     /// When each entity last changed position (for the walk cycle).
     last_move: BTreeMap<u32, Instant>,
+    /// Each other character's movement as its movement messages left it, which moves it between them (`OtherMove`,
+    /// `move_others`).
+    others_move: BTreeMap<u32, OtherMove>,
+    /// Where each other character is drawn while it catches up with the place a movement message put it at (the
+    /// original's reconcile point, `reconcile`); none when it is drawn where it is.
+    drawn: BTreeMap<u32, [f32; 3]>,
     /// When each last jumped (the jump and landing animations).
     jumped: BTreeMap<u32, Instant>,
     /// When each was last heard of and its speed in units a second.
@@ -1914,6 +1920,10 @@ impl World {
                     // the state flags, above.)
                     if begin && on.1 != self.own {
                         self.paths.remove(&on.1);
+                        // (and a character moving by its movement messages stops: the full stop's transition)
+                        if let Some(m) = self.others_move.get_mut(&on.1) {
+                            m.transition(mao_net::n3::movement::FULL_STOP);
+                        }
                     }
                 }
                 crate::spelllist::Outcome::Control { state, begin, told } => {
@@ -5016,6 +5026,13 @@ impl World {
                 None => {}
             }
             let player = info.is_player();
+            // (a player already moving as it is announced moves on from its announced status until its next movement
+            // message: the announcement's vehicle block, FUN_1006f587, `OtherMove::announced`)
+            if player && m.identity.1 != self.own {
+                if let Some(status) = info.move_status {
+                    self.others_move.entry(m.identity.1).or_default().announced(status);
+                }
+            }
             self.names.insert(m.identity.1, (info.name.clone(), player));
             // (a creature's level, its `Level` stat as FUN_1007835c sets it from the update: the tags' colour, `N3Msg_Consider`)
             if let Some(level) = info.level.filter(|&l| l > 0) {
@@ -5096,6 +5113,16 @@ impl World {
         if m.identity.1 == self.own && position.is_some() && std::env::var("MAO_TRACE").is_ok_and(|v| v == "1") {
             eprintln!("own place from the server: {:#x} {:?} (movement {:?})", m.kind, position, m.movement().map(|x| x.0));
         }
+        // (another character's movement message: its transition, and the drawn place left where it was to catch up with
+        // the new one, as the original's CharDCMove handler does: `OtherMove`, `reconcile`)
+        if let (Some((kind, _, _)), Some(p), true) = (m.movement(), position, m.identity.1 != self.own) {
+            let id = m.identity.1;
+            if let Some(&(at, _)) = self.entities.get(&id) {
+                let drawn = self.drawn.get(&id).copied().unwrap_or(at);
+                self.drawn.insert(id, drawn);
+            }
+            self.others_move.entry(id).or_default().heard(kind, p, Instant::now());
+        }
         if let Some(p) = position {
             let e = self.entities.entry(m.identity.1).or_insert((p, 0));
             let moved = ((e.0[0] - p[0]).powi(2) + (e.0[2] - p[2]).powi(2)).sqrt();
@@ -5127,6 +5154,91 @@ impl World {
             Some(&walking) => !walking,
             None => speed > 2.2,
         }
+    }
+
+    /// Moves the other characters on between their movement messages for `dt` seconds, as their vehicles do in the
+    /// original (`OtherMove`): along their facing at their speed, turned at their turn rate during a key turn, the height
+    /// following the tile-map's ground (`ground`, at x and z) where there is one; and eases where each is drawn towards
+    /// its place (`reconcile`). The creatures the server walks (`paths`) and the dead are left to their own.
+    fn move_others(&mut self, dt: f32, ground: &dyn Fn(f32, f32) -> Option<f32>) {
+        let now = Instant::now();
+        let own = self.own;
+        let entities = &self.entities;
+        self.others_move.retain(|id, _| *id != own && entities.contains_key(id));
+        self.drawn.retain(|id, _| *id != own && entities.contains_key(id));
+        let ids: Vec<u32> = self.others_move.keys().copied().collect();
+        for id in ids {
+            let m = self.others_move[&id];
+            if self.dead.contains_key(&id) || self.paths.contains_key(&id) {
+                continue;
+            }
+            let stats = self.others_stats.get(&id).cloned().unwrap_or_default();
+            if m.turn != 0 {
+                let q = self.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                let heading = 2.0 * q[1].atan2(q[3]) + m.turn as f32 * turn_rate(&stats, m.moving()) * dt;
+                self.rotations.insert(id, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
+            }
+            if !m.moving() {
+                continue;
+            }
+            // (the speeds: walking 1.5; swimming the swim's; running by its `RunSpeed` as one's own, told by a `Stat` or the
+            // announcement, else the speed its messages were apart at, else a `RunSpeed` of 0's 5 forward and 3 back)
+            let told = stats.get(&156).copied().or_else(|| self.infos.get(&id).and_then(|i| i.run_speed).map(i64::from));
+            let health = self.health.get(&id).copied();
+            let speed_stats = BTreeMap::from([(156, told.unwrap_or(0)), (27, health.map_or(0, |h| h.0)), (1, health.map_or(0, |h| h.1))]);
+            let (forward, back) = if self.walk_modes.get(&id).copied().unwrap_or(false) {
+                (WALK_SPEED, WALK_SPEED)
+            } else if self.swimming.contains(&id) {
+                let s = swim_speed(&speed_stats);
+                (s, s)
+            } else {
+                match (told, m.measured) {
+                    (None, Some(v)) => (v.clamp(1.5, 13.0), v.clamp(1.05, 9.1)),
+                    _ => movement_speeds(&speed_stats),
+                }
+            };
+            let q = self.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
+            let heading = 2.0 * q[1].atan2(q[3]);
+            let [sx, sz] = m.step(heading, forward, back, dt);
+            if let Some(e) = self.entities.get_mut(&id) {
+                let at = e.0;
+                let to = [at[0] + sx, at[1], at[2] + sz];
+                let rise = match (ground(at[0], at[2]), ground(to[0], to[2])) {
+                    (Some(a), Some(b)) => b - a,
+                    _ => 0.0,
+                };
+                e.0 = [to[0], at[1] + rise, to[2]];
+            }
+            self.last_move.insert(id, now);
+            self.speeds.insert(id, if m.walk < 0 { back } else { forward });
+            self.backing.insert(id, m.walk < 0);
+        }
+        let drawn: Vec<(u32, [f32; 3])> = self.drawn.iter().map(|(&id, &d)| (id, d)).collect();
+        for (id, d) in drawn {
+            match self.entities.get(&id).and_then(|e| reconcile(d, e.0, dt)) {
+                Some(next) => {
+                    self.drawn.insert(id, next);
+                }
+                None => {
+                    self.drawn.remove(&id);
+                }
+            }
+        }
+    }
+
+    /// Whether another character shows its movement animations: by its movement messages once it has sent one (moving
+    /// from a start to its stop), else (the creatures the server walks, a character not yet heard moving) while its place
+    /// changed within the last `within`.
+    fn shows_moving(&self, id: u32, within: Duration) -> bool {
+        match self.others_move.get(&id) {
+            Some(m) if !self.paths.contains_key(&id) => m.moving(),
+            _ => self.last_move.get(&id).is_some_and(|t| t.elapsed() < within),
+        }
+    }
+
+    /// Where another character is drawn: its place, or the reconcile point while it catches up with it (`reconcile`).
+    fn drawn_place(&self, id: u32, at: [f32; 3]) -> [f32; 3] {
+        self.drawn.get(&id).copied().unwrap_or(at)
     }
 
     /// Walks the creatures the server set on a path or after a target (`paths`) for `dt` seconds; `own` is one's own place.
@@ -6356,6 +6468,120 @@ fn seated_keys(_forward: bool, _back: bool, _strafe: i8, _jump: bool) -> (bool, 
 
 /// How fast the character turns by key (radians a second), as FUN_1006ca4f sets `CharVehicle_t`'s +0x368: `TurnSpeed`
 /// (stat 267) / 11000, halved while moving; without the stat 3.5 standing and 1.5 moving.
+/// Another character's movement as its movement messages (CharDCMove) leave it. The original's handler of the message
+/// (Gamecode FUN_1006bd94 → FUN_1006c20f) puts the character at the message's place and turn, keeps where it was drawn
+/// (`UpdateReconcilePos`), and, while the character's stat 224 has bit 4 (bit 2: the turns 9 to 0xe only), runs the
+/// movement's transition on it (FUN_1006f51b, the table of FUN_1006cb58) as on one's own; its vehicle then moves it
+/// between messages as one's own moves. A moving player sends a message only as its movement changes and a full report
+/// after 5 s without one, so a client that only set the characters at the messages' places showed them standing and then
+/// jumping metres on: the tester's "other characters teleport around, very choppy when moving" (2026-11-21).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct OtherMove {
+    /// Forward (1), backward (-1) or neither, as the transitions 1 to 4 leave it.
+    walk: i8,
+    /// Sideways right (1), left (-1) or neither (5 to 8).
+    strafe: i8,
+    /// A key turn under way, right (1) or left (-1), at the turn rate: the mouse's starts (10, 0xd) turn at none
+    /// (`MouseTurnRightStartTransitionAction_t` sets the rate 0, FUN_1006dad9; the messages bring its heading).
+    turn: i8,
+    /// The last message's place and time, and whether the character moved from there (for `measured`).
+    last: Option<([f32; 3], Instant, bool)>,
+    /// The speed the last two messages of a move were apart at, for a character whose `RunSpeed` was never told.
+    measured: Option<f32>,
+}
+
+impl OtherMove {
+    /// The movement transition `kind` (FUN_1006cb58's cases): a start sets its direction, its stop ends only that
+    /// direction (2 only going forward, 4 only going back, 6 only going right, 8 only going left, 11 only turning right,
+    /// 14 only turning left); the full stop (0x15) and being frozen, sitting, sleeping or lounging end everything.
+    fn transition(&mut self, kind: u8) {
+        match kind {
+            1 => self.walk = 1,
+            2 if self.walk == 1 => self.walk = 0,
+            3 => self.walk = -1,
+            4 if self.walk == -1 => self.walk = 0,
+            5 => self.strafe = 1,
+            6 if self.strafe == 1 => self.strafe = 0,
+            7 => self.strafe = -1,
+            8 if self.strafe == -1 => self.strafe = 0,
+            9 => self.turn = 1,
+            12 => self.turn = -1,
+            10 | 13 => self.turn = 0,
+            11 if self.turn >= 0 => self.turn = 0,
+            14 if self.turn <= 0 => self.turn = 0,
+            0x15 | 0x17 | 0x1e | 0x21 | 0x22 => (self.walk, self.strafe, self.turn) = (0, 0, 0),
+            _ => {}
+        }
+    }
+
+    /// A movement message of `kind` that put the character at `at`: its transition, and the speed it went at since the
+    /// last one when it moved all the way between them (a second or more apart, within 0.5 and 20 a second).
+    fn heard(&mut self, kind: u8, at: [f32; 3], now: Instant) {
+        if let Some((before, then, true)) = self.last {
+            let seconds = now.duration_since(then).as_secs_f32();
+            let speed = ((at[0] - before[0]).powi(2) + (at[2] - before[2]).powi(2)).sqrt() / seconds.max(1e-3);
+            if seconds >= 1.0 && (0.5..20.0).contains(&speed) {
+                self.measured = Some(self.measured.map_or(speed, |old| 0.5 * old + 0.5 * speed));
+            }
+        }
+        let was = self.moving();
+        self.transition(kind);
+        self.last = Some((at, now, was && self.moving()));
+    }
+
+    fn moving(&self) -> bool {
+        self.walk != 0 || self.strafe != 0
+    }
+
+    /// The movement an announcement's status gives (`EntityInfo::move_status`): walking (state 2) forward (1) or back
+    /// (2), sidestepping (2) left (3) or right (4); a turn under way is not taken (its rate is not in the status).
+    fn announced(&mut self, status: [u8; 4]) {
+        self.walk = match (status[0], status[1]) {
+            (2, 1) => 1,
+            (2, 2) => -1,
+            _ => 0,
+        };
+        self.strafe = match (status[2], status[3]) {
+            (2, 4) => 1,
+            (2, 3) => -1,
+            _ => 0,
+        };
+    }
+
+    /// The step over `dt` seconds for a character facing `heading` (0 along +z, growing towards +x) at the speeds
+    /// `forward` and `back`: along the facing, the sidestep across it at the forward speed, together no faster than that
+    /// (as one's own vehicle steps). The step in x and z.
+    fn step(&self, heading: f32, forward: f32, back: f32, dt: f32) -> [f32; 2] {
+        let along = match self.walk {
+            1 => forward,
+            -1 => -back,
+            _ => 0.0,
+        };
+        let side = self.strafe as f32 * forward;
+        let (mut vx, mut vz) = (heading.sin() * along + heading.cos() * side, heading.cos() * along - heading.sin() * side);
+        let total = (vx * vx + vz * vz).sqrt();
+        if total > forward && total > 0.0 {
+            (vx, vz) = (vx * forward / total, vz * forward / total);
+        }
+        [vx * dt, vz * dt]
+    }
+}
+
+/// Where another character is drawn while it catches up with the place a movement message put it at: the original's
+/// `n3VisualDynel_t::Run` (N3.dll 0x100196bd) eases its reconcile point (the place it was drawn at when the message came,
+/// `UpdateReconcilePos` 0x10019414) a fifth of the way to the character's place each frame (0.8 and 0.2,
+/// `_DAT_1003d9c4`, `_DAT_1003ce50`) and draws it there, while the two are under 35 apart (1225, the squares compared) and
+/// at least 0.2 (0.04); nearer it is dropped and the character drawn at its place, further it is drawn at its place. The
+/// share is taken per sixtieth of a second (`camera::keep_for`), as the camera's smoothing is. None: drawn at `at`.
+fn reconcile(drawn: [f32; 3], at: [f32; 3], dt: f32) -> Option<[f32; 3]> {
+    let d2 = (0..3).map(|k| (drawn[k] - at[k]).powi(2)).sum::<f32>();
+    if !(0.04..1225.0).contains(&d2) {
+        return None;
+    }
+    let keep = crate::camera::keep_for(0.8, dt * crate::camera::ORIGINAL_FPS);
+    Some([0, 1, 2].map(|k| drawn[k] * keep + at[k] * (1.0 - keep)))
+}
+
 fn turn_rate(stats: &BTreeMap<u32, i64>, moving: bool) -> f32 {
     match stats.get(&267).copied().unwrap_or(0) {
         0 if moving => 1.5,
@@ -7537,11 +7763,13 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         if !include(id) {
             continue;
         }
+        // (another character is drawn where it catches up with its place: `reconcile`)
+        let position = if id == world.own { position } else { world.drawn_place(id, position) };
         let q = world.rotations.get(&id).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
         let place = model::multiply(&model::trs_matrix(position, q, [1.0; 3]), &swap);
         let deform = world.deforms.get(&id).map(|(d, at)| (d, at.elapsed().as_secs_f32()));
         if let (Some(info), Some(chars)) = (world.infos.get(&id).filter(|i| i.template.is_some() && !world.grid), characters.as_mut()) {
-            let moving = world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(900));
+            let moving = world.shows_moving(id, Duration::from_millis(900));
             // (one the server sent running runs: its own run where its template has one)
             let action = match (moving, world.path_runs.contains(&id)) {
                 (true, true) => mao_formats::appearance::Action::Run,
@@ -7582,7 +7810,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
         let craft = world.crafts.get(&id).copied().filter(|c| !world.grid && world.morphs.get(&id).is_none_or(|m| *m == c.0));
         let creature = if world.grid { Some(GRID_TEMPLATE) } else { world.morphs.get(&id).copied().or(craft.map(|c| c.0)) };
         if let (Some(creature), Some(chars)) = (creature, characters.as_mut()) {
-            let moving = if id == world.own { world.own_moving } else { world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(700)) };
+            let moving = if id == world.own { world.own_moving } else { world.shows_moving(id, Duration::from_millis(700)) };
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
             use mao_formats::appearance::Action;
             let action = match world.strafing.get(&id).copied().unwrap_or(0) {
@@ -7619,7 +7847,7 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 Some((template, slot))
             });
             // Movement animates while the position changes (our own is sampled every frame, the others' every few hundred ms).
-            let moving = if id == world.own { world.own_moving } else { world.last_move.get(&id).is_some_and(|t| t.elapsed() < Duration::from_millis(700)) };
+            let moving = if id == world.own { world.own_moving } else { world.shows_moving(id, Duration::from_millis(700)) };
             let speed = world.speeds.get(&id).copied().unwrap_or(0.0);
             // The original's choice (FUN_1006c370): a sidestep plays walk-left/right, moving against the facing the back
             // animations; walking is 1.5 units a second and running from 3 (backwards) or 5, so 2.2 tells them apart.
@@ -11894,6 +12122,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             state.rotations.insert(own, n3::pitched_rotation(heading, elevation));
             // (the creatures the server walks: along their paths, after their targets)
             state.walk_paths(dt, position);
+            // (and the other characters between their movement messages)
+            state.move_others(dt, &|x, z| terrain.as_ref().map(|t| t.height_at(x, z, t.height_scale)));
             // (and the others fighting turn the same way, between the server's rotations)
             let fighters: Vec<(u32, u32)> = state.fighting.iter().map(|(&a, &b)| (a, b)).filter(|&(id, _)| id != own).collect();
             state.facings.retain(|id, _| *id == own || state.fighting.contains_key(id));
@@ -15048,6 +15278,76 @@ mod door_tests {
         // (oneself leaving: the team and the raid are gone)
         w.add(&Message { kind: 0x5e477770, identity: (0xc350, own), data: hex("0000000020000000000000c3507b1a002102a3b8ffffffffff0000") }.frame(1));
         assert!(crate::team::with(|t| t.members.is_empty() && t.raid.is_none() && t.others.iter().all(Vec::is_empty)));
+    }
+
+    /// Another character moves on between its movement messages as its vehicle does in the original (CharDCMove's
+    /// transition, FUN_1006bd94): a forward start sends it along its facing at its run speed (5 a second with a `RunSpeed`
+    /// never told), its stop halts it; a message's new place is caught up with by the drawn place, a fifth of the way a
+    /// frame (`reconcile`), not jumped to; and it shows its movement animations from start to stop, not by its place.
+    #[test]
+    fn others_move_between_their_messages() {
+        let hex = |s: &str| (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        let (own, other) = (0x10, 0x20);
+        let mut w = World { own, ..World::default() };
+        // (facing +x: the rotation's y and w at 45 degrees; at x 3609.1, height 52.26, z 785.9)
+        let moved = |kind: u8, x: f32| {
+            let mut d = hex("0001000000003f3504f3000000003f3504f34561914842510f5b44447cb3000000000000000000000000");
+            d[1] = kind;
+            d[18..22].copy_from_slice(&x.to_be_bytes());
+            Message { kind: n3::POSITION_UPDATE, identity: (0xc350, other), data: d }.frame(1)
+        };
+        w.add(&moved(n3::movement::FORWARD_START, 3609.0));
+        assert!(w.shows_moving(other, Duration::ZERO));
+        for _ in 0..60 {
+            w.move_others(1.0 / 60.0, &|_, _| None);
+        }
+        let at = w.entities[&other].0;
+        assert!((at[0] - 3614.0).abs() < 0.01 && (at[2] - 785.947).abs() < 0.01 && (at[1] - 52.265).abs() < 0.01, "{at:?}");
+        // (a report puts it two metres further on: drawn from where it was, closing a fifth of the gap a frame)
+        w.add(&moved(n3::movement::FULL, 3616.0));
+        assert_eq!(w.drawn_place(other, w.entities[&other].0)[0], at[0]);
+        w.move_others(1.0 / 60.0, &|_, _| None);
+        let (drawn, place) = (w.drawn_place(other, w.entities[&other].0)[0], w.entities[&other].0[0]);
+        assert!((place - (3616.0 + 5.0 / 60.0)).abs() < 1e-3 && (drawn - (at[0] * 0.8 + place * 0.2)).abs() < 1e-3, "{drawn} {place}");
+        // (running on, the drawn place keeps a third of a metre behind: 5 a second, four fifths of a frame's step kept)
+        for _ in 0..60 {
+            w.move_others(1.0 / 60.0, &|_, _| None);
+        }
+        let lag = w.entities[&other].0[0] - w.drawn_place(other, w.entities[&other].0)[0];
+        assert!((lag - 5.0 / 60.0 * 4.0).abs() < 0.01, "{lag}");
+        // (the stop halts it where the message says, the drawn place comes to it, and its animations stop with it)
+        w.add(&moved(n3::movement::FORWARD_STOP, 3625.0));
+        w.move_others(1.0, &|_, _| None);
+        w.move_others(1.0 / 60.0, &|_, _| None);
+        assert_eq!(w.entities[&other].0[0], 3625.0);
+        assert_eq!(w.drawn_place(other, w.entities[&other].0), w.entities[&other].0);
+        assert!(!w.shows_moving(other, Duration::from_secs(3600)));
+        // (the ground's rise is followed where the tile map has one)
+        w.add(&moved(n3::movement::FORWARD_START, 3625.0));
+        w.move_others(1.0, &|x, _| Some(x * 0.1));
+        assert!((w.entities[&other].0[1] - (52.265 + 0.5)).abs() < 0.01, "{:?}", w.entities[&other].0);
+    }
+
+    /// The transitions as FUN_1006cb58 takes them: a stop ends only its own direction, a start the other way turns it
+    /// round, the full stop and sitting end everything, the mouse's turn starts turn at no rate.
+    #[test]
+    fn another_characters_transitions_are_the_tables() {
+        let mut m = OtherMove::default();
+        for (kind, walk, strafe, turn) in [(1, 1, 0, 0), (4, 1, 0, 0), (3, -1, 0, 0), (2, -1, 0, 0), (7, -1, -1, 0), (6, -1, -1, 0), (5, -1, 1, 0), (9, -1, 1, 1), (14, -1, 1, 1), (11, -1, 1, 0), (12, -1, 1, -1), (10, -1, 1, 0), (0x16, -1, 1, 0), (0x1e, 0, 0, 0)] {
+            m.transition(kind);
+            assert_eq!((m.walk, m.strafe, m.turn), (walk, strafe, turn), "after {kind}");
+        }
+        m.announced([2, 2, 2, 3]);
+        assert_eq!((m.walk, m.strafe), (-1, -1));
+        m.announced([1, 1, 1, 0]);
+        assert!(!m.moving());
+        // (sideways and forward together no faster than forward)
+        m.walk = 1;
+        m.strafe = 1;
+        let [x, z] = m.step(0.0, 5.0, 3.0, 1.0);
+        assert!(((x * x + z * z).sqrt() - 5.0).abs() < 1e-4 && x > 0.0 && z > 0.0);
+        assert_eq!(reconcile([0.0; 3], [0.1, 0.0, 0.0], 1.0 / 60.0), None);
+        assert_eq!(reconcile([0.0; 3], [40.0, 0.0, 0.0], 1.0 / 60.0), None);
     }
 
     /// Another character walks or runs by its movement mode (`WALK_MODE` 0x18 / `RUN_MODE` 0x19 as the server passes them

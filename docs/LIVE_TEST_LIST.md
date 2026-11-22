@@ -1331,3 +1331,9 @@ These were written before this list; some may have been seen working since witho
   quickly left and right, then stop: the character turns exactly with the mouse and stops when it stops; the camera
   stays behind it (lock) or comes round behind it (rubber). Let go and drag again: no jump or drift at the new drag's
   start. Up and down tilt the camera. Pressing the right button without moving turns nothing.
+
+- [ ] **1** Stand in a busy place (Arete Landing, Old Athen's square) and watch other players run past: they move
+  smoothly the whole way, at about the pace they really run, with no jump every few seconds; they run while they move and
+  stand idle when they stop, with no burst of running on the spot. A player who turns while running curves smoothly.
+- [ ] **2** A player already running as they come into sight runs on (not standing until their next message).
+

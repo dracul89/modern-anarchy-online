@@ -8391,3 +8391,40 @@ preferences, and the press leaves `keys.face` empty. With Ctrl the right drag is
 one is. Test: `the_right_drag_turns_the_character_by_the_mouse_alone` (a locked camera, a drag there and back: the
 character ends where it began and the camera behind it). Not changed: the original's limit on the turn while stat
 224's bits 2 or 4 are set (that and stat 267), and the head turn handed over at a first-person look's end.
+
+### Other characters move between their messages (2026-11-21, the tester's "other characters teleport around")
+
+The tester: "Other characters teleport around, very choppy when moving. When standing, animations" (the sentence is cut
+off there; taken to mean that standing characters' animations look wrong too). A moving player sends a movement message
+only as its movement changes and a full report after 5 s without one (`movement::FULL`), and the client set each other
+character at each message's place and did nothing between: a runner stood still, then jumped up to 60 m on. Its
+animation went by its place having changed in the last 0.7 s, so it ran for 0.7 s after each jump and stood between,
+and a standing character whose report moved it a few centimetres ran on the spot for 0.7 s.
+
+The original: the handler of a character's CharDCMove (Gamecode FUN_1006bd94 → FUN_1006c20f) keeps where the character
+was drawn (`n3VisualDynel_t::UpdateReconcilePos`, N3.dll 0x10019414), sets the message's place and turn, and runs the
+message's movement transition on the character's movement status (FUN_1006f51b; FUN_1006cb58's table, the same as for
+one's own) while its stat 224 has bit 4 (with bit 2 only, the turns 9 to 0xe). Its vehicle then moves it every frame as
+one's own vehicle moves. `n3VisualDynel_t::Run` (0x100196bd) draws it at the reconcile point, which it moves a fifth of
+the way to the character's place each frame (0.8 and 0.2) while the two are between 0.2 and 35 apart (the squares 0.04
+and 1225 compared), and drops nearer; further apart it is drawn at its place. The announcement's vehicle block
+(FUN_1006f587: the velocity, then the status bytes FUN_10070981 reads) gives the status of one already moving as it comes
+into sight.
+
+Here: `net::OtherMove` (forward, back, the sidesteps and the key turns as the transitions leave them: a stop ends only
+its own direction, a start the other way turns it round, the full stop, sitting, sleeping, lounging and being frozen end
+all; the mouse's turn starts turn at no rate, their heading comes in the messages), `World::move_others` each frame (along
+the facing at the character's speed: walking 1.5, swimming the swim's, running by its `RunSpeed` as one's own when a `Stat`
+or the announcement told it, else the speed its last two messages of one move were apart at, else a `RunSpeed` of 0's 5
+forward and 3 back; sideways at the forward speed, together no faster; the height following the tile map's ground where
+there is one), `net::reconcile` (per sixtieth of a second, as the camera's smoothing is, `camera::keep_for`), the drawn
+place used for the body (`World::drawn_place`), and the movement animations by the status (`World::shows_moving`; the
+creatures the server walks along paths keep theirs by their place). `EntityInfo::move_status` reads the four status
+bytes after the mode (bytes 13 to 16 of the block, players and creatures alike); a player announced moving starts so.
+Tests: `others_move_between_their_messages`, `another_characters_transitions_are_the_tables`, and over the captures
+`the_announced_movement_status_is_the_vehicles` (1404 players announced, 191 walking forward, each one's next movement
+message a stop, a report, a jump or a turn, never a fresh start). Guessed: the measured speed for a player whose
+`RunSpeed` is not told (the original knows every character's); stat 224 is taken to have bit 4 for every other
+character (the client does not keep the others' stat 224). Not ported: the others' collision (they walk through walls
+until the next message puts them right, as in the original only where the server has them).
+

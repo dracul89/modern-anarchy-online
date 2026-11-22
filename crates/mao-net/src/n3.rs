@@ -57,6 +57,8 @@ pub mod movement {
     pub const FULL: u8 = 22;
     /// The periodic report while moving is the full one.
     pub const UPDATE: u8 = FULL;
+    /// Every movement ended at once (`FullStopTransitionAction_t`, case 0x15 of the table).
+    pub const FULL_STOP: u8 = 0x15;
     /// Switching the movement mode (cases 0x17..0x1d: frozen, walk, run, swim, crawl, sneak, fly).
     pub const WALK_MODE: u8 = 0x18;
     pub const RUN_MODE: u8 = 0x19;
@@ -1841,6 +1843,43 @@ mod tests {
         assert!(by_name.len() > 20);
     }
 
+    /// The announced movement status (`MAO_CAPTURES`): the walk state, its direction, the sidestep's state and direction
+    /// are each one of the values FUN_1006cb58 sets (0 where nothing was set), and a player announced walking forward
+    /// (state 2, direction 1) is, by the next movement message it sends, still going forward or stopping (1, 2 or a report),
+    /// never starting forward again or going back from a stand.
+    #[test]
+    fn the_announced_movement_status_is_the_vehicles() {
+        let Some(dir) = std::env::var_os("MAO_CAPTURES") else { return };
+        let (mut players, mut moving, mut agreed) = (0, 0, 0);
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let Ok(text) = std::fs::read_to_string(entry.path().join("dump.txt")) else { continue };
+            let lines: Vec<&str> = text.lines().filter(|l| l.contains("bytes: ")).collect();
+            for (n, line) in lines.iter().enumerate().filter(|(_, l)| l.contains(" kind 271b3a6b ")) {
+                let bytes = |l: &str| -> Vec<u8> {
+                    let h = l.rsplit("bytes: ").next().unwrap().trim();
+                    (0..h.len() / 2).map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap()).collect()
+                };
+                let Some(info) = (Message { kind: ENTITY_INFO, identity: (CHARACTER, 1), data: bytes(line) }).entity_info() else { continue };
+                let Some(status) = info.move_status.filter(|_| info.is_player()) else { continue };
+                players += 1;
+                assert!(status[0] <= 2 && status[1] <= 2 && status[2] <= 2 && (status[3] <= 1 || (3..=4).contains(&status[3])), "{} {status:?}", info.name);
+                if status[..2] != [2, 1] {
+                    continue;
+                }
+                moving += 1;
+                // (the same character's next movement message: the identity is in the line as "(c350,<hex>)")
+                let Some(who) = line.split_whitespace().find(|w| w.starts_with("(c350,")) else { continue };
+                let next = lines[n + 1..].iter().find(|l| l.contains(" kind 54111123 ") && l.split_whitespace().any(|w| w == who));
+                if let Some(next) = next {
+                    let kind = bytes(next).get(1).copied().unwrap_or(0);
+                    assert!(matches!(kind, 1 | 2 | 0x15 | 5..=15 | 0x16 | 0x18 | 0x19), "{} announced moving, then {kind}", info.name);
+                    agreed += 1;
+                }
+            }
+        }
+        eprintln!("announced players {players}, {moving} of them walking forward, {agreed} followed by a movement");
+    }
+
     /// CMB-016: the captured creatures' full updates with the flags' bit 0x100 (`MAO_CAPTURES`) each list natural weapons, every code
     /// of four letters, the two code words alike; the Engineer Automaton of the 16:55 capture has "ENW2" and "ENW1".
     #[test]
@@ -2082,6 +2121,11 @@ pub struct EntityInfo {
     /// the walking and running ones, and 8, sitting on the ground, for the wounded dockworkers and protesters of
     /// Arete Landing and a few seated NPCs.
     pub move_mode: Option<u8>,
+    /// The movement status after the mode in the same block (bytes 13 to 16, Gamecode FUN_10070981's +8 to +0x14): the
+    /// walk state (1 standing, 2 moving), its direction (1 forward, 2 back), the sidestep's state (1, 2) and its
+    /// direction (3 left, 4 right); the same block for a player as for a creature. What a character already moving as it
+    /// comes into sight moves by until its next movement message.
+    pub move_status: Option<[u8; 4]>,
     /// A creature's `RunSpeed` as it is announced: after the block comes the head's mesh (4 bytes, when flag 0x80 is
     /// set) and then this, a byte, or two when flag 0x2000 is set. Measured over the captures' 5,600 creature
     /// announcements (the bytes up to the nano list's count are these and, with flag 0x400, the one fought); and a
@@ -2226,7 +2270,7 @@ pub const PATH_RUN: u8 = 0x19;
 /// byte, a short with flag 0x2000), and with flag 0x800000 the byte of [`EntityInfo::kept_scale`] (read only where
 /// the flags 0x10 and 0x400, whose fields were not laid out here, are both clear, as on every rider in the captures).
 /// The three after the scale: the movement mode, the kept scale and the robe flag (the byte after the scale's short).
-fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, flags2: u32) -> Option<(u32, u16, Option<u8>, Option<u8>, Option<u8>)> {
+fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, flags2: u32) -> Option<(u32, u16, Option<u8>, Option<u8>, Option<u8>, Option<[u8; 4]>)> {
     let take = |at: &mut usize, n: usize| -> Option<&[u8]> {
         let b = d.get(*at..*at + n)?;
         *at += n;
@@ -2255,10 +2299,13 @@ fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, fl
     let monster = u32::from_be_bytes(take(&mut at, 4)?.try_into().ok()?);
     let scale = u16::from_be_bytes(take(&mut at, 2)?.try_into().ok()?);
     let robe = d.get(at + 2).copied();
+    let mut status = None;
     let mut rest = || -> Option<(u8, Option<u8>)> {
         take(&mut at, 3)?;
         let length = u32::from_be_bytes(take(&mut at, 4)?.try_into().ok()?) as usize;
-        let mode = *take(&mut at, length)?.get(12)?;
+        let block = take(&mut at, length)?;
+        let mode = *block.get(12)?;
+        status = block.get(13..17).and_then(|b| b.try_into().ok());
         let kept = (|| {
             (flags & 0x80_0000 != 0 && flags & 0x410 == 0).then_some(())?;
             take(&mut at, if flags & 0x80 != 0 { 4 } else { 0 } + if flags & 0x2000 != 0 { 2 } else { 1 })?;
@@ -2267,7 +2314,7 @@ fn player_monster_and_scale(d: &[u8], mut at: usize, version: u8, flags: u32, fl
         Some((mode, kept))
     };
     let (mode, kept) = rest().map_or((None, None), |(mode, kept)| (Some(mode), kept));
-    Some((monster, scale, mode, kept, robe))
+    Some((monster, scale, mode, kept, robe, status))
 }
 
 /// What a creature's entity message says of it after the second flags word and the `i32` after it, read in the order of
@@ -2291,6 +2338,7 @@ struct Creature {
     /// a velocity of three floats (FUN_1000404e) and then the status bytes (FUN_10070981), whose first goes to +4, the
     /// movement mode FUN_10070a2f returns.
     move_mode: Option<u8>,
+    move_status: Option<[u8; 4]>,
     run_speed: Option<u16>,
     /// The byte after the scale's short (`+0x32e`), the robe flag ([`EntityInfo::robe`]).
     robe: Option<u8>,
@@ -2326,6 +2374,9 @@ fn creature_fields(d: &[u8], mut at: usize, flags: u32) -> Option<Creature> {
             let byte = take(1)? as u8;
             if k == 12 {
                 creature.move_mode = Some(byte);
+            }
+            if (13..17).contains(&k) {
+                creature.move_status.get_or_insert([0; 4])[k - 13] = byte;
             }
         }
         if flags & 0x80 != 0 {
@@ -2826,16 +2877,17 @@ impl Message {
         let (template, scale) = creature.as_ref().map_or((None, None), |c| (c.template.filter(|&t| t != 0), c.scale));
         let creature_robe = creature.as_ref().and_then(|c| c.robe);
         // (a player's: no template, which would have it drawn as a creature, but its scale and its monster body)
-        let (monster, scale, player_mode, kept_scale, robe) = match player_monster_and_scale(d, at, version, flags, flags2).filter(|_| flags & 1 == 0) {
-            Some((monster, scale, mode, kept, robe)) => (Some(monster), Some(scale), mode, kept, robe),
-            None => (None, scale, None, None, creature_robe),
+        let (monster, scale, player_mode, kept_scale, robe, player_status) = match player_monster_and_scale(d, at, version, flags, flags2).filter(|_| flags & 1 == 0) {
+            Some((monster, scale, mode, kept, robe, status)) => (Some(monster), Some(scale), mode, kept, robe, status),
+            None => (None, scale, None, None, creature_robe, None),
         };
         let move_mode = creature.as_ref().and_then(|c| c.move_mode).or(player_mode);
+        let move_status = creature.as_ref().and_then(|c| c.move_status).or(player_status);
         let run_speed = creature.as_ref().and_then(|c| c.run_speed);
         let refuses = d.last().is_some_and(|&b| b != 0);
         let (family, pet_type, health) = creature.as_ref().map_or((None, None, None), |c| (Some(c.family), Some(c.pet_type), Some(c.health)));
         let level = creature.as_ref().map(|c| c.level);
-        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, run_speed, level, natural_weapons, refuses })
+        Some(EntityInfo { version, flags, playfield, fighting, position, rotation, breed, sex, side, fatness, name, flags2, unknown_a0: model, textures, clothes, meshes, template, scale, monster, kept_scale, robe, health, family, pet_type, move_mode, move_status, run_speed, level, natural_weapons, refuses })
     }
 }
 
