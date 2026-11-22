@@ -8455,3 +8455,13 @@ table: the hand 5,1, the four-way drag 16,16, the drags 6,16 and 16,6, the wait 
 Tests: `usable_things_get_the_blue_arrow_and_their_use`, `characters_are_coloured_by_what_they_are_to_oneself`,
 `the_mode_and_the_parts`, `the_parts_put_together_from_the_games_skin` (with `MAO_GAME`; `MAO_POINTER_PNG=<file>`
 writes the composed pointer).
+
+### The inventory widened: items keep their cells (the original's way; nothing changed)
+
+The tester: widening the inventory, the empty squares filled the new width while the items stayed in as many columns
+as before. That is the original's grid while its items are placed by hand (`Don't Auto Arrange`, an own container's
+default): each item keeps its own cell, a column and a row (`MultiListViewItem_c::SetGridPos`, an `IPoint`, kept in
+`item_position_map`), the cells shown follow the width (`RecalcCellCount` 0x10134ad2), and the grid is never narrower
+than the columns the items reach (`RecalcVirtualSize` 0x10134944). The items move only when put elsewhere, or when the
+grid is arranged (`Order` in the window's menu, which lays them along the rows of the width shown) and then let be
+(`SetAutoArrange(false)` 0x101371db: each item keeps the cell the arranging gave it), as here (`invwindows.rs`).
