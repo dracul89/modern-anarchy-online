@@ -562,6 +562,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Looked at, left (2026-11-19, overnight): The original's jump is the transition JumpStart (type 15, FUN_1006cb58) driving the animation controller's jump-start/loop/land actions while Vehicle.dll's jump runs the body until it lands; the client's fixed 1400/350 ms stand in for that controller, whose jump states were not read. Needs the controller's jump states read and a live comparison.
 
 #### `MOV-009` Others count as moving for a fixed 700 ms
+- Done (2026-11-21, the tester's "other characters teleport around, very choppy when moving"): ported. Each other character's movement status follows its movement messages (`net::OtherMove`: FUN_1006cb58's transitions, the announcement's status bytes FUN_10070981 for one already moving), `World::move_others` moves it between them along its facing at its speed, the drawn place eases to each message's place as `n3VisualDynel_t::Run`'s reconcile point does (0.8/0.2 a frame, between 0.2 and 35 apart: `net::reconcile`), and its movement animations go by the status (`World::shows_moving`); the creatures the server walks keep theirs. The captures do hold server-sent 0x54111123 (1404 announced players checked by `the_announced_movement_status_is_the_vehicles`). Guessed: stat 224 bit 4 for every other character.
 
 - SIMPLIFIED, low
 - Original: not stated
@@ -630,6 +631,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Looked at, left (2026-11-19, overnight): What forward, back and jump do while seated in the original is decided in the transition table FUN_1006cb58's per-mode handling and was not read to the end tonight; the client's rule is the user's own word ("seated cannot move"), so it is kept until the table is read.
 
 #### `MOV-015` Speed of other characters smoothed from position reports
+- Done in part (2026-11-21, with MOV-009): another player's speed is its `RunSpeed`, told by a `Stat` or read from its announcement (the byte or two after the head's mesh, as a creature's, `player_monster_and_scale`); the speed its messages were apart at stands in only where neither came (a guess: the original always has the stat). The smoothed report speed is left for the walk/run choice where no mode is known.
 
 - GUESS, low
 - Original: not stated
@@ -3104,6 +3106,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Looked at, left (2026-11-19, overnight): The original takes cast/tracer heights from the bodies' attractors; the client's effect code has no per-body attractor heights for others (NAN-018); graphics, pictures only.
 
 #### `NAN-015` Cast animation is only self or directed
+- Done (2026-11-21, the tester's "no animation when casting nano"): the three stats are not the server's: `NanoItem_t`'s constructor (FUN_100866ee → FUN_10086142) gives every nano object 376 = 0xcb `spell-sys`, 377 = 0xc9 `spell-dir`, 378 = 0xca `spell-self` (the note above, "the stat table's default is 1234567890", was wrong), and no template overrides them. Ported: the gathering loops `spell-sys` for the cast's time, then the release plays once (`net::CastAnimation`). Left: the turn to face the target before the release (state 7); creatures still cast without an animation.
 
 - SIMPLIFIED, low
 - Original: not stated (the library also has spell-gen, spell-sys, spell-self_02, unarmed-spell1-3)
