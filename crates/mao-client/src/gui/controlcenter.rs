@@ -233,6 +233,8 @@ pub struct ControlCenter {
     tree: Tree,
     root: Id,
     popups: Vec<Popup>,
+    /// The layers the menu rows and the mini toolbars were drawn on in the last frame ([`ControlCenter::raise`]).
+    layers: Vec<egui::LayerId>,
 }
 
 impl ControlCenter {
@@ -289,7 +291,7 @@ impl ControlCenter {
             }
         }
         eprintln!("control center: {} views from {}", tree.nodes.len(), dirs.first().map_or(String::new(), |d| d.display().to_string()));
-        Some(ControlCenter { store, docks: Default::default(), dirs, tree, root, popups: Vec::new() })
+        Some(ControlCenter { store, docks: Default::default(), dirs, tree, root, popups: Vec::new(), layers: Vec::new() })
     }
 
     fn holds(&self, criteria: &str, stats: &BTreeMap<u32, i64>) -> bool {
@@ -385,11 +387,17 @@ impl ControlCenter {
         let menus: Vec<Id> = (0..self.tree.nodes.len()).filter(|&i| self.tree.get(i).control.as_any().is::<CCMenuView>() && self.tree.is_visible(i)).collect();
         let mut clicked: Option<(Entry, egui::Rect, bool, usize)> = None;
         let mut dragged: Option<Entry> = None;
+        self.layers.clear();
         for id in menus {
             let rect = super::host::screen_rect(&self.tree, id, screen.min);
             let Some(view) = self.tree.get(id).control.as_any().downcast_ref::<CCMenuView>() else { continue };
             let entries: Vec<(Entry, egui::Vec2)> = view.entries.iter().zip(&view.sizes).zip(&view.shown).filter(|(_, on)| **on).map(|((e, s), _)| (e.clone(), *s)).collect();
-            egui::Area::new(egui::Id::unique(("cc-menu", id))).fixed_pos(rect.min).order(egui::Order::Foreground).show(ctx, |ui| {
+            // (the control center is one window, put behind all the others: `ControlCenterModule_c::LoadMenues`,
+            // 0x10068580, `Window::MoveToBack` after FUN_1006f911 made it. Its buttons on the background layer too, so a
+            // window goes over all of it, not between its buttons and its strips.)
+            let area = egui::Id::unique(("cc-menu", id));
+            self.layers.push(egui::LayerId::new(egui::Order::Background, area));
+            egui::Area::new(area).fixed_pos(rect.min).order(egui::Order::Background).show(ctx, |ui| {
                 let mut x = rect.left();
                 for (e, size) in &entries {
                     let r = egui::Rect::from_min_size(egui::pos2(x, rect.bottom() - size.y), *size);
@@ -412,7 +420,9 @@ impl ControlCenter {
             let rect = super::host::screen_rect(&self.tree, id, screen.min);
             let Some(bar) = self.tree.get(id).control.as_any().downcast_ref::<MiniToolbar>() else { continue };
             let sizes = bar.sizes.clone();
-            egui::Area::new(egui::Id::unique(("cc-mini-toolbar", id))).fixed_pos(rect.min).order(egui::Order::Foreground).show(ctx, |ui| {
+            let area = egui::Id::unique(("cc-mini-toolbar", id));
+            self.layers.push(egui::LayerId::new(egui::Order::Background, area));
+            egui::Area::new(area).fixed_pos(rect.min).order(egui::Order::Background).show(ctx, |ui| {
                 let mut x = rect.left();
                 for ((dv, tip_text, off, on), size) in MINI_TOOLBAR.iter().zip(&sizes) {
                     let r = egui::Rect::from_min_size(egui::pos2(x, rect.top()), *size);
@@ -523,6 +533,15 @@ impl ControlCenter {
         out
     }
 
+    /// Puts the menu rows and the mini toolbars over the wings (`vitals::show_docked` raises the strips and its buttons the
+    /// same way): all of them on the background layer, under every window, as the original's one control center window
+    /// behind the others.
+    pub fn raise(&self, ctx: &egui::Context) {
+        for layer in &self.layers {
+            ctx.move_to_top(*layer);
+        }
+    }
+
     /// The rollup's click: the wings fold away, or come back.
     pub fn toggle_rollup(&mut self) {
         let rolled = self.docks.rolled;
@@ -601,7 +620,7 @@ mod tests {
         let entry = crate::gui::menu::entries(&doc[0].children).remove(0);
         let stats = BTreeMap::new();
         for auto in [false, true] {
-            let mut cc = ControlCenter { store: Store::default(), docks: Default::default(), dirs: Vec::new(), tree: Tree::default(), root: 0, popups: Vec::new() };
+            let mut cc = ControlCenter { store: Store::default(), docks: Default::default(), dirs: Vec::new(), tree: Tree::default(), root: 0, popups: Vec::new(), layers: Vec::new() };
             cc.store.set("AutoCloseWindows", Variant::from(auto));
             cc.store.set("wear_window", Variant::from(true));
             cc.store.set("nano_window", Variant::from(true));

@@ -268,6 +268,27 @@ pub struct Pickable {
     pub shape: Shape,
     /// One's own character.
     pub own: bool,
+    /// What the pointer over it shows (`crate::pointer::world`).
+    pub class: Class,
+}
+
+/// What a thing under the pointer is, for the pointer's look (GUI.dll `InputConfig_t::CheckObjectUnderMouse`, 0x1001a33f):
+/// the facts of the thing and of oneself it reads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Class {
+    /// Nothing to show (identity types 0 and 0x9c52, and 0x9c47, which only marks the press).
+    #[default]
+    Nothing,
+    /// One's own character.
+    Own,
+    /// A non-player character: `friendly` its state flags (stat 224) have 0x20000000, `talks` its flags (stat 0) have 2 in
+    /// bits 22 and 23.
+    Npc { friendly: bool, talks: bool },
+    /// Another player: `mate` in one's team (stat 6, the team, the same and not 0), `same_side` its side (stat 33) one's
+    /// own, `vulnerable` its state flags have 0x4000001 or `N3Msg_HasVulnerableFightMode` holds.
+    Player { mate: bool, same_side: bool, vulnerable: bool },
+    /// Anything else: its `Can` stat (30), where it is known.
+    Thing { can: Option<i64> },
 }
 
 /// The list: everything within [`GATHER`] of `from` that the line meets, nearest first; one's own character is left out
@@ -417,7 +438,7 @@ mod tests {
     use super::*;
 
     fn post(id: (u32, u32), x: f32, y: f32, radius: f32, height: f32, own: bool) -> Pickable {
-        Pickable { kind: id.0, id: id.1, at: [x, y, 0.0], shape: Shape::Post { feet: [x, y, 0.0], radius, height }, own }
+        Pickable { kind: id.0, id: id.1, at: [x, y, 0.0], shape: Shape::Post { feet: [x, y, 0.0], radius, height }, own, class: Class::default() }
     }
 
     #[test]

@@ -419,7 +419,7 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
     // `LeftBarView_c` (FUN_10070040): within borders 6, 2, 23, 2, "NCU" and the NCU in use of the most (stats 180 and 181,
     // `%u/%u`), then at the right end "CRED" and the credits (stat 61, `FormatNumeric`), 5 pixels after each label
     if let Some(rect) = d.left_bar {
-        egui::Area::new(egui::Id::unique("cc-left-bar")).fixed_pos(rect.min).interactable(false).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("cc-left-bar")).fixed_pos(rect.min).interactable(false).order(egui::Order::Background).show(ctx, |ui| {
             ui.allocate_exact_size(rect.size(), egui::Sense::hover());
             let painter = ui.painter();
             skin.draw(painter, "GFX_GUI_CONTROLCENTER_BOTTOM_LEFT", rect.min, 1.0, white);
@@ -436,7 +436,7 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
     // `RightBarView_c` (FUN_1007077c): within borders 23, 2, 6, 2, "DEF", the slider of the aggression setting (stat 51,
     // -100 defensive to 100 aggressive; `N3Msg_SetAggDef` when let go) and "AGG", 5 pixels between them
     if let Some(rect) = d.right_bar {
-        egui::Area::new(egui::Id::unique("cc-right-bar")).fixed_pos(rect.min).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("cc-right-bar")).fixed_pos(rect.min).order(egui::Order::Background).show(ctx, |ui| {
             ui.allocate_exact_size(rect.size(), egui::Sense::hover());
             let painter = ui.painter().clone();
             skin.draw(&painter, "GFX_GUI_CONTROLCENTER_BOTTOM_RIGHT", rect.min, 1.0, white);
@@ -518,7 +518,7 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
         // (at the bottom of its dock, whose area above is where windows dock)
         let size = skin.get("GFX_GUI_ROLLUP_COLLAPSE_STATE1").map_or(egui::vec2(15.0, 15.0), |s| s.size);
         let at = egui::pos2(dock.right() - size.x, dock.bottom() - size.y);
-        egui::Area::new(egui::Id::unique("cc-rollup")).fixed_pos(at).order(egui::Order::Foreground).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique("cc-rollup")).fixed_pos(at).order(egui::Order::Background).show(ctx, |ui| {
             let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
             let state = if response.is_pointer_button_down_on() { 3 } else if response.hovered() { 2 } else { 1 };
             skin.draw(ui.painter(), &format!("GFX_GUI_ROLLUP_{}_STATE{state}", if d.rolled { "EXPAND" } else { "COLLAPSE" }), rect.min, 1.0, accent);
@@ -533,7 +533,7 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
         (d.right_target, "target_next", "GFX_GUI_CONTROLCENTER_TARGET_ICON_OTHER", "Attack the target"),
     ] {
         let Some(rect) = rect else { continue };
-        egui::Area::new(egui::Id::unique(window)).fixed_pos(rect.min).order(egui::Order::Foreground).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique(window)).fixed_pos(rect.min).order(egui::Order::Background).show(ctx, |ui| {
             let (rect, response) = ui.allocate_exact_size(rect.size(), egui::Sense::click());
             let state = if response.is_pointer_button_down_on() { "_STATE3" } else if response.hovered() { "_STATE2" } else { "" };
             skin.draw(ui.painter(), &format!("GFX_GUI_CONTROLCENTER_TARGET_BUTTON{state}"), rect.min, 1.0, egui::Color32::WHITE);
@@ -544,6 +544,13 @@ pub fn show_docked(ctx: &egui::Context, yaw: f32, stats: &BTreeMap<u32, i64>, pa
                 out.target = Some(window);
             }
         });
+    }
+    // (all of it on the background layer, under every window: the original's control center is one window put behind the
+    // others, `ControlCenterModule_c::LoadMenues` 0x10068580. Within it the wings under the strips and the buttons, as the
+    // skins' ControlCenter.xml lists them: these, and the menu rows (`ControlCenter::raise`), are put over the rest of the
+    // background layer each frame, the wings never are. egui keeps the order among layers raised in the same frame.)
+    for name in ["cc-left-bar", "cc-right-bar", "cc-rollup", "target_self", "target_next"] {
+        ctx.move_to_top(egui::LayerId::new(egui::Order::Background, egui::Id::unique(name)));
     }
     out
 }

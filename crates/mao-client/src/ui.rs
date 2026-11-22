@@ -674,9 +674,11 @@ impl Ui {
         crate::pointer::reset();
     }
 
-    /// Sets the window's pointer to the skin's picture of the one egui wants.
-    pub fn pointer(&self, event_loop: &winit::event_loop::ActiveEventLoop, window: &Window, cursor: egui::CursorIcon) {
-        crate::pointer::apply(event_loop, window, &self.ctx, cursor);
+    /// Sets the window's pointer to the skin's picture of the one egui wants; over the world (no window under the pointer)
+    /// the look of what is there (`world`, `pointer::world`).
+    pub fn pointer(&self, event_loop: &winit::event_loop::ActiveEventLoop, window: &Window, cursor: egui::CursorIcon, world: Option<crate::pointer::Look>) {
+        let world = world.filter(|_| !self.ctx.is_pointer_over_egui() && self.ctx.dragged_id().is_none());
+        crate::pointer::apply(event_loop, window, &self.ctx, cursor, world);
     }
 
     /// Gives the interface a window event; true when it used the event (the
@@ -1210,6 +1212,7 @@ impl Ui {
             if control_center.is_none() && crate::skin::skin(&ctx).is_some() {
                 *control_center = crate::gui::controlcenter::ControlCenter::load(&ctx);
             }
+            let mut shortcut_bars_shown = true;
             if let Some(cc) = control_center.as_mut() {
                 let out = cc.show(&ctx, palette, &hud.stats, &|n| cc_open.iter().any(|(m, on)| *m == n && *on));
                 cc_windows = out.windows;
@@ -1231,6 +1234,24 @@ impl Ui {
                     settings.char_distance = if (5.0..=80.0).contains(&metres) { metres.round() } else { 70.0 };
                     settings.save();
                 }
+                // (the option panel's "Number of shortcut bars" and "Lock shortcut bars" are this client's settings of them,
+                // `NumHotbars` and `LockHotbars`, which FUN_100d9e5f reads: until 2026-11-21 they set values nothing read,
+                // and a bar added there never came. The other way too: the settings into the values, which the panel
+                // shows.)
+                if crate::shortcutbar::follow_options(&out.changed, &mut settings.hotbars, &mut settings.lock_hotbars) {
+                    settings.save();
+                }
+                {
+                    use crate::gui::variant::Variant;
+                    if cc.store.get("NumHotbars").map(Variant::as_double) != Some(f64::from(settings.hotbars)) {
+                        cc.store.set("NumHotbars", Variant::from(i32::from(settings.hotbars)));
+                    }
+                    if cc.store.get("LockHotbars").map(Variant::as_bool) != Some(settings.lock_hotbars) {
+                        cc.store.set("LockHotbars", Variant::from(settings.lock_hotbars));
+                    }
+                }
+                // (and its "Hide/show shortcut bars", `shortcutbar_window`)
+                shortcut_bars_shown = cc.store.get("shortcutbar_window").is_none_or(|v| v.as_bool());
                 for command in out.commands {
                     if let Some(line) = chat_window.run(&command) {
                         requests.chat.push(line);
@@ -1262,6 +1283,7 @@ impl Ui {
                     &with_ncu
                 };
                 let clicks = crate::vitals::show_docked(&ctx, hud.camera_yaw, stats, &hud.stat_parts, palette, &cc.docks);
+                cc.raise(&ctx);
                 if clicks.rollup {
                     cc.toggle_rollup();
                 }
@@ -1276,7 +1298,7 @@ impl Ui {
             }
             if settings.smart_hotbar {
                 hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
-            } else {
+            } else if shortcut_bars_shown {
                 shortcut_layer(&ctx, shortcut_bars, settings.hotbars as usize, settings.lock_hotbars, gear, &hud.gear, &*actions, &mut requests);
             }
             wt = crate::prof::lap("ui-w-cc", wt);
@@ -2024,7 +2046,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 Some(cc) => {
                     cc.show(&ctx, &palette, &hud.stats, &|_| false);
                     preview_panel.show(&ctx, &palette, &mut cc.store, &hud.stats, &mut settings.keymap);
-                    if crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &cc.docks).rollup {
+                    let rollup = crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &cc.docks).rollup;
+                    cc.raise(&ctx);
+                    if rollup {
                         cc.toggle_rollup();
                     }
                 }
@@ -2300,6 +2324,23 @@ fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Pal
     *open = is_open;
 }
 
+/// A shortcut's picture: an item's as the inventory has it, a special action's as the Action window loaded it, else the
+/// database's icon of the shortcut's own record (`shortcutbar::icon_id`: a nano program's, an item no longer carried, an
+/// action whose window was never opened). Until 2026-11-21 nano programs had none here, and the actions only once their
+/// window had been opened, so a bar showed their names' first letters.
+fn shortcut_texture(ctx: &egui::Context, action: &hotbar::Action, gear: &mut GearWindow, items: &[GearItem], actions: &crate::actions::ActionsWindow) -> Option<egui::TextureId> {
+    let loaded = match action {
+        hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
+        hotbar::Action::Special { id: template, icon, .. } => icon.and_then(|id| actions.icon_by_instance(id)).or_else(|| actions.template_icon(*template)).cloned(),
+        _ => None,
+    };
+    if let Some(icon) = loaded {
+        return Some(gear.texture(ctx, &icon));
+    }
+    let id = crate::shortcutbar::icon_id(action)?;
+    crate::gui::pictures::picture(ctx, &format!("rdb://{id}")).map(|(texture, _)| texture)
+}
+
 /// The original's shortcut bars (`shortcutbar.rs`; GUI.dll `ShortcutBarView_c` FUN_100d9588, `ShortcutBarSpinner_c`
 /// FUN_100db807): each bar is its primary toggle (`GFX_GUI_RADIOBUTTON_*`, 11 by 11), its control strip
 /// (`GFX_GUI_TOOLBAR_CONTROL_H`, 32 by 38, upright `_V`) with the page buttons and the page number in yellow, `(page + 1) % 10`,
@@ -2410,14 +2451,8 @@ fn shortcut_layer(ctx: &egui::Context, bars: &mut crate::shortcutbar::ShortcutBa
                     if lock.is_some() {
                         ctx.request_repaint_after(std::time::Duration::from_millis(250));
                     }
-                    let icon = match &action {
-                        hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
-                        hotbar::Action::Special { id: template, icon: Some(id), .. } => actions.icon_by_instance(*id).or_else(|| actions.template_icon(*template)).cloned(),
-                        _ => None,
-                    };
-                    match icon {
-                        Some(icon) => {
-                            let texture = gear.texture(ctx, &icon);
+                    match shortcut_texture(ctx, &action, gear, items, actions) {
+                        Some(texture) => {
                             let done = crate::actions::lock_share(lock).unwrap_or(1.0).clamp(0.0, 1.0);
                             let split = cell.left() + cell.width() * done;
                             let uv = |a: f32, b: f32| egui::Rect::from_min_max(egui::pos2(a, 0.0), egui::pos2(b, 1.0));
@@ -2556,14 +2591,8 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                         if lock.is_some() {
                             ctx.request_repaint_after(std::time::Duration::from_millis(100));
                         }
-                        let icon = match action {
-                            hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
-                            hotbar::Action::Special { id: template, icon: Some(id), .. } => actions.icon_by_instance(*id).or_else(|| actions.template_icon(*template)).cloned(),
-                            _ => None,
-                        };
-                        match icon {
-                            Some(icon) => {
-                                let id = gear.texture(ctx, &icon);
+                        match shortcut_texture(ctx, action, gear, items, actions) {
+                            Some(id) => {
                                 ui.painter().image(id, rect.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), if lock.is_some() { egui::Color32::from_gray(90) } else { egui::Color32::WHITE });
                             }
                             // (a macro's picture is its name in yellow, FUN_100402e8)

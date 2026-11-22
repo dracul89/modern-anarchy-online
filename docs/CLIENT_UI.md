@@ -6576,7 +6576,7 @@ it is Windows' default, half a second and four pixels. `N3Msg_DefaultActionOnDyn
 what its `Can` stat says can be got (bit 0) or used (bit 3), and a thing that can only be got is used here
 (`N3Msg_GetItem`'s message is not ported); on a character it is the client's earlier approximation (an NPC's chat, a
 player's trade, else a use). Shift + click on a thing with no template in the table shows its name only. The pointer's
-shape over what it points at is not ported.
+shape over what it points at: see "The pointer over the world" (2026-11-21).
 
 Tests: `picking`'s nine, `combat`'s attack key, `blobshadow`'s `a_body_keeps_its_box_in_its_own_axes`, the city's
 controller in `main.rs`.
@@ -6900,7 +6900,7 @@ Not ported:
 - **The red fade of a shortcut that cannot be used** (`GFX_GUI_ICONFADER32`).
 - **Stack counts.**
 - **A new nano program put on the primary bar** (`ShortcutNewNanos`).
-- **The bars' close**, which hides them all (`shortcutbar_window`).
+- ~~The bars' close, which hides them all (`shortcutbar_window`)~~: the option panel's hide/show box does it since 2026-11-21.
 
 Tests: `the_keys_go_to_the_primary_bars_shown_page`, `the_bars_round_trip_through_text`, `the_timer_says_seconds_then_minutes`.
 The picture is `MAO_UI_PREVIEW=shortcutbar` (`MAO_HOTBARS=2`, `MAO_HOTBAR_UPRIGHT=1`).
@@ -8551,3 +8551,103 @@ So that the next such report can be placed, the game log now says: each door tha
 number, and whether the character touched it; the logout the player asks for (`/camp`, the quit menu) with its time;
 and the time and playfield of the connection's end.
 
+## A tester's interface bugs (2026-11-21)
+
+A tester's list after playing 0.1.8. Each part says what the original does and what changed.
+
+### The control center behind every window
+
+The tester: the Character, Team and Commands buttons "float", and the chat window slides between them and the
+NCU/credits strip. The parts of the skin's control center were drawn on three of egui's layers: the wings on the
+background, the strips on the windows' own layer and the buttons (menu rows, mini toolbar, rollup, target buttons)
+over every window. A window dragged over the bottom of the screen went over the wings, under or over the strips by
+which was last touched, and under the buttons.
+
+The original's control center is **one window** (`control_center_window`, FUN_1006f911), and
+`ControlCenterModule_c::LoadMenues` (GUI.dll 0x10068580) puts it **behind all the others** (`Window::MoveToBack`) once
+it is made. Now every part of it is on the background layer, under every window; within it the wings lie under the
+strips and the buttons, which are raised over the rest of the background layer each frame (`vitals::show_docked`,
+`ControlCenter::raise`; egui keeps the order among layers raised in the same frame). The menus a button opens stay over
+the windows. The buttons' places are the skin's `ControlCenter.xml`'s, as before: the game's own skin has its menu rows
+33 pixels above the screen's bottom on the wings (`layout_borders="Rect(12,0,0,33)"`), the AOU skins' at the very
+bottom in the strip, as the original's own screenshots show them.
+
+Picture: `MAO_UI_PREVIEW=chat` (now with `MAO_PREVIEW_SIZE=<w>x<h>`, the picture's size, for a screen like the
+tester's) with the game's skin and with `aou_slim_cni`: the chat window covers the menu row and the target buttons.
+
+### Adding shortcut bars from the option panel
+
+The tester: new bars "did not appear on screen" when chosen. The option panel (Interface page of the skins' own
+`OptionPanel/Root.xml`) has "Number of shortcut bars" (`NumHotbars`), "Lock shortcut bars" (`LockHotbars`) and the
+hide/show box (`shortcutbar_window`): they set the control center's values, which nothing read: the bars followed only
+this client's settings (`hotbars`, `lock_hotbars`). `ShortcutBarWindow_c` (FUN_100d9e5f) reads `NumHotbars` for the bars
+it shows. Now the panel's two options set the settings (saved in `mao.ini`, `shortcutbar::follow_options`), the
+settings are written back into the values (so the panel shows what the client's settings page set), and
+`shortcutbar_window` off hides the bars (it was listed as not ported). A new bar stands where the original's saved one
+does, else stacked up from the bottom left, as before.
+
+Test: `the_option_panel_sets_the_bars_shown_and_their_lock`.
+
+### Shortcut icons whatever window was opened
+
+The tester: "bar animations lack icons, are always just the first letter of the name". The first run's bar holds
+Start Combat, Walk, Sit and Suspended Animation (special actions), and the bar showed S, W, S, S: a special action's
+picture came only from the Action window's icons, which were loaded the first time that window opened; a nano program
+on a bar had no picture at all; an item's only while it was in the inventory. The original's cells are
+`ItemIconView_c`s (FUN_100d825b) that show the item's or the nano program's icon, whatever window is open.
+
+Now a shortcut is drawn by the icon kept with it, else by its own record's (stat 79: the item template, the nano
+program's record 0xfde85, the action's template; `shortcutbar::icon_id`, looked up once each) through the database's
+icons (`gui::pictures`), on the original's bars and on the smart hotbars alike (`ui::shortcut_texture`). A macro is
+still `GFX_GUI_ICON_MACRO` with its name; the letter remains only where the database has no icon. There are no social
+(emote) shortcuts in the original or here: the Social menu's entries are not dragged onto bars.
+
+Picture: `MAO_UI_PREVIEW=shortcutbar` (Start Combat, Walk, Sit, the Follow macro, Suspended Animation with their icons).
+
+### The pointer over the world
+
+The tester: the mouse pointer does not change over something to use (a grid terminal, a shop). It never did: the
+client's pointer followed egui's alone. GUI.dll's `MousePointerModule_t` draws the pointer as sprites of its own: an
+arrow (`Pointer_e`, the table at 0x10263170: standard, blue, green, yellow, purple, red, gray, then the drags, the
+I-beam, the hand and the wait) and up to two pictures beside it (`Detail_e`, the table at 0x102632a0: attack, pick up,
+operate, look at, question, denied, talk, trade) for what the left and the right button would do, each with a small
+mouse under it showing its button (`POINTEROVERLAY_LEFTCLICK` / `_RIGHTCLICK`). FUN_100202e6 puts a picture 18 pixels
+right of the arrow's point (the second 27 further), a mouse 10 right of and 20 under its picture; one picture for both
+buttons gets both mice, the left 9 further left; a denial gets none. `FrameProcess` (FUN_10020629) reads the
+`MouseCursorMode` option: 0 no left picture, 1 one picture and no mice, 2 (the game's default) both.
+
+`InputConfig_t::CheckObjectUnderMouse` (0x1001a33f) chooses them for the thing under the pointer (`pointer::world`):
+
+- one's own character: the green arrow;
+- an NPC: blue when its state flags (stat 224) have 0x20000000 (it cannot be attacked) or its flags (stat 0) have 2 in
+  bits 22-23 (it talks; then a talk on the right button), else red;
+- another player: a trade on the right button and, while `DoubleclickAction` is on, on the left; green in one's team,
+  else yellow, purple on one's side and red on another where it can be fought (its state flags 0x4000001, else
+  `N3Msg_HasVulnerableFightMode`, Gamecode 0x10017052: one's own fight mode 2 by side, 3 by organization, 4 anyone);
+- Ctrl over a character: an attack on the left button;
+- anything else: the blue arrow, with a pick-up (`Can` bit 0) or a use (bit 3) on the right button and, with
+  `DoubleclickAction`, on the left. The game's grid terminals ("Enter The Grid", Can 0x8), mail, market and mission
+  terminals (0x8) and doors (0x408) get the use's cog;
+- Shift: a look at on the left button of anything.
+
+Here the parts are put together into one picture for the window's cursor (`pointer::compose`, cached by look), set
+while egui wants its plain pointer and the pointer is over no window. The thing is the one a right click would take
+(`picking::under_line`); its facts come with the pickables from the network thread (`picking::Class`,
+`World::pointer_class`): a table dynel's or an announced item's `Can` is its template's. Guessed or left: the camera
+mode 0x39 that leaves the pointer alone is not checked; team membership stands for the team stat (6); an NPC's stat 0
+and 224 are known only once a `Stat` message has told them. The pointers' hot spots are now GUI.dll's own (the same
+table: the hand 5,1, the four-way drag 16,16, the drags 6,16 and 16,6, the wait 16,16).
+
+Tests: `usable_things_get_the_blue_arrow_and_their_use`, `characters_are_coloured_by_what_they_are_to_oneself`,
+`the_mode_and_the_parts`, `the_parts_put_together_from_the_games_skin` (with `MAO_GAME`; `MAO_POINTER_PNG=<file>`
+writes the composed pointer).
+
+### The inventory widened: items keep their cells (the original's way; nothing changed)
+
+The tester: widening the inventory, the empty squares filled the new width while the items stayed in as many columns
+as before. That is the original's grid while its items are placed by hand (`Don't Auto Arrange`, an own container's
+default): each item keeps its own cell, a column and a row (`MultiListViewItem_c::SetGridPos`, an `IPoint`, kept in
+`item_position_map`), the cells shown follow the width (`RecalcCellCount` 0x10134ad2), and the grid is never narrower
+than the columns the items reach (`RecalcVirtualSize` 0x10134944). The items move only when put elsewhere, or when the
+grid is arranged (`Order` in the window's menu, which lays them along the rows of the width shown) and then let be
+(`SetAutoArrange(false)` 0x101371db: each item keeps the cell the arranging gave it), as here (`invwindows.rs`).

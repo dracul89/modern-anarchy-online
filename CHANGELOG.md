@@ -26,6 +26,13 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - Other players show their running or walking animations from the moment they start until they stop, and stand idle while they stand, instead of flickering between running and standing as each message came.
 - Turning with the right mouse button turns the character by exactly as far as the mouse goes, and the camera comes round behind it: with the locked or rubber camera the character swung on further than the mouse went and drifted the next time the button was held.
 
+### Interface
+
+- The control center lies behind every window, as in the original: a window moved to the bottom of the screen goes over its buttons, wings and strips alike, no longer between its buttons and the NCU/credits strip.
+- The option panel's "Number of shortcut bars", "Lock shortcut bars" and "Hide/show shortcut bars" work: more bars appear when the number is raised (the options set values the bars did not read).
+- Shortcuts on the bars show their icons: special actions (Start Combat, Walk, Sit ...) no longer show their names' first letters until the Action window has been opened, and nano programs and used-up items get their icons too.
+- The pointer shows what is under it in the world, as in the original: a blue arrow with a cog over terminals, doors and other things to use (grid, mail, market, mission terminals), a hand for things to pick up, coloured arrows over characters (green yourself and your team, red what you can fight, talk and trade pictures), with the mouse buttons that do it.
+
 ## 0.1.8 (2026-11-20)
 
 ### Performance

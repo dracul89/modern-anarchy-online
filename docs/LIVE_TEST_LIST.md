@@ -1359,3 +1359,18 @@ These were written before this list; some may have been seen working since witho
   chat log): its last "door ... opens" line, the "connection ended in playfield ..." line's time and any "can't follow the
   redirect" line say which door and what came of it.
 
+## The tester's interface bugs (2026-11-21, branch `fix/interface`)
+
+- [ ] **1** Drag the chat window down over the bottom of the screen: it covers the control center's buttons (the menu
+  row, the target buttons, the rollup) as it covers its wings and strips. The buttons still work where nothing covers
+  them, and a menu a button opens shows over the windows.
+- [ ] **1** In the option panel (Options menu), set "Number of shortcut bars" to 3: two more bars appear, stacked up from
+  the bottom left (or where the original's prefs had them). Tick "Lock shortcut bars": a bar's strip no longer drags.
+  Untick the hide/show box: the bars go; tick it: they come back. Restart: the number and the lock are kept (`mao.ini`).
+- [ ] **1** A fresh start, the Action window never opened: the first bar's Start Combat, Walk, Sit and Suspended
+  Animation show their icons. Drag a nano program onto a bar: its icon shows. Use up a stack that is on a bar: the
+  icon stays.
+- [ ] **1** Point at a grid terminal, a mail or market terminal and a door: the pointer is the blue arrow with the
+  cog beside it and both mice under it (left and right do the use). Point at oneself: green arrow; at a hostile monster:
+  red; at a friendly NPC: blue (a talking one with the speech bubble on the right). Hold Shift: the eye on the left. Over
+  a window the pointer is the plain one again.

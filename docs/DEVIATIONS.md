@@ -1406,6 +1406,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `docs/CLIENT_UI.md:2064`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-19, overnight): The original's pointer pictures and hot spots come from its own cursor resources and the input mode chosen by GUI.dll; neither was read tonight, and the result can only be checked live.
+- Done in part (2026-11-21, a tester's report): the hot spots are GUI.dll's table's (0x10263168: hand 5,1, four-way 16,16, drags 6,16 and 16,6, wait 16,16), and over the world the pointer is the original's (`InputConfig_t::CheckObjectUnderMouse` 0x1001a33f: coloured arrow and button pictures, `pointer::world`, CLIENT_UI "The pointer over the world"). Still egui's choice over the windows (WIN-059).
 
 ### Targeting and mouse: a guard or fallback the original lacks (1)
 

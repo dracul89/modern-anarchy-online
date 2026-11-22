@@ -782,6 +782,23 @@ fn template_stat(template: u32, stat: u32) -> Option<i64> {
     mao_formats::item::Item::parse(&data)?.stat(stat).map(|v| v as i64)
 }
 
+/// An item template's `Can` stat (30), kept once read (the pointer asks it of every table dynel with each update).
+fn template_can(template: u32) -> Option<i64> {
+    static KEPT: std::sync::Mutex<BTreeMap<u32, Option<i64>>> = std::sync::Mutex::new(BTreeMap::new());
+    if template == 0 {
+        return None;
+    }
+    if let Some(&can) = KEPT.lock().unwrap_or_else(|e| e.into_inner()).get(&template) {
+        return can;
+    }
+    let can = template_stat(template, 30);
+    // (not kept before the database is there: a test, the first moments)
+    if ITEM_DB.get().is_some() {
+        KEPT.lock().unwrap_or_else(|e| e.into_inner()).insert(template, can);
+    }
+    can
+}
+
 /// A stat of a nano program (type 0xfde85).
 /// Whether a cast of a nano with this attack time (its stat 294, hundredths of a second) shows the casting stance.
 /// The original stands a character in it only while its list of casts under way has one (FUN_1007c8af), and a cast
@@ -5434,6 +5451,39 @@ impl World {
     /// (FUN_10065dab).
     fn team_mate(id: u32) -> bool {
         crate::team::with(|t| t.members.iter().any(|m| m.id == id) || (t.raid.is_some() && t.others.iter().flatten().any(|m| m.id == id)))
+    }
+
+    /// What the pointer over a thing shows it to be (`picking::Class`), from what GUI.dll's
+    /// `InputConfig_t::CheckObjectUnderMouse` (0x1001a33f) reads: a character's stats 0, 224, 6 and 33 and whether it is an
+    /// NPC; a thing's `Can` (stat 30), here its template's (`template`: a table dynel's, else an announced item's).
+    fn pointer_class(&self, kind: u32, id: u32, template: Option<u32>) -> crate::picking::Class {
+        use crate::picking::Class;
+        if kind == 0 || kind == 0x9c52 || kind == 0x9c47 {
+            return Class::Nothing;
+        }
+        if kind == n3::CHARACTER {
+            if id == self.own {
+                return Class::Own;
+            }
+            let stat = |s: u32| self.others_stats.get(&id).and_then(|m| m.get(&s)).copied();
+            let state = stat(224).filter(|&v| v != 1_234_567_890);
+            if self.names.get(&id).is_some_and(|n| !n.1) {
+                return Class::Npc { friendly: state.is_some_and(|f| f & 0x2000_0000 != 0), talks: stat(0).is_some_and(|f| (f >> 22) & 3 == 2) };
+            }
+            // (`N3Msg_HasVulnerableFightMode`, Gamecode 0x10017052: one's own fight mode, 2 by side, 3 by organization (stat
+            // 5, the other's not 0), 4 anyone)
+            let side = stat(33).or_else(|| self.infos.get(&id).map(|i| i64::from(i.side)));
+            let own_side = self.stats.get(&33).copied();
+            let vulnerable = state.is_some_and(|f| f & 0x400_0001 != 0)
+                || match self.fight_mode(self.own) {
+                    2 => side.is_some() && own_side.is_some() && side != own_side,
+                    3 => stat(5).is_some_and(|o| o != 0) && self.stats.get(&5).copied() != stat(5),
+                    4 => true,
+                    _ => false,
+                };
+            return Class::Player { mate: Self::team_mate(id), same_side: side.is_some() && side == own_side, vulnerable };
+        }
+        Class::Thing { can: template.or_else(|| self.item_dynels.get(&id).map(|d| d.1)).and_then(template_can) }
     }
 
     /// FUN_10069a9f's `SimpleItem_t` branch for an item standing in the world: whether its flags have 0x10000000 (else it
@@ -12869,11 +12919,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             _ => (0.8, 2.2),
                         };
                         let kind_of = |id: &u32| state.types.get(id).copied().unwrap_or(n3::CHARACTER);
-                        let thing = |kind: u32, id: u32, p: &[f32; 3]| {
+                        // (an announced object that is also the playfield's own, a door, is pointed at by its table template)
+                        let table_templates: std::collections::HashMap<(u32, u32), u32> = state.table.iter().map(|d| ((d.0, d.1), d.3)).collect();
+                        let thing = |kind: u32, id: u32, p: &[f32; 3], class: crate::picking::Class| {
                             let at = [p[0], p[2], p[1]];
                             let (radius, height) = size(kind);
                             let shape = state.table_meshes.get(&(kind, id)).map_or(Shape::Post { feet: at, radius, height }, |(mesh, to_mesh)| Shape::Mesh { mesh: mesh.clone(), to_mesh: *to_mesh });
-                            Pickable { kind, id, at, shape, own: false }
+                            Pickable { kind, id, at, shape, own: false, class }
                         };
                         let body = |id: &u32, at: [f32; 3]| match bodies.get(id) {
                             Some(b) => Shape::Body { to_mesh: crate::picking::invert(&b.place), lo: b.lo, hi: b.hi },
@@ -12885,15 +12937,16 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         state
                             .objects
                             .iter()
-                            .map(|(id, p)| thing(kind_of(id), *id, p))
-                            .chain(state.table.iter().map(|&(kind, id, p, _, _)| thing(kind, id, &p)))
+                            .map(|(id, p)| thing(kind_of(id), *id, p, state.pointer_class(kind_of(id), *id, table_templates.get(&(kind_of(id), *id)).copied())))
+                            // (a table dynel's `Can` its template's)
+                            .chain(state.table.iter().map(|&(kind, id, p, template, _)| thing(kind, id, &p, if kind == 0x9c52 || kind == 0x9c47 { crate::picking::Class::Nothing } else { crate::picking::Class::Thing { can: template_can(template) } })))
                             .chain(state.entities.iter().filter(|(id, _)| **id != own).map(|(id, (p, _))| {
                                 let at = [p[0], p[2], p[1]];
-                                Pickable { kind: kind_of(id), id: *id, at, shape: body(id, at), own: false }
+                                Pickable { kind: kind_of(id), id: *id, at, shape: body(id, at), own: false, class: state.pointer_class(kind_of(id), *id, None) }
                             }))
                             .chain(std::iter::once({
                                 let at = [position[0], position[2], position[1]];
-                                Pickable { kind: n3::CHARACTER, id: own, at, shape: body(&own, at), own: true }
+                                Pickable { kind: n3::CHARACTER, id: own, at, shape: body(&own, at), own: true, class: crate::picking::Class::Own }
                             }))
                             .collect()
                     }),

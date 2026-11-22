@@ -628,7 +628,8 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
             scene.sky.0 = fog;
         }
     }
-    let (w, h) = (960, 720);
+    // (`MAO_PREVIEW_SIZE=<w>x<h>`: the picture's size in pixels, 960 by 720 without it)
+    let (w, h) = std::env::var("MAO_PREVIEW_SIZE").ok().and_then(|s| s.split_once('x').and_then(|(w, h)| Some((w.trim().parse().ok()?, h.trim().parse().ok()?)))).filter(|&(w, h): &(u32, u32)| w >= 64 && h >= 64 && w <= 8192 && h <= 8192).unwrap_or((960, 720));
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let radius = scene.radius;
     let pixels = renderer.render_to_image_with(&gpu, &scene, &camera, w, h, &mut |view| {
@@ -3081,7 +3082,15 @@ impl ApplicationHandler for App {
                             }
                         }
                     }
-                    ui.pointer(event_loop, &w.window, frame.cursor);
+                    // (over the world the pointer shows what is under it, `InputConfig_t::CheckObjectUnderMouse`: the thing
+                    // GetObjectUnderColLine gives, as a right click would take it)
+                    let world_look = self.live.is_some().then(|| {
+                        let under = crate::picking::under_line(&self.pointer.line, self.hud.selected);
+                        let class = under.and_then(|(kind, id)| self.hud.pickables.iter().find(|p| p.kind == kind && p.id == id)).map_or(crate::picking::Class::Nothing, |p| p.class);
+                        let look = crate::pointer::world(class, self.modifiers.control_key(), self.modifiers.shift_key(), crate::prefs::on("DoubleclickAction"));
+                        crate::pointer::with_mode(look, crate::prefs::get("MouseCursorMode").map_or(2, |v| v as i64))
+                    });
+                    ui.pointer(event_loop, &w.window, frame.cursor, world_look);
                     for out in requests.chat.drain(..) {
                         match out {
                             // (this one is for the client itself)
