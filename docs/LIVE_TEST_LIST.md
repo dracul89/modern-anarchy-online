@@ -1359,6 +1359,23 @@ These were written before this list; some may have been seen working since witho
   chat log): its last "door ... opens" line, the "connection ended in playfield ..." line's time and any "can't follow the
   redirect" line say which door and what came of it.
 
+## The tester's sound settings (2026-11-21, branch `fix/sound`)
+
+Options menu → the option panel's Audio page, in the game with music and effects playing (a district with music, a few
+steps run, a fight).
+
+- [ ] **1** Slide "Master volume" to 0: everything goes quiet (effects, music, voices); back to 100: it all comes back.
+  Slide "FX volume" down: footsteps, shots and ambience get quieter at once; untick "Sound FX": they stop, the music goes
+  on. Slide "Music volume" down: only the music gets quieter; untick "Music": it stops; tick it again: it comes back
+  within a moment (the next district check).
+- [ ] **1** Change a few of them, quit and start again: the panel shows the values set and they are what is heard
+  (`prefs.xml` is beside `mao.ini` and holds them).
+- [ ] **1** Untick "Sound on/off": effects, ambience and music all stop; tick it: effects come back at once and the music
+  within a moment. Untick it, quit and start again: the game starts silent (no music on entering).
+- [ ] **team** With Notum Wars: tick "Team channel" under "Hear voices from", have a team mate `/voice heal`: it is
+  heard; untick it: not heard. With "Vicinity" ticked, a `/voice` said nearby is heard. Pick "Your voice: Military" and
+  `/voice heal`: the military line plays (if your breed and sex have one).
+
 ## The tester's interface bugs (2026-11-21, branch `fix/interface`)
 
 - [ ] **1** Drag the chat window down over the bottom of the screen: it covers the control center's buttons (the menu

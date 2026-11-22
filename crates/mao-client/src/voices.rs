@@ -54,9 +54,14 @@ pub fn set_own(name: String, breed: u8, sex: u8) {
     *OWN.lock().unwrap_or_else(|e| e.into_inner()) = (name, breed, sex);
 }
 
-/// FUN_1008c472(1): the mood of `VoiceSndFxType` (the character's preference, 0 by `CharPrefs.xml`).
+/// FUN_1008c472(1): the mood of `VoiceSndFxType` (the character's preference as it is now, 0 by `CharPrefs.xml`).
 fn mood() -> &'static str {
-    let kind = setting("cd_image/gui/Default/CharPrefs.xml", "VoiceSndFxType").and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
+    let kind = preference_value("VoiceSndFxType", "cd_image/gui/Default/CharPrefs.xml").map_or(0, |v| v as i32);
+    mood_of(kind)
+}
+
+/// FUN_1008c472(1)'s names of the `VoiceSndFxType` values.
+fn mood_of(kind: i32) -> &'static str {
     match kind {
         1 => "distunguished",
         2 => "cool",
@@ -205,19 +210,38 @@ fn setting(file: &str, name: &str) -> Option<String> {
     Some(tag[v..v + tag[v..].find('"')?].to_string())
 }
 
-/// A preference of the GUI's `LoginPrefs.xml` (true or false).
+/// A preference as the player has it now (`DistributedValue_c::GetDValue`, as `HandleGroupMessage`,
+/// `HandleVicinityMessage` and FUN_1008c472 read it each time: the control center's value, which the option panel sets),
+/// else the GUI's default file's. (Until 2026-11-21 only the default file was read, so the option panel's "Hear voices
+/// from" boxes and "Your voice" did nothing.)
+fn preference_value(name: &str, file: &str) -> Option<f64> {
+    crate::prefs::get(name).or_else(|| {
+        setting(file, name).and_then(|v| match v.as_str() {
+            "true" => Some(1.0),
+            "false" => Some(0.0),
+            t => t.parse().ok(),
+        })
+    })
+}
+
+/// A switch of the player's (`LoginPrefs.xml` by default).
 fn preference(name: &str) -> Option<bool> {
-    setting("cd_image/gui/Default/LoginPrefs.xml", name).map(|v| v == "true")
+    preference_value(name, "cd_image/gui/Default/LoginPrefs.xml").map(|v| v != 0.0)
+}
+
+/// Whether a group of `kind` is heard (`HandleGroupMessage`: an organisation's by `VoiceSndFxHearGuildOn`, the team's by
+/// `VoiceSndFxHearTeamOn`, any other always; `VoiceSndFxHearFriendsOn` is read by nothing in GUI.dll or Gamecode).
+fn group_heard(kind: u8) -> bool {
+    match kind {
+        3 => preference("VoiceSndFxHearGuildOn").unwrap_or(false),
+        0x82 => preference("VoiceSndFxHearTeamOn").unwrap_or(false),
+        _ => true,
+    }
 }
 
 /// A group message from `sender` in a group of `kind` with `blob`: its voice line played as FUN_1008cdb3 plays it.
 pub fn group_message(limiter: &mut Limiter, sender: &str, kind: u8, blob: &[u8]) {
-    let allowed = match kind {
-        3 => preference("VoiceSndFxHearGuildOn").unwrap_or(false),
-        0x82 => preference("VoiceSndFxHearTeamOn").unwrap_or(false),
-        _ => true,
-    };
-    if allowed {
+    if group_heard(kind) {
         play(limiter, sender, parse(blob).0);
     }
 }
@@ -305,6 +329,23 @@ mod tests {
         assert_eq!(untagged("Yes!"), "Yes!");
         set_stat_389(0);
         assert_eq!(command("heal").unwrap_err(), "This function requires Notum Wars.");
+    }
+
+    /// The option panel's voice settings are read as they are now (the control center's values), not from the game's
+    /// default files.
+    #[test]
+    fn the_players_voice_settings_are_read_as_they_are_now() {
+        crate::prefs::set("VoiceSndFxHearTeamOn", 0.0);
+        crate::prefs::set("VoiceSndFxHearGuildOn", 1.0);
+        crate::prefs::set("VoiceSndFxHearVicinityOn", 1.0);
+        assert!(!group_heard(0x82) && group_heard(3) && group_heard(1));
+        assert_eq!(preference("VoiceSndFxHearVicinityOn"), Some(true));
+        crate::prefs::set("VoiceSndFxHearTeamOn", 1.0);
+        crate::prefs::set("VoiceSndFxHearGuildOn", 0.0);
+        assert!(group_heard(0x82) && !group_heard(3));
+        crate::prefs::set("VoiceSndFxType", 3.0);
+        assert_eq!(mood(), "military");
+        assert_eq!([0, 1, 2, 3, 9].map(mood_of), ["simple", "distunguished", "cool", "military", "simple"]);
     }
 
     #[test]

@@ -6,6 +6,13 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Sound
+
+- The sound settings of the option panel work: moving the master, effects, music or voices volume, or ticking a sound switch, changes what is heard at once and is kept for the next start. A change made in the option panel was thrown away before it reached the game, so nothing was heard to change and nothing was saved; this held for every option of the panel, and for `/dvalue` and `/setoption`, which now take effect and are kept too.
+- "Sound on/off" turns all the sound off and back on, as in the original: it silenced the effects only, and the music and voice lines played on.
+- Your sound settings hold from the moment the game starts: the music on entering the game, and the character creation's sounds, played at the game's default volumes until the interface had loaded.
+- The option panel's "Hear voices from" boxes (vicinity, team channel, guild channel) and "Your voice" choose what is heard and how your `/voice` lines sound; the game's default settings were read instead, whatever was ticked. ("Known friends" does nothing, as in the original.)
+
 ### Windows
 
 - A window size larger than the screen (Run In Window) no longer makes a game window that runs off the screen and jumps when a corner is touched: the window is made to fit above the taskbar and centred, as the original does with its work area.

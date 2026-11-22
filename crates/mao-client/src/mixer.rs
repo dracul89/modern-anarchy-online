@@ -225,6 +225,21 @@ impl Engine {
         }
     }
 
+    /// How loud a sound is mixed now: its level times the driver's master level, as [`Voices::render`] takes them (0 when
+    /// it is not playing).
+    #[cfg(test)]
+    pub fn heard(&self, sound: Option<SoundKey>) -> f32 {
+        let Some(h) = sound.and_then(|s| self.handle(s)) else { return 0.0 };
+        let v = self.voices();
+        v.voices.get(h).and_then(Option::as_ref).filter(|v| v.status == PLAYING).map_or(0.0, |voice| voice.volume * v.master)
+    }
+
+    /// The driver's master level.
+    #[cfg(test)]
+    pub fn master(&self) -> f32 {
+        self.voices().master
+    }
+
     /// `SE_Set2DSoundVolume(sound, volume)`.
     pub fn set_volume(&mut self, sound: SoundKey, volume: f32) {
         if let Some(h) = self.handle(sound) {

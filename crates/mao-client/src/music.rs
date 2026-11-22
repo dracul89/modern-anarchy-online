@@ -226,6 +226,12 @@ impl Player {
         self.samples[i].and_then(|s| self.project.layer(self.project.samples[s].layer)).map_or(1.0, |l| l.volume)
     }
 
+    /// The volume set (`SetVolume`'s).
+    #[cfg(test)]
+    pub fn volume(&self) -> f32 {
+        self.volume
+    }
+
     /// `SetVolume(volume)`.
     pub fn set_volume(&mut self, volume: f32) {
         let pause = self.pause_volume;

@@ -2507,7 +2507,8 @@ blast"). Not done: a mine's bleep as you walk into it.
 
 **Voice lines.** A group (channel) message whose blob carries a voice (record 1: breed, sex, mood and line) plays it as the
 original's chat does (`voices.rs`): when your character's stat 389 has bit 0, the group allows it (organisation groups by
-`VoiceSndFxHearGuildOn`, the team by `VoiceSndFxHearTeamOn`, from `LoginPrefs.xml`), and the sender was not heard in the last
+`VoiceSndFxHearGuildOn`, the team by `VoiceSndFxHearTeamOn`, as the player has them now: `prefs.rs`, the control center's
+values, which the option panel sets; `LoginPrefs.xml`'s only before it has loaded), and the sender was not heard in the last
 3 s, the first of `<sender>_<line>_01`, `<breed>_<sex>_<mood>_<line>_01`, `<sex>_<mood>_<line>_01`, `<sex>_<line>_01` and
 `<line>_01` found in `cd_image/sound/sfx/player/` plays at the voice volume (e.g. `atrox_male_cool_heal_01.wav`). Not done:
 voices in vicinity speech, and sending one.
@@ -2547,7 +2548,8 @@ rumble and shake with it (FUN_100bdfe3, the environment's +0x78).
 
 **Speaking a voice line.** `/voice <sound name>` (heal, help, inc, no, run, yes) speaks one as the original's FUN_100b88b1 does
 (`voices::command`): it needs Notum Wars (stat 389 bit 0, else "This function requires Notum Wars."), picks your breed's and
-sex's voice in your `VoiceSndFxType` mood (`CharPrefs.xml`, simple by default), refuses one you don't have ("You do not have that
+sex's voice in your `VoiceSndFxType` mood (the option panel's "Your voice", as FUN_1008c472 reads the value each time;
+`CharPrefs.xml`'s simple by default), refuses one you don't have ("You do not have that
 voice effect installed.": a name with both a `.wav` and a `.txt` in `sfx/player`), and sends the first line of its `.txt` (any
 `[T]`/`[M]` tags taken off: "Medic!") with the voice record as the message's blob. The original sends to the chat window's
 selected group; this client has no group selection, so it goes to your organization's channel. A channel flagged 0x40 takes no
@@ -8134,6 +8136,33 @@ A chat frame's place is kept in the `Config.xml` of the window whose folder the 
 ### Sound preferences passed on as they change (SND-009)
 
 GUI.dll's `SoundOptionsMonitor_c` (FUN_100c573c) passes nine preferences to the sound module the moment they change: SoundOnOff, MasterVolume, SoundFXOn, FXVolume, MusicOn, MusicVolume, BattlemusicMode, VoiceSndFxOn, VoiceSndFxVolume (slots 0x100c5242 to 0x100c5329). The client's control center does the same for changes from its menus and the option panel; the battle music mode, which it used to read only at start, now follows too.
+
+`SoundOnOff` ("Sound on/off") is `SlotPrefSoundOnOffChanged` (0x100c5329): on, `SandyInterfaceModule_t::InitializeSandy`;
+off, `DeinitializeSandy` (the music player deleted, every sample stopped and released, nothing played until it is
+started again; the original also closes the Miles driver), each with a `GlobalSignals_c` +0x194 signal. The client
+mapped it to `SetMasterMute`, which GUI.dll never calls and which silenced the effects only; it now starts and shuts the
+interface (`audio::Module::initialize_sandy`/`deinitialize_sandy`). Its mixer stays open, so `LoadSimProject` makes no
+music player while the interface is shut (the original's would be made on the closed driver and be silent); the music
+returns with the next district's `SetupENVSounds`. At start (`audio::start`) the nine preferences are passed on as
+`SlotInitialize` (0x100c5541) passes them, from the game's defaults under the player's `prefs.xml`
+(`controlcenter::apply_all_sound`); before, only `LoginPrefs.xml` was read there, so the first music and the character
+creation's sounds ignored the player's settings until the control center loaded. What each control does to what reaches
+the mixer is test `audio::tests::each_sound_control_reaches_the_mixer`: FXVolume and SoundFXOn the effects (a playing loop
+at once), MusicVolume and MusicOn the music player only, MasterVolume the effects' total and the driver's level (which
+the music's streams are mixed under too: effects get the master twice, as in the original, where `SetMasterVolume` folds it
+into the effects' total and the frame sets it as Miles's digital master level), VoiceSndFxVolume and VoiceSndFxOn the
+voice lines (the player effect total given with the play and again as it plays, as the original), BattlemusicMode the
+combat music, SoundOnOff everything.
+
+The option panel's other voice settings are read where they are used, as GUI.dll reads them (`GetDValue` each time):
+`VoiceSndFxHearVicinityOn` (`HandleVicinityMessage` 0x10086c53), `VoiceSndFxHearGuildOn` and `VoiceSndFxHearTeamOn`
+(`HandleGroupMessage` 0x1008692a), `VoiceSndFxType` (FUN_1008c472). Until 2026-11-21 `voices.rs` read them from the game's
+default `LoginPrefs.xml`/`CharPrefs.xml` only, so those boxes did nothing; it now reads the player's values (`prefs.rs`), the
+files only before the control center has loaded (test `voices::tests::the_players_voice_settings_are_read_as_they_are_now`).
+`VoiceSndFxHearFriendsOn` ("Known friends") is read by nothing in GUI.dll or Gamecode: original behaviour, the box does
+nothing there either.
+
+Until 2026-11-21 that held only for the control center's own menus (the tester: "sound controls in settings were not working"). The option panel is drawn after the control center in a frame, and `ControlCenter::show` began each frame by putting the client's open windows into their values and then clearing the list of changed values, so it threw away the option panel's changes of the frame before with the windows' (and those of `/dvalue`, `/setoption`, the target NCU windows' close box and the "all effects" switch's thirteen, all set between two of its frames). No option of the panel reached the sound module, `prefs.rs` or `out.changed`, and `prefs.xml` was never written (the tester's settings folder has none). `show` now takes the changes waiting since the last frame first, keeps a window asked for among them, clears only the windows' own syncing, and passes the waiting changes on with the menus' (`ControlCenter::pass_changes`, test `a_value_changed_between_frames_is_passed_on_and_saved`). The option panel's "Number of shortcut bars" and "Lock shortcut bars" (`shortcutbar::follow_options`, read from `out.changed`) depended on this too.
 
 ### More windows start where the original left them (SET-023)
 

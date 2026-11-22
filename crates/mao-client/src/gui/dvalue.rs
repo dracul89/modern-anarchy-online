@@ -191,6 +191,11 @@ impl Store {
         }
     }
 
+    /// A value set without counting as a change (no observer told).
+    pub fn set_quietly(&mut self, name: &str, value: Variant) {
+        self.values.insert(name.to_string(), value);
+    }
+
     pub fn take_changed(&mut self) -> Vec<String> {
         std::mem::take(&mut self.changed)
     }
