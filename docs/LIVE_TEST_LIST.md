@@ -1336,3 +1336,7 @@ These were written before this list; some may have been seen working since witho
 - [ ] **1** A fresh start, the Action window never opened: the first bar's Start Combat, Walk, Sit and Suspended
   Animation show their icons. Drag a nano program onto a bar: its icon shows. Use up a stack that is on a bar: the
   icon stays.
+- [ ] **1** Point at a grid terminal, a mail or market terminal and a door: the pointer is the blue arrow with the
+  cog beside it and both mice under it (left and right do the use). Point at oneself: green arrow; at a hostile monster:
+  red; at a friendly NPC: blue (a talking one with the speech bubble on the right). Hold Shift: the eye on the left. Over
+  a window the pointer is the plain one again.

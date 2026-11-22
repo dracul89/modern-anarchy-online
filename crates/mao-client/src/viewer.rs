@@ -3017,7 +3017,15 @@ impl ApplicationHandler for App {
                             }
                         }
                     }
-                    ui.pointer(event_loop, &w.window, frame.cursor);
+                    // (over the world the pointer shows what is under it, `InputConfig_t::CheckObjectUnderMouse`: the thing
+                    // GetObjectUnderColLine gives, as a right click would take it)
+                    let world_look = self.live.is_some().then(|| {
+                        let under = crate::picking::under_line(&self.pointer.line, self.hud.selected);
+                        let class = under.and_then(|(kind, id)| self.hud.pickables.iter().find(|p| p.kind == kind && p.id == id)).map_or(crate::picking::Class::Nothing, |p| p.class);
+                        let look = crate::pointer::world(class, self.modifiers.control_key(), self.modifiers.shift_key(), crate::prefs::on("DoubleclickAction"));
+                        crate::pointer::with_mode(look, crate::prefs::get("MouseCursorMode").map_or(2, |v| v as i64))
+                    });
+                    ui.pointer(event_loop, &w.window, frame.cursor, world_look);
                     for out in requests.chat.drain(..) {
                         match out {
                             // (this one is for the client itself)

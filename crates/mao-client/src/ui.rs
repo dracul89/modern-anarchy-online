@@ -674,9 +674,11 @@ impl Ui {
         crate::pointer::reset();
     }
 
-    /// Sets the window's pointer to the skin's picture of the one egui wants.
-    pub fn pointer(&self, event_loop: &winit::event_loop::ActiveEventLoop, window: &Window, cursor: egui::CursorIcon) {
-        crate::pointer::apply(event_loop, window, &self.ctx, cursor);
+    /// Sets the window's pointer to the skin's picture of the one egui wants; over the world (no window under the pointer)
+    /// the look of what is there (`world`, `pointer::world`).
+    pub fn pointer(&self, event_loop: &winit::event_loop::ActiveEventLoop, window: &Window, cursor: egui::CursorIcon, world: Option<crate::pointer::Look>) {
+        let world = world.filter(|_| !self.ctx.is_pointer_over_egui() && self.ctx.dragged_id().is_none());
+        crate::pointer::apply(event_loop, window, &self.ctx, cursor, world);
     }
 
     /// Gives the interface a window event; true when it used the event (the

@@ -6571,7 +6571,7 @@ it is Windows' default, half a second and four pixels. `N3Msg_DefaultActionOnDyn
 what its `Can` stat says can be got (bit 0) or used (bit 3), and a thing that can only be got is used here
 (`N3Msg_GetItem`'s message is not ported); on a character it is the client's earlier approximation (an NPC's chat, a
 player's trade, else a use). Shift + click on a thing with no template in the table shows its name only. The pointer's
-shape over what it points at is not ported.
+shape over what it points at: see "The pointer over the world" (2026-11-21).
 
 Tests: `picking`'s nine, `combat`'s attack key, `blobshadow`'s `a_body_keeps_its_box_in_its_own_axes`, the city's
 controller in `main.rs`.
@@ -8417,3 +8417,41 @@ still `GFX_GUI_ICON_MACRO` with its name; the letter remains only where the data
 (emote) shortcuts in the original or here: the Social menu's entries are not dragged onto bars.
 
 Picture: `MAO_UI_PREVIEW=shortcutbar` (Start Combat, Walk, Sit, the Follow macro, Suspended Animation with their icons).
+
+### The pointer over the world
+
+The tester: the mouse pointer does not change over something to use (a grid terminal, a shop). It never did: the
+client's pointer followed egui's alone. GUI.dll's `MousePointerModule_t` draws the pointer as sprites of its own: an
+arrow (`Pointer_e`, the table at 0x10263170: standard, blue, green, yellow, purple, red, gray, then the drags, the
+I-beam, the hand and the wait) and up to two pictures beside it (`Detail_e`, the table at 0x102632a0: attack, pick up,
+operate, look at, question, denied, talk, trade) for what the left and the right button would do, each with a small
+mouse under it showing its button (`POINTEROVERLAY_LEFTCLICK` / `_RIGHTCLICK`). FUN_100202e6 puts a picture 18 pixels
+right of the arrow's point (the second 27 further), a mouse 10 right of and 20 under its picture; one picture for both
+buttons gets both mice, the left 9 further left; a denial gets none. `FrameProcess` (FUN_10020629) reads the
+`MouseCursorMode` option: 0 no left picture, 1 one picture and no mice, 2 (the game's default) both.
+
+`InputConfig_t::CheckObjectUnderMouse` (0x1001a33f) chooses them for the thing under the pointer (`pointer::world`):
+
+- one's own character: the green arrow;
+- an NPC: blue when its state flags (stat 224) have 0x20000000 (it cannot be attacked) or its flags (stat 0) have 2 in
+  bits 22-23 (it talks; then a talk on the right button), else red;
+- another player: a trade on the right button and, while `DoubleclickAction` is on, on the left; green in one's team,
+  else yellow, purple on one's side and red on another where it can be fought (its state flags 0x4000001, else
+  `N3Msg_HasVulnerableFightMode`, Gamecode 0x10017052: one's own fight mode 2 by side, 3 by organization, 4 anyone);
+- Ctrl over a character: an attack on the left button;
+- anything else: the blue arrow, with a pick-up (`Can` bit 0) or a use (bit 3) on the right button and, with
+  `DoubleclickAction`, on the left. The game's grid terminals ("Enter The Grid", Can 0x8), mail, market and mission
+  terminals (0x8) and doors (0x408) get the use's cog;
+- Shift: a look at on the left button of anything.
+
+Here the parts are put together into one picture for the window's cursor (`pointer::compose`, cached by look), set
+while egui wants its plain pointer and the pointer is over no window. The thing is the one a right click would take
+(`picking::under_line`); its facts come with the pickables from the network thread (`picking::Class`,
+`World::pointer_class`): a table dynel's or an announced item's `Can` is its template's. Guessed or left: the camera
+mode 0x39 that leaves the pointer alone is not checked; team membership stands for the team stat (6); an NPC's stat 0
+and 224 are known only once a `Stat` message has told them. The pointers' hot spots are now GUI.dll's own (the same
+table: the hand 5,1, the four-way drag 16,16, the drags 6,16 and 16,6, the wait 16,16).
+
+Tests: `usable_things_get_the_blue_arrow_and_their_use`, `characters_are_coloured_by_what_they_are_to_oneself`,
+`the_mode_and_the_parts`, `the_parts_put_together_from_the_games_skin` (with `MAO_GAME`; `MAO_POINTER_PNG=<file>`
+writes the composed pointer).
