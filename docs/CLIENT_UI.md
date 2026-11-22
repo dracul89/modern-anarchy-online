@@ -8401,3 +8401,19 @@ settings are written back into the values (so the panel shows what the client's 
 does, else stacked up from the bottom left, as before.
 
 Test: `the_option_panel_sets_the_bars_shown_and_their_lock`.
+
+### Shortcut icons whatever window was opened
+
+The tester: "bar animations lack icons, are always just the first letter of the name". The first run's bar holds
+Start Combat, Walk, Sit and Suspended Animation (special actions), and the bar showed S, W, S, S: a special action's
+picture came only from the Action window's icons, which were loaded the first time that window opened; a nano program
+on a bar had no picture at all; an item's only while it was in the inventory. The original's cells are
+`ItemIconView_c`s (FUN_100d825b) that show the item's or the nano program's icon, whatever window is open.
+
+Now a shortcut is drawn by the icon kept with it, else by its own record's (stat 79: the item template, the nano
+program's record 0xfde85, the action's template; `shortcutbar::icon_id`, looked up once each) through the database's
+icons (`gui::pictures`), on the original's bars and on the smart hotbars alike (`ui::shortcut_texture`). A macro is
+still `GFX_GUI_ICON_MACRO` with its name; the letter remains only where the database has no icon. There are no social
+(emote) shortcuts in the original or here: the Social menu's entries are not dragged onto bars.
+
+Picture: `MAO_UI_PREVIEW=shortcutbar` (Start Combat, Walk, Sit, the Follow macro, Suspended Animation with their icons).

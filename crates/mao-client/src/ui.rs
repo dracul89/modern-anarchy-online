@@ -2322,6 +2322,23 @@ fn whompah_window(ctx: &egui::Context, open: &mut bool, hud: &Hud, palette: &Pal
     *open = is_open;
 }
 
+/// A shortcut's picture: an item's as the inventory has it, a special action's as the Action window loaded it, else the
+/// database's icon of the shortcut's own record (`shortcutbar::icon_id`: a nano program's, an item no longer carried, an
+/// action whose window was never opened). Until 2026-11-21 nano programs had none here, and the actions only once their
+/// window had been opened, so a bar showed their names' first letters.
+fn shortcut_texture(ctx: &egui::Context, action: &hotbar::Action, gear: &mut GearWindow, items: &[GearItem], actions: &crate::actions::ActionsWindow) -> Option<egui::TextureId> {
+    let loaded = match action {
+        hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
+        hotbar::Action::Special { id: template, icon, .. } => icon.and_then(|id| actions.icon_by_instance(id)).or_else(|| actions.template_icon(*template)).cloned(),
+        _ => None,
+    };
+    if let Some(icon) = loaded {
+        return Some(gear.texture(ctx, &icon));
+    }
+    let id = crate::shortcutbar::icon_id(action)?;
+    crate::gui::pictures::picture(ctx, &format!("rdb://{id}")).map(|(texture, _)| texture)
+}
+
 /// The original's shortcut bars (`shortcutbar.rs`; GUI.dll `ShortcutBarView_c` FUN_100d9588, `ShortcutBarSpinner_c`
 /// FUN_100db807): each bar is its primary toggle (`GFX_GUI_RADIOBUTTON_*`, 11 by 11), its control strip
 /// (`GFX_GUI_TOOLBAR_CONTROL_H`, 32 by 38, upright `_V`) with the page buttons and the page number in yellow, `(page + 1) % 10`,
@@ -2432,14 +2449,8 @@ fn shortcut_layer(ctx: &egui::Context, bars: &mut crate::shortcutbar::ShortcutBa
                     if lock.is_some() {
                         ctx.request_repaint_after(std::time::Duration::from_millis(250));
                     }
-                    let icon = match &action {
-                        hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
-                        hotbar::Action::Special { id: template, icon: Some(id), .. } => actions.icon_by_instance(*id).or_else(|| actions.template_icon(*template)).cloned(),
-                        _ => None,
-                    };
-                    match icon {
-                        Some(icon) => {
-                            let texture = gear.texture(ctx, &icon);
+                    match shortcut_texture(ctx, &action, gear, items, actions) {
+                        Some(texture) => {
                             let done = crate::actions::lock_share(lock).unwrap_or(1.0).clamp(0.0, 1.0);
                             let split = cell.left() + cell.width() * done;
                             let uv = |a: f32, b: f32| egui::Rect::from_min_max(egui::pos2(a, 0.0), egui::pos2(b, 1.0));
@@ -2578,14 +2589,8 @@ fn hotbar_layer(ctx: &egui::Context, bars: &mut Hotbars, gear: &mut GearWindow, 
                         if lock.is_some() {
                             ctx.request_repaint_after(std::time::Duration::from_millis(100));
                         }
-                        let icon = match action {
-                            hotbar::Action::Item { icon: Some(id), .. } => items.iter().find_map(|i| i.icon.as_ref().filter(|ic| ic.id == *id)).cloned(),
-                            hotbar::Action::Special { id: template, icon: Some(id), .. } => actions.icon_by_instance(*id).or_else(|| actions.template_icon(*template)).cloned(),
-                            _ => None,
-                        };
-                        match icon {
-                            Some(icon) => {
-                                let id = gear.texture(ctx, &icon);
+                        match shortcut_texture(ctx, action, gear, items, actions) {
+                            Some(id) => {
                                 ui.painter().image(id, rect.shrink(3.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), if lock.is_some() { egui::Color32::from_gray(90) } else { egui::Color32::WHITE });
                             }
                             // (a macro's picture is its name in yellow, FUN_100402e8)

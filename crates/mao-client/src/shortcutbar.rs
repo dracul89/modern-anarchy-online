@@ -196,6 +196,32 @@ pub fn save(bars: &ShortcutBars) {
     }
 }
 
+/// The icon a shortcut is drawn with (a number of the database's icons, type 0xf6958): the one kept with it, else its own
+/// record's (stat 79): an item's template, a nano program's record (0xfde85), a special action's template, as the original
+/// draws every shortcut by its item or nano's icon (`ShortcutBarView_c`'s cells are `ItemIconView_c`s, FUN_100d825b).
+/// None for a macro (drawn as `GFX_GUI_ICON_MACRO`) and the attack. Looked up once each.
+pub fn icon_id(action: &Action) -> Option<u32> {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static KEPT: Mutex<Option<HashMap<(u32, u32), Option<u32>>>> = Mutex::new(None);
+    let own = |kind: u32, id: u32| {
+        let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+        let kept = kept.get_or_insert_with(HashMap::new);
+        if let Some(icon) = kept.get(&(kind, id)) {
+            return *icon;
+        }
+        let db = crate::net::item_db()?;
+        let icon = db.get(mao_formats::resource::Id { kind, instance: id }).ok().flatten().as_deref().and_then(mao_formats::item::Item::parse).and_then(|t| t.icon());
+        kept.insert((kind, id), icon);
+        icon
+    };
+    match action {
+        Action::Item { id, icon, .. } | Action::Special { id, icon, .. } => icon.or_else(|| own(mao_formats::item::TEMPLATE, *id)),
+        Action::Nano { id, icon, .. } => icon.or_else(|| own(0xfde85, *id)),
+        Action::Attack | Action::Social { .. } | Action::Macro { .. } => None,
+    }
+}
+
 /// The option panel's shortcut bar options as they changed this frame (`changed`: the control center's values that
 /// changed, by name, as numbers): "Number of shortcut bars" (`NumHotbars`, 1 to 10, which `ShortcutBarWindow_c` FUN_100d9e5f
 /// reads for the bars it shows) and "Lock shortcut bars" (`LockHotbars`), taken into this client's own settings of them,

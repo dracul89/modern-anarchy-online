@@ -1333,3 +1333,6 @@ These were written before this list; some may have been seen working since witho
 - [ ] **1** In the option panel (Options menu), set "Number of shortcut bars" to 3: two more bars appear, stacked up from
   the bottom left (or where the original's prefs had them). Tick "Lock shortcut bars": a bar's strip no longer drags.
   Untick the hide/show box: the bars go; tick it: they come back. Restart: the number and the lock are kept (`mao.ini`).
+- [ ] **1** A fresh start, the Action window never opened: the first bar's Start Combat, Walk, Sit and Suspended
+  Animation show their icons. Drag a nano program onto a bar: its icon shows. Use up a stack that is on a bar: the
+  icon stays.
