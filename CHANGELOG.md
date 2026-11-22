@@ -16,6 +16,16 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The launcher's settings are easier to read: their window is no longer see-through over the launcher's picture, the text is lighter, and settings that do not apply (the window size in a borderless mode) are faded less.
 - The Anarchy Online folder the client reads the game from is now the first thing on the settings' GUI page, with a line saying it is found by itself and that Browse picks another (it was at the foot of the page, under three other groups).
 
+### Graphics
+
+- A nano program that takes time to cast has its caster work the nano with both hands for the whole of the cast, then throw it at the target (or take it in, cast at oneself), as in the original; before, the throw played once as the cast began and the caster stood still through the rest. (Programs the original casts at once, such as the Bureaucrat's Commanding Presence, still show no casting, as in the original.)
+
+### Movement
+
+- Other players move smoothly between the server's messages, at their own speed along their facing, instead of standing still and then jumping metres on every few seconds; a correction from the server is eased into rather than jumped to.
+- Other players show their running or walking animations from the moment they start until they stop, and stand idle while they stand, instead of flickering between running and standing as each message came.
+- Turning with the right mouse button turns the character by exactly as far as the mouse goes, and the camera comes round behind it: with the locked or rubber camera the character swung on further than the mouse went and drifted the next time the button was held.
+
 ## 0.1.8 (2026-11-20)
 
 ### Performance

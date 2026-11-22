@@ -1337,3 +1337,25 @@ These were written before this list; some may have been seen working since witho
 - [ ] **1** Launcher, SETTINGS, Visual: Run In Window without Borderless, Predefined the monitor's own size (or Custom
   larger than the screen), OK, PLAY: the login and the game windows fit above the taskbar with their title bars on the
   screen; dragging a corner resizes from that corner without the window jumping.
+
+## The tester's bugs of 2026-11-21: movement, doors, others, casting
+
+- [ ] **1** With `camera_mode = lock` (and again with rubber and trail), hold the right button and swing the mouse
+  quickly left and right, then stop: the character turns exactly with the mouse and stops when it stops; the camera
+  stays behind it (lock) or comes round behind it (rubber). Let go and drag again: no jump or drift at the new drag's
+  start. Up and down tilt the camera. Pressing the right button without moving turns nothing.
+
+- [ ] **1** Stand in a busy place (Arete Landing, Old Athen's square) and watch other players run past: they move
+  smoothly the whole way, at about the pace they really run, with no jump every few seconds; they run while they move and
+  stand idle when they stop, with no burst of running on the spot. A player who turns while running curves smoothly.
+- [ ] **2** A player already running as they come into sight runs on (not standing until their next message).
+
+- [ ] **1** Cast a program that takes a second or more (a heal, a buff with a cast time) at yourself and at another: your
+  character works it with both hands for the whole cast, then releases it (towards the target, or into itself); watch
+  another player cast too. Commanding Presence and other programs the original casts at once show nothing, as there.
+
+- [ ] **1** (The tester's "dropped back to character select when a door opened in battlestation area".) Walk through
+  the doors of a battlestation's area again; if the game drops to the character list, send `game-log.txt` (and the
+  chat log): its last "door ... opens" line, the "connection ended in playfield ..." line's time and any "can't follow the
+  redirect" line say which door and what came of it.
+

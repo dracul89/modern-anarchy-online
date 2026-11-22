@@ -82,7 +82,8 @@ done: the star water of types 0xe/0xf (no playfield has any).
 ## 4d. Camera (live view)
 The mouse is the original's (GUI.dll's `ActionViewMouseHandler_c`; corrected 2026-11-18, "The mouse's camera as the
 original's"): **left button drag** looks round with the camera (`LMBMouseLook`), **right button drag** turns the
-character, with Ctrl only the camera; the last button pressed is the look's and letting go of either ends it; the turn
+character (only the character: the camera follows it as its mode says, and the drag's up and down tilt the camera by
+`RMBMouseLook1st` / `RMBMouseLook3rd`), with Ctrl only the camera; the last button pressed is the look's and letting go of either ends it; the turn
 keys strafe while a look moves; the **wheel** zooms `ZoomSpeed` / 10 a notch. The cursor is hidden while a button is
 held (the original moves it back to where the look began). The middle button resets the camera (this client's own; the
 original has Numpad 5). Strafing is on `Z` / `C` (A/D turn, as the original's defaults do; see 4e).
@@ -8442,3 +8443,111 @@ to the game's window (`MAO_WINDOW_AT`) as before.
 Seen in a test window (`mao-client <game> map 655` with `mode = windowed`, 6000x2400, on a 2560x1600 screen at 200%
 whose work area is 2560x1504): "the window's size 6000x2400 is larger than the screen: 2534x1433", the framed window
 at 0,0 to 2560,1504. Test: `viewer::window_tests::a_framed_window_is_kept_on_its_monitor`.
+
+### The right button's turn turns the character alone (2026-11-21, the tester's "can't turn sharply, drifts")
+
+The tester: "Can't turn sharply, character continues to drift in a direction." Their settings have `camera_mode = lock`.
+The right drag's movement across went to the camera (`mouse_look`, `camera::SteeringCamera::turn_and_zoom`) and the
+character was then set to face the camera (`keys.face = heading_from_yaw(camera.yaw)`). A locked or rubber camera keeps
+its turn as a place relative to the character's back (`UpdateHeadingToPos`), so when the character turned to face it the
+camera went round again by the same amount: each motion turned the character by everything the drag had turned so far,
+the turn ran on past the mouse, and the offset stayed for the next drag (the press itself also swung the character to
+the camera). In the tester's last log the character turns on the spot with 10/13 sent a few times a second while the
+heading wanders by up to a radian between them.
+
+The original (GUI.dll FUN_1002ccbe → Gamecode `N3Msg_MouseMovement` 0x100196b3): the counts times
+`MouseTurnSensitivity` / 1000 go to the character, the across part as the movement 0x2b that turns it (after the
+start messages 10 / 13 when the side changes, which were already ported), and the camera is handed
+`MouseCameraControl(0, up)`, the up part only, and that only with `RMBMouseLook1st` in first person or `RMBMouseLook3rd`
+otherwise (both true in `LoginPrefs.xml`); in fly mode it gets nothing (the up part pitches the vehicle). The press
+(FUN_1002ce31) only sets the look's kind. A locked or rubber camera then comes round behind the character by itself;
+the free (trail) one keeps its direction and is pulled along.
+
+Here: `viewer::steered_face` (the heading from the one the character had at the drag's first movement plus the
+movements since), the right drag's across movement no longer added to `mouse_look`, its up movement by the two
+preferences, and the press leaves `keys.face` empty. With Ctrl the right drag is still the camera's look, as the left
+one is. Test: `the_right_drag_turns_the_character_by_the_mouse_alone` (a locked camera, a drag there and back: the
+character ends where it began and the camera behind it). Not changed: the original's limit on the turn while stat
+224's bits 2 or 4 are set (that and stat 267), and the head turn handed over at a first-person look's end.
+
+### Other characters move between their messages (2026-11-21, the tester's "other characters teleport around")
+
+The tester: "Other characters teleport around, very choppy when moving. When standing, animations" (the sentence is cut
+off there; taken to mean that standing characters' animations look wrong too). A moving player sends a movement message
+only as its movement changes and a full report after 5 s without one (`movement::FULL`), and the client set each other
+character at each message's place and did nothing between: a runner stood still, then jumped up to 60 m on. Its
+animation went by its place having changed in the last 0.7 s, so it ran for 0.7 s after each jump and stood between,
+and a standing character whose report moved it a few centimetres ran on the spot for 0.7 s.
+
+The original: the handler of a character's CharDCMove (Gamecode FUN_1006bd94 → FUN_1006c20f) keeps where the character
+was drawn (`n3VisualDynel_t::UpdateReconcilePos`, N3.dll 0x10019414), sets the message's place and turn, and runs the
+message's movement transition on the character's movement status (FUN_1006f51b; FUN_1006cb58's table, the same as for
+one's own) while its stat 224 has bit 4 (with bit 2 only, the turns 9 to 0xe). Its vehicle then moves it every frame as
+one's own vehicle moves. `n3VisualDynel_t::Run` (0x100196bd) draws it at the reconcile point, which it moves a fifth of
+the way to the character's place each frame (0.8 and 0.2) while the two are between 0.2 and 35 apart (the squares 0.04
+and 1225 compared), and drops nearer; further apart it is drawn at its place. The announcement's vehicle block
+(FUN_1006f587: the velocity, then the status bytes FUN_10070981 reads) gives the status of one already moving as it comes
+into sight.
+
+Here: `net::OtherMove` (forward, back, the sidesteps and the key turns as the transitions leave them: a stop ends only
+its own direction, a start the other way turns it round, the full stop, sitting, sleeping, lounging and being frozen end
+all; the mouse's turn starts turn at no rate, their heading comes in the messages), `World::move_others` each frame (along
+the facing at the character's speed: walking 1.5, swimming the swim's, running by its `RunSpeed` as one's own when a `Stat`
+or the announcement told it, else the speed its last two messages of one move were apart at, else a `RunSpeed` of 0's 5
+forward and 3 back; sideways at the forward speed, together no faster; the height following the tile map's ground where
+there is one), `net::reconcile` (per sixtieth of a second, as the camera's smoothing is, `camera::keep_for`), the drawn
+place used for the body (`World::drawn_place`), and the movement animations by the status (`World::shows_moving`; the
+creatures the server walks along paths keep theirs by their place). `EntityInfo::move_status` reads the four status
+bytes after the mode (bytes 13 to 16 of the block, players and creatures alike); a player announced moving starts so.
+Tests: `others_move_between_their_messages`, `another_characters_transitions_are_the_tables`, and over the captures
+`the_announced_movement_status_is_the_vehicles` (1404 players announced, 191 walking forward, each one's next movement
+message a stop, a report, a jump or a turn, never a fresh start). Guessed: the measured speed for a player whose
+`RunSpeed` is not told (the original knows every character's); stat 224 is taken to have bit 4 for every other
+character (the client does not keep the others' stat 224). Not ported: the others' collision (they walk through walls
+until the next message puts them right, as in the original only where the server has them).
+
+### The casting animations: gathering, then the release (2026-11-21, the tester's "no animation when casting nano")
+
+The tester: "No animation when casting nano. Arms just don't seem to move." In their logs the only program their
+character cast is Commanding Presence (nano 210920, `25314d6d` then `CharacterAction` 0x62 with its 12100 run), whose
+flags (stat 0, 0x90002) hold 0x80000: the original's `FUN_1005141d` runs such a cast at once and never puts it in the
+character's list of casts, so its casting state never begins and nothing is played. For that program there is no
+animation in the original either (original behaviour; unchanged).
+
+For a program that takes time the client differed. The original's casting state (`CharCastNano_t`, FUN_1007b5cd, its
+frame FUN_1007b1e3) loops the program's `GatherAbstractAnim` (stat 376) while the cast gathers; at the cast's end it stops
+that (FUN_1003c6cb: the loop count set to 1, so the lap under way finishes), may first turn the caster to face its target
+(state 7, when the angle is large), and plays `CastSelfAbstractAnim` (378) at oneself or `CastTargetAbstractAnim` (377)
+at another once. No program has the three stats; they are what every item starts with (FUN_10086142): 0xcb `spell-sys`,
+0xca `spell-self`, 0xc9 `spell-dir`. The client played `spell-self` / `spell-dir` once as the cast began and the caster
+stood idle through the rest of the cast.
+
+Here: `net::CastAnimation` (the cast's beginning, its time as the stance's rule already worked it out, and whether it is
+at oneself), `World::casting`, `World::social_now` (the cast's animation before any social), and the animation stack's
+looping social, ended with the loop count 1 as the next one is set (`Characters::social_loops`). A cancel (0x89) ends
+both. Picture of the gathering (`mao-client <game> player 2 3 da59 --image out.png 300`): both hands up in front, working.
+Test: `a_cast_gathers_then_releases`. Not ported: the turn to face the target before the release; a cast whose time comes
+to nothing without the flag (the original still plays the release; here none, by the stance's earlier rule).
+
+### "Dropped back to character select when a door opened in battlestation area" (2026-11-21): not in the logs
+
+The tester's two logs (`game-log.txt`: 655 Andromeda, 6007, 152, 540 Old Athen; `game-log.previous.txt`: 790, 560,
+565, 566, 655) both end "connection ended: the server closed the connection", but neither is the drop they describe:
+their chat log has "Timed logout started. This will take 30 seconds." for every session of the day, and in both logs the
+end comes about 30 s after the character sat down (the own place's echo with movement 0x1e) as that logout began. Neither
+log visits a battlestation (the playfields 4380 to 4388, `n3Playfield_t::IsBattleStation`), and in neither does the
+client fail a hand-off to another server ("can't follow the redirect") or panic.
+
+What a door does here, read for the report: touching a door sends no message of its own; the door opens on the client
+(`World::tick_doors`, `door_may_pass` for a locked one) and, within half a metre of its place, one full report (0x16)
+starts a teleport try, as the original's `StartTeleportTry` does; the server answers with a teleport (`43197d22`) or,
+for another server's playfield, a hand-off (system 0x3c), which `hop_direct` follows with the session key. The ends of
+the two runs, named by their class names hashed (`mao-message-numbers`): `25314d6d` CastNanoSpellIIR_t (Commanding
+Presence, nano 210920, cast shortly before each logout), `39343c68` BuffIIR_c, `5e477770` CharacterActionIIR_t
+(0x62, the program's run); in 6007 `52526858` GenericCmd_t (the uses of the terminals), `41624f0d`
+AppearanceUpdateIIR_c, `64582a07` OrgServerIIR_c, `60201d0e` SetWantedDirectionIIR_t, `4d450114` SpellListIIR_t.
+
+So that the next such report can be placed, the game log now says: each door that opens or shuts, by its identity and
+number, and whether the character touched it; the logout the player asks for (`/camp`, the quit menu) with its time;
+and the time and playfield of the connection's end.
+
