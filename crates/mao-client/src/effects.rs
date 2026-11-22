@@ -2997,8 +2997,11 @@ pub fn placed_particles(v: &Visual, at: [f32; 3], time: f32, eye: [f32; 3]) -> V
 /// colour and frame at the cycle's fraction; a billboard for a `GfxVisualSprite2`, and for a `GfxVisualSprite3` a quad standing
 /// up at the point, turned to face the camera about the up axis (the original does so for flag 0x2000; for the other standing
 /// templates the quad is set in the locator's frame, which the client does not carry here, so they face the camera too). The
-/// random spot of the texture (flag 0x4 clear) moves with `salt` each frame.
-pub fn sprite_particles(s: &Sprite, feet: [f32; 3], time: f32, salt: u32) -> Vec<Particle> {
+/// quad shows its frame of the sheet, the whole frame: the control makes its visual with the random spot off (FUN_100f64a7
+/// hands `GfxVisual`'s third word, +0x198, a 0), so the sprites' draw (DisplaySystem FUN_10023ea4 / FUN_10028606) never
+/// takes a random spot of the texture. Until 2026-11-21 the client read flag 0x4 clear as that random spot, and every halo
+/// showed a random piece of its texture each frame, the glow cut by the quad's edges ("light boxes").
+pub fn sprite_particles(s: &Sprite, feet: [f32; 3], time: f32) -> Vec<Particle> {
     if time < 0.0 || s.duration >= 0.0 && time >= s.duration {
         return Vec::new();
     }
@@ -3019,10 +3022,6 @@ pub fn sprite_particles(s: &Sprite, feet: [f32; 3], time: f32, salt: u32) -> Vec
     // (the original's Y-up offset in the client's Z-up world)
     let at = [feet[0] + s.offset[0], feet[1] + s.offset[2], feet[2] + s.offset[1]];
     let mut p = sprite(s.material, frame, at, width.max(0.0), colour);
-    if s.flags & 0x4 == 0 && p.sprite != NO_SPRITE {
-        // (a random spot of the texture, the whole of it wide: the sampler wraps)
-        p.rect = [hash(salt, 0x1012), hash(salt, 0x1013), p.rect[2], p.rect[3]];
-    }
     if s.standing() {
         p = Particle { size: width.max(0.0) * 0.5, right: [0.0; 3], up: [0.0, 0.0, height.max(0.0) * 0.5], ..p };
     }
@@ -3714,8 +3713,7 @@ pub fn visual_particles_on(v: &Visual, feet: [f32; 3], time: f32, reach: Reach, 
             nano_particles(n, &|_| at, time, None, None)
         }
         Visual::BParticle(b) => bparticle_particles(b, on(b.attach), time),
-        // (the frame's random spot changes each frame: the time's bits are the salt)
-        Visual::Sprite(s) => sprite_particles(s, on(s.attach), time, time.to_bits()),
+        Visual::Sprite(s) => sprite_particles(s, on(s.attach), time),
         Visual::Smoke(s) => smoke_particles(s, on(s.attach), time),
         // (the placeholders' rings at their attach points; a tracer carries them at its point)
         Visual::Spiral(aura) => {
@@ -4446,21 +4444,23 @@ mod tests {
         // (template 7000's shape: a billboard halo 1 m wide pulsing 0.025 at 1 Hz, white, for ever)
         let s = Sprite { attach: 0, offset: [0.0; 3], duration: -1.0, material: 8, flags: 0x950, width: (1.0, 1.0), height: (1.0, 1.0), colour_a: [0.5, 1.0, 1.0, 1.0], colour_b: [0.5, 1.0, 1.0, 1.0], period: 1.0, cycles: -1, pulse: 0.025, pulse_rate: 1.0 };
         let feet = [1.0, 2.0, 3.0];
-        let at = sprite_particles(&s, feet, 0.25, 7);
+        let at = sprite_particles(&s, feet, 0.25);
         assert_eq!(at.len(), 1);
         assert!((at[0].size - 1.025).abs() < 1e-4 && at[0].colour == [1.0, 1.0, 1.0, 0.5] && at[0].right == [0.0; 3] && at[0].up == [0.0; 3]);
-        // the random spot moves with the salt; a frame-bound sprite (flag 0x4) keeps the sheet's own rectangle
-        assert_ne!(sprite_particles(&s, feet, 0.25, 8)[0].rect, at[0].rect);
+        // the whole of the sheet's frame, the same every frame, whether flag 0x4 is set or not (it picks the blending, not a
+        // random spot: the halos showed a random piece of their texture, cut by the quad's edges)
+        assert_eq!(at[0].rect, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(sprite_particles(&s, feet, 0.75)[0].rect, at[0].rect);
         let bound = Sprite { flags: 0x954, ..s.clone() };
-        assert_eq!(sprite_particles(&bound, feet, 0.25, 8)[0].rect, sprite_particles(&bound, feet, 0.25, 9)[0].rect);
+        assert_eq!(sprite_particles(&bound, feet, 0.25)[0].rect, at[0].rect);
         // (template 61085's shape: a standing beam 1.5 wide and 70 tall at 29.7 up, 10 s a cycle)
         let beam = Sprite { offset: [0.0, 29.7, 0.0], material: 44, flags: 0x2953, width: (1.5, 1.5), height: (70.0, 70.0), period: 10.0, pulse: 0.07, pulse_rate: 10.0, ..s.clone() };
-        let b = &sprite_particles(&beam, feet, 1.0, 1)[0];
+        let b = &sprite_particles(&beam, feet, 1.0)[0];
         assert!(b.right == [0.0; 3] && (b.up[2] - 35.0).abs() < 0.1 && (b.size - 0.75).abs() < 0.1 && (b.position[2] - 32.7).abs() < 1e-4);
         // a counted one is gone after its cycles; its colour fades over a cycle when asked
         let counted = Sprite { flags: 0x9d0, cycles: 1, colour_b: [0.0, 1.0, 1.0, 1.0], ..s.clone() };
-        assert!((sprite_particles(&counted, feet, 0.5, 1)[0].colour[3] - 0.25).abs() < 1e-5);
-        assert!(!sprite_particles(&counted, feet, 1.9, 1).is_empty() && sprite_particles(&counted, feet, 2.1, 1).is_empty());
+        assert!((sprite_particles(&counted, feet, 0.5)[0].colour[3] - 0.25).abs() < 1e-5);
+        assert!(!sprite_particles(&counted, feet, 1.9).is_empty() && sprite_particles(&counted, feet, 2.1).is_empty());
     }
 
     #[test]

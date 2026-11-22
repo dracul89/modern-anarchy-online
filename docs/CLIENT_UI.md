@@ -2282,7 +2282,7 @@ The volume grids (`GfxControlVolGrid_t`, kind 3038: 31 hits, 27 casts, 24 tracer
 
 The smoke streams (`_GfxControlSmoke_t`, kind 1009: 63 running effects name one of its 17 templates) are played as the original's run makes and moves them (`mao_formats::gfx::Smoke`, `effects::smoke_particles`, from Gamecode's FUN_100f04bd and displaysystem's `GfxVisualSprite2Type0`): the template's rate of sprites a second, each born on a disc about the emitter at a random height, drifting along the emitter's −z by the template's drift over its life, which the emitter's turn (a quarter turn about x in most templates) points up; its size, colour and sheet frame run from the template's start values to its end values over a life spread by up to 30%; push kind 5 rises on top and kind 7 flies off at random. The emitter's offset and turn and the attach point place it on the body. Not done: the push of the other kinds by the effect handler's force (the client keeps none) and the sprites' spin.
 
-The single-quad effects (`_GfxControlSprite_t`, kind 1012: 27 running effects name one of its 16 templates, the tower beams and the halos among them) are played as the original runs them (`mao_formats::gfx::Sprite`, `effects::sprite_particles`, from Gamecode's FUN_100f6d2b and displaysystem's `gfxsprites.rs`): one quad of the template's material at the attach point plus its offset, cycling over the template's period for its count of cycles or its duration, its width, height, colour and sheet frame running between the template's start and end values as its flags ask, with the sinusoidal swell of the pulsing ones and the random texture spot of the shimmering ones. A `GfxVisualSprite2` template is a billboard; a `GfxVisualSprite3` one stands on its height and turns about it to face the camera, which the renderer's particles now do when given an up without a right. Not done: a standing quad fixed in the body's own frame, the separate height of a billboard, and alpha blending.
+The single-quad effects (`_GfxControlSprite_t`, kind 1012: 27 running effects name one of its 16 templates, the tower beams and the halos among them) are played as the original runs them (`mao_formats::gfx::Sprite`, `effects::sprite_particles`, from Gamecode's FUN_100f6d2b and displaysystem's `gfxsprites.rs`): one quad of the template's material at the attach point plus its offset, cycling over the template's period for its count of cycles or its duration, its width, height, colour and sheet frame running between the template's start and end values as its flags ask, with the sinusoidal swell of the pulsing ones (the "random texture spot of the shimmering ones" this said was a misreading, taken out 2026-11-21: see "Lamp halos that were boxes"). A `GfxVisualSprite2` template is a billboard; a `GfxVisualSprite3` one stands on its height and turns about it to face the camera, which the renderer's particles now do when given an up without a right. Not done: a standing quad fixed in the body's own frame, the separate height of a billboard, and alpha blending.
 
 The thrown billboard particles (`GfxControlBParticle2_t`, kind 3028: 21 hit effects name one of its 66 templates, debris and embers mostly) are played as the original bears and moves them (`mao_formats::gfx::BParticles`, `effects::bparticles`, from Gamecode's FUN_1010bf63 and FUN_1010b499): the template's count of sprites born at once within its scatter of the hit point, each with its own velocity, life and size from the template's ranges, pulled by its gravity, damped and grown at its rates, its sheet frame run under its frame mode and its colour and alpha read from the template's colour curve at the fraction of its life; a stream template reborns its dead particles while it still emits. Not done: the particles' spin, the ground bounce, the fades by height above the ground and by daylight, and the turn of the body they fly from.
 
@@ -8653,3 +8653,38 @@ default): each item keeps its own cell, a column and a row (`MultiListViewItem_c
 than the columns the items reach (`RecalcVirtualSize` 0x10134944). The items move only when put elsewhere, or when the
 grid is arranged (`Order` in the window's menu, which lays them along the rows of the width shown) and then let be
 (`SetAutoArrange(false)` 0x101371db: each item keeps the cell the arranging gave it), as here (`invwindows.rs`).
+
+## Lamp halos that were boxes (2026-11-21, branch `fix/lights`)
+
+The tester: "The lights were showing light boxes that don't really resemble", with a screenshot of Old Athen by the
+Dreadloch Arms & Gear sign in daylight: big pale-grey see-through rectangles round two street lamps, their edges plain
+against the sky and the trees, and a soft white glow at one corner of one of them.
+
+**The cause.** The lamps there are the halos their mesh's connectors name (`eff_haloM...` with a colour and a size:
+template 7004, a `_GfxControlSprite_t` billboard 8 m wide of material 8, `light_halo2.png`, white at alpha 0.25 times a
+size of 1.004; 56 of Old Athen's 84 statel effects; `MAO_EFFECT_PLACES=1 mao-client <game> statel-effects 540` lists each
+place with its colour and size). `effects::sprite_particles` read flag 0x4 of the template (clear in all 16 kind-1012
+templates) as "sample a random spot of the texture each frame", so every frame the quad showed the halo's picture moved
+by a random amount, its bright middle in a corner or cut in pieces and the quad's edges plain to see.
+
+**What the original does.** Gamecode's FUN_100f64a7 makes the control's visual: `GfxVisualSprite2(material, a, 0, 0,
+width, height, additive)` (or `GfxVisualSprite3`), with `a = !(flags >> 2 & 1)` and `additive = !(flags >> 12 & 1)` (read
+from the pushes at 0x100f64dc-0x100f6507). DisplaySystem's `GfxVisual` constructor (FUN_10007823) keeps `a` at +0x190, the
+second word at +0x194 and the third at +0x198; the sprites' draws (FUN_10023ea4, FUN_10028606) take a random spot only
+when +0x198 is not 0, which this control never asks for. So the quad always shows its frame of the sheet (the first, or
+the running one with flag 0x20), whole: a soft glow centred on the lamp. Flag 0x4 picks the blending instead: clear (every
+template) `GfxVisualSprite2` adds by the source alpha (`SRCALPHA`, `ONE`), which is what the client's particle pass does;
+set, it would blend (`SRCALPHA`, `INVSRCALPHA`). The halo texture's border is black and transparent (128x128, corners
+`[0, 0, 0, 0]`), so nothing of the quad's edge shows.
+
+**The fix.** `sprite_particles` no longer moves the texture; it draws the sheet's frame. That also mends the other users
+of the single quad: the tower beams (61085-61087), the halos over a character (43607, 80006-80009) and the white, red,
+green and blue halos (7000-7003). Seen in offline pictures of the tester's spot before and after, by day and at night
+(`MAO_SKY=23 MAO_SKY_PLAYFIELD=540 MAO_STATEL_EFFECTS=5 MAO_GFX=<game>/Setupf/gfxtweak.bin
+MAO_CAMERA=404.5,370,18,14.43,1.452,-0.069 mao-client <game> map 540 --image out.png`): the rectangle gone, a round glow on
+the lamp's head. Test: `a_sprite_quad_cycles_its_size_and_colour_and_stands_when_asked` (the rectangle is the whole frame,
+the same every frame, with flag 0x4 set or not).
+
+**Not done.** The client still adds every quad. Template 7100 (flag 0x1000: a `GfxVisualSprite3` not added, which the
+original draws `DESTCOLOR`, `SRCCOLOR`, a doubled darkening) and a template with flag 0x4 set (none in the file) would
+blend otherwise in the original. Not seen in the live game yet (LIVE_TEST_LIST).

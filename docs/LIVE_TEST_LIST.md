@@ -1374,3 +1374,9 @@ These were written before this list; some may have been seen working since witho
   cog beside it and both mice under it (left and right do the use). Point at oneself: green arrow; at a hostile monster:
   red; at a friendly NPC: blue (a talking one with the speech bubble on the right). Hold Shift: the eye on the left. Over
   a window the pointer is the plain one again.
+
+## The tester's lamp halos (2026-11-21, branch `fix/lights`)
+
+- [ ] **1** Old Athen, by the Dreadloch Arms & Gear sign (about x 410, z 380), day and night: each street lamp has a soft
+  round glow centred on its head, with no pale rectangle or straight edge round it, and the glow does not flicker or
+  jump about. The same at Jobe Research's lamps and a whom-pah's or a tower's beam.
