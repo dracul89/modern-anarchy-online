@@ -8451,3 +8451,25 @@ both. Picture of the gathering (`mao-client <game> player 2 3 da59 --image out.p
 Test: `a_cast_gathers_then_releases`. Not ported: the turn to face the target before the release; a cast whose time comes
 to nothing without the flag (the original still plays the release; here none, by the stance's earlier rule).
 
+### "Dropped back to character select when a door opened in battlestation area" (2026-11-21): not in the logs
+
+The tester's two logs (`game-log.txt`: 655 Andromeda, 6007, 152, 540 Old Athen; `game-log.previous.txt`: 790, 560,
+565, 566, 655) both end "connection ended: the server closed the connection", but neither is the drop they describe:
+their chat log has "Timed logout started. This will take 30 seconds." for every session of the day, and in both logs the
+end comes about 30 s after the character sat down (the own place's echo with movement 0x1e) as that logout began. Neither
+log visits a battlestation (the playfields 4380 to 4388, `n3Playfield_t::IsBattleStation`), and in neither does the
+client fail a hand-off to another server ("can't follow the redirect") or panic.
+
+What a door does here, read for the report: touching a door sends no message of its own; the door opens on the client
+(`World::tick_doors`, `door_may_pass` for a locked one) and, within half a metre of its place, one full report (0x16)
+starts a teleport try, as the original's `StartTeleportTry` does; the server answers with a teleport (`43197d22`) or,
+for another server's playfield, a hand-off (system 0x3c), which `hop_direct` follows with the session key. The ends of
+the two runs, named by their class names hashed (`mao-message-numbers`): `25314d6d` CastNanoSpellIIR_t (Commanding
+Presence, nano 210920, cast shortly before each logout), `39343c68` BuffIIR_c, `5e477770` CharacterActionIIR_t
+(0x62, the program's run); in 6007 `52526858` GenericCmd_t (the uses of the terminals), `41624f0d`
+AppearanceUpdateIIR_c, `64582a07` OrgServerIIR_c, `60201d0e` SetWantedDirectionIIR_t, `4d450114` SpellListIIR_t.
+
+So that the next such report can be placed, the game log now says: each door that opens or shuts, by its identity and
+number, and whether the character touched it; the logout the player asks for (`/camp`, the quit menu) with its time;
+and the time and playfield of the connection's end.
+

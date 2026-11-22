@@ -1341,3 +1341,8 @@ These were written before this list; some may have been seen working since witho
   character works it with both hands for the whole cast, then releases it (towards the target, or into itself); watch
   another player cast too. Commanding Presence and other programs the original casts at once show nothing, as there.
 
+- [ ] **1** (The tester's "dropped back to character select when a door opened in battlestation area".) Walk through
+  the doors of a battlestation's area again; if the game drops to the character list, send `game-log.txt` (and the
+  chat log): its last "door ... opens" line, the "connection ended in playfield ..." line's time and any "can't follow the
+  redirect" line say which door and what came of it.
+

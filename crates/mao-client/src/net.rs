@@ -2507,6 +2507,9 @@ impl World {
                 None if !open => {}
                 _ => {
                     self.door_motion.insert(n, (open, now));
+                    // (for the log: a door that opens or shuts, which, and whether the character touched it; the tester's
+                    // "dropped back to character select when a door opened" of 2026-11-21 left no trace of the door)
+                    eprintln!("door {:#x} (number {n}) {} ({})", self.door_slots[&n].0, if open { "opens" } else { "shuts" }, if touching.contains(&n) { "touched" } else { "not touched" });
                     // (the door's sound at its place, before its animation: FUN_10080319, FUN_100803b4)
                     let id = self.door_sounds.get(&n).map_or(0, |pair| if open { pair.0 } else { pair.1 });
                     if id != 0 {
@@ -9622,7 +9625,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 }
                 Err(session::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
                 Err(e) => {
-                    eprintln!("connection ended: {e}");
+                    // (with the time and the playfield, to place it against the chat log's lines)
+                    eprintln!("[{:7.2}] connection ended in playfield {current}: {e}", clock.elapsed().as_secs_f32());
                     break;
                 }
             }
@@ -10387,6 +10391,8 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         state.seated.insert(own);
                     }
                     let _ = connection.send(&n3::action(own, n3::LOGOUT));
+                    // (for the log: the logout the player asked for, so a server's close 30 s later is not taken for a fault)
+                    eprintln!("[{:7.2}] logout asked (camp): CharacterAction 0x78 sent", clock.elapsed().as_secs_f32());
                     *crate::ui::CAMP.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
                     pending_messages.push(crate::feedback::gui("LogoutStartedXseconds", &[mao_formats::ldb::Arg::Int(30)]));
                 }
