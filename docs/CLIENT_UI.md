@@ -8395,3 +8395,18 @@ Online again.
 `launchwindow::tests::the_patcher_is_started_through_the_shell` (the shell's line, the refused characters, a folder
 without the patcher, the message's words). Not tried: the consent box itself and a real patch (it would change the
 installed game; there is no dimension of a newer version to patch to here).
+
+## The launcher's settings too dark to read (2026-11-21, a tester's report)
+
+"Font color of settings is too dark to read compared to background." The settings (and the licence) are egui windows
+in the interface theme's colours (`ui.rs::theme`): a panel 215/255 opaque, for the game's world behind it, and the
+theme's `Text` colour, which for the original skin and the AOU skins is 0x99ccaa, a grey green. Over the launcher's
+picture the panel let the art through (bright clouds and the dimension list showed under the lower groups), and what
+is switched off (the window's size while the mode is borderless, the usual case) was egui's half-faded grey. The
+original's settings were the system's own dialogs (Anarchy.exe dialog templates 153, 161 and 107: black on the
+system's grey); these pages are the client's own (LCH-002), so the fix is the obvious one, in the theme's colours
+(`launchwindow.rs`, `readable`, set once on the launcher's context): the window's fill opaque, the theme's text
+colour lightened 55% of the way to white (0x99ccaa becomes 209,232,217), and a switched-off control keeps 75% of its
+colour where egui's keeps 50%. Only the launcher's windows change; the game's own windows keep the theme as it is.
+Seen in pictures of the Visual and GUI pages with the original theme and with aou_slim_cni (PrintWindow of a test
+launcher started with a scratch settings folder). Test: `launchwindow::tests::the_launcher_windows_are_easy_to_read`.

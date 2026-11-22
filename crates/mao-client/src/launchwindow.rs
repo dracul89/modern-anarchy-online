@@ -371,6 +371,29 @@ impl Preset {
     }
 }
 
+/// How much of its colour a switched-off control keeps in the launcher's windows (egui's own is half).
+const DISABLED_ALPHA: f32 = 0.75;
+
+/// A colour lightened most of the way to white.
+pub fn lighter(c: egui::Color32) -> egui::Color32 {
+    let up = |v: u8| v + ((255 - v) as f32 * 0.55).round() as u8;
+    egui::Color32::from_rgb(up(c.r()), up(c.g()), up(c.b()))
+}
+
+/// The launcher's windows (the settings, the licence, a message) in the interface theme's colours, made easy to read
+/// over the launcher's pictures, which a tester found them too dark against: the window's fill opaque (the theme's is
+/// see-through, for the game's world), the theme's text colour lightened most of the way to white (the original
+/// theme's 0x99ccaa becomes 209,232,217) and a switched-off control less faded. The original's settings were the
+/// system's own dialogs (Anarchy.exe dialog templates 153, 161 and 107: black on the system's grey); these pages are
+/// the client's own, in its own colours.
+pub fn readable(v: &mut egui::Visuals) {
+    v.window_fill = v.window_fill.to_opaque();
+    v.panel_fill = v.panel_fill.to_opaque();
+    v.extreme_bg_color = v.extreme_bg_color.to_opaque();
+    v.override_text_color = Some(lighter(v.override_text_color.unwrap_or(egui::Color32::from_gray(200))));
+    v.disabled_alpha = DISABLED_ALPHA;
+}
+
 /// What the settings' window is told of the screens: the sizes to offer and the monitors' names.
 #[derive(Default)]
 struct Screens {
@@ -861,6 +884,10 @@ impl Launch {
                     }
                 }
             }
+        }
+        // (the launcher's windows easy to read: once, as the context keeps it)
+        if ctx.global_style().visuals.disabled_alpha != DISABLED_ALPHA {
+            ctx.global_style_mut(|style| readable(&mut style.visuals));
         }
         let screen = ctx.content_rect();
         // (a window of no size, as a minimized one is told to be on some systems: nothing to lay out)
@@ -1529,6 +1556,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
         let text = patch_failed_text("Windows did not start it.", "Rubi-Ka", "18.8.63", "18.8.62", r"C:\AO");
         assert!(text.contains("Windows did not start it.") && text.contains("Rubi-Ka runs version 18.8.63") && text.contains(r"Anarchy.exe in C:\AO"));
+    }
+
+    /// The launcher's windows are opaque and their text light: the original theme's green-grey text is lightened.
+    #[test]
+    fn the_launcher_windows_are_easy_to_read() {
+        let mut v = egui::Visuals::dark();
+        v.window_fill = egui::Color32::from_rgba_unmultiplied(18, 30, 30, 215);
+        v.override_text_color = Some(egui::Color32::from_rgb(0x99, 0xcc, 0xaa));
+        readable(&mut v);
+        assert_eq!(v.window_fill.a(), 255);
+        assert_eq!(v.override_text_color, Some(egui::Color32::from_rgb(209, 232, 217)));
+        assert_eq!(v.disabled_alpha(), DISABLED_ALPHA);
+        // (white stays white, black comes most of the way up)
+        assert_eq!(lighter(egui::Color32::WHITE), egui::Color32::WHITE);
+        assert_eq!(lighter(egui::Color32::BLACK), egui::Color32::from_gray(140));
     }
 
     #[test]

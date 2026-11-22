@@ -9,6 +9,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Launcher
 
 - PATCH no longer just closes the launcher: the game's patcher must run as an administrator, and the launcher started it in a way Windows refuses for such a program, so nothing came and the launcher was gone. It is now started as the original launcher starts it, so Windows asks for that permission; if it still cannot be started, the launcher says why and stays open.
+- The launcher's settings are easier to read: their window is no longer see-through over the launcher's picture, the text is lighter, and settings that do not apply (the window size in a borderless mode) are faded less.
 
 ## 0.1.8 (2026-11-20)
 
