@@ -584,9 +584,9 @@ impl ControlCenter {
     /// The rollup's click: the wings fold away, or come back.
     pub fn toggle_rollup(&mut self) {
         let rolled = self.docks.rolled;
-        self.store.set("cc_left_wing", Variant::from(rolled));
-        self.store.set("cc_right_wing", Variant::from(rolled));
-        self.store.take_changed();
+        // (not counted as changes, and leaving the others waiting: the option panel's of this frame)
+        self.store.set_quietly("cc_left_wing", Variant::from(rolled));
+        self.store.set_quietly("cc_right_wing", Variant::from(rolled));
     }
 
     /// One entry's button: the strip for its state and its label; the rect when it was clicked, and whether a drag
