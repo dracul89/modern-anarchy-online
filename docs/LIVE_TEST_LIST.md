@@ -1324,3 +1324,9 @@ These were written before this list; some may have been seen working since witho
 
 - [ ] **1** Skills window: the eleven group buttons stand one under another (Abilities ... Disabled / Legacy); a press
   opens a group's rows under its button and another press folds them away again.
+
+## The tester's interface bugs (2026-11-21, branch `fix/interface`)
+
+- [ ] **1** Drag the chat window down over the bottom of the screen: it covers the control center's buttons (the menu
+  row, the target buttons, the rollup) as it covers its wings and strips. The buttons still work where nothing covers
+  them, and a menu a button opens shows over the windows.

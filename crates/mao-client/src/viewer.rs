@@ -628,7 +628,8 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
             scene.sky.0 = fog;
         }
     }
-    let (w, h) = (960, 720);
+    // (`MAO_PREVIEW_SIZE=<w>x<h>`: the picture's size in pixels, 960 by 720 without it)
+    let (w, h) = std::env::var("MAO_PREVIEW_SIZE").ok().and_then(|s| s.split_once('x').and_then(|(w, h)| Some((w.trim().parse().ok()?, h.trim().parse().ok()?)))).filter(|&(w, h): &(u32, u32)| w >= 64 && h >= 64 && w <= 8192 && h <= 8192).unwrap_or((960, 720));
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let radius = scene.radius;
     let pixels = renderer.render_to_image_with(&gpu, &scene, &camera, w, h, &mut |view| {

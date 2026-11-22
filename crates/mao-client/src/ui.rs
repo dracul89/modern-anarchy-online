@@ -1262,6 +1262,7 @@ impl Ui {
                     &with_ncu
                 };
                 let clicks = crate::vitals::show_docked(&ctx, hud.camera_yaw, stats, &hud.stat_parts, palette, &cc.docks);
+                cc.raise(&ctx);
                 if clicks.rollup {
                     cc.toggle_rollup();
                 }
@@ -2024,7 +2025,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 Some(cc) => {
                     cc.show(&ctx, &palette, &hud.stats, &|_| false);
                     preview_panel.show(&ctx, &palette, &mut cc.store, &hud.stats, &mut settings.keymap);
-                    if crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &cc.docks).rollup {
+                    let rollup = crate::vitals::show_docked(&ctx, hud.camera_yaw, &hud.stats, &hud.stat_parts, &palette, &cc.docks).rollup;
+                    cc.raise(&ctx);
+                    if rollup {
                         cc.toggle_rollup();
                     }
                 }

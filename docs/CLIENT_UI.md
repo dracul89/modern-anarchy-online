@@ -8364,3 +8364,27 @@ Not seen live after the change.
   it) steps back and forth along the rail for as long as it is left, with no end; the original has no such walk.
 - Marcus Stone, while he fights the cleaning robots, opens no chat for a use: the game's own rule (seen before), not a
   fault.
+
+## A tester's interface bugs (2026-11-21)
+
+A tester's list after playing 0.1.8. Each part says what the original does and what changed.
+
+### The control center behind every window
+
+The tester: the Character, Team and Commands buttons "float", and the chat window slides between them and the
+NCU/credits strip. The parts of the skin's control center were drawn on three of egui's layers: the wings on the
+background, the strips on the windows' own layer and the buttons (menu rows, mini toolbar, rollup, target buttons)
+over every window. A window dragged over the bottom of the screen went over the wings, under or over the strips by
+which was last touched, and under the buttons.
+
+The original's control center is **one window** (`control_center_window`, FUN_1006f911), and
+`ControlCenterModule_c::LoadMenues` (GUI.dll 0x10068580) puts it **behind all the others** (`Window::MoveToBack`) once
+it is made. Now every part of it is on the background layer, under every window; within it the wings lie under the
+strips and the buttons, which are raised over the rest of the background layer each frame (`vitals::show_docked`,
+`ControlCenter::raise`; egui keeps the order among layers raised in the same frame). The menus a button opens stay over
+the windows. The buttons' places are the skin's `ControlCenter.xml`'s, as before: the game's own skin has its menu rows
+33 pixels above the screen's bottom on the wings (`layout_borders="Rect(12,0,0,33)"`), the AOU skins' at the very
+bottom in the strip, as the original's own screenshots show them.
+
+Picture: `MAO_UI_PREVIEW=chat` (now with `MAO_PREVIEW_SIZE=<w>x<h>`, the picture's size, for a screen like the
+tester's) with the game's skin and with `aou_slim_cni`: the chat window covers the menu row and the target buttons.

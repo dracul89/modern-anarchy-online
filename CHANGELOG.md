@@ -6,6 +6,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Interface
+
+- The control center lies behind every window, as in the original: a window moved to the bottom of the screen goes over its buttons, wings and strips alike, no longer between its buttons and the NCU/credits strip.
+
 ## 0.1.8 (2026-11-20)
 
 ### Performance
