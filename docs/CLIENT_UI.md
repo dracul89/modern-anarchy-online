@@ -82,7 +82,8 @@ done: the star water of types 0xe/0xf (no playfield has any).
 ## 4d. Camera (live view)
 The mouse is the original's (GUI.dll's `ActionViewMouseHandler_c`; corrected 2026-11-18, "The mouse's camera as the
 original's"): **left button drag** looks round with the camera (`LMBMouseLook`), **right button drag** turns the
-character, with Ctrl only the camera; the last button pressed is the look's and letting go of either ends it; the turn
+character (only the character: the camera follows it as its mode says, and the drag's up and down tilt the camera by
+`RMBMouseLook1st` / `RMBMouseLook3rd`), with Ctrl only the camera; the last button pressed is the look's and letting go of either ends it; the turn
 keys strafe while a look moves; the **wheel** zooms `ZoomSpeed` / 10 a notch. The cursor is hidden while a button is
 held (the original moves it back to where the look began). The middle button resets the camera (this client's own; the
 original has Numpad 5). Strafing is on `Z` / `C` (A/D turn, as the original's defaults do; see 4e).
@@ -8364,3 +8365,29 @@ Not seen live after the change.
   it) steps back and forth along the rail for as long as it is left, with no end; the original has no such walk.
 - Marcus Stone, while he fights the cleaning robots, opens no chat for a use: the game's own rule (seen before), not a
   fault.
+
+### The right button's turn turns the character alone (2026-11-21, the tester's "can't turn sharply, drifts")
+
+The tester: "Can't turn sharply, character continues to drift in a direction." Their settings have `camera_mode = lock`.
+The right drag's movement across went to the camera (`mouse_look`, `camera::SteeringCamera::turn_and_zoom`) and the
+character was then set to face the camera (`keys.face = heading_from_yaw(camera.yaw)`). A locked or rubber camera keeps
+its turn as a place relative to the character's back (`UpdateHeadingToPos`), so when the character turned to face it the
+camera went round again by the same amount: each motion turned the character by everything the drag had turned so far,
+the turn ran on past the mouse, and the offset stayed for the next drag (the press itself also swung the character to
+the camera). In the tester's last log the character turns on the spot with 10/13 sent a few times a second while the
+heading wanders by up to a radian between them.
+
+The original (GUI.dll FUN_1002ccbe → Gamecode `N3Msg_MouseMovement` 0x100196b3): the counts times
+`MouseTurnSensitivity` / 1000 go to the character, the across part as the movement 0x2b that turns it (after the
+start messages 10 / 13 when the side changes, which were already ported), and the camera is handed
+`MouseCameraControl(0, up)`, the up part only, and that only with `RMBMouseLook1st` in first person or `RMBMouseLook3rd`
+otherwise (both true in `LoginPrefs.xml`); in fly mode it gets nothing (the up part pitches the vehicle). The press
+(FUN_1002ce31) only sets the look's kind. A locked or rubber camera then comes round behind the character by itself;
+the free (trail) one keeps its direction and is pulled along.
+
+Here: `viewer::steered_face` (the heading from the one the character had at the drag's first movement plus the
+movements since), the right drag's across movement no longer added to `mouse_look`, its up movement by the two
+preferences, and the press leaves `keys.face` empty. With Ctrl the right drag is still the camera's look, as the left
+one is. Test: `the_right_drag_turns_the_character_by_the_mouse_alone` (a locked camera, a drag there and back: the
+character ends where it began and the camera behind it). Not changed: the original's limit on the turn while stat
+224's bits 2 or 4 are set (that and stat 267), and the head turn handed over at a first-person look's end.

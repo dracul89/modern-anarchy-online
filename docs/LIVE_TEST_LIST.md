@@ -1324,3 +1324,10 @@ These were written before this list; some may have been seen working since witho
 
 - [ ] **1** Skills window: the eleven group buttons stand one under another (Abilities ... Disabled / Legacy); a press
   opens a group's rows under its button and another press folds them away again.
+
+## The tester's bugs of 2026-11-21: movement, doors, others, casting
+
+- [ ] **1** With `camera_mode = lock` (and again with rubber and trail), hold the right button and swing the mouse
+  quickly left and right, then stop: the character turns exactly with the mouse and stops when it stops; the camera
+  stays behind it (lock) or comes round behind it (rubber). Let go and drag again: no jump or drift at the new drag's
+  start. Up and down tilt the camera. Pressing the right button without moving turns nothing.

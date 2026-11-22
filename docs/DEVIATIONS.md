@@ -6715,6 +6715,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `docs/CLIENT_UI.md:83`; `crates/mao-client/src/viewer.rs:1095-1125`
 - Decision: [x] port  [ ] leave
 - Done (2026-11-18): the WoW scheme had already given way to the original's ActionViewMouseHandler_c; now also its sensitivity (MouseTurnSensitivity / 1000 radians a count), the wheel's ZoomSpeed / 10 step, the look of the last button pressed ended by either release, and the turn keys strafing once any look moves. Not ported: the first-person head turn handed to the character at a look's end, the RMBMouseLook1st/3rd prefs, the default camera mode (Lock in the game, trail here). The middle-button reset is the client's own.
+- Done (2026-11-21, the tester's "can't turn sharply, character continues to drift"): the right drag's across movement turns the character only, never the camera (`N3Msg_MouseMovement` hands the camera `MouseCameraControl(0, up)`), and its up movement goes to the camera by `RMBMouseLook1st` / `RMBMouseLook3rd`; the press no longer turns the character to the camera. With a locked or rubber camera the old way turned the character twice over and left an offset that made the next drag drift.
 
 #### `CAM-002` Camera mode comes from the client's setting; unknown names give rubber
 

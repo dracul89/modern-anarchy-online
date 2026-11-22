@@ -6,6 +6,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Movement
+
+- Turning with the right mouse button turns the character by exactly as far as the mouse goes, and the camera comes round behind it: with the locked or rubber camera the character swung on further than the mouse went and drifted the next time the button was held.
+
 ## 0.1.8 (2026-11-20)
 
 ### Performance

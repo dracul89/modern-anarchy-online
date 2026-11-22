@@ -1068,6 +1068,18 @@ fn ground_on_line(from: mao_render::glam::Vec3, along: mao_render::glam::Vec3, h
     (1..1200).map(|k| from + along * (k as f32 * 0.25)).find(|p| p.z <= height(p.x, p.y)).map(|p| [p.x, height(p.x, p.y), p.y])
 }
 
+/// The character's heading after the right button's steering moved the mouse `across` radians (the counts times
+/// [`mouse_turn`], positive to the right): `face` is where the steering has it so far, `None` at its first movement,
+/// which starts from the character's own `heading`. The original hands the across movement to the character, not the
+/// camera (`N3Msg_MouseMovement`, Gamecode 0x100196b3: the movement 0x2b turns the character by it, the camera gets
+/// `MouseCameraControl(0, up)`), and a locked or rubber camera comes round behind the character by itself; right is
+/// the way the heading grows, as with the turn keys. Until 2026-11-21 the movement turned the camera and the character
+/// was set to face it: a locked or rubber camera keeps its place relative to the character's back, so each turn was
+/// taken twice and the offset grew with every drag (the tester's "can't turn sharply, character continues to drift").
+fn steered_face(face: Option<f32>, heading: f32, across: f32) -> f32 {
+    face.unwrap_or(heading) + across
+}
+
 fn heading_from_yaw(yaw: f32) -> f32 {
     (-yaw.cos()).atan2(-yaw.sin())
 }
@@ -1120,22 +1132,31 @@ impl ApplicationHandler for App {
                 let _ = live.input.send(self.keys);
             }
         }
-        // The mouse look goes to the game's camera at the next frame (across: right positive; up: mouse up positive).
-        self.mouse_look.0 += dx as f32 * turn;
         // (`MouseLookInverted`: the option panel's Mouse page, Gamecode's `StaticMouseLookInvertCallback`)
         let invert = if crate::prefs::on("MouseLookInverted") { -1.0 } else { 1.0 };
+        // (the right button turns the character, `N3Msg_MouseMovement`; with Ctrl only the camera, as the left does: FUN_1002ccbe
+        // looks at the qualifiers 0xc alone)
+        let steers = right && !self.modifiers.control_key();
+        if steers {
+            // The right button's movement across turns the character, not the camera: `steered_face`.
+            self.keys.face = Some(steered_face(self.keys.face, self.heading, dx as f32 * turn));
+        } else {
+            // The left button's look (and the right's with Ctrl) goes to the game's camera at the next frame (across:
+            // right positive; up: mouse up positive).
+            self.mouse_look.0 += dx as f32 * turn;
+        }
         // (flying, `N3Msg_MouseMovement` in fly mode: the right button's vertical movement pitches the vehicle, not the
         // camera, `MouseCameraControl(0, 0)`, and goes to the vehicle with the across movement, 0x2b; how far it may
         // pitch is `fly_pitch`)
-        if self.hud.flying && right && !self.modifiers.control_key() {
+        if self.hud.flying && steers {
             self.keys.pitch = fly_pitch(self.keys.pitch, -invert * dy as f32 * turn);
-        } else {
+        } else if !steers || crate::prefs::on(if self.steering.is_first_person() { "RMBMouseLook1st" } else { "RMBMouseLook3rd" }) {
+            // (the right button's up and down go to the camera only by `RMBMouseLook1st` in first person and
+            // `RMBMouseLook3rd` otherwise, both on in the game's LoginPrefs.xml: N3Msg_MouseMovement's
+            // `MouseCameraControl(0, up)`)
             self.mouse_look.1 -= invert * dy as f32 * turn;
         }
-        // (the right button turns the character, `N3Msg_MouseMovement`; with Ctrl only the camera, as the left does: FUN_1002ccbe
-        // looks at the qualifiers 0xc alone)
-        if right && !self.modifiers.control_key() {
-            self.keys.face = Some(heading_from_yaw(w.camera.yaw));
+        if steers {
             if let Some(live) = &self.live {
                 let _ = live.input.send(self.keys);
             }
@@ -1377,7 +1398,10 @@ impl ApplicationHandler for App {
                 } else {
                     let _ = w.window.set_cursor_grab(CursorGrabMode::None);
                 }
-                self.keys.face = (self.look_right == Some(true) && !self.modifiers.control_key()).then(|| heading_from_yaw(w.camera.yaw));
+                // (a press turns nothing: the right button's steering starts from the heading the character has, at its
+                // first movement; FUN_1002ce31 only sets the look's kind. Until 2026-11-21 the character was swung round
+                // here to face the camera.)
+                self.keys.face = None;
                 self.keys.forward = self.held.contains(&Action::Forward) || self.autorun;
                 if let Some(live) = &self.live {
                     let _ = live.input.send(self.keys);
@@ -3489,6 +3513,34 @@ mod camera_tests {
         let thin = fog_mode(fog, Some(0.0)).unwrap();
         assert!(thin.0 == [0.5, 0.5, 0.5] && (thin.1 - 0.08).abs() < 1e-6);
         assert_eq!(fog_mode(None, Some(0.0)), None);
+    }
+
+    /// The right button's steering turns the character by exactly the mouse's movement, from the heading it had, and a
+    /// locked camera behind it ends where the character faces: a drag there and back leaves both as they were (the old
+    /// way, the camera turned and the character faced it, a locked camera took each turn twice).
+    #[test]
+    fn the_right_drag_turns_the_character_by_the_mouse_alone() {
+        let mut camera = crate::camera::SteeringCamera::new(crate::camera::Mode::Locked);
+        let look = [0.0, 1.5, 0.0];
+        let mut surface = crate::camera::Sight(|_: [f32; 3], _: [f32; 3]| true);
+        let start = 0.3;
+        camera.update(0.016, look, start, 0.0, Default::default(), &mut surface);
+        let mut face = None;
+        // (a hundred counts right in small steps, the camera following frame by frame, then the same back)
+        for step in (0..100).map(|_| MOUSE_TURN).chain((0..100).map(|_| -MOUSE_TURN)) {
+            let heading = face.unwrap_or(start);
+            face = Some(steered_face(face, heading, step));
+            camera.update(0.016, look, face.unwrap(), 0.0, Default::default(), &mut surface);
+        }
+        assert!((face.unwrap() - start).abs() < 1e-4, "{face:?}");
+        let (eye, _) = camera.update(0.016, look, start, 0.0, Default::default(), &mut surface);
+        // (still behind the character: the eye on the far side of its facing)
+        let behind = [look[0] - start.sin(), look[2] - start.cos()];
+        let flat = ((eye[0] - look[0]).powi(2) + (eye[2] - look[2]).powi(2)).sqrt();
+        assert!(((eye[0] - look[0]) / flat - (behind[0] - look[0])).abs() < 1e-3 && ((eye[2] - look[2]) / flat - (behind[1] - look[2])).abs() < 1e-3, "{eye:?}");
+        // (a first movement starts from the character's heading; the next ones from where the steering has it)
+        assert_eq!(steered_face(None, 1.0, 0.25), 1.25);
+        assert_eq!(steered_face(Some(2.0), 1.0, -0.5), 1.5);
     }
 
     /// `VehicleForwardUpdate`'s rule: the mouse pitches a flyer up to just short of straight up or down and never over; a
