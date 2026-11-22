@@ -1337,3 +1337,7 @@ These were written before this list; some may have been seen working since witho
   stand idle when they stop, with no burst of running on the spot. A player who turns while running curves smoothly.
 - [ ] **2** A player already running as they come into sight runs on (not standing until their next message).
 
+- [ ] **1** Cast a program that takes a second or more (a heal, a buff with a cast time) at yourself and at another: your
+  character works it with both hands for the whole cast, then releases it (towards the target, or into itself); watch
+  another player cast too. Commanding Presence and other programs the original casts at once show nothing, as there.
+

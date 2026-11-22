@@ -8428,3 +8428,26 @@ message a stop, a report, a jump or a turn, never a fresh start). Guessed: the m
 character (the client does not keep the others' stat 224). Not ported: the others' collision (they walk through walls
 until the next message puts them right, as in the original only where the server has them).
 
+### The casting animations: gathering, then the release (2026-11-21, the tester's "no animation when casting nano")
+
+The tester: "No animation when casting nano. Arms just don't seem to move." In their logs the only program their
+character cast is Commanding Presence (nano 210920, `25314d6d` then `CharacterAction` 0x62 with its 12100 run), whose
+flags (stat 0, 0x90002) hold 0x80000: the original's `FUN_1005141d` runs such a cast at once and never puts it in the
+character's list of casts, so its casting state never begins and nothing is played. For that program there is no
+animation in the original either (original behaviour; unchanged).
+
+For a program that takes time the client differed. The original's casting state (`CharCastNano_t`, FUN_1007b5cd, its
+frame FUN_1007b1e3) loops the program's `GatherAbstractAnim` (stat 376) while the cast gathers; at the cast's end it stops
+that (FUN_1003c6cb: the loop count set to 1, so the lap under way finishes), may first turn the caster to face its target
+(state 7, when the angle is large), and plays `CastSelfAbstractAnim` (378) at oneself or `CastTargetAbstractAnim` (377)
+at another once. No program has the three stats; they are what every item starts with (FUN_10086142): 0xcb `spell-sys`,
+0xca `spell-self`, 0xc9 `spell-dir`. The client played `spell-self` / `spell-dir` once as the cast began and the caster
+stood idle through the rest of the cast.
+
+Here: `net::CastAnimation` (the cast's beginning, its time as the stance's rule already worked it out, and whether it is
+at oneself), `World::casting`, `World::social_now` (the cast's animation before any social), and the animation stack's
+looping social, ended with the loop count 1 as the next one is set (`Characters::social_loops`). A cancel (0x89) ends
+both. Picture of the gathering (`mao-client <game> player 2 3 da59 --image out.png 300`): both hands up in front, working.
+Test: `a_cast_gathers_then_releases`. Not ported: the turn to face the target before the release; a cast whose time comes
+to nothing without the flag (the original still plays the release; here none, by the stance's earlier rule).
+
