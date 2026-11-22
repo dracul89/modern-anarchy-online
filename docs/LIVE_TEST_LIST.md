@@ -1332,3 +1332,5 @@ These were written before this list; some may have been seen working since witho
   with a "Patch" message saying the permission was not given.
 - [ ] **1** Launcher, SETTINGS: every page's text reads clearly on your screen, the window is solid (nothing of the
   launcher's picture shows through), and the faded window-size fields (borderless mode) are still readable.
+- [ ] **1** Launcher, SETTINGS, GUI: "Anarchy Online folder" is the first group; Browse to another copy of the game and
+  OK: the launcher starts again with it (its version in the title), and the next start keeps it.

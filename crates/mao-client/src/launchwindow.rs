@@ -607,6 +607,36 @@ impl Dialog {
     }
 
     fn gui(&mut self, ui: &mut egui::Ui) {
+        // (the original game's own folder, which everything the client shows is read from: first on the page, as a
+        // tester did not find it at the foot of the folders, under three other groups)
+        ui.group(|ui| {
+            ui.set_width(ui.available_width());
+            ui.strong("Anarchy Online folder");
+            ui.label("The installed game, which this client reads everything it shows from. Found by itself in the usual places (C:\\Funcom, the program folders, Steam); Browse to use another.");
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.settings.game_dir).desired_width(270.0).hint_text("the folder with cd_image in it"));
+                if ui.button("Browse").clicked() {
+                    let mut picker = rfd::FileDialog::new().set_title("The Anarchy Online folder");
+                    if Path::new(self.settings.game_dir.trim()).is_dir() {
+                        picker = picker.set_directory(self.settings.game_dir.trim());
+                    }
+                    if let Some(folder) = picker.pick_folder() {
+                        self.settings.game_dir = folder.display().to_string();
+                    }
+                }
+                if ui.button("Open").clicked() && Path::new(self.settings.game_dir.trim()).is_dir() {
+                    open_outside(self.settings.game_dir.trim());
+                }
+            });
+            if self.checked.as_ref().is_none_or(|(text, _)| *text != self.settings.game_dir) {
+                self.checked = Some((self.settings.game_dir.clone(), check_game_dir(Path::new(self.settings.game_dir.trim()))));
+            }
+            match self.checked.as_ref().map(|(_, result)| result) {
+                Some(Ok(version)) => ui.colored_label(egui::Color32::from_rgb(120, 200, 120), format!("The game is there, version {version}.")),
+                Some(Err(why)) => ui.colored_label(egui::Color32::from_rgb(230, 120, 90), why),
+                None => ui.label(""),
+            };
+        });
         ui.group(|ui| {
             ui.set_width(ui.available_width());
             ui.strong("Skin");
@@ -664,31 +694,6 @@ impl Dialog {
         ui.group(|ui| {
             ui.set_width(ui.available_width());
             ui.strong("Folders");
-            // (the original game's own folder: everything the client shows is read from it)
-            ui.horizontal(|ui| {
-                ui.add_sized([80.0, 18.0], egui::Label::new("Game"));
-                ui.add(egui::TextEdit::singleline(&mut self.settings.game_dir).desired_width(180.0));
-                if ui.button("Browse").clicked() {
-                    let mut picker = rfd::FileDialog::new().set_title("The Anarchy Online folder");
-                    if Path::new(self.settings.game_dir.trim()).is_dir() {
-                        picker = picker.set_directory(self.settings.game_dir.trim());
-                    }
-                    if let Some(folder) = picker.pick_folder() {
-                        self.settings.game_dir = folder.display().to_string();
-                    }
-                }
-                if ui.button("Open").clicked() && Path::new(self.settings.game_dir.trim()).is_dir() {
-                    open_outside(self.settings.game_dir.trim());
-                }
-            });
-            if self.checked.as_ref().is_none_or(|(text, _)| *text != self.settings.game_dir) {
-                self.checked = Some((self.settings.game_dir.clone(), check_game_dir(Path::new(self.settings.game_dir.trim()))));
-            }
-            match self.checked.as_ref().map(|(_, result)| result) {
-                Some(Ok(version)) => ui.colored_label(egui::Color32::from_rgb(120, 200, 120), format!("The game is there, version {version}.")),
-                Some(Err(why)) => ui.colored_label(egui::Color32::from_rgb(230, 120, 90), why),
-                None => ui.label(""),
-            };
             let base = Settings::path();
             for (name, folder) in [("Settings", base.parent().map(Path::to_path_buf).unwrap_or_default()), ("Screenshots", base.with_file_name("screenshots")), ("Chat logs", base.with_file_name("chat"))] {
                 ui.horizontal(|ui| {

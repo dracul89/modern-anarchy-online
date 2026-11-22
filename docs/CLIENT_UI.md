@@ -1516,6 +1516,10 @@ page with PLAY switched off. Choosing another folder and pressing OK starts the 
 its page, its version and the interface's skin all came from the old one. The other commands still take the folder
 as their first argument. Also here: the page is opened half a second after the window's first frame (after the
 third, once in about a dozen starts the window's own drawing did not show under it).
+Since 2026-11-21 (a tester: "Didn't see a place to point to the original client folder from the launcher. Seems to
+have found automatically") the folder is a group of its own, "Anarchy Online folder", first on the GUI page, with a
+line saying what it is, that it is found by itself in the usual places and that Browse picks another; it was the
+first row of the Folders group at the foot of the page, out of sight under the Skin, Launcher and Font groups.
 
 Not done: the figures on the hall's pedestals (the original stands characters there, `CCCharacter_t`), the hall
 behind the character list (the picked character is still shown alone), patching (a version that differs is only
