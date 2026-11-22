@@ -6,6 +6,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+## 0.1.9 (2026-11-21)
+
+The fixes for a tester's first report.
+
 ### Sound
 
 - The sound settings of the option panel work: moving the master, effects, music or voices volume, or ticking a sound switch, changes what is heard at once and is kept for the next start. A change made in the option panel was thrown away before it reached the game, so nothing was heard to change and nothing was saved; this held for every option of the panel, and for `/dvalue` and `/setoption`, which now take effect and are kept too.
@@ -41,6 +45,16 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The option panel's "Number of shortcut bars", "Lock shortcut bars" and "Hide/show shortcut bars" work: more bars appear when the number is raised (the options set values the bars did not read).
 - Shortcuts on the bars show their icons: special actions (Start Combat, Walk, Sit ...) no longer show their names' first letters until the Action window has been opened, and nano programs and used-up items get their icons too.
 - The pointer shows what is under it in the world, as in the original: a blue arrow with a cog over terminals, doors and other things to use (grid, mail, market, mission terminals), a hand for things to pick up, coloured arrows over characters (green yourself and your team, red what you can fight, talk and trade pictures), with the mouse buttons that do it.
+
+### Not yet seen in a live game
+
+Read from the original client and tried offline or by test only: every change of this release. The patcher's start
+(Windows' permission box and a real patch), the launcher's settings on another screen, the game folder chosen with
+Browse, the window's size and place with the taskbar elsewhere and on two monitors, the sound settings by ear, the
+pointer's pictures, the shortcut bars' number and icons, the control center under windows, other players' movement in a
+crowd, the right-button turn in each camera mode, the cast animations and the lamp halos at night are all on the live
+test list. The battlestation door drop could not be found in the logs: the client now logs each door and how a
+connection ends, so send the game log if it happens again.
 
 ## 0.1.8 (2026-11-20)
 
