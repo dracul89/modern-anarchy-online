@@ -1516,6 +1516,10 @@ page with PLAY switched off. Choosing another folder and pressing OK starts the 
 its page, its version and the interface's skin all came from the old one. The other commands still take the folder
 as their first argument. Also here: the page is opened half a second after the window's first frame (after the
 third, once in about a dozen starts the window's own drawing did not show under it).
+Since 2026-11-21 (a tester: "Didn't see a place to point to the original client folder from the launcher. Seems to
+have found automatically") the folder is a group of its own, "Anarchy Online folder", first on the GUI page, with a
+line saying what it is, that it is found by itself in the usual places and that Browse picks another; it was the
+first row of the Folders group at the foot of the page, out of sight under the Skin, Launcher and Font groups.
 
 Not done: the figures on the hall's pedestals (the original stands characters there, `CCCharacter_t`), the hall
 behind the character list (the picked character is still shown alone), patching (a version that differs is only
@@ -7093,8 +7097,9 @@ the game's just two (then a patch); versions of another count of numbers need a 
 The launcher's list says so after the name (in the client's own words), and PLAY takes the original's PATCH pictures
 (bitmaps 183-185) while the chosen dimension needs a patch. PATCH does what the original's does (0x40c13d): it opens the
 game's `AnarchyPatcher.exe` (ShellExecuteEx "open", 0x407d37) in the game's folder with the dimension's version and the
-game's expansion mark (`18.8.63_EP1`), and the launcher closes as Cancel closes it (mfc100 ordinal 8137, EndDialog(2)),
-whether the patcher started or not (a failure is only written down, as the original writes it to `Anarchy.err`). The
+game's expansion mark (`18.8.63_EP1`), and the launcher closes as Cancel closes it (mfc100 ordinal 8137, EndDialog(2)).
+The original closes whether the patcher started or not (a failure is only written down, in `Anarchy.err`); since
+2026-11-21 the client's launcher stays and says why (see "The launcher's PATCH crashed it" below). The
 client's own fallback dimension (no list kept or downloaded) takes the game's version, so it never asks for a patch.
 An older server is refused with a line, as the original's click check (0x40b60f) refuses it. The licence
 (`anarchy.eula`, dialog 152) is shown until it is accepted; I decline ends the launcher. Where the original remembers the
@@ -8364,3 +8369,76 @@ Not seen live after the change.
   it) steps back and forth along the rail for as long as it is left, with no end; the original has no such walk.
 - Marcus Stone, while he fights the cleaning robots, opens no chat for a use: the game's own rule (seen before), not a
   fault.
+
+## The launcher's PATCH "crashed" it (2026-11-21, a tester's report)
+
+"Launcher could not patch, just crashed the launcher." PATCH (PLAY while the chosen dimension's version is newer than
+the game folder's, LCH-036) started the game's `AnarchyPatcher.exe` with `std::process::Command::spawn`, which is
+Windows' `CreateProcess`. The patcher's manifest says `requestedExecutionLevel level="requireAdministrator"` (read
+from the game's own file), and `CreateProcess` from an ordinary (medium integrity) process refuses such a program with
+`ERROR_ELEVATION_REQUIRED` (740) without starting it. The launcher wrote the error to its output, which the packaged
+program (no console) has nowhere, and closed as PATCH always closes it: to the player, the launcher vanished. The
+original's Anarchy.exe starts the patcher with `ShellExecuteEx` "open" (0x407d37), which asks Windows for the
+administrator's rights (the consent box) and then starts it.
+
+Now (`launchwindow.rs`, `start_patcher`): the patcher is started through Windows' command shell, `cmd /d /c start ""
+/D "<game folder>" "<folder>\AnarchyPatcher.exe" <version><expansion>` (no console window, no pipes), since `start`
+hands the program to `ShellExecuteEx` and so gets the same consent box; the workspace forbids unsafe code, so the
+call cannot be made directly. It runs on a thread of its own (the consent box waits for an answer) while the status
+line says "Starting the patcher (Windows asks for permission)..." and PLAY is switched off. When the shell says it
+started, the launcher closes as the original's does. When it could not be (no `AnarchyPatcher.exe` in the folder, the
+consent refused: the shell's code 1223, any other code, or a folder name with `%` or `"` or a version from the
+dimension list with anything but letters, digits, dots, underscores and dashes, which are not put on a command line),
+the launcher stays and shows a message window "Patch" with the reason, the two versions, and that Funcom's own
+launcher (Anarchy.exe in the game's folder) can patch too; it is also written to `crash.log`. That is the client's own
+rule (LCH-052): the original closes either way. When the patch is done the patcher restarts Anarchy.exe, the
+original's launcher (its own strings: "Restarting launcher"), not this one; the message says to start Modern Anarchy
+Online again.
+
+`MAO_LAUNCH_DEMO=patch-failed` shows the message without a patch. Tests:
+`launchwindow::tests::the_patcher_is_started_through_the_shell` (the shell's line, the refused characters, a folder
+without the patcher, the message's words). Not tried: the consent box itself and a real patch (it would change the
+installed game; there is no dimension of a newer version to patch to here).
+
+## The launcher's settings too dark to read (2026-11-21, a tester's report)
+
+"Font color of settings is too dark to read compared to background." The settings (and the licence) are egui windows
+in the interface theme's colours (`ui.rs::theme`): a panel 215/255 opaque, for the game's world behind it, and the
+theme's `Text` colour, which for the original skin and the AOU skins is 0x99ccaa, a grey green. Over the launcher's
+picture the panel let the art through (bright clouds and the dimension list showed under the lower groups), and what
+is switched off (the window's size while the mode is borderless, the usual case) was egui's half-faded grey. The
+original's settings were the system's own dialogs (Anarchy.exe dialog templates 153, 161 and 107: black on the
+system's grey); these pages are the client's own (LCH-002), so the fix is the obvious one, in the theme's colours
+(`launchwindow.rs`, `readable`, set once on the launcher's context): the window's fill opaque, the theme's text
+colour lightened 55% of the way to white (0x99ccaa becomes 209,232,217), and a switched-off control keeps 75% of its
+colour where egui's keeps 50%. Only the launcher's windows change; the game's own windows keep the theme as it is.
+Seen in pictures of the Visual and GUI pages with the original theme and with aou_slim_cni (PrintWindow of a test
+launcher started with a scratch settings folder). Test: `launchwindow::tests::the_launcher_windows_are_easy_to_read`.
+
+## A windowed size larger than the screen (2026-11-21, a tester's report)
+
+"Resolution when windowed will make a window larger than your screen. Seems like when I touched the corner it resized
+but moved." The settings' width and height (the launcher's Custom fields, its Predefined list, which offers the
+monitor's own size, and the options window) went straight to `with_inner_size`: a framed window of the monitor's own
+size or more, plus its frame, ran off the screen, and Windows cut it down to its largest size (the screen and the
+frame) at the first drag of a corner, which moved it.
+
+The original (DisplaySystem.dll, `D3DDisplaySystem_t` slot 3 Init, FUN_10002c67, windowed): the client size is
+grown by its frame (`AdjustWindowRectEx`); where the framed window is wider or taller than the monitor's work area
+(`GetMonitorInfo`'s `rcWork`) it is made the work area's width or height; it goes to its kept place
+(`DisplayXPos`/`DisplayYPos`) when it fits the virtual screen there, else it is centred (on the work area when it fits
+it); `MoveWindow`, then `GetClientRect` gives the size the device is made at.
+
+Now (`viewer.rs`, `fit_window` and `keep_on_screen`, called from `apply_mode`'s windowed branch, so for the login's
+window, the game's, F11/Alt+Enter back to a window, and after the options window sets a size): the frame is the window's
+outer size less its inner size; the framed window is made no larger than the monitor's area less a taskbar of 48
+points along the bottom (scaled by the monitor's scale), and it stays where it is when it fits there, else it is
+centred in that area. The settings keep the size asked for. The work area itself would need a Windows call the
+workspace's ban on unsafe code rules out, and winit does not give it: the 48 points are Windows 11's own taskbar, a
+guess (SET-055) that is right for a taskbar along the bottom and leaves a strip free where it is elsewhere or hidden.
+The client keeps no window place of its own (the original's `DisplayXPos`/`DisplayYPos`); the login's place is handed
+to the game's window (`MAO_WINDOW_AT`) as before.
+
+Seen in a test window (`mao-client <game> map 655` with `mode = windowed`, 6000x2400, on a 2560x1600 screen at 200%
+whose work area is 2560x1504): "the window's size 6000x2400 is larger than the screen: 2534x1433", the framed window
+at 0,0 to 2560,1504. Test: `viewer::window_tests::a_framed_window_is_kept_on_its_monitor`.

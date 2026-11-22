@@ -9683,6 +9683,15 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: nothing a player sees differs from the original but the missing white flash of an empty web view; it is how a WebView2 child is shown without one.
 - Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
+#### `LCH-052` A patcher that cannot be started is told, and the launcher stays
+
+- SAFETY, low (added by hand on 2026-11-21 for a tester's report; the counts in the tables above were not raised)
+- Original: Anarchy.exe's PATCH (0x40c13d) starts AnarchyPatcher.exe with ShellExecuteEx "open" (0x407d37) and closes the launcher (EndDialog(2)) whether it started or not; a failure is only written to Anarchy.err.
+- Client: the patcher is started through the shell's `start` (the same ShellExecuteEx, so Windows asks for the administrator's rights); when it cannot be started the launcher stays open and a "Patch" message says why, the two versions, and that Anarchy.exe can patch too.
+- A player notices: a refused consent box or a missing patcher leaves the launcher up with a reason, where the original's launcher just went.
+- Where: `crates/mao-client/src/launchwindow.rs` (`start_patcher`, `patch_failed_text`, `Launch::screen`); `docs/CLIENT_UI.md` ("The launcher's PATCH "crashed" it")
+- Decision: [ ] keep  [ ] remove
+
 ## Settings and files
 
 ### Settings and files: the client knowingly does otherwise (22)
@@ -10276,6 +10285,15 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the tradeskill guide is one of the client's own tools; the window itself still shows each answer as the original does.
 - Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
+
+#### `SET-055` A framed window is kept above a guessed taskbar, not the monitor's work area
+
+- SIMPLIFIED, low (added by hand on 2026-11-21 for a tester's report; the counts in the tables above were not raised)
+- Original: DisplaySystem.dll's windowed Init (FUN_10002c67) makes the framed window no larger than the monitor's work area (GetMonitorInfo rcWork) and centres it there unless its kept place (DisplayXPos/DisplayYPos) fits the virtual screen.
+- Client: the framed window is made no larger than the monitor less a 48-point taskbar along the bottom, kept where it is when it fits and else centred (`viewer::fit_window`); the work area is not read (no unsafe code; winit does not give it) and no window place is kept.
+- A player notices: with the taskbar elsewhere or hidden, an oversized window is a strip shorter than the original's; a framed window opens where Windows puts it, not where it was last.
+- Where: `crates/mao-client/src/viewer.rs` (`fit_window`, `keep_on_screen`, `apply_mode`); `docs/CLIENT_UI.md` ("A windowed size larger than the screen")
+- Decision: [ ] keep  [ ] remove
 
 ## Network and protocol
 

@@ -1324,3 +1324,16 @@ These were written before this list; some may have been seen working since witho
 
 - [ ] **1** Skills window: the eleven group buttons stand one under another (Abilities ... Disabled / Legacy); a press
   opens a group's rows under its button and another press folds them away again.
+
+## The tester's launcher report (2026-11-21)
+
+- [ ] **1** With a game folder older than the dimension (the list says "(needs a patch)", PLAY shows PATCH), press
+  PATCH: Windows' consent box comes; Yes starts Funcom's patcher and the launcher closes; No leaves the launcher open
+  with a "Patch" message saying the permission was not given.
+- [ ] **1** Launcher, SETTINGS: every page's text reads clearly on your screen, the window is solid (nothing of the
+  launcher's picture shows through), and the faded window-size fields (borderless mode) are still readable.
+- [ ] **1** Launcher, SETTINGS, GUI: "Anarchy Online folder" is the first group; Browse to another copy of the game and
+  OK: the launcher starts again with it (its version in the title), and the next start keeps it.
+- [ ] **1** Launcher, SETTINGS, Visual: Run In Window without Borderless, Predefined the monitor's own size (or Custom
+  larger than the screen), OK, PLAY: the login and the game windows fit above the taskbar with their title bars on the
+  screen; dragging a corner resizes from that corner without the window jumping.

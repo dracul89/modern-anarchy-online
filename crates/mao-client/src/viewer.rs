@@ -935,6 +935,7 @@ pub(crate) fn apply_mode(window: &Window, mode: WindowMode, monitor: u32) {
         WindowMode::Windowed => {
             window.set_fullscreen(None);
             window.set_decorations(true);
+            keep_on_screen(window);
         }
         WindowMode::Borderless => window.set_fullscreen(Some(Fullscreen::Borderless(chosen))),
         WindowMode::Fullscreen => {
@@ -953,6 +954,46 @@ pub(crate) fn apply_mode(window: &Window, mode: WindowMode, monitor: u32) {
                 }
             }
         }
+    }
+}
+
+/// The taskbar's height a framed window is kept above, in the monitor's points (Windows 11's own taskbar; the system's
+/// work area, which the original reads, is not to be had without unsafe code: a guess that holds for a taskbar along
+/// the bottom, and costs a strip of the screen where it is elsewhere or hidden).
+const TASKBAR_POINTS: f64 = 48.0;
+
+/// A framed window's inside and place kept on its monitor, as DisplaySystem.dll's windowed start does
+/// (`D3DDisplaySystem_t` slot 3, FUN_10002c67): the framed window no wider and no taller than the monitor's work area
+/// (the inside the smaller by as much), at its place when it fits there and else centred in it. `frame` is what the
+/// frame adds to the inside, `place` the framed window's top left, `area` the work area (left, top, width, height).
+/// The inside's size and the framed window's place.
+pub fn fit_window(inner: (u32, u32), frame: (u32, u32), place: (i32, i32), area: (i32, i32, u32, u32)) -> ((u32, u32), (i32, i32)) {
+    let outer = ((inner.0 + frame.0).min(area.2.max(frame.0 + 1)), (inner.1 + frame.1).min(area.3.max(frame.1 + 1)));
+    let inner = (outer.0 - frame.0, outer.1 - frame.1);
+    let (right, bottom) = (area.0 as i64 + area.2 as i64, area.1 as i64 + area.3 as i64);
+    let fits = place.0 >= area.0 && place.1 >= area.1 && place.0 as i64 + outer.0 as i64 <= right && place.1 as i64 + outer.1 as i64 <= bottom;
+    let place = if fits { place } else { (area.0 + (area.2.saturating_sub(outer.0) / 2) as i32, area.1 + (area.3.saturating_sub(outer.1) / 2) as i32) };
+    (inner, place)
+}
+
+/// Keeps a framed window on its monitor ([`fit_window`]): a size set larger than the screen made a window that ran off
+/// it, which Windows then cut down to its largest size, and moved, at the first touch of a corner.
+pub(crate) fn keep_on_screen(window: &Window) {
+    let Some(monitor) = window.current_monitor().or_else(|| window.primary_monitor()) else { return };
+    let (inner, outer) = (window.inner_size(), window.outer_size());
+    let frame = (outer.width.saturating_sub(inner.width), outer.height.saturating_sub(inner.height));
+    // (a window with no place yet, as one not shown on some systems: centred)
+    let place = window.outer_position().map_or((i32::MIN, i32::MIN), |p| (p.x, p.y));
+    let (at, size) = (monitor.position(), monitor.size());
+    let taskbar = (TASKBAR_POINTS * monitor.scale_factor()).round() as u32;
+    let area = (at.x, at.y, size.width, size.height.saturating_sub(taskbar));
+    let (fitted, moved) = fit_window((inner.width, inner.height), frame, place, area);
+    if fitted != (inner.width, inner.height) {
+        eprintln!("the window's size {}x{} is larger than the screen: {}x{}", inner.width, inner.height, fitted.0, fitted.1);
+        let _ = window.request_inner_size(PhysicalSize::new(fitted.0, fitted.1));
+    }
+    if moved != place {
+        window.set_outer_position(winit::dpi::PhysicalPosition::new(moved.0, moved.1));
     }
 }
 
@@ -3390,6 +3431,9 @@ impl ApplicationHandler for App {
                     }
                     if let Some((width, height)) = requests.size {
                         let _ = w.window.request_inner_size(PhysicalSize::new(width, height));
+                        if self.settings.mode == WindowMode::Windowed {
+                            keep_on_screen(&w.window);
+                        }
                         self.settings.save();
                     }
                     if requests.save {
@@ -3699,4 +3743,25 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
         }
     }
     (backdrops, shells)
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::fit_window;
+
+    /// A framed window larger than the work area is made to fit it and centred; one that fits stays as and where it is.
+    #[test]
+    fn a_framed_window_is_kept_on_its_monitor() {
+        // (the tester's case: a size the monitor's own, plus the frame, on a 2560x1440 monitor less a 48-pixel taskbar)
+        let area = (0, 0, 2560, 1392);
+        assert_eq!(fit_window((2560, 1440), (16, 39), (26, 26), area), ((2544, 1353), (0, 0)));
+        // (wider only: the height stays, the window is centred)
+        assert_eq!(fit_window((3000, 800), (16, 39), (26, 26), area), ((2544, 800), (0, (1392 - 839) / 2)));
+        // (it fits where it is: nothing changes)
+        assert_eq!(fit_window((1280, 800), (16, 39), (26, 26), area), ((1280, 800), (26, 26)));
+        // (it fits but runs off the edge where it is: centred at its size)
+        assert_eq!(fit_window((1280, 800), (16, 39), (2000, 26), area), ((1280, 800), ((2560 - 1296) / 2, (1392 - 839) / 2)));
+        // (a monitor to the left of the main one, and a window with no place yet)
+        assert_eq!(fit_window((1920, 1080), (16, 39), (i32::MIN, i32::MIN), (-1920, 0, 1920, 1032)), ((1904, 993), (-1920, 0)));
+    }
 }
