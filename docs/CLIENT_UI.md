@@ -8470,8 +8470,24 @@ any side, of any size or hidden is allowed for. That is the workspace's one call
 (no longer `forbid`) with `#[allow(unsafe_code)]` on that function alone (the user's answer to SET-055 on 2026-11-21;
 the first version that day guessed a 48-point taskbar along the bottom). Other systems, and a failed call, keep that
 guess (`TASKBAR_POINTS`). The log line of a fitted window names the area and whether it was the system's.
-The client keeps no window place of its own (the original's `DisplayXPos`/`DisplayYPos`); the login's place is handed
-to the game's window (`MAO_WINDOW_AT`) as before.
+The kept place (the user's "do what the original does for the window", 2026-11-21): the original keeps the framed
+window's place in the distributed values `DisplayXPos` / `DisplayYPos` (MainPrefs.xml and LoginPrefs.xml, -1 and -1 by
+default). Its display's destructor (`D3DDisplaySystem_t` FUN_10001e3e -> FUN_10001bd2) writes `GetWindowPlacement`'s
+restored place into them, and the windowed start reads them and keeps that place when the framed window lies inside the
+virtual screen there (every monitor's rectangle together), else centres it on the work area (on the monitor, where it
+does not fit the work area). Now: `viewer::keep_place` writes the framed window's place, when it is neither minimised
+nor maximised (winit gives no restored place of those), to `display.ini` beside the settings (`DisplayXPos = x`,
+`DisplayYPos = y`) when the game's window closes (`App::exiting`, live games only) and when the login's does
+(`Launcher::exiting`, also at the hand-over to the game, whose window then keeps its own on closing).
+`viewer::place_window` places a framed window at its start: the login's at the kept place, the game's at the login's
+(`MAO_WINDOW_AT`, as before) or else the kept place, each when `on_the_screens` holds, else centred on the work area. No
+file yet is the original's -1, -1: centred (the original's -1, -1 is centred too, except with a monitor to the left of
+the main one, where it would lie on the screens: not copied). The offline views keep the system's place and keep none.
+The original's place is in work-area coordinates (`rcNormalPosition`), which shifts it by the taskbar's width when the
+taskbar is on the left or at the top; the client keeps the screen place, so the window comes back exactly where it was.
+Seen: with `display.ini` at 300,200 the login's 1280x800 window opened at 300,200 and wrote it back on closing; at
+5000,200 (off the screen) it opened centred in the 2560x1504 work area (627,316) and wrote that. Test:
+`viewer::window_tests::the_window_opens_where_it_was_kept_when_it_is_on_the_screens`.
 
 Seen in a test window (`mao-client <game> map 655` with `mode = windowed`, 6000x2400, on a 2560x1600 screen at 200%
 whose work area is 2560x1504): "the window's size 6000x2400 is larger than the screen: 2534x1433 (the system's work

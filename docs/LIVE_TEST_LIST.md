@@ -1338,6 +1338,8 @@ These were written before this list; some may have been seen working since witho
   larger than the screen), OK, PLAY: the login and the game windows fit above the taskbar with their title bars on the
   screen; dragging a corner resizes from that corner without the window jumping. Again with the taskbar on the left
   (or set to hide itself): the window fills the free area beside it, no strip lost and nothing under the taskbar.
+- [ ] **1** Run In Window: move the game's window somewhere, quit, start again: the login's and the game's windows open
+  there. Move it onto a second monitor, quit, unplug or turn that monitor off, start: the window opens centred.
 
 ## The tester's bugs of 2026-11-21: movement, doors, others, casting
 

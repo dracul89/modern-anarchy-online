@@ -1021,6 +1021,81 @@ pub(crate) fn keep_on_screen(window: &Window) {
     }
 }
 
+/// The file of the framed window's kept place, beside the settings: the original's `DisplayXPos` / `DisplayYPos`
+/// distributed values (MainPrefs.xml / LoginPrefs.xml, -1 and -1 by default), one `name = value` line each.
+fn place_file() -> std::path::PathBuf {
+    Settings::path().with_file_name("display.ini")
+}
+
+/// The kept place's text: `DisplayXPos` and `DisplayYPos`.
+pub fn place_text(place: (i32, i32)) -> String {
+    format!("DisplayXPos = {}\nDisplayYPos = {}\n", place.0, place.1)
+}
+
+/// The kept place read from its text; `None` when a value is missing.
+pub fn place_from_text(text: &str) -> Option<(i32, i32)> {
+    let value = |name: &str| text.lines().filter_map(|l| l.split_once('=')).find(|(k, _)| k.trim() == name).and_then(|(_, v)| v.trim().parse::<i32>().ok());
+    Some((value("DisplayXPos")?, value("DisplayYPos")?))
+}
+
+/// The framed window's kept place, as the original reads `DisplayXPos` / `DisplayYPos` at its windowed start
+/// (FUN_10002c67); `None` before one was ever kept (the original's -1, -1, which it then centres).
+pub fn kept_place() -> Option<(i32, i32)> {
+    std::fs::read_to_string(place_file()).ok().as_deref().and_then(place_from_text)
+}
+
+/// Keeps the framed window's place for the next start, as the original's display does when it is let go
+/// (FUN_10001bd2, from `D3DDisplaySystem_t`'s destructor FUN_10001e3e: `GetWindowPlacement`'s restored place into
+/// `DisplayXPos` / `DisplayYPos`). Only a framed window that is neither minimised nor maximised is kept (its restored
+/// place is the one it has then; winit does not give the restored place of a minimised or maximised window).
+pub(crate) fn keep_place(window: &Window) {
+    if window.fullscreen().is_some() || window.is_minimized() == Some(true) || window.is_maximized() {
+        return;
+    }
+    let Ok(at) = window.outer_position() else { return };
+    if let Err(e) = std::fs::write(place_file(), place_text((at.x, at.y))) {
+        eprintln!("can't keep the window's place in {}: {e}", place_file().display());
+    }
+}
+
+/// Whether a framed window at `place` of `outer` size lies on the screens (`screens`: each monitor's left, top, width and
+/// height), as the original's test of the kept place against the virtual screen (FUN_10002c67: the union of the
+/// monitors' rectangles).
+pub fn on_the_screens(place: (i32, i32), outer: (u32, u32), screens: &[(i32, i32, u32, u32)]) -> bool {
+    let Some(first) = screens.first() else { return false };
+    let (mut left, mut top, mut right, mut bottom) = (first.0 as i64, first.1 as i64, first.0 as i64 + first.2 as i64, first.1 as i64 + first.3 as i64);
+    for s in &screens[1..] {
+        left = left.min(s.0 as i64);
+        top = top.min(s.1 as i64);
+        right = right.max(s.0 as i64 + s.2 as i64);
+        bottom = bottom.max(s.1 as i64 + s.3 as i64);
+    }
+    place.0 as i64 >= left && place.1 as i64 >= top && place.0 as i64 + outer.0 as i64 <= right && place.1 as i64 + outer.1 as i64 <= bottom
+}
+
+/// Places a framed window as the original's windowed start does (FUN_10002c67): at `kept` when the framed window lies on
+/// the screens there, else centred on its monitor's work area. (Its size is already kept to the work area:
+/// [`keep_on_screen`].)
+pub(crate) fn place_window(window: &Window, kept: Option<(i32, i32)>) {
+    if window.fullscreen().is_some() {
+        return;
+    }
+    let outer = window.outer_size();
+    let screens: Vec<(i32, i32, u32, u32)> = window.available_monitors().map(|m| (m.position().x, m.position().y, m.size().width, m.size().height)).collect();
+    let place = match kept.filter(|&k| on_the_screens(k, (outer.width, outer.height), &screens)) {
+        Some(k) => k,
+        None => {
+            let Some(monitor) = window.current_monitor().or_else(|| window.primary_monitor()) else { return };
+            let area = work_area(&monitor).unwrap_or_else(|| {
+                let (at, size) = (monitor.position(), monitor.size());
+                (at.x, at.y, size.width, size.height.saturating_sub((TASKBAR_POINTS * monitor.scale_factor()).round() as u32))
+            });
+            (area.0 + (area.2.saturating_sub(outer.width) / 2) as i32, area.1 + (area.3.saturating_sub(outer.height) / 2) as i32)
+        }
+    };
+    window.set_outer_position(winit::dpi::PhysicalPosition::new(place.0, place.1));
+}
+
 /// The frames presented so far (the first few: see `MAO_WINDOW_UP`).
 static FRAMES_SHOWN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -1175,6 +1250,14 @@ fn passes_input_stop(key: PhysicalKey, modifiers: winit::keyboard::ModifiersStat
 /// Where a line (from `from`, along the unit `dir`) first meets an upright cylinder standing at `feet` (Z up), as a
 /// distance along it; none when it misses or meets it behind the start.
 impl ApplicationHandler for App {
+    /// The game's framed window keeps its place for the next start, as the original's display does when it is let go
+    /// ([`keep_place`]); the offline views keep none.
+    fn exiting(&mut self, _: &ActiveEventLoop) {
+        if let (Some(_), Some(view)) = (self.live.as_ref(), self.state.as_ref()) {
+            keep_place(&view.window);
+        }
+    }
+
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
         let DeviceEvent::MouseMotion { delta: (dx, dy) } = event else { return };
         if self.live.is_none() || self.buttons == [false; 2] {
@@ -1271,11 +1354,16 @@ impl ApplicationHandler for App {
         }
         // (hidden until its first frame is presented: otherwise the system's white fills it first, then the black)
         let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(PhysicalSize::new(self.settings.width, self.settings.height)).with_visible(false)).expect("a window"));
-        // (`MAO_WINDOW_AT=x,y`: where the character list's window was, so that a plain window opens in its place)
-        if let Some((x, y)) = std::env::var("MAO_WINDOW_AT").ok().as_deref().and_then(window_at).filter(|_| self.settings.mode == WindowMode::Windowed) {
-            window.set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
-        }
         apply_mode(&window, self.settings.mode, self.settings.monitor);
+        // (a framed window's place: `MAO_WINDOW_AT=x,y`, where the character list's window was, so that the game's opens
+        // in its place; else, in the game, the place kept when it last closed (`DisplayXPos` / `DisplayYPos`), and
+        // centred without one, as the original's windowed start (FUN_10002c67). The offline views keep the system's place.)
+        if self.settings.mode == WindowMode::Windowed {
+            let handed = std::env::var("MAO_WINDOW_AT").ok().as_deref().and_then(window_at);
+            if handed.is_some() || self.live.is_some() {
+                place_window(&window, handed.or_else(kept_place));
+            }
+        }
         eprintln!("window mode: {} (F11 or Alt+Enter change it)", self.settings.mode.name());
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window.clone()).expect("a surface");
@@ -3831,7 +3919,7 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
 
 #[cfg(test)]
 mod window_tests {
-    use super::fit_window;
+    use super::{fit_window, on_the_screens, place_from_text, place_text};
 
     /// A framed window larger than the work area is made to fit it and centred; one that fits stays as and where it is.
     #[test]
@@ -3847,5 +3935,25 @@ mod window_tests {
         assert_eq!(fit_window((1280, 800), (16, 39), (2000, 26), area), ((1280, 800), ((2560 - 1296) / 2, (1392 - 839) / 2)));
         // (a monitor to the left of the main one, and a window with no place yet)
         assert_eq!(fit_window((1920, 1080), (16, 39), (i32::MIN, i32::MIN), (-1920, 0, 1920, 1032)), ((1904, 993), (-1920, 0)));
+    }
+
+    /// The kept place (`DisplayXPos` / `DisplayYPos`) is written and read back; it is taken where the framed window lies
+    /// on the screens there (their union, as the original's virtual screen), on any monitor, and not where any of it
+    /// would be off them.
+    #[test]
+    fn the_window_opens_where_it_was_kept_when_it_is_on_the_screens() {
+        assert_eq!(place_from_text(&place_text((-1500, 40))), Some((-1500, 40)));
+        assert_eq!(place_from_text("DisplayXPos = 12\n"), None);
+        let screens = [(0, 0, 2560, 1440), (-1920, 200, 1920, 1080)];
+        // (on the main monitor, and on the one to its left)
+        assert!(on_the_screens((100, 100), (1296, 839), &screens));
+        assert!(on_the_screens((-1900, 250), (1296, 839), &screens));
+        // (across both: still inside their union)
+        assert!(on_the_screens((-600, 300), (1296, 839), &screens));
+        // (off the right edge, above the top, and the original's default -1, -1 on a single monitor)
+        assert!(!on_the_screens((2000, 100), (1296, 839), &screens));
+        assert!(!on_the_screens((100, -10), (1296, 839), &screens));
+        assert!(!on_the_screens((-1, -1), (1296, 839), &[(0, 0, 2560, 1440)]));
+        assert!(!on_the_screens((0, 0), (10, 10), &[]));
     }
 }

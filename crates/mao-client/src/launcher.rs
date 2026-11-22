@@ -792,6 +792,15 @@ impl Launcher {
 }
 
 impl ApplicationHandler for Launcher {
+    /// The login's framed window keeps its place for the next start (the original's login is its game window, which
+    /// keeps it when its display is let go: `viewer::keep_place`); the game's window, which opens in this one's place,
+    /// keeps its own when it closes. The pictures' small window keeps none.
+    fn exiting(&mut self, _: &ActiveEventLoop) {
+        if let (None, Some(gfx)) = (self.shot.as_ref(), self.gfx.as_ref()) {
+            crate::viewer::keep_place(&gfx.window);
+        }
+    }
+
     /// With a page in the window (a window of its own with its own messages) the frames asked for from inside a frame
     /// stop coming, and with them the login's buttons: asked for here too, as the launcher's window does.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -827,6 +836,10 @@ impl ApplicationHandler for Launcher {
         let window = Arc::new(or_end!(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(size)), "The login's window could not be opened"));
         if !small {
             crate::viewer::apply_mode(&window, self.settings.mode, self.settings.monitor);
+            // (a framed window opens where it was last closed, else centred, as the original's windowed start)
+            if self.settings.mode == crate::settings::WindowMode::Windowed {
+                crate::viewer::place_window(&window, crate::viewer::kept_place());
+            }
         }
         let instance = wgpu::Instance::default();
         let surface = or_end!(instance.create_surface(window.clone()), "The login's window cannot be drawn to");

@@ -16,6 +16,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 ### Windows
 
 - A window size larger than the screen (Run In Window) no longer makes a game window that runs off the screen and jumps when a corner is touched: the window is made to fit the screen's free area (beside the taskbar, wherever it stands) and centred, as the original does.
+- A game window (Run In Window) opens where it was when you last closed it, as the original's does, as long as it fits on your screens there; otherwise, and the very first time, it opens centred.
 
 ### Launcher
 
