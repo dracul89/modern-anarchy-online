@@ -993,6 +993,11 @@ impl Sandy {
     /// `LoadSimProject()`: without a player, one made from `sound/music/env/anarchy.sws` at the music volume; then the battle
     /// layers looked up (after `sim.config`, which the game does not have), and it played.
     fn load_sim_project(&mut self) {
+        // (the original's player is made on the engine's digital driver, which `DeinitializeSandy` closed: none is heard
+        // with the sound off. This client's mixer stays open, so no player is made then.)
+        if !self.initialized {
+            return;
+        }
         if self.player.is_none() {
             let dir = self.root.join("music/env");
             if let Some(project) = mao_formats::files::read(dir.join("anarchy.sws")).ok().and_then(|d| mao_formats::music::Project::parse(&d)) {
@@ -1497,6 +1502,22 @@ impl Module {
         }
     }
 
+    /// `InitializeSandy()` (GUI.dll's `SlotPrefSoundOnOffChanged` 0x100c5329 with the sound turned on): the interface
+    /// started again; the music comes back with the next district's `SetupENVSounds`.
+    pub fn initialize_sandy(&mut self) {
+        if let Some(s) = &mut self.sandy {
+            s.initialize();
+        }
+    }
+
+    /// `DeinitializeSandy()` (the slot with the sound turned off): the music stopped, every sample stopped and released,
+    /// nothing played until it is started again.
+    pub fn deinitialize_sandy(&mut self) {
+        if let Some(s) = &mut self.sandy {
+            s.deinitialize();
+        }
+    }
+
     /// `PlayStartupMusic()`.
     pub fn play_startup_music(&mut self) {
         if let Some(s) = &mut self.sandy {
@@ -1625,47 +1646,13 @@ pub fn start(game: &Path) {
         sandy.setup_gui_sounds();
         module.sandy = Some(sandy);
     }
-    apply_preferences(&mut module, &game.join("cd_image/gui/Default/LoginPrefs.xml"));
+    // (then `SoundOptionsMonitor_c::SlotInitialize` 0x100c5541 passes the nine sound preferences on as the player has
+    // them: the game's defaults under the player's own `prefs.xml`. Until 2026-11-21 only the defaults were read here, so
+    // the music and sounds before the control center's first frame, and the character creation's, ignored the player's.)
+    let mut store = crate::gui::dvalue::Store::load(Some(&game.join("cd_image/gui/Default")), None);
+    store.load_user(&crate::gui::controlcenter::prefs_path());
+    crate::gui::controlcenter::apply_all_sound(&mut module, &store);
     *m = Some(module);
-}
-
-/// The sound preferences of the GUI's `LoginPrefs.xml` passed on as GUI.dll's slots pass them (0x100c5242 on:
-/// `SlotPrefMasterVolumeChanged` → `SetMasterVolume`, `SoundFXOn` → `SetMasterFXMute`, `FXVolume`, `MusicOn` →
-/// `SetMasterMusicMute`, `MusicVolume`, `BattlemusicMode`, `VoiceSndFxOn` → `SetMasterPlayerFXMute`, `VoiceSndFxVolume`).
-fn apply_preferences(m: &mut Module, path: &Path) {
-    let Ok(text) = mao_formats::files::read_to_string(path) else { return };
-    let value = |name: &str| -> Option<String> {
-        let at = text.find(&format!("name=\"{name}\""))?;
-        let line = &text[text[..at].rfind('<')?..at + text[at..].find('>')?];
-        let v = line.find("value=\"")? + 7;
-        Some(line[v..v + line[v..].find('"')?].to_string())
-    };
-    let float = |name: &str| value(name).and_then(|v| v.parse::<f32>().ok());
-    let on = |name: &str| value(name).map(|v| v == "true");
-    if let Some(v) = float("MasterVolume") {
-        m.set_master_volume(v);
-    }
-    if let Some(on) = on("SoundFXOn") {
-        m.set_master_fx_mute(!on);
-    }
-    if let Some(v) = float("FXVolume") {
-        m.set_master_fx_volume(v);
-    }
-    if let Some(on) = on("MusicOn") {
-        m.set_master_music_mute(!on);
-    }
-    if let Some(v) = float("MusicVolume") {
-        m.set_master_music_volume(v);
-    }
-    if let Some(v) = value("BattlemusicMode").and_then(|v| v.parse::<i32>().ok()) {
-        m.set_battle_music_mode(v);
-    }
-    if let Some(on) = on("VoiceSndFxOn") {
-        m.set_master_player_fx_mute(!on);
-    }
-    if let Some(v) = float("VoiceSndFxVolume") {
-        m.set_master_player_fx_volume(v);
-    }
 }
 
 /// The module, if started.
@@ -1778,6 +1765,111 @@ mod tests {
         assert_eq!(m.total_fx, 0.25);
         m.set_master_fx_mute(true);
         assert_eq!(m.sandy.as_ref().unwrap().master_fx, 0.0);
+    }
+
+    /// A second of a mono 16-bit wave's silence.
+    fn silence() -> Vec<u8> {
+        let (rate, frames) = (22050u32, 22050u32);
+        let mut d = b"RIFF\0\0\0\0WAVEfmt ".to_vec();
+        d.extend(16u32.to_le_bytes());
+        d.extend(1u16.to_le_bytes());
+        d.extend(1u16.to_le_bytes());
+        d.extend(rate.to_le_bytes());
+        d.extend((rate * 2).to_le_bytes());
+        d.extend(2u16.to_le_bytes());
+        d.extend(16u16.to_le_bytes());
+        d.extend(b"data");
+        d.extend((frames * 2).to_le_bytes());
+        d.extend(vec![0u8; frames as usize * 2]);
+        d
+    }
+
+    /// Every sound control of the option panel as its value reaches the mixer that feeds rodio (`heard`: a voice's level
+    /// times the driver's master level, as `Voices::render` mixes it): an effect looping on (as the ambience plays), a
+    /// player effect (a voice line), the music player's volume, the battle music mode and the whole sound's switch.
+    #[test]
+    fn each_sound_control_reaches_the_mixer() {
+        use crate::gui::controlcenter::apply_sound_to;
+        use crate::gui::variant::Variant;
+        let dir = std::env::temp_dir().join(format!("mao-sound-controls-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sfx/Player")).unwrap();
+        std::fs::write(dir.join("fx.wav"), silence()).unwrap();
+        std::fs::write(dir.join("sfx/Player/heal_01.wav"), silence()).unwrap();
+        let mut s = Sandy::new(&dir, Engine::new(false));
+        s.initialize();
+        let mut r = record(1);
+        (r.volume_min, r.volume_max) = (1.0, 1.0);
+        let fx = add(&mut s, &r);
+        (s.sources[fx].has_file, s.sources[fx].file, s.sources[fx].looping) = (true, "fx.wav".into(), true);
+        let project = std::sync::Arc::new(mao_formats::music::Project { layers: Vec::new(), samples: Vec::new() });
+        s.player = Some(crate::music::Running::start(crate::music::Player::new(project, &dir, s.engine.streams())));
+        let mut m = Module { sandy: Some(s), ..Module::default() };
+        let set = |m: &mut Module, name: &str, v: Variant| apply_sound_to(m, name, &v);
+        // (a frame: the loop played on, as the ambience is each frame)
+        let frame = |m: &mut Module| {
+            let s = m.sandy.as_mut().unwrap();
+            s.play_sample(Some(fx), 1.0, [0.0; 3], 0.0, 0, 0.0, 100, 1, 0, [0.0; 3]);
+            s.frame_process(0.016);
+        };
+        let effect = |m: &Module| m.sandy.as_ref().map_or(0.0, |s| s.engine.heard(s.sources[fx].sound));
+        let music = |m: &Module| m.sandy.as_ref().and_then(|s| s.player.as_ref()).map(|p| p.with(|p| p.volume()));
+        let master = |m: &Module| m.sandy.as_ref().unwrap().engine.master();
+        frame(&mut m);
+        assert_eq!((effect(&m), music(&m)), (1.0, Some(1.0)));
+        // effects volume and switch: the playing loop at once, the music not
+        set(&mut m, "FXVolume", Variant::Float(0.5));
+        frame(&mut m);
+        assert_eq!((effect(&m), music(&m)), (0.5, Some(1.0)));
+        set(&mut m, "SoundFXOn", Variant::Bool(false));
+        frame(&mut m);
+        assert_eq!((effect(&m), music(&m)), (0.0, Some(1.0)));
+        set(&mut m, "SoundFXOn", Variant::Bool(true));
+        set(&mut m, "FXVolume", Variant::Float(1.0));
+        frame(&mut m);
+        assert_eq!(effect(&m), 1.0);
+        // music volume: the player's (its streams' levels follow, `music::tests`); the effects not
+        set(&mut m, "MusicVolume", Variant::Float(0.25));
+        frame(&mut m);
+        assert_eq!((effect(&m), music(&m)), (1.0, Some(0.25)));
+        // master: the effects' total and the driver's level, which the music's streams are mixed under too (as the
+        // original's `SetMasterVolume` and Miles's digital master level: the effects get it twice)
+        set(&mut m, "MasterVolume", Variant::Float(0.5));
+        frame(&mut m);
+        assert_eq!((effect(&m), master(&m), music(&m)), (0.25, 0.5, Some(0.25)));
+        set(&mut m, "MasterVolume", Variant::Float(1.0));
+        frame(&mut m);
+        assert_eq!((effect(&m), master(&m)), (1.0, 1.0));
+        // voices: the player effect total, given with the play and again as the source plays (as the original)
+        set(&mut m, "VoiceSndFxVolume", Variant::Float(0.5));
+        m.play_player_fx("heal_01.wav", 1.0);
+        frame(&mut m);
+        let voice = |m: &Module| m.sandy.as_ref().map_or(0.0, |s| s.source_of(sound_id("sfx\\Player\\heal_01.wav")).map_or(0.0, |v| s.engine.heard(s.sources[v].sound)));
+        assert_eq!((voice(&m), effect(&m)), (0.25, 1.0));
+        set(&mut m, "VoiceSndFxOn", Variant::Bool(false));
+        m.play_player_fx("heal_01.wav", 1.0);
+        frame(&mut m);
+        assert_eq!((voice(&m), effect(&m)), (0.0, 1.0));
+        set(&mut m, "VoiceSndFxOn", Variant::Bool(true));
+        // battle music
+        set(&mut m, "BattlemusicMode", Variant::Int32(2));
+        assert_eq!(m.sandy.as_ref().unwrap().combat_preferences, 2);
+        // music off: the player stopped; on again: the volume back, the music made again by the next district's
+        // `SetupENVSounds` (`play_music`)
+        set(&mut m, "MusicOn", Variant::Bool(false));
+        assert_eq!((music(&m), m.sandy.as_ref().unwrap().master_music), (None, 0.0));
+        set(&mut m, "MusicOn", Variant::Bool(true));
+        assert_eq!(m.sandy.as_ref().unwrap().master_music, 0.25);
+        assert!(!m.sandy.as_ref().unwrap().music_mute);
+        // the whole sound off (`DeinitializeSandy`): the effects stopped and nothing played, the music not made again;
+        // on: they play again
+        set(&mut m, "SoundOnOff", Variant::Bool(false));
+        frame(&mut m);
+        m.play_startup_music();
+        assert_eq!((effect(&m), music(&m)), (0.0, None));
+        set(&mut m, "SoundOnOff", Variant::Bool(true));
+        frame(&mut m);
+        assert_eq!(effect(&m), 1.0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -8137,6 +8137,23 @@ A chat frame's place is kept in the `Config.xml` of the window whose folder the 
 
 GUI.dll's `SoundOptionsMonitor_c` (FUN_100c573c) passes nine preferences to the sound module the moment they change: SoundOnOff, MasterVolume, SoundFXOn, FXVolume, MusicOn, MusicVolume, BattlemusicMode, VoiceSndFxOn, VoiceSndFxVolume (slots 0x100c5242 to 0x100c5329). The client's control center does the same for changes from its menus and the option panel; the battle music mode, which it used to read only at start, now follows too.
 
+`SoundOnOff` ("Sound on/off") is `SlotPrefSoundOnOffChanged` (0x100c5329): on, `SandyInterfaceModule_t::InitializeSandy`;
+off, `DeinitializeSandy` (the music player deleted, every sample stopped and released, nothing played until it is
+started again; the original also closes the Miles driver), each with a `GlobalSignals_c` +0x194 signal. The client
+mapped it to `SetMasterMute`, which GUI.dll never calls and which silenced the effects only; it now starts and shuts the
+interface (`audio::Module::initialize_sandy`/`deinitialize_sandy`). Its mixer stays open, so `LoadSimProject` makes no
+music player while the interface is shut (the original's would be made on the closed driver and be silent); the music
+returns with the next district's `SetupENVSounds`. At start (`audio::start`) the nine preferences are passed on as
+`SlotInitialize` (0x100c5541) passes them, from the game's defaults under the player's `prefs.xml`
+(`controlcenter::apply_all_sound`); before, only `LoginPrefs.xml` was read there, so the first music and the character
+creation's sounds ignored the player's settings until the control center loaded. What each control does to what reaches
+the mixer is test `audio::tests::each_sound_control_reaches_the_mixer`: FXVolume and SoundFXOn the effects (a playing loop
+at once), MusicVolume and MusicOn the music player only, MasterVolume the effects' total and the driver's level (which
+the music's streams are mixed under too: effects get the master twice, as in the original, where `SetMasterVolume` folds it
+into the effects' total and the frame sets it as Miles's digital master level), VoiceSndFxVolume and VoiceSndFxOn the
+voice lines (the player effect total given with the play and again as it plays, as the original), BattlemusicMode the
+combat music, SoundOnOff everything.
+
 The option panel's other voice settings are read where they are used, as GUI.dll reads them (`GetDValue` each time):
 `VoiceSndFxHearVicinityOn` (`HandleVicinityMessage` 0x10086c53), `VoiceSndFxHearGuildOn` and `VoiceSndFxHearTeamOn`
 (`HandleGroupMessage` 0x1008692a), `VoiceSndFxType` (FUN_1008c472). Until 2026-11-21 `voices.rs` read them from the game's

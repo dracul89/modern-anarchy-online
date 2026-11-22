@@ -194,8 +194,13 @@ pub fn prefs_path() -> PathBuf {
 /// to the sound module (SandyInterface).
 fn apply_sound(store: &Store, name: &str) {
     let v = store.get(name).cloned().unwrap_or_default();
+    crate::audio::with(|m| apply_sound_to(m, name, &v));
+}
+
+/// One sound preference passed to the module as its `SoundOptionsMonitor_c` slot passes it.
+pub fn apply_sound_to(m: &mut crate::audio::Module, name: &str, v: &Variant) {
     let (f, on) = (v.as_float(), v.as_bool());
-    crate::audio::with(|m| match name {
+    match name {
         "MasterVolume" => m.set_master_volume(f),
         "SoundFXOn" => m.set_master_fx_mute(!on),
         "FXVolume" => m.set_master_fx_volume(f),
@@ -205,10 +210,24 @@ fn apply_sound(store: &Store, name: &str) {
         "VoiceSndFxVolume" => m.set_master_player_fx_volume(f),
         // (`SlotPrefBattlemusicModeChanged` 0x100c52d5: `SetBattleMusicMode` with the value as a whole number)
         "BattlemusicMode" => m.set_battle_music_mode(v.as_int32()),
-        // (`SoundOnOff`: everything)
-        "SoundOnOff" => m.set_master_mute(!on),
+        // (`SlotPrefSoundOnOffChanged` 0x100c5329: the whole sound system started (`InitializeSandy`) or shut
+        // (`DeinitializeSandy`: the music and every sample stopped), each with a `GlobalSignals_c` +0x194 signal nothing
+        // in this client listens to. Until 2026-11-21 this was `SetMasterMute`, which GUI.dll never calls: it silenced
+        // the effects only, the music and the voices played on.)
+        "SoundOnOff" if on => m.initialize_sandy(),
+        "SoundOnOff" => m.deinitialize_sandy(),
         _ => {}
-    });
+    }
+}
+
+/// The nine sound preferences passed on in `SoundOptionsMonitor_c::SlotInitialize`'s order (0x100c5541), each one the
+/// store has.
+pub fn apply_all_sound(m: &mut crate::audio::Module, store: &Store) {
+    for name in SOUND {
+        if let Some(v) = store.get(name) {
+            apply_sound_to(m, name, v);
+        }
+    }
 }
 
 /// The preferences `SoundOptionsMonitor_c` (FUN_100c573c) observes.

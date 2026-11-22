@@ -1370,6 +1370,8 @@ steps run, a fight).
   within a moment (the next district check).
 - [ ] **1** Change a few of them, quit and start again: the panel shows the values set and they are what is heard
   (`prefs.xml` is beside `mao.ini` and holds them).
+- [ ] **1** Untick "Sound on/off": effects, ambience and music all stop; tick it: effects come back at once and the music
+  within a moment. Untick it, quit and start again: the game starts silent (no music on entering).
 - [ ] **team** With Notum Wars: tick "Team channel" under "Hear voices from", have a team mate `/voice heal`: it is
   heard; untick it: not heard. With "Vicinity" ticked, a `/voice` said nearby is heard. Pick "Your voice: Military" and
   `/voice heal`: the military line plays (if your breed and sex have one).
