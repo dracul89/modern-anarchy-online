@@ -1324,3 +1324,9 @@ These were written before this list; some may have been seen working since witho
 
 - [ ] **1** Skills window: the eleven group buttons stand one under another (Abilities ... Disabled / Legacy); a press
   opens a group's rows under its button and another press folds them away again.
+
+## The tester's launcher report (2026-11-21)
+
+- [ ] **1** With a game folder older than the dimension (the list says "(needs a patch)", PLAY shows PATCH), press
+  PATCH: Windows' consent box comes; Yes starts Funcom's patcher and the launcher closes; No leaves the launcher open
+  with a "Patch" message saying the permission was not given.

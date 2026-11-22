@@ -9683,6 +9683,15 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: nothing a player sees differs from the original but the missing white flash of an empty web view; it is how a WebView2 child is shown without one.
 - Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
 
+#### `LCH-052` A patcher that cannot be started is told, and the launcher stays
+
+- SAFETY, low (added by hand on 2026-11-21 for a tester's report; the counts in the tables above were not raised)
+- Original: Anarchy.exe's PATCH (0x40c13d) starts AnarchyPatcher.exe with ShellExecuteEx "open" (0x407d37) and closes the launcher (EndDialog(2)) whether it started or not; a failure is only written to Anarchy.err.
+- Client: the patcher is started through the shell's `start` (the same ShellExecuteEx, so Windows asks for the administrator's rights); when it cannot be started the launcher stays open and a "Patch" message says why, the two versions, and that Anarchy.exe can patch too.
+- A player notices: a refused consent box or a missing patcher leaves the launcher up with a reason, where the original's launcher just went.
+- Where: `crates/mao-client/src/launchwindow.rs` (`start_patcher`, `patch_failed_text`, `Launch::screen`); `docs/CLIENT_UI.md` ("The launcher's PATCH "crashed" it")
+- Decision: [ ] keep  [ ] remove
+
 ## Settings and files
 
 ### Settings and files: the client knowingly does otherwise (22)

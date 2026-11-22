@@ -7093,8 +7093,9 @@ the game's just two (then a patch); versions of another count of numbers need a 
 The launcher's list says so after the name (in the client's own words), and PLAY takes the original's PATCH pictures
 (bitmaps 183-185) while the chosen dimension needs a patch. PATCH does what the original's does (0x40c13d): it opens the
 game's `AnarchyPatcher.exe` (ShellExecuteEx "open", 0x407d37) in the game's folder with the dimension's version and the
-game's expansion mark (`18.8.63_EP1`), and the launcher closes as Cancel closes it (mfc100 ordinal 8137, EndDialog(2)),
-whether the patcher started or not (a failure is only written down, as the original writes it to `Anarchy.err`). The
+game's expansion mark (`18.8.63_EP1`), and the launcher closes as Cancel closes it (mfc100 ordinal 8137, EndDialog(2)).
+The original closes whether the patcher started or not (a failure is only written down, in `Anarchy.err`); since
+2026-11-21 the client's launcher stays and says why (see "The launcher's PATCH crashed it" below). The
 client's own fallback dimension (no list kept or downloaded) takes the game's version, so it never asks for a patch.
 An older server is refused with a line, as the original's click check (0x40b60f) refuses it. The licence
 (`anarchy.eula`, dialog 152) is shown until it is accepted; I decline ends the launcher. Where the original remembers the
@@ -8364,3 +8365,33 @@ Not seen live after the change.
   it) steps back and forth along the rail for as long as it is left, with no end; the original has no such walk.
 - Marcus Stone, while he fights the cleaning robots, opens no chat for a use: the game's own rule (seen before), not a
   fault.
+
+## The launcher's PATCH "crashed" it (2026-11-21, a tester's report)
+
+"Launcher could not patch, just crashed the launcher." PATCH (PLAY while the chosen dimension's version is newer than
+the game folder's, LCH-036) started the game's `AnarchyPatcher.exe` with `std::process::Command::spawn`, which is
+Windows' `CreateProcess`. The patcher's manifest says `requestedExecutionLevel level="requireAdministrator"` (read
+from the game's own file), and `CreateProcess` from an ordinary (medium integrity) process refuses such a program with
+`ERROR_ELEVATION_REQUIRED` (740) without starting it. The launcher wrote the error to its output, which the packaged
+program (no console) has nowhere, and closed as PATCH always closes it: to the player, the launcher vanished. The
+original's Anarchy.exe starts the patcher with `ShellExecuteEx` "open" (0x407d37), which asks Windows for the
+administrator's rights (the consent box) and then starts it.
+
+Now (`launchwindow.rs`, `start_patcher`): the patcher is started through Windows' command shell, `cmd /d /c start ""
+/D "<game folder>" "<folder>\AnarchyPatcher.exe" <version><expansion>` (no console window, no pipes), since `start`
+hands the program to `ShellExecuteEx` and so gets the same consent box; the workspace forbids unsafe code, so the
+call cannot be made directly. It runs on a thread of its own (the consent box waits for an answer) while the status
+line says "Starting the patcher (Windows asks for permission)..." and PLAY is switched off. When the shell says it
+started, the launcher closes as the original's does. When it could not be (no `AnarchyPatcher.exe` in the folder, the
+consent refused: the shell's code 1223, any other code, or a folder name with `%` or `"` or a version from the
+dimension list with anything but letters, digits, dots, underscores and dashes, which are not put on a command line),
+the launcher stays and shows a message window "Patch" with the reason, the two versions, and that Funcom's own
+launcher (Anarchy.exe in the game's folder) can patch too; it is also written to `crash.log`. That is the client's own
+rule (LCH-052): the original closes either way. When the patch is done the patcher restarts Anarchy.exe, the
+original's launcher (its own strings: "Restarting launcher"), not this one; the message says to start Modern Anarchy
+Online again.
+
+`MAO_LAUNCH_DEMO=patch-failed` shows the message without a patch. Tests:
+`launchwindow::tests::the_patcher_is_started_through_the_shell` (the shell's line, the refused characters, a folder
+without the patcher, the message's words). Not tried: the consent box itself and a real patch (it would change the
+installed game; there is no dimension of a newer version to patch to here).

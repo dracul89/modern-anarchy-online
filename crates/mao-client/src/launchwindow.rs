@@ -51,7 +51,10 @@
 //!
 //! - PLAY is PATCH while the chosen dimension needs a patch; PATCH starts the game's `AnarchyPatcher.exe` with the
 //!   dimension's version and the game's expansion mark, in the game's folder, and the launcher closes (Anarchy.exe
-//!   0x40c13d, 0x407d37). (The page of an error code, `ERRORURL`, is the login's: `launcher.rs`.)
+//!   0x40c13d, 0x407d37). It is started through the shell (`start_patcher`), as the original's `ShellExecuteEx` does, so
+//!   that Windows asks for the administrator's rights the patcher's manifest wants; a patcher that cannot be started is
+//!   told in a message and the launcher stays (the original closed with a line in Anarchy.err). (The page of an error
+//!   code, `ERRORURL`, is the login's: `launcher.rs`.)
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -255,6 +258,57 @@ pub fn resolve_game_dir(named: Option<&str>, kept: &str, usual: &[PathBuf]) -> O
 pub fn title(local: &str, remote: &str) -> String {
     let or_unknown = |v: &str| if v.is_empty() { "unknown".to_string() } else { v.to_string() };
     format!("Modern Anarchy Online - Local Version: {} - Remote version: {}", or_unknown(local), or_unknown(remote))
+}
+
+/// The line Windows' command shell is given to start the patcher through `start`, which hands it to `ShellExecuteEx`
+/// "open" as the original's own call does: `start "" /D "<folder>" "<patcher>" <argument>`. `None` when a part cannot
+/// go through the shell as it is: a `%` or a quote in a path (the shell would read it), an argument that is not the
+/// plain letters, digits, dots, underscores and dashes a dimension's version and the expansion mark are.
+pub fn patcher_shell_line(folder: &str, exe: &str, argument: &str) -> Option<String> {
+    let path = |p: &str| (!p.is_empty() && !p.contains(['"', '%'])).then(|| p.replace('/', "\\"));
+    let plain = argument.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
+    let (folder, exe) = (path(folder)?, path(exe)?);
+    plain.then(|| format!("/d /c start \"\" /D \"{folder}\" \"{exe}\" {argument}").trim_end().to_string())
+}
+
+/// Starts the game's patcher, `AnarchyPatcher.exe` in the game's folder with the dimension's version and the game's
+/// expansion mark (Anarchy.exe 0x407d37: `ShellExecuteEx` "open" in that folder). The patcher's manifest asks to run
+/// as an administrator (`requireAdministrator`), and a plain start of a program (`CreateProcess`, which is what
+/// `Command::spawn` is) is refused for such a one ("The requested operation requires elevation", os error 740): the
+/// launcher used to start it so, and closed with nothing started and nothing said. Through the shell Windows asks
+/// for that permission, as for the original's call. Waits for the shell's answer, so for the permission's box: run it
+/// off the window's thread. What went wrong, in words, otherwise.
+pub fn start_patcher(folder: &Path, argument: &str) -> Result<(), String> {
+    let exe = mao_formats::files::find(&folder.join("AnarchyPatcher.exe"));
+    if !exe.is_file() {
+        return Err(format!("The game's folder has no AnarchyPatcher.exe ({}).", folder.display()));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let line = patcher_shell_line(&folder.display().to_string(), &exe.display().to_string(), argument)
+            .ok_or_else(|| format!("The patcher cannot be started from this folder's name or with this version ({argument})."))?;
+        // (no console window: CREATE_NO_WINDOW; no pipes either, which the patcher could hold open past the shell)
+        let null = std::process::Stdio::null;
+        let status = std::process::Command::new("cmd").raw_arg(&line).creation_flags(0x0800_0000).stdin(null()).stdout(null()).stderr(null()).status().map_err(|e| format!("Windows' command shell could not be started: {e}"))?;
+        match status.code() {
+            Some(0) => Ok(()),
+            // (ERROR_CANCELLED: the permission was refused)
+            Some(1223) => Err("Windows was not given the permission it asked for (the patcher changes the game's files, so it runs as an administrator).".into()),
+            code => Err(format!("Windows did not start it (code {}).", code.unwrap_or(-1))),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new(&exe).arg(argument).current_dir(folder).spawn().map(drop).map_err(|e| format!("It could not be started: {e}"))
+    }
+}
+
+/// What the launcher says when the patcher could not be started.
+pub fn patch_failed_text(why: &str, dimension: &str, wanted: &str, local: &str, folder: &str) -> String {
+    format!(
+        "The patcher could not be started.\n\n{why}\n\n{dimension} runs version {wanted} and this game folder has {local}: the server lets in only a game patched to its version. Funcom's own launcher can patch it too: Anarchy.exe in {folder}. Start Modern Anarchy Online again when the patch is done."
+    )
 }
 
 /// The drawing scales offered: the share of the window's size the scene is drawn at before it is upscaled (FSR 1's own
@@ -743,6 +797,10 @@ struct Launch {
     declined: bool,
     /// PATCH started the patcher: the launcher ends.
     patching: bool,
+    /// PATCH is starting the patcher: what came of it.
+    patcher: Option<Receiver<Result<(), String>>>,
+    /// A message over the window until OK (the patcher could not be started).
+    notice: Option<String>,
 }
 
 impl Launch {
@@ -762,6 +820,26 @@ impl Launch {
 
     /// The window's inside, drawn each frame; says whether the page may be shown over its top.
     fn screen(&mut self, ctx: &egui::Context, pictures: &Pictures, monitor: &dyn Fn() -> Screens) -> bool {
+        if let Some(rx) = &self.patcher {
+            let got = match rx.try_recv() {
+                Ok(result) => Some(result),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Err("It ended without an answer.".to_string())),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            };
+            if let Some(result) = got {
+                self.patcher = None;
+                self.status.clear();
+                match result {
+                    Ok(()) => self.patching = true,
+                    Err(why) => {
+                        eprintln!("could not start the patcher: {why}");
+                        crate::crash::note(&format!("the launcher could not start the patcher: {why}"));
+                        let (name, wanted) = self.dimension().map_or((String::new(), String::new()), |d| (d.name.clone(), d.version.clone()));
+                        self.notice = Some(patch_failed_text(&why, &name, &wanted, &self.local_version, &self.game));
+                    }
+                }
+            }
+        }
         if let Some(rx) = &self.list {
             // (a download that ended without a word, its thread gone, is one that failed)
             let got = match rx.try_recv() {
@@ -787,12 +865,12 @@ impl Launch {
         let screen = ctx.content_rect();
         // (a window of no size, as a minimized one is told to be on some systems: nothing to lay out)
         if screen.width() < 8.0 || screen.height() < 8.0 {
-            return self.dialog.is_none() && self.prefs.page;
+            return self.dialog.is_none() && self.notice.is_none() && self.prefs.page;
         }
         let k = screen.width() / WIDTH;
         let at = |r: [f32; 4]| egui::Rect::from_min_size(screen.min + egui::vec2(r[0], r[1]) * k, egui::vec2(r[2], r[3]) * k);
         let whole = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        let enabled = self.dialog.is_none() && self.eula.is_none();
+        let enabled = self.dialog.is_none() && self.eula.is_none() && self.notice.is_none();
         let mut open_settings = false;
         egui::Area::new(egui::Id::unique("launcher")).order(egui::Order::Background).fixed_pos(screen.min).show(ctx, |ui| {
             ui.set_min_size(screen.size());
@@ -850,20 +928,24 @@ impl Launch {
             // original's click check 0x40b60f does)
             let state = self.dimension().map_or(dimensions::VersionState::Same, |d| dimensions::version_state(&self.local_version, &d.version));
             let (faces, label) = if state == dimensions::VersionState::NeedPatch { (&pictures.patch, "PATCH") } else { (&pictures.play, "PLAY") };
-            if button(ui, "launcher-play", PLAY_BUTTON, faces, enabled && self.game_ok && self.dimension().is_some(), label) {
+            if button(ui, "launcher-play", PLAY_BUTTON, faces, enabled && self.game_ok && self.dimension().is_some() && self.patcher.is_none(), label) {
                 match state {
                     dimensions::VersionState::Same => self.play = true,
                     dimensions::VersionState::NeedPatch => {
                         // (the game's AnarchyPatcher.exe, opened in the game's folder with the dimension's version and
-                        // the game's expansion mark; a failure is only written down, as the original writes it to
-                        // Anarchy.err, and the launcher closes either way, as Cancel closes it: Anarchy.exe 0x40c13d,
-                        // 0x407d37 ShellExecuteEx "open", mfc100 ordinal 8137 EndDialog(2))
+                        // the game's expansion mark, and the launcher closes, as Cancel closes it: Anarchy.exe 0x40c13d,
+                        // 0x407d37 ShellExecuteEx "open", mfc100 ordinal 8137 EndDialog(2). The original closes on a
+                        // failure too, with only a line in Anarchy.err; here the launcher stays and says why, since a
+                        // window that just goes looks like a crash. Started off the window's thread: Windows' box
+                        // asking for the administrator's rights waits for an answer)
                         let argument = dimensions::patcher_argument(self.dimension().map_or("", |d| d.version.as_str()), self.episode);
-                        let folder = Path::new(&self.game);
-                        if let Err(e) = std::process::Command::new(folder.join("AnarchyPatcher.exe")).arg(&argument).current_dir(folder).spawn() {
-                            eprintln!("could not start the patcher (AnarchyPatcher.exe {argument}): {e}");
-                        }
-                        self.patching = true;
+                        let folder = PathBuf::from(&self.game);
+                        let (tx, rx) = channel();
+                        std::thread::spawn(move || {
+                            let _ = tx.send(start_patcher(&folder, &argument));
+                        });
+                        self.patcher = Some(rx);
+                        self.status = "Starting the patcher (Windows asks for permission)...".into();
                     }
                     dimensions::VersionState::OldServer => {
                         self.status = format!("{} runs an older version ({}) than this game folder ({}).", self.dimension().map_or("", |d| d.name.as_str()), self.dimension().map_or("", |d| d.version.as_str()), self.local_version);
@@ -925,6 +1007,19 @@ impl Launch {
                 None => {}
             }
         }
+        if let Some(text) = &self.notice {
+            let mut close = false;
+            egui::Window::new("Patch").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).default_width(screen.width().min(480.0) - 40.0).show(ctx, |ui| {
+                ui.label(text.as_str());
+                ui.separator();
+                if ui.button("   OK   ").clicked() {
+                    close = true;
+                }
+            });
+            if close || ctx.input(|i| i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::Enter)) {
+                self.notice = None;
+            }
+        }
         if let Some(dialog) = self.dialog.as_mut() {
             match dialog.show(ctx) {
                 Some(Closed::Ok) => {
@@ -950,7 +1045,7 @@ impl Launch {
         }
         // (the page is a window of its own over the top: away while the settings are open over it, and when the
         // launcher's settings leave it out)
-        self.dialog.is_none() && self.eula.is_none() && self.prefs.page
+        self.dialog.is_none() && self.eula.is_none() && self.notice.is_none() && self.prefs.page
     }
 }
 
@@ -1277,6 +1372,8 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         eula: if prefs.eula { None } else { std::fs::read(mao_formats::files::find(&Path::new(game).join("anarchy.eula"))).ok().map(|b| b.iter().map(|&c| c as char).collect::<String>().replace('\r', "")) },
         declined: false,
         patching: false,
+        patcher: None,
+        notice: None,
     };
     // (the list kept from before until the server's comes; with neither, the one dimension the client knows itself, at
     // the game's own version, as it is not known: the original has no such dimension, and an empty version would need
@@ -1301,6 +1398,10 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         let mut dialog = Dialog::new(&launch.settings, &launch.prefs, Screens::default());
         dialog.tab = 1;
         launch.dialog = Some(dialog);
+    }
+    // (MAO_LAUNCH_DEMO=patch-failed: the message of a patcher that could not be started, for pictures)
+    if std::env::var("MAO_LAUNCH_DEMO").as_deref() == Ok("patch-failed") {
+        launch.notice = Some(patch_failed_text("Windows was not given the permission it asked for (the patcher changes the game's files, so it runs as an administrator).","Rubi-Ka", "18.8.63", &launch.local_version, game));
     }
     // (MAO_LAUNCH_SETTINGS=<page 0-2>: the settings open at that page, for pictures)
     if let Some(tab) = std::env::var("MAO_LAUNCH_SETTINGS").ok().and_then(|v| v.parse::<usize>().ok()) {
@@ -1403,6 +1504,31 @@ mod tests {
     fn the_predefined_sizes_are_the_monitors_and_the_one_set() {
         let sizes = predefined([(1920, 1080), (5120, 1440), (1920, 1080), (320, 200), (2560, 1440)].into_iter(), (1280, 800));
         assert_eq!(sizes, vec![(5120, 1440), (2560, 1440), (1920, 1080), (1280, 800)]);
+    }
+
+    /// The patcher goes through the shell's `start` (which asks Windows for the administrator's rights its manifest
+    /// wants); nothing the shell would read goes into the line.
+    #[test]
+    fn the_patcher_is_started_through_the_shell() {
+        assert_eq!(
+            patcher_shell_line("C:/Funcom/Anarchy Online", "C:/Funcom/Anarchy Online/AnarchyPatcher.exe", "18.8.63_EP1").as_deref(),
+            Some(r#"/d /c start "" /D "C:\Funcom\Anarchy Online" "C:\Funcom\Anarchy Online\AnarchyPatcher.exe" 18.8.63_EP1"#)
+        );
+        // (an empty version, as a dimension without one: the expansion mark alone, or nothing)
+        assert_eq!(patcher_shell_line(r"D:\AO", r"D:\AO\AnarchyPatcher.exe", "").as_deref(), Some(r#"/d /c start "" /D "D:\AO" "D:\AO\AnarchyPatcher.exe""#));
+        // (what the shell would read: a version from the dimension list with more than a version's characters, a % or
+        // a quote in a folder's name)
+        assert_eq!(patcher_shell_line(r"D:\AO", r"D:\AO\AnarchyPatcher.exe", "18.8 & calc"), None);
+        assert_eq!(patcher_shell_line(r"D:\AO", r"D:\AO\AnarchyPatcher.exe", "18.8|x"), None);
+        assert_eq!(patcher_shell_line(r"D:\100%AO", r"D:\100%AO\AnarchyPatcher.exe", "18.8.63"), None);
+        assert_eq!(patcher_shell_line("", r"D:\AO\AnarchyPatcher.exe", "18.8.63"), None);
+        // (a folder without the patcher is told, not started)
+        let base = std::env::temp_dir().join(format!("mao-nopatcher-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        assert!(start_patcher(&base, "18.8.63_EP1").unwrap_err().contains("no AnarchyPatcher.exe"));
+        let _ = std::fs::remove_dir_all(&base);
+        let text = patch_failed_text("Windows did not start it.", "Rubi-Ka", "18.8.63", "18.8.62", r"C:\AO");
+        assert!(text.contains("Windows did not start it.") && text.contains("Rubi-Ka runs version 18.8.63") && text.contains(r"Anarchy.exe in C:\AO"));
     }
 
     #[test]
