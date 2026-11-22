@@ -235,6 +235,8 @@ pub struct ControlCenter {
     popups: Vec<Popup>,
     /// The layers the menu rows and the mini toolbars were drawn on in the last frame ([`ControlCenter::raise`]).
     layers: Vec<egui::LayerId>,
+    /// The player's file of values ([`prefs_path`]).
+    prefs: PathBuf,
 }
 
 impl ControlCenter {
@@ -291,7 +293,7 @@ impl ControlCenter {
             }
         }
         eprintln!("control center: {} views from {}", tree.nodes.len(), dirs.first().map_or(String::new(), |d| d.display().to_string()));
-        Some(ControlCenter { store, docks: Default::default(), dirs, tree, root, popups: Vec::new(), layers: Vec::new() })
+        Some(ControlCenter { store, docks: Default::default(), dirs, tree, root, popups: Vec::new(), layers: Vec::new(), prefs: prefs_path() })
     }
 
     fn holds(&self, criteria: &str, stats: &BTreeMap<u32, i64>) -> bool {
@@ -357,9 +359,15 @@ impl ControlCenter {
     /// Shows the control center for a frame; `open` tells which of the client's windows are open.
     pub fn show(&mut self, ctx: &egui::Context, palette: &Palette, stats: &BTreeMap<u32, i64>, open: &dyn Fn(&str) -> bool) -> Output {
         let mut out = Output::default();
-        // (the client's windows into the values, without counting as changes)
+        // (the values changed since the last frame passed them on: the option panel's, which is drawn after the control
+        // center, the chat commands' (`/dvalue`, `/setoption`) and the client's own. Until 2026-11-21 these were thrown
+        // away here with the windows' below, so no option of the panel took effect or was saved.)
+        let pending = self.store.take_changed();
+        // (the client's windows into the values, without counting as changes; one asked for since the last frame is kept)
         for (dv, name) in WINDOWS {
-            self.store.set(dv, Variant::from(open(name)));
+            if !pending.iter().any(|p| p == dv) {
+                self.store.set(dv, Variant::from(open(name)));
+            }
         }
         self.store.take_changed();
         let store = &self.store;
@@ -505,9 +513,24 @@ impl ControlCenter {
             rolled: !self.store.get_bool("cc_left_wing") && !self.store.get_bool("cc_right_wing"),
         };
 
-        // the values the menus and the option panel changed: the client's windows, the sound, the player's file
-        let mut save = false;
+        // the values the menus changed this frame and the rest since the last
+        let mut names = pending;
         for name in self.store.take_changed() {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        if self.pass_changes(names, &mut out) {
+            self.store.save_user(&self.prefs);
+        }
+        out
+    }
+
+    /// Changed values passed on (the `DistributedValue_c` observers): the client's windows, the sound, the preferences
+    /// the rest of the client reads and `out.changed`; whether the player's file is to be saved.
+    fn pass_changes(&mut self, names: Vec<String>, out: &mut Output) -> bool {
+        let mut save = false;
+        for name in names {
             if let Some((_, w)) = WINDOWS.iter().find(|(dv, _)| *dv == name) {
                 out.windows.push((w, self.store.get_bool(&name)));
             } else {
@@ -527,10 +550,7 @@ impl ControlCenter {
                 }
             }
         }
-        if save {
-            self.store.save_user(&prefs_path());
-        }
-        out
+        save
     }
 
     /// Puts the menu rows and the mini toolbars over the wings (`vitals::show_docked` raises the strips and its buttons the
@@ -595,6 +615,48 @@ fn tip(ui: &egui::Ui, env: &Env, response: &egui::Response, e: &Entry) {
 mod tests {
     use super::*;
 
+    /// A value changed between two frames (by the option panel, drawn after the control center, or by `/dvalue` and
+    /// `/setoption`) is passed on in the next frame and saved, not thrown away with the windows' values as it was until
+    /// 2026-11-21 (when no option of the panel took effect or was kept); a window asked for so opens.
+    #[test]
+    fn a_value_changed_between_frames_is_passed_on_and_saved() {
+        let dir = std::env::temp_dir().join(format!("mao-cc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let prefs = dir.join("prefs.xml");
+        let mut tree = Tree::default();
+        let root = tree.add(crate::gui::view::Node::new("ControlCenter", Box::new(crate::gui::view::Plain)));
+        let mut cc = ControlCenter { store: Store::default(), docks: Default::default(), dirs: Vec::new(), tree, root, popups: Vec::new(), layers: Vec::new(), prefs: prefs.clone() };
+        cc.store.set("MusicVolume", Variant::Float(1.0));
+        cc.store.take_changed();
+        let ctx = egui::Context::default();
+        let palette = crate::theme::Palette::built_in();
+        let stats = BTreeMap::new();
+        let frame = |cc: &mut ControlCenter| {
+            let mut out = Output::default();
+            let _ = ctx.run_ui(Default::default(), |ui| out = cc.show(ui.ctx(), &palette, &stats, &|_| false));
+            out
+        };
+        let out = frame(&mut cc);
+        assert!(out.changed.is_empty() && out.windows.is_empty() && !prefs.exists());
+        // (the panel slides the music down and a command opens the inventory, after the control center was drawn)
+        cc.store.set_user("MusicVolume", Variant::Float(0.25));
+        cc.store.set("inventory_window", Variant::from(true));
+        let out = frame(&mut cc);
+        assert_eq!(out.changed.iter().find(|c| c.0 == "MusicVolume").map(|c| c.1), Some(0.25));
+        assert!(out.windows.contains(&("inventory", true)));
+        assert_eq!(crate::prefs::get("MusicVolume"), Some(0.25));
+        let saved = std::fs::read_to_string(&prefs).unwrap();
+        assert!(saved.contains("name=\"MusicVolume\" value='0.250000'"), "{saved}");
+        // (read back as the next start reads it)
+        let mut again = Store::default();
+        again.load_user(&prefs);
+        assert_eq!(again.get("MusicVolume").map(Variant::as_float), Some(0.25));
+        // (nothing new: nothing passed on)
+        let out = frame(&mut cc);
+        assert!(out.changed.is_empty() && out.windows.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The sound preferences passed to the sound module as they change are `SoundOptionsMonitor_c`'s nine.
     #[test]
     fn the_sound_preferences_are_the_monitors_nine() {
@@ -620,7 +682,7 @@ mod tests {
         let entry = crate::gui::menu::entries(&doc[0].children).remove(0);
         let stats = BTreeMap::new();
         for auto in [false, true] {
-            let mut cc = ControlCenter { store: Store::default(), docks: Default::default(), dirs: Vec::new(), tree: Tree::default(), root: 0, popups: Vec::new(), layers: Vec::new() };
+            let mut cc = ControlCenter { store: Store::default(), docks: Default::default(), dirs: Vec::new(), tree: Tree::default(), root: 0, popups: Vec::new(), layers: Vec::new(), prefs: PathBuf::new() };
             cc.store.set("AutoCloseWindows", Variant::from(auto));
             cc.store.set("wear_window", Variant::from(true));
             cc.store.set("nano_window", Variant::from(true));
