@@ -1421,3 +1421,5 @@ steps run, a fight).
 - [ ] **1** The side column (wear, NCU, nano programs, team, faction): every page the same width, one under the other,
   none over another; the grip under a page makes it taller and the pages under it move down.
 - [ ] **1** Nascense Frontier's edge (near x 685, z 1980): no black "Brink" band; the ground ends at the brink.
+- [ ] **1** With a pet following you as you run and turn: its name tag rides steady over its head; the same for other
+  players' tags as they run past, and the floating numbers of a fight over a moving target.

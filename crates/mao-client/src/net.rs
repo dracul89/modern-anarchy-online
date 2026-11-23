@@ -5275,6 +5275,13 @@ impl World {
         self.drawn.get(&id).copied().unwrap_or(at)
     }
 
+    /// Where what is drawn over a character goes (its name tag, its floating texts, the effects started on it): where its
+    /// body is drawn ([`World::drawn_place`]), else an object's place. (The tags read the raw place while the body eased
+    /// to it, so a pet that follows, its place told often, had its tag shaking about its body.)
+    fn shown_place(&self, id: u32) -> Option<[f32; 3]> {
+        self.position_of(id).map(|p| self.drawn_place(id, p))
+    }
+
     /// Walks the creatures the server set on a path or after a target (`paths`) for `dt` seconds; `own` is one's own place.
     fn walk_paths(&mut self, dt: f32, own: [f32; 3]) {
         let ids: Vec<u32> = self.paths.keys().copied().collect();
@@ -12390,7 +12397,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // with its running programs. The same effect made again starts again.
                 for (who, effect, seconds) in std::mem::take(&mut state.spell_effects_made) {
                     let Some(g) = gfx.as_ref() else { continue };
-                    let Some(p) = (if who == own { Some(position) } else { state.position_of(who) }) else { continue };
+                    let Some(p) = (if who == own { Some(position) } else { state.shown_place(who) }) else { continue };
                     for s in crate::sounds::effect_sounds(g, effect) {
                         crate::audio::with(|m| m.play_sound_command(s.id, p, s.velocity, s.volume, s.range, s.delay, s.defer, s.pitch));
                     }
@@ -12419,7 +12426,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // (the effects' sound controls, made with the effects: a cast's at the caster, a tracer's at the caster
                     // and a hit's at the target as the shot lands)
                     if let Some(g) = gfx.as_ref() {
-                        let place = |id: u32| if id == own { Some(position) } else { state.position_of(id) };
+                        let place = |id: u32| if id == own { Some(position) } else { state.shown_place(id) };
                         let mut made: Vec<(u32, i32, f32)> = Vec::new();
                         for &(caster, _, nano, _) in &state.cast_bursts {
                             made.extend(nano_stat(nano, 428).map(|e| (caster, e as i32, 0.0)));
@@ -12877,7 +12884,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     combat_texts: std::mem::take(&mut state.combat_texts)
                         .into_iter()
                         .filter_map(|(id, text, colour)| {
-                            let at = if id == own { position } else { state.position_of(id)? };
+                            let at = if id == own { position } else { state.shown_place(id)? };
                             Some(([at[0], at[2], at[1]], text, colour, id == own))
                         })
                         .collect(),
@@ -12888,7 +12895,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let orgs_shown = crate::prefs::get("IsOrgNameShownOverHead").is_some_and(|v| v != 0.0);
                         let attacking = state.fighting.get(&own).copied();
                         let tag = |id: u32, brackets: Option<bool>| -> Option<crate::nametag::Tag> {
-                            let p = if id == own { position } else { state.entities.get(&id)?.0 };
+                            let p = if id == own { position } else { state.entities.get(&id).map(|e| state.drawn_place(id, e.0))? };
                             let info = state.infos.get(&id);
                             let name = state.names.get(&id).map(|n| n.0.clone()).filter(|n| !n.is_empty()).or_else(|| info.map(|i| i.name.clone()).filter(|n| !n.is_empty()))?;
                             let side = info.map_or_else(|| state.stats.get(&33).copied().unwrap_or(0) as u8, |i| i.side);
@@ -15465,6 +15472,10 @@ mod door_tests {
         }
         let lag = w.entities[&other].0[0] - w.drawn_place(other, w.entities[&other].0)[0];
         assert!((lag - 5.0 / 60.0 * 4.0).abs() < 0.01, "{lag}");
+        // (what is drawn over it, its name tag and floating texts, goes where its body is drawn, not to the place it eases
+        // to: a following pet's tag shook about its body)
+        assert_eq!(w.shown_place(other), Some(w.drawn_place(other, w.entities[&other].0)));
+        assert_ne!(w.shown_place(other), Some(w.entities[&other].0));
         // (the stop halts it where the message says, the drawn place comes to it, and its animations stop with it)
         w.add(&moved(n3::movement::FORWARD_STOP, 3625.0));
         w.move_others(1.0, &|_, _| None);
