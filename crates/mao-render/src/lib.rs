@@ -2332,9 +2332,9 @@ impl Renderer {
                 }
             }
         }
-        // The only fog is an area's: from the near plane (0.2, `VisualFog_t`'s default clip plane) to the far plane brought
-        // in by the density (`process`: `far -= (far - near - 5) × density`), in the area's colour. Without one the original
-        // draws clear to its far clip (until 2026-11-19 the client hazed the distance into the sky's horizon colour).
+        // The gathered fog (`VisualFog_t`: the area's fogs and the effect scripts' atmosphere, `AddFog`): from the near plane
+        // (0.2, the camera's front plane, Gamecode's `AddClipPlanes`) to the far plane brought in by the density (`process`:
+        // `far -= (far - near - 5) × density`), in the gathered colour. Without one the world is drawn clear to its far clip.
         let (fog_start, fog_end, fog_colour, area) = match scene.area_fog {
             Some((colour, density)) if density > 0.0 => {
                 let (near, far) = (0.2f32, scene.fog.1);

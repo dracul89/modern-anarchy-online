@@ -8,6 +8,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### World
 
+- The sky and the distance are hazed by the atmosphere's fog, as in the original: the Shadowlands' vortex is a pale swirl melting into the sky around the sun, where it showed as a dark blue disc with black edges, and far land fades into the haze (lightly on Rubi-Ka, more in the Shadowlands). The atmosphere's fog was taken for its colour only and drawn on nothing.
 - The Shadowlands' sky vortex no longer shows as pale sheets with straight edges: it fades evenly into the fog, as in the original, and its flare glows evenly instead of in wedges.
 - Casting a nano that takes time no longer leaves the caster lying on the ground as if dead: after the cast the character stands (or walks) again. It struck everyone who cast, buff bots included.
 - Name tags, floating numbers and spell effects over other characters stay on their bodies: a following pet's name tag shook about it (the tag went to each place the server told while the body moved smoothly between them).

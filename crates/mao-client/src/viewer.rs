@@ -617,14 +617,22 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         let forward = (target - e).normalize_or_zero();
         let (mut meshes, mut sheets, mut named) = Default::default();
         let mut caches = SkyCaches { meshes: &mut meshes, mesh_sheets: &mut sheets, named: &mut named };
-        let (backdrops, others) = sky_draws(&frame, [e.x, e.z, e.y], [forward.x, forward.z, forward.y], 1000.0, sky_fog(&scene, frame.fog), textures, &mut renderer, &gpu, &mut caches);
+        // (the atmosphere's fog gathered into the scene's, as live)
+        if let Some((colour, weight)) = frame.fog {
+            scene.area_fog = crate::environment::add_fog(scene.area_fog, colour, weight, 1.0).or(scene.area_fog);
+            // (the fog reaches to the far plane: the sky's view distance below)
+            if scene.fog.1 > 1.0e8 {
+                scene.fog = fog_for(1000.0);
+            }
+        }
+        let (backdrops, others) = sky_draws(&frame, [e.x, e.z, e.y], [forward.x, forward.z, forward.y], 1000.0, sky_fog(&scene), textures, &mut renderer, &gpu, &mut caches);
         eprintln!("sky: {} draws, {} backdrops, {} others; lights {:?}, fog {:?}", frame.draws.len(), backdrops.len(), others.len(), frame.lights, frame.fog);
         scene.backdrops = backdrops;
         scene.shells.extend(others);
         scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
         scene.lighting = frame.lights.ground.map(|g| (frame.lights.ambient, g.colour));
         scene.water_light = frame.lights.water.map(|l| mao_render::WaterLight { colour: l.colour, to_light: mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]), specular: frame.lights.specular });
-        if let Some(fog) = frame.fog {
+        if let Some((fog, _)) = frame.fog {
             scene.sky.0 = fog;
         }
     }
@@ -863,17 +871,18 @@ pub fn under_water_fog(kind: u32) -> Option<([f32; 3], f32)> {
 }
 
 /// The fog the sky's fogged draws fade into, as the world's shader has it (`mao_render`'s `draw`, `mesh.wgsl`): its colour,
-/// start and end, and whether it grows evenly with the distance. An area's fog (the original's `VisualFog_t`: from the
-/// near plane, 0.2, to the far one drawn in by the density; even) where there is one, else the haze of the effect
-/// scripts' atmosphere (from a seventh of the view distance out, eased), else none.
-fn sky_fog(scene: &Scene, script: Option<[f32; 3]>) -> Option<([f32; 3], f32, f32, bool)> {
+/// start and end, and whether it grows evenly with the distance: the frame's gathered fog (the original's `VisualFog_t`:
+/// the area's fogs and the effect scripts' atmosphere, `AddFog`; from the near plane, 0.2, to the far one drawn in by
+/// the density; even), else none. (Until 2026-11-22 the atmosphere's fog was not gathered: its colour alone hazed the sky
+/// from a seventh of the view distance out, so the Shadowlands' vortex kept its dark blues where the original's is pale.)
+fn sky_fog(scene: &Scene) -> Option<([f32; 3], f32, f32, bool)> {
     match scene.area_fog {
         Some((colour, density)) if density > 0.0 => {
             let (near, far) = (0.2f32, scene.fog.1);
             let end = if far - near > 5.0 { far - (far - near - 5.0) * density.min(1.0) } else { far };
             Some((colour, near, end, true))
         }
-        _ => script.map(|colour| (colour, scene.fog.0, scene.fog.1, false)),
+        _ => None,
     }
 }
 
@@ -2855,7 +2864,7 @@ impl ApplicationHandler for App {
                             [f.x, f.z, f.y]
                         });
                         let mut caches = SkyCaches { meshes: &mut self.script_meshes, mesh_sheets: &mut self.mesh_sheets, named: &mut self.named_sheets };
-                        let (backdrops, others) = sky_draws(frame, eye, forward, self.settings.view_distance as f32, sky_fog(&w.scene, frame.fog), &self.textures, &mut w.renderer, &w.gpu, &mut caches);
+                        let (backdrops, others) = sky_draws(frame, eye, forward, self.settings.view_distance as f32, sky_fog(&w.scene), &self.textures, &mut w.renderer, &w.gpu, &mut caches);
                         w.scene.backdrops = backdrops;
                         shells.extend(others);
                         w.scene.sun = frame.lights.ground.map(|l| mao_render::glam::Vec3::new(-l.direction[0], -l.direction[2], -l.direction[1]));
@@ -2928,15 +2937,19 @@ impl ApplicationHandler for App {
                     // one, is lit by the fog light (`AddFogLightIntensity`: the day's intensity, at least a half).
                     // (the effect scripts' lighting and, outdoors, their haze: the atmosphere's fog colour)
                     w.scene.lighting = self.fxs_frame.as_ref().and_then(|f| f.lights.ground.map(|g| (f.lights.ambient, g.colour)));
-                    if let Some(fog) = self.fxs_frame.as_ref().and_then(|f| f.fog).filter(|_| !interior) {
-                        w.scene.sky.0 = fog;
+                    let script_fog = self.fxs_frame.as_ref().and_then(|f| f.fog).filter(|_| !interior);
+                    if let Some((colour, _)) = script_fog {
+                        w.scene.sky.0 = colour;
                     }
                     let e = self.environment;
                     // (the clouds' `1 − [2] / 2.333`, `environment::Environment::sky`, reaches only the effect scripts'
                     // `CloudTranspariency`: the light and the sky are not dimmed by it)
                     w.scene.daylight = if interior { 1.0 } else { self.daylight };
                     w.scene.ambient = e.ambient;
-                    self.area_fog_base = if interior { None } else { e.fog };
+                    // (the atmosphere's `AddFog` is gathered with the area's into the one `VisualFog_t` fog, lit by the
+                    // same fog light: the original hazes every outdoor playfield whose scripts add one, the Shadowlands at
+                    // 0.1, Rubi-Ka at 0.025)
+                    self.area_fog_base = if interior { None } else { script_fog.map_or(e.fog, |(colour, weight)| crate::environment::add_fog(e.fog, colour, weight, e.fog_light).or(e.fog)) };
                     w.scene.area_fog = fog_mode(self.area_fog_base, crate::prefs::get("FogMode"));
                     if self.keys.char_distance != self.settings.char_distance || self.keys.auto_loot != self.settings.auto_loot {
                         self.keys.char_distance = self.settings.char_distance;

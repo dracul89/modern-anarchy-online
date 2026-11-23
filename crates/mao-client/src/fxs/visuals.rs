@@ -120,9 +120,10 @@ pub struct Draw {
 pub struct Frame {
     pub draws: Vec<Draw>,
     pub lights: Lights,
-    /// The fog the generic visuals add (`AddFogR/G/B`, `VisualFog_t::AddFog` from FUN_1005b633): the atmosphere's
-    /// colour of the haze at the horizon.
-    pub fog: Option<[f32; 3]>,
+    /// The fog the generic visuals add (`AddFogR/G/B` at the weight `AddFogI`, `VisualFog_t::AddFog` from FUN_1005b633;
+    /// several gathered by its rules): the atmosphere's colour of the haze at the horizon and its weight (0.025 on
+    /// Rubi-Ka, 0.1 in most of the Shadowlands), gathered with the area's fogs into the one fog the frame draws.
+    pub fog: Option<([f32; 3], f32)>,
 }
 
 /// The visuals running: each started effect's kind and its FXS object, and a generated blueprint's points by object.
@@ -285,11 +286,10 @@ impl Visuals {
                 continue;
             }
             if *kind == 5 {
+                // (FUN_1005b633: `AddFog(R, G, B, I)` when the four are there; a weight of none adds nothing)
                 let f = ["AddFogR", "AddFogG", "AddFogB"].map(|n| float(o, n));
-                if let [Some(r), Some(g), Some(b)] = f {
-                    if float(o, "AddFogI").is_some() {
-                        frame.fog = Some([r, g, b].map(|c| c.clamp(0.0, 1.0)));
-                    }
+                if let ([Some(r), Some(g), Some(b)], Some(weight)) = (f, float(o, "AddFogI")) {
+                    frame.fog = crate::environment::add_fog(frame.fog, [r, g, b], weight, 1.0).or(frame.fog);
                 }
             }
             if let Some(d) = self.draw(*kind, o, &frame.lights, &flicker) {
@@ -674,7 +674,8 @@ mod tests {
         assert_eq!(horizon.texture_matrix, Some(math::IDENTITY));
         let shifted = Draw { texture_matrix: Some([3.0, 0.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.25, 0.5, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]), ..clouds.clone() };
         assert_eq!(texture_uv(&shifted, [0.5, 0.25]), [1.75, 1.25]);
-        assert!(f.fog.is_some());
+        // (Rubi-Ka's atmosphere adds its fog at `AddFogI` 0.025)
+        assert!(f.fog.is_some_and(|(_, weight)| (weight - 0.025).abs() < 1e-6), "{:?}", f.fog);
         for d in &f.draws {
             let shape = match &d.shape {
                 Shape::Mesh(m) => m.clone(),

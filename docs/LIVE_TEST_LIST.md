@@ -1427,3 +1427,6 @@ steps run, a fight).
   never lying on the ground; the buff bots of a city square stand between their casts.
 - [ ] **1** Jobe Research and a Shadowlands playfield, day and night: the vortex in the sky fades evenly, no pale
   sheets with straight edges; its flare glows without wedges.
+- [ ] **1** Nascense Frontier by day, against the original's shots: the vortex a pale blue-white swirl melting into the
+  sky round the sun, no dark blue disc or black edges; far land hazed light blue, near land clear. On Rubi-Ka the
+  distance hazes only lightly.

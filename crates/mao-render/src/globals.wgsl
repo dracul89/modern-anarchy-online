@@ -47,8 +47,8 @@ fn day() -> f32 {
     return mix(0.2, 1.0, globals.ambient.w);
 }
 
-// The fog's colour: an area's (`VisualFog_t`, the only fog the original draws; with none its world is clear to the far
-// plane, and `fog.w` is 0).
+// The fog's colour: the gathered `VisualFog_t` fog's (the area's fogs and the effect scripts' atmosphere; with none the
+// world is clear to the far plane, and `fog.w` is 0).
 fn fog_colour() -> vec3<f32> {
     return globals.fog.rgb;
 }

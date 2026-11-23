@@ -202,8 +202,8 @@ fn shade(in: VertexOut) -> vec4<f32> {
     // (a highlight effect's emissive colour is added the same way: the original sets the frame's emissive material colour)
     let emissive = in.colour.rgb * in.colour.a + tint.rgb;
     var colour = base.rgb * min(ambient + sun_colour * diffuse + vec3<f32>(baked) + emissive, vec3<f32>(1.0));
-    // An area's fog fades the distance into its colour, linearly as Direct3D's did; with none the world is drawn clear to
-    // the far plane, as the original's (its only fog is the area's `VisualFog_t`).
+    // The gathered fog (`VisualFog_t`: the area's fogs and the effect scripts' atmosphere) fades the distance into its
+    // colour, linearly as Direct3D's did; with none the world is drawn clear to the far plane.
     let far = globals.horizon.w;
     let near = globals.eye.w;
     let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
