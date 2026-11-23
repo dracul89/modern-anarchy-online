@@ -8,6 +8,9 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # pinned to an exact version on purpose (crates/mao-client/Cargo.toml)
+      - dependency-name: wry
     groups:
       # wgpu, egui and winit move together (egui-wgpu and egui-winit pin their versions): one pull request for the set
       gpu-and-ui:
