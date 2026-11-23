@@ -1859,6 +1859,8 @@ The launcher also remembers the character played last (the second line of `accou
 
 ## Chat input history
 
+The command list (the client's own, CHT-035) also takes the mouse (2026-11-21, the user's ask): a press on a row takes that command as Tab does (on the press, since the bar loses the keys, and the list with them, when the button is let go), the row under the pointer is lit, and the list scrolls (`egui::ScrollArea`, the wheel or its bar) over every match, at most 15 rows high, its foot 4 pixels above the bar (it was as tall as the screen above the bar allowed, showed only the rows round the highlighted one, and stood off the bar where it was shorter). Up and Down still move the highlight, and the list follows it. Seen in a preview (`MAO_UI_PREVIEW=chat MAO_CHAT_INPUT=/`; in Git Bash with `MSYS_NO_PATHCONV=1`, or the slash becomes a folder); not clicked live.
+
 With the input line focused and no command list open, Up and Down walk the lines sent before (the last hundred; a line sent twice in a row is kept once), Down past the newest empties the line.
 
 ## Auto-run (`Numpad *`)

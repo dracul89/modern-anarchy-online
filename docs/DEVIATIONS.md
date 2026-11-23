@@ -4296,6 +4296,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: its own egui list with fixed row size, colours and keys (Up, Down, Tab, Enter takes the highlighted one) and a hint text "Type to speak, / for commands"
 - A player notices: look and keys of the command list may differ
 - Where: `crates/mao-client/src/chatwindow.rs:1442`
+- Changed (2026-11-21, the user: "slash commands list should be selectable with a mouse and scrollable"): the list takes a click and scrolls, at most 15 rows on the bar; still the client's own list.
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-19, overnight): FUN_100a44e8's command list is a GUI view whose look is judged by eye; the client's list is its own window. Left.
 

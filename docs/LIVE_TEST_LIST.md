@@ -1406,3 +1406,5 @@ steps run, a fight).
 - [ ] **1** Nano programs window: the school buttons flow in rows across the window (two rows when it is narrow), and
   widen or narrow with the window. Its "i" button shows As a list, Show the hidden ones, Order (by name, the other
   columns, ascending or descending) and Close Window; each works as from a right click on the window's empty part.
+- [ ] **1** Chat bar: type `/`: the command list sits on the bar, at most 15 rows; the wheel and its bar scroll it,
+  the row under the pointer lights, a click puts `/command ` in the bar with the keys still in it.

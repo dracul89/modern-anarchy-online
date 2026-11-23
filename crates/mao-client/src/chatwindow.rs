@@ -1896,25 +1896,46 @@ impl ChatWindow {
                 response.request_focus();
             }
         }
-        // The list of commands, above the input line, as the original's.
+        // The list of commands, above the input line (the client's own: the original completes in its field, FUN_100a44e8;
+        // CHT-035). It scrolls (the wheel, or its bar) over every command that matches, keeps the highlighted one in
+        // view when the keys move it, and a press on a row takes that command as Tab does (on the press: the field
+        // loses the keys when the button is let go, and the list goes with them).
         if (has_focus || response.has_focus() || self.keep_list) && !suggestions.is_empty() {
-            // as many rows as fit above the input line, scrolling to keep the highlighted one in view
+            // (at most 15 rows, fewer where the screen above the bar holds fewer; its foot just above the bar)
             let fits = (((response.rect.top() - 14.0) / 15.0).max(3.0)) as usize;
-            let rows = suggestions.len().min(fits);
-            let first = if self.selected >= rows { self.selected + 1 - rows } else { 0 };
-            egui::Area::new(input_id.with("commands")).order(egui::Order::Foreground).fixed_pos(egui::pos2(response.rect.left(), response.rect.top() - 4.0 - rows as f32 * 15.0)).show(ctx, |ui| {
+            let rows = suggestions.len().min(fits).min(15);
+            let mut picked = None;
+            egui::Area::new(input_id.with("commands")).order(egui::Order::Foreground).pivot(egui::Align2::LEFT_BOTTOM).fixed_pos(egui::pos2(response.rect.left(), response.rect.top() - 4.0)).show(ctx, |ui| {
                 egui::Frame::new().fill(egui::Color32::from_rgb(8, 40, 50)).stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(20, 90, 100))).inner_margin(4.0).show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    for (n, command) in suggestions.iter().enumerate().skip(first).take(rows) {
-                        let chosen = n == self.selected;
-                        let (rect, _) = ui.allocate_exact_size(egui::vec2(150.0, 15.0), egui::Sense::hover());
-                        if chosen {
-                            ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgb(30, 30, 200));
+                    egui::ScrollArea::vertical().id_salt("command-list").max_height(rows as f32 * 15.0).auto_shrink([true, true]).show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        for (n, command) in suggestions.iter().enumerate() {
+                            let chosen = n == self.selected;
+                            let (rect, row) = ui.allocate_exact_size(egui::vec2(150.0, 15.0), egui::Sense::click());
+                            if chosen || row.hovered() {
+                                let fill = if chosen { egui::Color32::from_rgb(30, 30, 200) } else { egui::Color32::from_rgb(20, 70, 90) };
+                                ui.painter().rect_filled(rect, 0.0, fill);
+                            }
+                            ui.painter().text(rect.left_center() + egui::vec2(3.0, 0.0), egui::Align2::LEFT_CENTER, format!("/{command}"), egui::FontId::proportional(12.0), egui::Color32::from_rgb(220, 240, 245));
+                            if chosen && (up || down) {
+                                row.scroll_to_me(None);
+                            }
+                            if row.hovered() && ctx.input(|i| i.pointer.primary_pressed()) {
+                                picked = Some(n);
+                            }
                         }
-                        ui.painter().text(rect.left_center() + egui::vec2(3.0, 0.0), egui::Align2::LEFT_CENTER, format!("/{command}"), egui::FontId::proportional(12.0), egui::Color32::from_rgb(220, 240, 245));
-                    }
+                    });
                 });
             });
+            if let Some(n) = picked {
+                self.selected = n;
+                self.input = format!("/{} ", suggestions[n]);
+                response.request_focus();
+                if let Some(mut state) = egui::TextEdit::load_state(ctx, input_id) {
+                    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(self.input.chars().count()))));
+                    state.store(ctx, input_id);
+                }
+            }
         }
         if let Some(mut own) = own {
             std::mem::swap(&mut self.input, &mut own);
