@@ -197,6 +197,8 @@ struct Gfx {
     creation: Option<Option<CreationGfx>>,
     started: std::time::Instant,
     frames: u32,
+    /// The window is on the screen: made hidden, it is shown once its first frame is presented (or after two seconds).
+    on_screen: bool,
     /// The page of a login's error (`LoginBrowserWindow_c`'s `BrowserView_c`): a WebView2 child over the Browser
     /// window's inside.
     #[cfg(any(windows, target_os = "macos"))]
@@ -804,6 +806,19 @@ impl ApplicationHandler for Launcher {
     /// With a page in the window (a window of its own with its own messages) the frames asked for from inside a frame
     /// stop coming, and with them the login's buttons: asked for here too, as the launcher's window does.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // (a window not on the screen yet is asked for no frame by the system: its first is drawn from here, and it is
+        // shown after two seconds whatever came of that)
+        if let Some(gfx) = self.gfx.as_mut().filter(|g| !g.on_screen) {
+            if gfx.started.elapsed() > std::time::Duration::from_secs(2) {
+                gfx.on_screen = true;
+                gfx.window.set_visible(true);
+            } else {
+                let id = gfx.window.id();
+                self.window_event(event_loop, id, WindowEvent::RedrawRequested);
+                event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(16)));
+                return;
+            }
+        }
         #[cfg(any(windows, target_os = "macos"))]
         if let Some(gfx) = self.gfx.as_ref().filter(|g| g.page.is_some()) {
             gfx.window.request_redraw();
@@ -833,7 +848,9 @@ impl ApplicationHandler for Launcher {
         // tests take keep the small window)
         let small = self.shot.is_some();
         let size = if small { PhysicalSize::new(1000, 640) } else { PhysicalSize::new(self.settings.width, self.settings.height) };
-        let window = Arc::new(or_end!(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(size)), "The login's window could not be opened"));
+        // (hidden until its first frame is presented, as the launcher's and the game's windows are: shown at once, the
+        // system's white filled it for the half second the graphics device takes to start, a white box at every login)
+        let window = Arc::new(or_end!(event_loop.create_window(Window::default_attributes().with_title("Modern Anarchy Online").with_window_icon(crate::icon::window_icon()).with_inner_size(size).with_visible(small)), "The login's window could not be opened"));
         if !small {
             crate::viewer::apply_mode(&window, self.settings.mode, self.settings.monitor);
             // (a framed window opens where it was last closed, else centred, as the original's windowed start)
@@ -870,6 +887,7 @@ impl ApplicationHandler for Launcher {
             creation: None,
             started: std::time::Instant::now(),
             frames: 0,
+            on_screen: small,
             #[cfg(any(windows, target_os = "macos"))]
             page: None,
             page_state: Default::default(),
@@ -1045,6 +1063,10 @@ impl ApplicationHandler for Launcher {
                     }
                     gfx.window.pre_present_notify();
                     gfx.gpu.queue.present(frame);
+                    if !gfx.on_screen {
+                        gfx.on_screen = true;
+                        gfx.window.set_visible(true);
+                    }
                     // (the error's page, once the frame is given back: opening it sets the surface up anew, which a frame
                     // still held does not allow, and neither does a view of it on Direct3D 12: "Invalid surface" closed
                     // the login at a refused password there)

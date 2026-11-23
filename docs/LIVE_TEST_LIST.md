@@ -1410,3 +1410,5 @@ steps run, a fight).
   the row under the pointer lights, a click puts `/command ` in the bar with the keys still in it.
 - [ ] **1** Drag the health, nano, experience and alien experience bars and the compass somewhere else, play a minute,
   quit, start again: each is where it was left.
+- [ ] **1** Press PLAY in the launcher: the login window comes up with the hall drawn, no white box first; logging in
+  and going to the character list shows none either.

@@ -8,6 +8,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### Interface
 
+- No white box when the login window opens: it now appears with the login hall already drawn. It was put on the screen empty for about half a second while the graphics started, and Windows filled it white.
 - The health, nano, experience and alien experience bars, and the compass, stay where you dragged them the next time you play. Only the alien experience bar was remembered; the others went back to the control center's wings at every start.
 - The list of slash commands over the chat bar works with the mouse: a click takes a command, the wheel or the list's bar scrolls through every match, and a row under the pointer lights up. The list is at most 15 rows high and sits right on the bar (it filled the screen above it and could not be scrolled).
 - The nano programs window's school buttons (Misc, Combat, Medical, Prot, Psi, Space) flow in rows across the window again, as in the original: they stood one under another, each in a row of its own.

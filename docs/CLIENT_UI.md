@@ -4724,6 +4724,8 @@ animation files.
 
 ## The launcher hardened (2026-11-17, the user's report of a flash and someone's of a crash)
 
+(2026-11-21, the user: "a white box logging in or to the character selection screen".) The login's window (`launcher.rs`, the login and the character list) was still made visible at once: `launch_probe` saw it on the screen at 52 ms and its first frame at about 600 ms, the system's white in between. It is now made hidden (`with_visible`), its first frames drawn from `about_to_wait` (a hidden window is asked for none), and shown once a frame is presented (`Gfx::on_screen`), or after two seconds; the pictures' small window stays as it was. Probed again: first seen at 447 ms with the hall drawn.
+
 Nothing more was known of either, so the launcher's window was started in a scratch settings folder and its own
 picture taken every 40 ms (`PrintWindow`, nothing else of the screen), and every place it could end was read.
 
