@@ -1461,3 +1461,7 @@ steps run, a fight).
 - [ ] **1** Pet window and bars per character: on one character turn off the pet window's buttons and "Remember
   Pet Names", switch to fixed rows, and switch between shortcut bars and smart hotbars; a second character has
   them as they were.
+- [ ] **1** Hidden nano programs, knowledge board, corner map and tips per character: on one character hide a nano
+  program, drop an item on the knowledge board, move and size the corner map, and tick "Do not show this tip
+  again" on a tip; a second character has none of that (only what all shared before). Disabling all tips on one
+  character disables them on the other too (the account's).

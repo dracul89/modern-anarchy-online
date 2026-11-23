@@ -8858,6 +8858,19 @@ value `SetDefaultLoginPrefs` 0x1012500a starts). The perk window keeps only its 
 character's `tabs.ini` already); perk actions are on the character's bars. Tests
 `settings::tests::a_characters_own_settings_are_its_keys_and_pet_switches_too`. **Not tried live.**
 
+More files of the character's (2026-11-23): `hiddennanos.ini` (the original keeps the hidden programs in the nano
+window's own list configs, per character), `automap.ini` (the corner map's place, size and land-control button:
+`PFMapWindowConfig`), `knowledge.ini` (the knowledge board: `KnowledgeViewConfig`) and `tips.ini`'s switched-off
+tips (`DisabledTipsMap.xml`). Tips on or off is the account's in the original (`IsTipEnabled`, a `LoginPrefs.xml`
+value): `tips.rs` reads and writes `enabled` in the `tips.ini` beside `mao.ini`, whose own switched-off lines stay
+as they were (the start of a new character), and the switched-off tips in the character's. Left shared, each for
+its reason: `chatfilter.ini` (`ChatFilterEnabled` and `ChatFilterRules` are `MainPrefs.xml` values, the
+install's), the planet maps chosen (`PlanetMapIndexFile`, `LoginPrefs.xml`), `places.ini` and `looks.ini` (keyed
+by character inside one file; the character list reads the looks), `whompah.ini` (what the client learned of the
+world), the macros and scripts (the player's wish), and this client's own tools' files (the mission helper, the
+tradeskill guide, the help window's lines, `auto_loot`): those are guesses, the original has no such tools. Test
+`tips::tests::the_accounts_file_keeps_its_own_switched_off_tips`. **Not tried live.**
+
 The option values too (2026-11-23): the control center's store (`gui::dvalue::Store`) now knows which values are
 the character's: those the game's (and the skin's) `CharPrefs.xml` declares (`ShowFightTargetNCU`,
 `ShowNanoTargetNCU`, `cc_hostile_health_bar`, `cc_friendly_health_bar` and the other `cc_*` parts, `LockEquipment`,

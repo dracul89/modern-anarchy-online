@@ -94,7 +94,7 @@ pub fn shown(program: &Program, school: usize, hidden: &BTreeSet<u32>) -> bool {
 }
 
 fn hidden_path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("hiddennanos.ini")
+    crate::charprefs::file("hiddennanos.ini")
 }
 
 /// Whether the hidden programs are kept on disk (not in tests and previews).

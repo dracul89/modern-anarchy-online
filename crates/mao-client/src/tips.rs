@@ -17,7 +17,8 @@
 //! right corner) that opens the window again.
 //!
 //! The original keeps the switched-off tips per character (`DisabledTipsMap.xml`) and `IsTipEnabled` with the
-//! preferences; here both are in `tips.ini` beside the settings.
+//! account's preferences (a `LoginPrefs.xml` value); here the switched-off tips are in the character's `tips.ini`
+//! (`charprefs.rs`) and `enabled` in the `tips.ini` beside the settings.
 
 use crate::gui::host::Signal;
 use crate::theme::Palette;
@@ -150,18 +151,40 @@ pub struct Tips {
     seen: (String, bool, bool, bool),
 }
 
+/// The character's file, in its folder (`charprefs.rs`): the tips it switched off (the original's per-character
+/// `DisabledTipsMap.xml`). Before a character is known it is the account's.
 fn path() -> std::path::PathBuf {
+    crate::charprefs::file("tips.ini")
+}
+
+/// The account's file beside the settings: whether tips are on (`IsTipEnabled`, a value of the original's
+/// `LoginPrefs.xml`, the account's), and the switched-off tips every character shared before each had its own.
+fn account_path() -> std::path::PathBuf {
     crate::settings::Settings::path().with_file_name("tips.ini")
 }
 
-fn save_file(enabled: bool, disabled: &HashSet<String>) {
-    let mut text = format!("enabled={}\n", u8::from(enabled));
+/// The switched-off tips as the file's lines, in order.
+fn disabled_lines(disabled: &HashSet<String>) -> String {
     let mut keys: Vec<&String> = disabled.iter().collect();
     keys.sort();
-    for k in keys {
-        text += &format!("disabled={k}\n");
+    keys.iter().map(|k| format!("disabled={k}\n")).collect()
+}
+
+/// The account's file once a character has its own: tips on or off, and the file's own switched-off tips as they
+/// were (what a new character starts from).
+fn account_text(enabled: bool, before: &str) -> String {
+    let kept: String = before.lines().filter(|l| l.starts_with("disabled=")).map(|l| format!("{}\n", l.trim_end())).collect();
+    format!("enabled={}\n{kept}", u8::from(enabled))
+}
+
+fn save_file(enabled: bool, disabled: &HashSet<String>) {
+    let (own, account) = (path(), account_path());
+    if own == account {
+        let _ = std::fs::write(own, format!("enabled={}\n{}", u8::from(enabled), disabled_lines(disabled)));
+    } else {
+        let _ = std::fs::write(own, disabled_lines(disabled));
+        let _ = std::fs::write(&account, account_text(enabled, &std::fs::read_to_string(&account).unwrap_or_default()));
     }
-    let _ = std::fs::write(path(), text);
 }
 
 fn game() -> Option<std::path::PathBuf> {
@@ -186,13 +209,15 @@ impl Tips {
         if let Some(dir) = game() {
             self.header = mao_formats::files::read_to_string(dir.join("TipHeader.xml")).map(|t| parse_header(&t)).unwrap_or_default();
         }
+        // (tips on or off is the account's; the tips switched off are the character's)
+        for line in std::fs::read_to_string(account_path()).unwrap_or_default().lines() {
+            if let Some(("enabled", v)) = line.split_once('=') {
+                self.enabled = v.trim() != "0";
+            }
+        }
         for line in std::fs::read_to_string(path()).unwrap_or_default().lines() {
-            match line.split_once('=') {
-                Some(("enabled", v)) => self.enabled = v.trim() != "0",
-                Some(("disabled", k)) => {
-                    self.disabled.insert(k.trim().to_string());
-                }
-                _ => {}
+            if let Some(("disabled", k)) = line.split_once('=') {
+                self.disabled.insert(k.trim().to_string());
             }
         }
     }
@@ -393,6 +418,15 @@ impl Tips {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Once a character has its own file, the account's keeps tips on or off and its own switched-off tips as they were.
+    #[test]
+    fn the_accounts_file_keeps_its_own_switched_off_tips() {
+        assert_eq!(account_text(false, "enabled=1\ndisabled=b\r\ndisabled=a\n"), "enabled=0\ndisabled=b\ndisabled=a\n");
+        assert_eq!(account_text(true, ""), "enabled=1\n");
+        let disabled: HashSet<String> = ["b".to_string(), "a".to_string()].into_iter().collect();
+        assert_eq!(disabled_lines(&disabled), "disabled=a\ndisabled=b\n");
+    }
 
     #[test]
     fn patterns() {

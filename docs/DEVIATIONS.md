@@ -9814,6 +9814,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Original: HideNano moves a program to list 6 (kept in the original's own config).
 - Client: The hidden set is stored in the client's own file hiddennanos.ini beside mao.ini.
 - A player notices: Hidden programs are kept per client install, not in the original's files.
+- Note (2026-11-23): `hiddennanos.ini` is in the character's folder (`chars/<id>/`) now: the hidden programs are each character's own.
 - Where: `crates/mao-client/src/nanoprograms.rs:166`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-20, long tail): `HideNano`'s list 6 is ported; only where the hidden set is kept differs (the client's own hiddennanos.ini), which stays by the user's decision on the client's own files (SET-001/002/005).
@@ -9825,6 +9826,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Original: The board is saved in KnowledgeViewConfig (item_id and item_pos per item) as the window closes and read back as it opens (FUN_100cf66a, FUN_100cf779).
 - Client: Keeps it in knowledge.ini beside layout.ini, one line (low high quality x y name), written as soon as it changes; an entry read back shows only its name until the inventory lends a picture again.
 - A player notices: Boards read back from the file may show names instead of pictures at first.
+- Note (2026-11-23): `knowledge.ini` is in the character's folder (`chars/<id>/`) now, as `KnowledgeViewConfig` is the character's.
 - Where: `crates/mao-client/src/knowledge.rs:12`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-19, overnight): As SET-001 for the file; the original reads the board back as it opens with each item's id and place (FUN_100cf66a, FUN_100cf779), and the client keeps the same fields. The names-before-pictures moment is the client's picture loading, not a rule.
@@ -9835,6 +9837,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Original: state archived as RenderLandControlData (FUN_100ebfdc)
 - Client: kept in `automap.ini`
 - A player notices: stored elsewhere than original
+- Note (2026-11-23): `automap.ini` is in the character's folder (`chars/<id>/`) now, as `PFMapWindowConfig` is the character's.
 - Where: `crates/mao-client/src/automap.rs:232`; `docs/CAPTURE_GAPS.md:217`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-20, long tail): `RenderLandControlData` (FUN_100ebfdc) is the original's state and the client keeps it; only the file differs (automap.ini, the client's own, kept by the user's decision, SET-001/002/005).
@@ -9931,6 +9934,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Original: switched-off tips are kept per character (DisabledTipsMap.xml) and IsTipEnabled with the preferences
 - Client: both are in tips.ini beside the settings
 - A player notices: disabled tips are shared by all characters and not shared with the original
+- Done (2026-11-23): the switched-off tips are the character's (`chars/<id>/tips.ini`); tips on or off stays with the account (the `tips.ini` beside `mao.ini`), as `IsTipEnabled` is a `LoginPrefs.xml` value. Not shared with the original's files still.
 - Where: `crates/mao-client/src/tips.rs:19`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-20, long tail): The original keeps switched-off tips per character (`DisabledTipsMap.xml`) and `IsTipEnabled` with the global preferences. Keying the client's tips.ini by character would make every "do not show this tip again" a player has ticked come back on their other characters (today's file has no character to migrate from), a change to the client's own files that the user should decide; their place is kept by the user's decision (SET-001/002/005).

@@ -334,7 +334,7 @@ impl Default for AutoMap {
 }
 
 fn position_path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("automap.ini")
+    crate::charprefs::file("automap.ini")
 }
 
 fn load_position() -> Option<[f32; 2]> {

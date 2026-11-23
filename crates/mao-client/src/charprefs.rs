@@ -21,9 +21,16 @@
 //! shared ones are left as they are, the seed of the next new character. (The original starts a new character from
 //! `CharPrefs.xml`'s defaults; the seeding is this client's, for the players who set up their windows here before.)
 //!
-//! Not per character (yet): `places.ini` keeps every character's item cells in one file, by character already;
-//! the macros (the original's `TextMacro.bin`), the pet window's switches in `mao.ini` (`AutoPetRenaming`,
-//! `PetWindowConfig`) and the hidden nano programs are still kept once for the install.
+//! The character's `character.ini` (`settings.rs`) holds the settings of `mao.ini` that are the character's: its keys
+//! (the original's `KeyBindings` archive), the bars' number, lock and kind, the camera's mode and the pet window's
+//! switches.
+//!
+//! Not per character: `places.ini` keeps every character's item cells in one file, by character already, and
+//! `looks.ini` every character's look for the character list; the macros and scripts (the original's
+//! `TextMacro.bin`; the player's wish); the chat filter (`ChatFilterRules` is a `MainPrefs.xml` value, the
+//! install's), the planet maps chosen, the mouse, the sounds and tips on or off (`LoginPrefs.xml` values, the
+//! account's); what the client learned of the world (`whompah.ini`) and its own tools' files (the mission helper,
+//! the tradeskill guide, the help window).
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -51,6 +58,13 @@ pub const FILES: &[&str] = &[
     "ignore.ini",
     "petnames.ini",
     "backpacks.ini",
+    // (the hidden nano programs; the corner map's place, size and land-control button, the original's
+    // `PFMapWindowConfig`; the knowledge board, its `KnowledgeViewConfig`; the tips switched off, its
+    // `DisabledTipsMap.xml`: `tips.rs` keeps tips on or off with the account)
+    "hiddennanos.ini",
+    "automap.ini",
+    "knowledge.ini",
+    "tips.ini",
 ];
 
 static CHARACTER: Mutex<Option<u32>> = Mutex::new(None);

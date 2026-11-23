@@ -59,7 +59,7 @@ pub struct KnowledgeWindow {
 }
 
 fn path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("knowledge.ini")
+    crate::charprefs::file("knowledge.ini")
 }
 
 /// (the tests and the previews never read or write the player's files)
