@@ -11,6 +11,10 @@ it; don't copy its 32-bit, Windows-only scaffolding here.
 Game assets are never committed: the tools take the path of an installed game
 (the folder with `cd_image`).
 
+## Community
+
+Questions, bug reports and testing: join us on Discord, https://discord.gg/etFuqTMvH
+
 ## System requirements
 
 |        | Minimum | Recommended |
