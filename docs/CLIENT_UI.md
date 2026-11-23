@@ -188,7 +188,7 @@ places kept in `layout.ini` under the original's names (`CCHealthBarConfig`,
 `CCNanoBarConfig`, `CCXPBarConfig`, `CCAlienXPBarConfig`), shown by `cc_health_bar`,
 `cc_nano_bar`, `cc_xp_bar`, `cc_alienxp_bar`, drawn from the skin's `GFX_GUI_HOR_BAR_*`
 pictures with `value / max`. The compass (`compass_window`, by `cc_compass`) can be
-dragged too and keeps its place. The strips hold what GUI.dll's bar views hold: the
+dragged too and keeps its place. (2026-11-21, the user: the bars did not stay where they were put. A place asked for before the screen's size is known (egui's first frames) is put aside and the area marked to be moved once it is (`layout::relocate`), and `layout::remember` notes no area so marked; only `chrome::window` took the mark, so the bars shown from the first frames and the compass were never noted again and `layout.ini` kept only the alien experience bar, shown later. `char_bar` and `compass` take the mark now, go to their place, and are noted from then on. Not tried live.) The strips hold what GUI.dll's bar views hold: the
 left one (`LeftBarView_c`) the NCU in use of the most (stats 180/181) and the credits
 (stat 61, grouped), the right one (`RightBarView_c`) the AGG/DEF slider: the
 aggression setting (stat 51, -100 to 100), which when let go is sent to the server as

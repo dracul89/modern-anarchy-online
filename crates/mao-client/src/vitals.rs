@@ -34,7 +34,13 @@ fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
     let (strip, frame) = (strip.size, frame.size);
     // (GUI.dll's `compass_window`: a window of its own, dragged anywhere; it starts at the top's middle)
     let start = egui::pos2(ctx.content_rect().center().x - frame.x * 0.5, 6.0);
-    egui::Area::new(egui::Id::unique("compass")).default_pos(crate::layout::pos("compass", start)).movable(true).show(ctx, |ui| {
+    // (a place asked for before the screen's size was known is dropped and the area marked to be moved
+    // (`layout::relocate`): it is put at its place then, as the windows are, and noted again from there on; without it
+    // the compass was never noted again and its place was lost at every start)
+    let place = crate::layout::pos("compass", start);
+    let area = egui::Area::new(egui::Id::unique("compass")).movable(true);
+    let area = if crate::layout::relocate("compass") { area.current_pos(place) } else { area.default_pos(place) };
+    area.show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(frame, egui::Sense::hover());
         // the bearing, clockwise from north (the map's +z), of the way the camera looks
         let bearing = (-yaw.cos()).atan2(-yaw.sin());
@@ -200,9 +206,15 @@ fn char_bar(ctx: &egui::Context, skin: &Skin, at: impl Fn(egui::Vec2) -> egui::P
     let id = egui::Id::unique(name);
     let moved = ctx.data(|d| d.get_temp::<bool>(id.with("moved")).unwrap_or(false));
     let area = egui::Area::new(id).movable(true);
+    // (a place asked for before the screen's size was known is dropped and the bar marked to be moved
+    // (`layout::relocate`): it is put at its place then, as the windows are, and noted again from there on; without it
+    // the bars shown from the first frames (health, nano, experience) were never noted again and their places were
+    // lost at every start)
+    let relocate = crate::layout::relocate(name);
     let area = match crate::layout::saved(name) {
+        Some(kept) if relocate => area.current_pos(kept),
         Some(kept) => area.default_pos(kept),
-        None if !moved => area.current_pos(at(size)),
+        None if !moved || relocate => area.current_pos(at(size)),
         None => area,
     };
     let shown = area.show(ctx, |ui| {

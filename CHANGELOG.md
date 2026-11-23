@@ -8,6 +8,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### Interface
 
+- The health, nano, experience and alien experience bars, and the compass, stay where you dragged them the next time you play. Only the alien experience bar was remembered; the others went back to the control center's wings at every start.
 - The list of slash commands over the chat bar works with the mouse: a click takes a command, the wheel or the list's bar scrolls through every match, and a row under the pointer lights up. The list is at most 15 rows high and sits right on the bar (it filled the screen above it and could not be scrolled).
 - The nano programs window's school buttons (Misc, Combat, Medical, Prot, Psi, Space) flow in rows across the window again, as in the original: they stood one under another, each in a row of its own.
 - The nano programs window's menu button (the "i" at the left of its title) shows the window's menu, with its sorting (Order: by name and the other columns, ascending or descending), List Mode and Show Hidden, then Close Window, as in the original; it showed only Autofade and Close.

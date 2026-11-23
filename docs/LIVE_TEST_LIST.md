@@ -1408,3 +1408,5 @@ steps run, a fight).
   columns, ascending or descending) and Close Window; each works as from a right click on the window's empty part.
 - [ ] **1** Chat bar: type `/`: the command list sits on the bar, at most 15 rows; the wheel and its bar scroll it,
   the row under the pointer lights, a click puts `/command ` in the bar with the keys still in it.
+- [ ] **1** Drag the health, nano, experience and alien experience bars and the compass somewhere else, play a minute,
+  quit, start again: each is where it was left.
