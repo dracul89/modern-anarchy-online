@@ -1423,3 +1423,5 @@ steps run, a fight).
 - [ ] **1** Nascense Frontier's edge (near x 685, z 1980): no black "Brink" band; the ground ends at the brink.
 - [ ] **1** With a pet following you as you run and turn: its name tag rides steady over its head; the same for other
   players' tags as they run past, and the floating numbers of a fight over a moving target.
+- [ ] **1** Cast a nano that takes a second or more, standing still: the character gathers, releases and stands again,
+  never lying on the ground; the buff bots of a city square stand between their casts.

@@ -7290,7 +7290,13 @@ impl Characters {
             total
         });
         if let Some((anim, total)) = movement {
-            if self.movement_keys.get(&id) != Some(&key) {
+            // (a looping movement dropped by another looping animation of its priority (a cast's gathering: the stack's rule
+            // that one fully faded in drops those before it, `animstack`) is set again once nothing else plays at that
+            // priority, as the original's movement takes the character back when its casting state is over, the release
+            // played out. Until 2026-11-21 it was set only when the movement changed: a caster's body was left with no
+            // animation after a cast, lying in its bind pose as if dead, until it moved)
+            let dropped = matches!(key.1, 0 | 2 | 4 | 9) && self.movement_handles.get(&id).is_some_and(|h| !stack.is_playing(*h)) && !stack.entries.iter().any(|e| e.priority == 0);
+            if self.movement_keys.get(&id) != Some(&key) || dropped {
                 let (start, end, length) = points;
                 let length = if length > 0.0 { length } else { total };
                 let (loops, range) = match key.1 {
@@ -7303,6 +7309,14 @@ impl Characters {
                 // (a death, key 9, is held at its end: direction 3; the cycle played backwards, 4, runs in direction 1)
                 let handle = stack.set_animation(anim, 0, loops, 2, match key.1 { 9 => 3, 4 => 1, _ => 0 }, 1.0, total);
                 stack.set_time(handle, range.0, range.1);
+                // (set again on an empty priority there is nothing to fade in from: it plays whole at once, where a fade
+                // from nothing would show the bind pose for its first fifth of a second)
+                if dropped {
+                    if let Some(e) = stack.entries.iter_mut().find(|e| e.handle == handle) {
+                        e.fade_from = e.fade_to;
+                        e.weight = e.fade_to;
+                    }
+                }
                 if let Some(length) = flourish {
                     stack.set_delay(handle, (length - 300.0).max(0.0));
                 }
@@ -16678,6 +16692,45 @@ mod movement_tests {
         assert_eq!((turn_rate(&stats, false), turn_rate(&stats, true)), (3.5, 1.5));
         stats.insert(267, 22000);
         assert_eq!((turn_rate(&stats, false), turn_rate(&stats, true)), (2.0, 1.0));
+    }
+
+    /// A cast's looping gathering drops the movement it is set over (the stack's rule); once the gathering and the release
+    /// have played out, the movement is set again, whole at once. (It was not: the caster lay in its bind pose, as if
+    /// dead, after every cast, until it moved: the user's "lays down, looks like they have died".)
+    #[test]
+    fn the_movement_comes_back_after_a_cast() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = std::sync::Arc::new(ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let mut c = Characters::new(db).unwrap();
+        let key = (mao_formats::appearance::Action::Idle, 0u8, 0u32);
+        let (idle, gather, release) = (100u32, 200u32, 300u32);
+        let drive = |c: &mut Characters, social: Option<((u32, f32), Instant)>, looping: bool| {
+            c.social_looping = looping;
+            c.drive(1, key, Some((idle, 1000.0)), (0.0, 0.0, 1000.0), 1.0, social, None, None);
+        };
+        let run = |c: &mut Characters, seconds: f32| {
+            for _ in 0..(seconds * 60.0) as usize {
+                c.stacks.get_mut(&1).unwrap().0.advance(1.0 / 60.0);
+            }
+        };
+        let ids = |c: &Characters| c.stacks[&1].0.entries.iter().map(|e| e.id).collect::<Vec<_>>();
+        drive(&mut c, None, false);
+        run(&mut c, 1.0);
+        // (the gathering loops and, faded in, drops the idle)
+        let began = Instant::now();
+        drive(&mut c, Some(((gather, 800.0), began)), true);
+        run(&mut c, 2.0);
+        assert_eq!(ids(&c), vec![gather]);
+        // (no movement set again over the looping gathering: the two would drop each other)
+        drive(&mut c, Some(((gather, 800.0), began)), true);
+        assert_eq!(ids(&c), vec![gather]);
+        // (the release: the gathering finishes its lap, the release plays once; then the idle is back, whole)
+        drive(&mut c, Some(((release, 1200.0), began + Duration::from_secs(2))), false);
+        run(&mut c, 3.0);
+        assert!(ids(&c).is_empty());
+        drive(&mut c, Some(((release, 1200.0), began + Duration::from_secs(2))), false);
+        let entries = &c.stacks[&1].0.entries;
+        assert_eq!(entries.iter().map(|e| (e.id, e.weight)).collect::<Vec<_>>(), vec![(idle, 1.0)]);
     }
 
     /// A cast that takes time has its caster gather, then release (`CastAnimation`).
