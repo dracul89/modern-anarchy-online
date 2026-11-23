@@ -273,6 +273,10 @@ impl ProgramsWindow {
         let selector = tree.add(Node::new("SchoolSelector", Box::new(crate::gui::view::Plain)));
         tree.get_mut(selector).layout = Layout::None;
         tree.get_mut(selector).borders = crate::gui::geom::Rect::new(3.0, 3.0, 3.0, 3.0);
+        // (as wide as the window, as the original's selector is: its buttons then flow in rows across it (FUN_100d6051).
+        // Without it the selector was held at its widest button, its least width, and each button stood in a row of
+        // its own)
+        tree.get_mut(selector).max_extend.x = 16000.0;
         let mut buttons = Vec::new();
         for (school, label) in SCHOOLS {
             let mut b = crate::gui::controls::Button::new(&crate::gui::xml::ldb_text(label));
@@ -494,15 +498,17 @@ impl ProgramsWindow {
                 crate::layout::set_tab("NanoViewSchool", s);
             }
         }
-        // the right button: over a program its menu (FUN_100d49a0), elsewhere the window's (FUN_100d4f90)
+        // the right button: over a program its menu (FUN_100d49a0), elsewhere the window's (FUN_100d4f90); the frame's
+        // menu button (WndBorder's `SlotIconMenuOpening` 0x1015b34f) shows the window's too, with "Close Window" after
+        // it, as the inventory's does
         let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
         let labels: Vec<(i32, String)> = crate::gui::multilist::columns(tree, list).into_iter().map(|c| (c.id, c.label)).collect();
-        if let Some(at) = over
-            && ctx.input(|i| i.pointer.secondary_clicked())
-        {
+        let right = over.filter(|_| ctx.input(|i| i.pointer.secondary_clicked()));
+        let framed = crate::chrome::frame_menu("Nano programs").filter(|_| right.is_none());
+        if let Some(at) = right.or(framed) {
             use crate::gui::popup::Entry;
             // (the keys of the menu's entries, a sub-menu's under its entry's place)
-            let (keys, entries): (Vec<Vec<String>>, Vec<Entry>) = match hovered {
+            let (mut keys, mut entries): (Vec<Vec<String>>, Vec<Entry>) = match hovered.filter(|_| framed.is_none()) {
                 Some(id) => (
                     vec![vec![format!("look:{id}")], vec![format!("{}:{id}", if school == HIDDEN { "unhide" } else { "hide" })]],
                     vec![Entry::text(text("LookAtNano", "Look at"), true), Entry::text(if school == HIDDEN { text("UnHideNano", "Show again") } else { text("HideNano", "Hide") }, true)],
@@ -517,6 +523,10 @@ impl ProgramsWindow {
                     )
                 }
             };
+            if framed.is_some() {
+                keys.push(vec!["close".to_string()]);
+                entries.push(Entry::text(crate::chrome::close_entry(), true));
+            }
             self.popup = Some(crate::chrome::menu_of(ctx, at, entries));
             self.menu = Some(keys);
         }
@@ -542,6 +552,7 @@ impl ProgramsWindow {
                     crate::layout::set_tab("NanoViewConfig", usize::from(!in_list));
                 }
                 "hidden" => self.school = Some(HIDDEN),
+                "close" => crate::chrome::close_next("Nano programs"),
                 "none" | "by" | "ascending" => {
                     if let Some(new) = crate::loot::arrange_choice(key, arranged) {
                         // (`SetAutoArrange(false)`: each program stays in the cell the arranging had it in)

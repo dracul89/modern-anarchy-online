@@ -6,6 +6,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Interface
+
+- The nano programs window's school buttons (Misc, Combat, Medical, Prot, Psi, Space) flow in rows across the window again, as in the original: they stood one under another, each in a row of its own.
+- The nano programs window's menu button (the "i" at the left of its title) shows the window's menu, with its sorting (Order: by name and the other columns, ascending or descending), List Mode and Show Hidden, then Close Window, as in the original; it showed only Autofade and Close.
+
 ## 0.1.9 (2026-11-21)
 
 The fixes for a tester's first report.

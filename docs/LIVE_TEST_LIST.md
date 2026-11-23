@@ -1400,3 +1400,9 @@ steps run, a fight).
 - [ ] **1** Old Athen, by the Dreadloch Arms & Gear sign (about x 410, z 380), day and night: each street lamp has a soft
   round glow centred on its head, with no pale rectangle or straight edge round it, and the glow does not flicker or
   jump about. The same at Jobe Research's lamps and a whom-pah's or a tower's beam.
+
+## The nano programs window (2026-11-21)
+
+- [ ] **1** Nano programs window: the school buttons flow in rows across the window (two rows when it is narrow), and
+  widen or narrow with the window. Its "i" button shows As a list, Show the hidden ones, Order (by name, the other
+  columns, ascending or descending) and Close Window; each works as from a right click on the window's empty part.
