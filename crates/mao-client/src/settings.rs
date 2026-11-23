@@ -554,6 +554,12 @@ impl Keymap {
         ACTIONS.iter().map(|&(a, _, _)| a).filter(|a| self.character.contains_key(a)).collect()
     }
 
+    /// The keys of another settings text (the character's own file) in place of these; the character's keys from
+    /// the original, laid over for the session, stay.
+    pub fn take_saved(&mut self, other: Keymap) {
+        (self.bindings, self.inactive) = (other.bindings, other.inactive);
+    }
+
     /// An action's keys as the settings file keeps them: this client's own, without the character's from the
     /// original.
     pub fn saved_keys(&self, action: Action) -> String {
@@ -758,6 +764,9 @@ pub const DEFAULT_SHADOWLANDS_MAP: &str = "SLmap/SLmap.txt";
 /// The character's own settings file in its folder (`charprefs.rs`), [`Settings::character_text`].
 const CHARACTER_FILE: &str = "character.ini";
 
+/// The `[interface]` settings kept per character ([`Settings::character_text`]; the `[keys]` section is too).
+const CHARACTER_SETTINGS: &[&str] = &["hotbars", "lock_hotbars", "smart_hotbar", "pet_buttons", "fixed_pet_buttons", "remember_pet_names"];
+
 impl Default for Settings {
     fn default() -> Self {
         Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, texture_compression: true, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, log_messages: false, original_font: true, own_map: true, smart_hotbar: false, hotbars: 1, lock_hotbars: false, camera_mode: "lock".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, remember_pet_names: true, keymap: Keymap::default() }
@@ -861,7 +870,13 @@ impl Settings {
         out += &format!("[game]\n; the original game's folder (the one with cd_image in it); the launcher's settings set it\ndir = {}\n\n", self.game_dir);
         out += &crate::helpwindow::settings_text();
         out += &format!("[debug]\n; on: game-log.txt (beside this file) also gets the server's messages as they come\nlog_messages = {}\n\n", if self.log_messages { "on" } else { "off" });
-        out += "[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n";
+        out += &self.keys_text();
+        out
+    }
+
+    /// The `[keys]` section: every action's keys.
+    fn keys_text(&self) -> String {
+        let mut out = String::from("[keys]\n; one or more keys per action, separated by commas; Shift+, Ctrl+ and Alt+ combine\n");
         out += &format!("version = {KEYMAP_VERSION}\n");
         for &(action, name, _) in ACTIONS {
             out += &format!("{name} = {}\n", self.keymap.saved_keys(action));
@@ -1012,39 +1027,92 @@ impl Settings {
         (!cfg!(test) && crate::charprefs::character().is_some()).then(|| crate::charprefs::file(CHARACTER_FILE))
     }
 
-    /// The settings the original keeps per character, among the values of its `CharPrefs.xml` (saved in the
-    /// character's `Prefs.xml`): how many shortcut bars show (`NumHotbars`) and whether they are locked (`LockHotbars`).
-    /// The rest of `mao.ini` is the install's or the account's (`MainPrefs.xml`, `LoginPrefs.xml`) or this client's own.
+    /// The settings kept per character, in the character's own file. The original keeps them in the character's
+    /// `Prefs.xml`, declared by its `CharPrefs.xml`: how many shortcut bars show (`NumHotbars`) and whether they are
+    /// locked (`LockHotbars`), the pet window's switches (`AutoPetRenaming`, and `ShowButtons` of the character's
+    /// `PetWindowConfig`) and the keys (the `KeyBindings` archive, `keybindings.rs`).
+    /// Two more are the character's by the player's wish (2026-11-23): the pets in fixed rows (the original's
+    /// `EnableFixedPetButtons` is the account's, a `LoginPrefs.xml` value) and the choice of this client's smart
+    /// hotbars. The rest of `mao.ini` is the install's or the account's (`MainPrefs.xml`, `LoginPrefs.xml`) or this
+    /// client's own; the camera's mode among them (the original's `camera_mode` value is declared by `CharPrefs.xml`
+    /// but set from the account's `PreferredCameraMode`, GUI.dll FUN_10064b83).
     pub fn character_text(&self) -> String {
+        let on = |b: bool| if b { "on" } else { "off" };
         format!(
             "; this character's own settings (the rest are in mao.ini)
 [interface]
 ; how many of the original's shortcut bars show, 1 to 10, and whether they are locked
 hotbars = {}
 lock_hotbars = {}
-",
+; this client's smart hotbars instead of the original's shortcut bars
+smart_hotbar = {}
+; the pet window: the buttons beside each pet's bar, and the pets in fixed rows by their kind
+pet_buttons = {}
+fixed_pet_buttons = {}
+; a pet that comes is given the name last kept for its kind
+remember_pet_names = {}
+
+{}",
             self.hotbars,
-            if self.lock_hotbars { "on" } else { "off" }
+            on(self.lock_hotbars),
+            on(self.smart_hotbar),
+            on(self.pet_buttons),
+            on(self.fixed_pet_buttons),
+            on(self.remember_pet_names),
+            self.keys_text()
         )
     }
 
     /// The per-character settings ([`Settings::character_text`]) read from a settings text (the character's file, or
-    /// `mao.ini`'s same lines) over these; the other lines are left alone.
-    pub fn apply_character(&mut self, text: &str) {
-        let mut section = String::new();
-        for line in text.lines().map(str::trim) {
+    /// `mao.ini`'s same lines) over these; the other lines are left alone, and a setting the text has no line for
+    /// stays as it is (a character's file written before the setting was the character's: `mao.ini`'s value stands).
+    /// The keys are read as `mao.ini`'s are (their version's changes too). Whether the text had every one of them.
+    pub fn apply_character(&mut self, text: &str) -> bool {
+        // (only the character's lines are read: the text may be all of `mao.ini`)
+        let (mut kept, mut section, mut seen, mut keys) = (String::new(), String::new(), std::collections::HashSet::new(), false);
+        for raw in text.lines() {
+            let line = raw.split(';').next().unwrap_or("").trim();
             if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
                 section = name.trim().to_ascii_lowercase();
+                kept += &format!("[{section}]\n");
                 continue;
             }
-            let Some((key, value)) = line.split_once('=') else { continue };
-            let (key, value) = (key.trim(), value.trim());
-            match (section.as_str(), key) {
-                ("interface", "hotbars") => self.hotbars = value.parse().unwrap_or(self.hotbars).clamp(1, 10),
-                ("interface", "lock_hotbars") => self.lock_hotbars = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
-                _ => {}
+            let Some((key, _)) = line.split_once('=') else { continue };
+            let key = key.trim().to_ascii_lowercase();
+            if section == "keys" {
+                keys = true;
+            } else if section == "interface" && CHARACTER_SETTINGS.contains(&key.as_str()) {
+                seen.insert(key);
+            } else {
+                continue;
             }
+            kept += line;
+            kept.push('\n');
         }
+        let read = Settings::from_text(&kept);
+        let has = |name: &str| seen.contains(name);
+        if has("hotbars") {
+            self.hotbars = read.hotbars;
+        }
+        if has("lock_hotbars") {
+            self.lock_hotbars = read.lock_hotbars;
+        }
+        if has("smart_hotbar") {
+            self.smart_hotbar = read.smart_hotbar;
+        }
+        if has("pet_buttons") {
+            self.pet_buttons = read.pet_buttons;
+        }
+        if has("fixed_pet_buttons") {
+            self.fixed_pet_buttons = read.fixed_pet_buttons;
+        }
+        if has("remember_pet_names") {
+            self.remember_pet_names = read.remember_pet_names;
+        }
+        if keys {
+            self.keymap.take_saved(read.keymap);
+        }
+        keys && CHARACTER_SETTINGS.iter().all(|name| has(name))
     }
 
     /// Where the file is: `MAO_SETTINGS`, else `mao.ini` here if it exists, else
@@ -1078,13 +1146,12 @@ lock_hotbars = {}
                 defaults
             }
         };
-        // (in the game: the character's own settings over mao.ini's; its first start takes mao.ini's)
+        // (in the game: the character's own settings over mao.ini's; its first start takes mao.ini's, and a file
+        // written before a setting was the character's is filled up with mao.ini's value of it)
         if let Some(own) = Settings::character_file() {
-            match std::fs::read_to_string(&own) {
-                Ok(text) => settings.apply_character(&text),
-                Err(_) => {
-                    let _ = std::fs::write(&own, settings.character_text());
-                }
+            let complete = std::fs::read_to_string(&own).is_ok_and(|text| settings.apply_character(&text));
+            if !complete {
+                let _ = std::fs::write(&own, settings.character_text());
             }
         }
         let args: Vec<String> = std::env::args().collect();
@@ -1123,6 +1190,37 @@ hotbars = 40
 lock_hotbars = on
 ");
         assert_eq!((own.hotbars, own.lock_hotbars), (10, false));
+    }
+
+    /// The character's file holds its keys, the pet window's switches and the choice of bars too, and they come
+    /// back as written; `mao.ini`'s whole text reads the same way (a character's first start). A file written before
+    /// these were the character's changes only what it has, and says it is not complete. The camera's mode is not the
+    /// character's.
+    #[test]
+    fn a_characters_own_settings_are_its_keys_and_pet_switches_too() {
+        use super::{Action, Settings};
+        let mut own = Settings { smart_hotbar: true, camera_mode: "rubber".into(), pet_buttons: false, fixed_pet_buttons: true, remember_pet_names: false, ..Default::default() };
+        own.keymap.set(Action::Jump, "Ctrl+J");
+        let text = own.character_text();
+        let mut other = Settings { theme: "built-in".into(), ..Default::default() };
+        assert!(other.apply_character(&text));
+        assert_eq!((other.smart_hotbar, other.camera_mode.as_str(), other.pet_buttons, other.fixed_pet_buttons, other.remember_pet_names), (true, "lock", false, true, false));
+        assert_eq!((other.keymap.saved_keys(Action::Jump).as_str(), other.theme.as_str()), ("Ctrl+J", "built-in"));
+        // (the keys go back into the file as they came out of it)
+        assert_eq!(other.character_text(), text);
+        let mut first = Settings { vsync: true, ..Default::default() };
+        assert!(first.apply_character(&own.to_text()));
+        assert_eq!((first.keymap.saved_keys(Action::Jump).as_str(), first.vsync, first.smart_hotbar), ("Ctrl+J", true, true));
+        // (an older file: the bars alone)
+        let mut old = Settings::default();
+        old.keymap.set(Action::Jump, "Ctrl+K");
+        assert!(!old.apply_character("[interface]\nhotbars = 3\nlock_hotbars = on\n"));
+        assert_eq!((old.hotbars, old.keymap.saved_keys(Action::Jump).as_str(), old.camera_mode.as_str(), old.pet_buttons), (3, "Ctrl+K", "lock", true));
+        // (the keys the character rebound in the original, laid over for the session, stay over the file's)
+        let mut laid = Settings::default();
+        laid.keymap.set_character([(Action::SitStand, vec![super::parse_binding("Q").unwrap()])].into_iter().collect());
+        laid.apply_character(&text);
+        assert_eq!((laid.keymap.keys(Action::SitStand).as_str(), laid.keymap.keys(Action::Jump).as_str()), ("Q", "Ctrl+J"));
     }
 
     /// The frame limit: the general one in front, the background's behind (never above the general one), none at 0.

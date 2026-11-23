@@ -9781,6 +9781,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Original: keymap from Prefs.xml KeyBindings
 - Client: the keymap is the original's defaults; a settings file written for another key-table version (KEYMAP_VERSION) has its [keys] replaced by the defaults
 - A player notices: custom old bindings lost once when the table version changes
+- Note (2026-11-23): the keys are per character now, as the original's `KeyBindings` archive is: the `[keys]` section of the character's `chars/<id>/character.ini`, started from `mao.ini`'s.
 - Where: `docs/CLIENT_UI.md:2013`; `crates/mao-client/src/settings.rs:286`; `crates/mao-client/src/settings.rs:288`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-20, long tail): The keymap is the original's defaults and the player's own bindings are taken from the original's Prefs.xml `KeyBindings` each session (`keybindings.rs`); the key-table version only brings the client's own mao.ini up to date when its table changes. That is the client's settings arrangement (its ini files are kept by the user's decision); nothing of the original's to port.
@@ -10288,6 +10289,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Original: `PetWindowConfig` keeps ShowButtons/EnableFixedPetButtons; PlanetMapIndexFile/ShadowlandMapIndexFile; PreferredCameraMode.
 - Client: kept in mao.ini (`pet_buttons`, `fixed_pet_buttons`, `planet_map`, `shadowlands_map`, `camera_mode` free/rubber/lock).
 - A player notices: those settings are in the client's file.
+- Note (2026-11-23): `pet_buttons`, `fixed_pet_buttons` and `remember_pet_names` are per character now (`chars/<id>/character.ini`). `fixed_pet_buttons` so by the player's wish: the original's `EnableFixedPetButtons` is a `LoginPrefs.xml` value, the account's. The planet maps and the camera's mode stay `mao.ini`'s (the account's in the original: `PlanetMapIndexFile`, `PreferredCameraMode`).
 - Where: `crates/mao-client/src/settings.rs:568`
 - Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: the settings themselves are the original's (`PetWindowConfig`, `PlanetMapIndexFile`, `PreferredCameraMode`); only where they are kept differs, as for every other value the client keeps (the original's Prefs files are not written by this client).

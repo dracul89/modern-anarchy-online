@@ -8838,10 +8838,27 @@ The ignore list, the pet names and the bag names too (2026-11-23): `ignore.ini`,
 values; a bag's name is in the character's `Containers/Container_%ux%u.xml`. The files keep this client's formats
 (`petnames.ini` still names the character on each line). `charprefs::set_character` drops the pet and bag names read
 before (`pets::forget_names`, `loot::forget_bag_names`); the chat window reads the character's ignore list when it
-loads the character's chat windows (`ChatWindow::load_panes`). Still shared: `places.ini`, the macros, the pet
-window's switches and the hidden nano programs. **Not tried live.**
+loads the character's chat windows (`ChatWindow::load_panes`). **Not tried live.**
 
- the control center's store (`gui::dvalue::Store`) now knows which values are
+The keys, the pet window's switches and the bars' kind too (2026-11-23): the character's `character.ini`
+(`Settings::character_text`) now holds, besides `hotbars` and `lock_hotbars`, the whole `[keys]` section (the
+original keeps the keys per character, the `KeyBindings` archive of the character's `Prefs.xml`: `keybindings.rs`),
+`pet_buttons` (`ShowButtons` of the character's `PetWindowConfig`), `remember_pet_names` (`AutoPetRenaming`, a
+`CharPrefs.xml` value), `fixed_pet_buttons` and `smart_hotbar`. The last two are the character's by the player's
+wish, not the original's rule: `EnableFixedPetButtons` is a `LoginPrefs.xml` value (the account's), and the smart
+hotbars are this client's own. `Settings::apply_character` reads the character's lines out of a settings text (the
+character's file, or all of `mao.ini`) through `Settings::from_text`, so the keys' version changes apply to a
+character's file as to `mao.ini`; a setting the file has no line for keeps `mao.ini`'s value, and `Settings::load`
+then writes the file out complete (a `character.ini` from before the keys were the character's is filled up once).
+`Settings::save` writes the character's file and leaves `mao.ini`'s same lines as they were, the start of a new
+character. The keys a character rebound in the original client still lie over the character's own for the session
+(`Keymap::set_character`; `Keymap::take_saved` leaves them). The camera's mode stays `mao.ini`'s: the original's
+`camera_mode` value is set from the account's `PreferredCameraMode` (GUI.dll FUN_10064b83, an `IndependentPrefs_t`
+value `SetDefaultLoginPrefs` 0x1012500a starts). The perk window keeps only its tab (`PerkWindowConfig`, in the
+character's `tabs.ini` already); perk actions are on the character's bars. Tests
+`settings::tests::a_characters_own_settings_are_its_keys_and_pet_switches_too`. **Not tried live.**
+
+The option values too (2026-11-23): the control center's store (`gui::dvalue::Store`) now knows which values are
 the character's: those the game's (and the skin's) `CharPrefs.xml` declares (`ShowFightTargetNCU`,
 `ShowNanoTargetNCU`, `cc_hostile_health_bar`, `cc_friendly_health_bar` and the other `cc_*` parts, `LockEquipment`,
 `VisiblePVPTitle`, `NumHotbars`, `LockHotbars`, `IconTimers` ...; its `PetName1-6` and `AutoPetRenaming` are not this

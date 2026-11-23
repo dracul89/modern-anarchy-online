@@ -1454,3 +1454,10 @@ steps run, a fight).
 - [ ] **1** Ignore list, pet names and bag names per character: on one character `/ignore` someone, rename a pet and
   a backpack; log out. A second character does not ignore them and has its own pet and bag names (those all shared
   before). `chars/<id>/` holds `ignore.ini`, `petnames.ini` and `backpacks.ini`.
+- [ ] **1** Keys per character: on one character change a key in the option panel (say Jump); log out. A second
+  character still has the key as it was for all before; change another key there. Each keeps its own keys at the
+  next start, and `chars/<id>/character.ini` holds a `[keys]` section. A character whose keys were rebound in the
+  original client still gets those (the log's `keys:` line).
+- [ ] **1** Pet window and bars per character: on one character turn off the pet window's buttons and "Remember
+  Pet Names", switch to fixed rows, and switch between shortcut bars and smart hotbars; a second character has
+  them as they were.
