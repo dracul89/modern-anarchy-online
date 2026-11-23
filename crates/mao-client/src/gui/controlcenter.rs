@@ -185,9 +185,16 @@ pub const ALL_EFFECTS: [&str; 13] = [
     "SmoothAnimations",
 ];
 
-/// Where the player's own values are kept (beside the client's settings, as the program's `Prefs.xml`).
+/// Where the player's own values are kept (beside the client's settings, as the program's `Prefs.xml`): the account's,
+/// and the character's before one is known.
 pub fn prefs_path() -> PathBuf {
     crate::settings::Settings::path().with_file_name("prefs.xml")
+}
+
+/// The character's own values (its `prefs.xml`, `charprefs.rs`), as the original keeps the values `CharPrefs.xml`
+/// declares in the character's `Prefs.xml`; none before the character is known (and in the tests).
+pub fn character_prefs_path() -> Option<PathBuf> {
+    (!cfg!(test) && crate::charprefs::character().is_some()).then(|| crate::charprefs::file("prefs.xml"))
 }
 
 /// GUI.dll's sound settings (FUN_100c573c's observers, FUN_100c5242 on): the volumes and the switches (off mutes) given
@@ -254,8 +261,9 @@ pub struct ControlCenter {
     popups: Vec<Popup>,
     /// The layers the menu rows and the mini toolbars were drawn on in the last frame ([`ControlCenter::raise`]).
     layers: Vec<egui::LayerId>,
-    /// The player's file of values ([`prefs_path`]).
+    /// The player's files of values: the shared one ([`prefs_path`]) and the character's ([`character_prefs_path`]).
     prefs: PathBuf,
+    character_prefs: Option<PathBuf>,
 }
 
 impl ControlCenter {
@@ -267,6 +275,10 @@ impl ControlCenter {
         let own = dirs.first().filter(|d| Some(*d) != game_default.as_ref()).cloned();
         let mut store = Store::load(game_default.as_deref(), own.as_deref());
         store.load_user(&prefs_path());
+        let character_prefs = character_prefs_path();
+        if let Some(own) = &character_prefs {
+            store.load_user_character(own);
+        }
         // (MAO_DVALUES=name=value;...: values set for a test, e.g. `cc_mini_toolbar=true`)
         if let Ok(list) = std::env::var("MAO_DVALUES") {
             for (name, value) in list.split(';').filter_map(|kv| kv.split_once('=')) {
@@ -312,7 +324,7 @@ impl ControlCenter {
             }
         }
         eprintln!("control center: {} views from {}", tree.nodes.len(), dirs.first().map_or(String::new(), |d| d.display().to_string()));
-        Some(ControlCenter { store, docks: Default::default(), dirs, tree, root, popups: Vec::new(), layers: Vec::new(), prefs: prefs_path() })
+        Some(ControlCenter { store, docks: Default::default(), dirs, tree, root, popups: Vec::new(), layers: Vec::new(), prefs: prefs_path(), character_prefs })
     }
 
     fn holds(&self, criteria: &str, stats: &BTreeMap<u32, i64>) -> bool {
@@ -540,7 +552,7 @@ impl ControlCenter {
             }
         }
         if self.pass_changes(names, &mut out) {
-            self.store.save_user(&self.prefs);
+            self.store.save_user_split(&self.prefs, self.character_prefs.as_deref());
         }
         out
     }
@@ -644,7 +656,7 @@ mod tests {
         let prefs = dir.join("prefs.xml");
         let mut tree = Tree::default();
         let root = tree.add(crate::gui::view::Node::new("ControlCenter", Box::new(crate::gui::view::Plain)));
-        let mut cc = ControlCenter { store: Store::default(), docks: Default::default(), dirs: Vec::new(), tree, root, popups: Vec::new(), layers: Vec::new(), prefs: prefs.clone() };
+        let mut cc = ControlCenter { store: Store::default(), docks: Default::default(), dirs: Vec::new(), tree, root, popups: Vec::new(), layers: Vec::new(), prefs: prefs.clone(), character_prefs: None };
         cc.store.set("MusicVolume", Variant::Float(1.0));
         cc.store.take_changed();
         let ctx = egui::Context::default();
@@ -701,7 +713,7 @@ mod tests {
         let entry = crate::gui::menu::entries(&doc[0].children).remove(0);
         let stats = BTreeMap::new();
         for auto in [false, true] {
-            let mut cc = ControlCenter { store: Store::default(), docks: Default::default(), dirs: Vec::new(), tree: Tree::default(), root: 0, popups: Vec::new(), layers: Vec::new(), prefs: PathBuf::new() };
+            let mut cc = ControlCenter { store: Store::default(), docks: Default::default(), dirs: Vec::new(), tree: Tree::default(), root: 0, popups: Vec::new(), layers: Vec::new(), prefs: PathBuf::new(), character_prefs: None };
             cc.store.set("AutoCloseWindows", Variant::from(auto));
             cc.store.set("wear_window", Variant::from(true));
             cc.store.set("nano_window", Variant::from(true));

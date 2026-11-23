@@ -22,8 +22,9 @@
 //! `CharPrefs.xml`'s defaults; the seeding is this client's, for the players who set up their windows here before.)
 //!
 //! Not per character (yet): `places.ini` keeps every character's item cells in one file, by character already;
-//! the macros (the original's `TextMacro.bin`), the ignore list (`IgnoreList.bin`), the pet names and the pet window's
-//! switches (`PetName1-6`, `AutoPetRenaming`, `PetWindowConfig`) are still kept once for the install.
+//! the macros (the original's `TextMacro.bin`), the ignore list (`IgnoreList.bin`), the pet names (`petnames.ini`;
+//! the original's `PetName1-6`) and the pet window's switches in `mao.ini` (`AutoPetRenaming`, `PetWindowConfig`),
+//! the hidden nano programs and the bag names are still kept once for the install.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -44,6 +45,8 @@ pub const FILES: &[&str] = &[
     // character's `character.ini`, `settings.rs`)
     "shortcutbars.ini",
     "hotbar.ini",
+    // (the option values: the character's are read from its copy, the account's from the shared one, `gui::dvalue`)
+    "prefs.xml",
 ];
 
 static CHARACTER: Mutex<Option<u32>> = Mutex::new(None);

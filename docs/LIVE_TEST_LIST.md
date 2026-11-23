@@ -1447,3 +1447,7 @@ steps run, a fight).
   option panel (Number of shortcut bars) and lock them; log out. A second character starts with the bars as they
   all were before, one bar, unlocked (or as `mao.ini` had them). Each keeps its own bars at the next start;
   `chars/<id>/character.ini` holds `hotbars` and `lock_hotbars`.
+- [ ] **1** Options per character: on one character turn on "Show Fight Target's NCU" and "Show Target's Target" in
+  the option panel; log out. A second character has no fight target NCU window (its own option, off as before) but
+  has target's target on (the account's). Each keeps its own fight target NCU setting at the next start;
+  `chars/<id>/prefs.xml` holds only the character's values, `prefs.xml` beside `mao.ini` the account's.

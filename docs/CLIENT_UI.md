@@ -8830,3 +8830,25 @@ and `lock_hotbars` (`LockHotbars`), in the character's `character.ini` (`Setting
 `mao.ini`'s by `Settings::load` once the character is known, and written there by `Settings::save`, which leaves
 `mao.ini`'s two lines as they were (the start of a new character). `smart_hotbar`, the choice of this client's
 own bars, stays the install's. Test `settings::tests::a_characters_own_settings_are_the_bars`. **Not tried live.**
+
+The option values too (2026-11-23): the control center's store (`gui::dvalue::Store`) now knows which values are
+the character's: those the game's (and the skin's) `CharPrefs.xml` declares (`ShowFightTargetNCU`,
+`ShowNanoTargetNCU`, `cc_hostile_health_bar`, `cc_friendly_health_bar` and the other `cc_*` parts, `LockEquipment`,
+`VisiblePVPTitle`, `NumHotbars`, `LockHotbars`, `IconTimers` ...; its `PetName1-6` and `AutoPetRenaming` are not this
+client's: it keeps pet names in `petnames.ini` and the switch in `mao.ini`, still shared) and the sixteen
+`IndependentPrefs_t` preferences `Preferences_t::SetDefaultCharPrefs` (0x10124951) starts, which `LoadCharPrefs`
+(0x10124b86) reads from the character's `Char.cfg` (`IsFirstTime`, `ShowDropItemDialog`, `IsOrgNameShownOverHead`,
+`IsFactionTitleShown`, `WaitForVertSync`, `FadeCharacter*` ...; `dvalue::CHARACTER_PREFS`). The others are the
+account's or the install's: `LoginPrefs.xml`'s (`Targetstarget`, `BoundingBoxTargeting`, `AutoRejectDuel`,
+`DoubleclickAction`, the mouse, the sounds, `esc_*`), `MainPrefs.xml`'s and `SetDefaultLoginPrefs`' (0x1012500a: the
+camera, the effects, the fog, the view distance). That a value's file follows the defaults file that declares it is
+read from the players' folders (every value of their characters' `Prefs.xml` files is a `CharPrefs.xml` one or a
+window's config, every value of their accounts' a `LoginPrefs.xml` one or an `IndependentPrefs_t` one) and from
+`LoadConfig`'s scope argument (2 for the account's file, 3 for the character's); how `DistributedValue_c` ties a value
+to its scope was not read. `ControlCenter::load` reads the shared `prefs.xml`, then the character's own `prefs.xml`
+(`Store::load_user_character`: only the character's values from it; it starts as a copy of the shared file), and
+`Store::save_user_split` writes the character's values to the character's file and the rest to the shared one, which
+keeps the character's values it held as they were, for the next new character. With no character known (the
+launcher's process) everything goes to the shared file as before. Not split: `audio.rs` reads the sound values from
+the shared file at start, all of them the account's. Tests `gui::dvalue::tests::the_characters_values_are_kept_apart`.
+**Not tried live.**

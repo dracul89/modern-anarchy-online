@@ -78,6 +78,25 @@ pub const INDEPENDENT_PREFS: &[(&str, bool, f64, f64, f64)] = &[
     ("ViewDistance", true, 0.8, 0.0, 1.0),
 ];
 
+/// The preferences of [`INDEPENDENT_PREFS`] that are the character's: `SetDefaultCharPrefs`' (0x10124951), which
+/// `Preferences_t::LoadCharPrefs` (0x10124b86) sets before loading the character's `Char.cfg`; the rest are
+/// `SetDefaultLoginPrefs`' (0x1012500a, the account's).
+pub const CHARACTER_PREFS: [&str; 16] = [
+    "IsFirstTime", "ShowDropItemDialog", "IsOrgNameShownOverHead", "IsSpaceShipsShown", "BuildMenuX", "BuildMenuY", "BuildMenuCX", "BuildMenuCY", "IsFactionTitleShown", "WaitForVertSync",
+    "MouseLagFix", "UseOffscreenSurfaceTechnology", "FadeCharacter", "FadeCharacterStartDist", "FadeCharacterEndDist", "FadeCharacterEndAlpha",
+];
+
+/// A value as `DistributedValue_c::SaveConfig` writes it: `<Value name=".." value=".."/>`.
+fn value_line(name: &str, v: &Variant) -> String {
+    let text = match v {
+        Variant::String(s) => format!("&quot;{}&quot;", String::from_utf8_lossy(s).replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;")),
+        Variant::Float(f) => format!("{f:.6}"),
+        Variant::Double(d) => format!("{d:.6}"),
+        other => String::from_utf8_lossy(&other.as_string()).into_owned(),
+    };
+    format!("    <Value name=\"{name}\" value='{text}' />\n")
+}
+
 #[derive(Default)]
 pub struct Store {
     values: BTreeMap<String, Variant>,
@@ -87,6 +106,12 @@ pub struct Store {
     changed: Vec<String>,
     /// The names the player changed (written to their preferences file).
     user: std::collections::BTreeSet<String>,
+    /// The values that are the character's, not the account's: those `CharPrefs.xml` declares (the original keeps
+    /// them in the character's `Prefs.xml`, `LoadConfig(path, 3)`) and [`CHARACTER_PREFS`].
+    character: std::collections::BTreeSet<String>,
+    /// The character's values the shared file held when it was read, written back to it as they were: the start of
+    /// the next new character ([`Store::save_user_split`]).
+    shared_character: BTreeMap<String, Variant>,
 }
 
 impl Store {
@@ -96,10 +121,14 @@ impl Store {
         for dir in [game_default, skin].into_iter().flatten() {
             for file in ["Variables.xml", "MainPrefs.xml", "LoginPrefs.xml", "CharPrefs.xml"] {
                 if let Ok(text) = mao_formats::files::read(dir.join(file)) {
-                    s.load_config(&String::from_utf8_lossy(&text));
+                    let names = s.load_config(&String::from_utf8_lossy(&text));
+                    if file == "CharPrefs.xml" {
+                        s.character.extend(names);
+                    }
                 }
             }
         }
+        s.character.extend(CHARACTER_PREFS.iter().map(|n| n.to_string()));
         for &(name, float, default, lo, hi) in INDEPENDENT_PREFS {
             s.values.entry(name.to_string()).or_insert(if float { Variant::Float(default as f32) } else { Variant::Int32(default as i32) });
             s.ranges.entry(name.to_string()).or_insert((lo, hi));
@@ -111,34 +140,63 @@ impl Store {
     /// The player's own values over the defaults: a file of `<Value>`s as the program saves its `Prefs.xml`.
     pub fn load_user(&mut self, path: &Path) {
         let Ok(text) = std::fs::read_to_string(path) else { return };
-        let before: Vec<String> = self.values.keys().cloned().collect();
-        self.load_config(&text);
-        for root in super::xml::parse(&text) {
-            for e in root.children.iter().filter(|e| e.name == "Value") {
-                if let Some(n) = e.attribute("name") {
-                    self.user.insert(n.to_string());
-                }
+        for name in self.load_config(&text) {
+            if self.character.contains(&name)
+                && let Some(v) = self.values.get(&name)
+            {
+                self.shared_character.insert(name.clone(), v.clone());
             }
+            self.user.insert(name);
         }
-        let _ = before;
         self.changed.clear();
     }
 
-    /// Writes the values the player changed (`DistributedValue_c::SaveConfig`'s form: `<Value name=".." value=".."/>`).
+    /// The character's own values over the account's: from the character's file, only the values that are the
+    /// character's (the file starts as a copy of the shared one, `charprefs.rs`; its account values are not read).
+    pub fn load_user_character(&mut self, path: &Path) {
+        let Ok(text) = std::fs::read_to_string(path) else { return };
+        let mut own = String::from("<Root>\n");
+        for root in super::xml::parse(&text) {
+            for e in root.children.iter().filter(|e| e.name == "Value") {
+                let (Some(name), Some(value)) = (e.attribute("name"), e.attribute("value")) else { continue };
+                let mut v = Variant::new();
+                if self.character.contains(name) && v.load_from_string(value.as_bytes()) {
+                    own += &value_line(name, &v);
+                }
+            }
+        }
+        own += "</Root>\n";
+        for name in self.load_config(&own) {
+            self.user.insert(name);
+        }
+        self.changed.clear();
+    }
+
+    /// Writes the values the player changed, all in one file.
     pub fn save_user(&self, path: &Path) {
-        let mut out = String::from("<Root>\n");
+        let lines: String = self.user.iter().filter_map(|name| Some(value_line(name, self.values.get(name)?))).collect();
+        let _ = std::fs::write(path, format!("<Root>\n{lines}</Root>\n"));
+    }
+
+    /// Writes the values the player changed as the original splits them: the character's into the character's file
+    /// (as its `Prefs.xml`), the others into the shared one (the account's), which keeps the character's values it
+    /// held as they were. With no character, all in the shared one ([`Store::save_user`]).
+    pub fn save_user_split(&self, shared: &Path, character: Option<&Path>) {
+        let Some(own) = character else { return self.save_user(shared) };
+        let (mut mine, mut theirs) = (String::new(), String::new());
         for name in &self.user {
             let Some(v) = self.values.get(name) else { continue };
-            let text = match v {
-                Variant::String(s) => format!("&quot;{}&quot;", String::from_utf8_lossy(s).replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;")),
-                Variant::Float(f) => format!("{f:.6}"),
-                Variant::Double(d) => format!("{d:.6}"),
-                other => String::from_utf8_lossy(&other.as_string()).into_owned(),
-            };
-            out += &format!("    <Value name=\"{name}\" value='{text}' />\n");
+            if self.character.contains(name) {
+                mine += &value_line(name, v);
+            } else {
+                theirs += &value_line(name, v);
+            }
         }
-        out += "</Root>\n";
-        let _ = std::fs::write(path, out);
+        for (name, v) in &self.shared_character {
+            theirs += &value_line(name, v);
+        }
+        let _ = std::fs::write(own, format!("<Root>\n{mine}</Root>\n"));
+        let _ = std::fs::write(shared, format!("<Root>\n{theirs}</Root>\n"));
     }
 
     /// Every value's number (for `prefs.rs`).
@@ -157,11 +215,13 @@ impl Store {
         self.set(name, value);
     }
 
-    /// `LoadConfig`: each `<Value name="..." value="..."/>` of the file's root.
-    pub fn load_config(&mut self, text: &str) {
+    /// `LoadConfig`: each `<Value name="..." value="..."/>` of the file's root. Returns the names read.
+    pub fn load_config(&mut self, text: &str) -> Vec<String> {
+        let mut names = Vec::new();
         for root in super::xml::parse(text) {
             for e in root.children.iter().filter(|e| e.name == "Value") {
                 let (Some(name), Some(value)) = (e.attribute("name"), e.attribute("value")) else { continue };
+                names.push(name.to_string());
                 let mut v = Variant::new();
                 if v.load_from_string(value.as_bytes()) {
                     self.values.insert(name.to_string(), v);
@@ -172,6 +232,7 @@ impl Store {
                 }
             }
         }
+        names
     }
 
     /// `DoesVariableExist` / `GetDValue`.
@@ -252,6 +313,54 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The values `CharPrefs.xml` declares are the character's: saved in the character's file, the others in the shared
+    /// one, which keeps the character's values it held; the next new character starts from those, with the account's
+    /// values the first one changed.
+    #[test]
+    fn the_characters_values_are_kept_apart() {
+        let dir = std::env::temp_dir().join(format!("mao-split-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (shared, first, second) = (dir.join("prefs.xml"), dir.join("first.xml"), dir.join("second.xml"));
+        let declared = |s: &mut Store| {
+            let names = s.load_config(r#"<Root><Value name="ShowFightTargetNCU" value="false"/><Value name="NumHotbars" value="1"/></Root>"#);
+            s.character.extend(names);
+            s.load_config(r#"<Root><Value name="Targetstarget" value="false"/></Root>"#);
+        };
+        std::fs::write(&shared, "<Root>\n    <Value name=\"ShowFightTargetNCU\" value='true' />\n    <Value name=\"Targetstarget\" value='true' />\n</Root>\n").unwrap();
+        // (the first character's first start: its file is a copy of the shared one)
+        std::fs::copy(&shared, &first).unwrap();
+        let mut s = Store::default();
+        declared(&mut s);
+        s.load_user(&shared);
+        s.load_user_character(&first);
+        assert!(s.get_bool("ShowFightTargetNCU") && s.get_bool("Targetstarget"));
+        assert!(s.character.contains("NumHotbars") && !s.character.contains("Targetstarget"));
+        s.set_user("ShowFightTargetNCU", Variant::from(false));
+        s.set_user("Targetstarget", Variant::from(false));
+        s.set_user("NumHotbars", Variant::from(3));
+        s.save_user_split(&shared, Some(&first));
+        let mine = std::fs::read_to_string(&first).unwrap();
+        assert!(mine.contains("ShowFightTargetNCU\" value='false'") && mine.contains("NumHotbars\" value='3'") && !mine.contains("Targetstarget"), "{mine}");
+        let theirs = std::fs::read_to_string(&shared).unwrap();
+        assert!(theirs.contains("Targetstarget\" value='false'") && theirs.contains("ShowFightTargetNCU\" value='true'") && !theirs.contains("NumHotbars"), "{theirs}");
+        // (a second character starts from the shared file: the character's values as they were, the account's new)
+        std::fs::copy(&shared, &second).unwrap();
+        let mut t = Store::default();
+        declared(&mut t);
+        t.load_user(&shared);
+        t.load_user_character(&second);
+        assert!(t.get_bool("ShowFightTargetNCU") && !t.get_bool("Targetstarget"));
+        assert_eq!(t.get("NumHotbars").map(Variant::as_double), Some(1.0));
+        // (the first character again: its own values over the shared file's)
+        let mut u = Store::default();
+        declared(&mut u);
+        u.load_user(&shared);
+        u.load_user_character(&first);
+        assert!(!u.get_bool("ShowFightTargetNCU") && !u.get_bool("Targetstarget"));
+        assert_eq!(u.get("NumHotbars").map(Variant::as_double), Some(3.0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn criteria_read_values_and_stats() {
