@@ -597,6 +597,8 @@ pub enum BackdropBlend {
     Opaque,
     Alpha,
     Add,
+    /// `ONE` / `ONE`: the colour added whole, its alpha no weight.
+    AddOne,
 }
 
 /// A backdrop: a triangle list of the sky (the effect scripts' domes, moons, suns and clouds), textured with a sprite
@@ -1101,9 +1103,9 @@ struct ScenePipelines {
     /// The shells, added and blended.
     shell_add: wgpu::RenderPipeline,
     shell_blend: wgpu::RenderPipeline,
-    backdrops: [wgpu::RenderPipeline; 3],
+    backdrops: [wgpu::RenderPipeline; 4],
     /// The same for point lists.
-    backdrop_points: [wgpu::RenderPipeline; 3],
+    backdrop_points: [wgpu::RenderPipeline; 4],
 }
 
 impl ScenePipelines {
@@ -1333,12 +1335,14 @@ impl ScenePipelines {
             shell_like("vs_backdrop", "fs_backdrop_opaque", None, wgpu::CompareFunction::Always),
             shell_like("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always),
             shell_like("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
+            shell_like("vs_backdrop", "fs_backdrop_add_one", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
         ];
         let point = wgpu::PrimitiveTopology::PointList;
         let backdrop_points = [
             shell_like_drawn("vs_backdrop", "fs_backdrop_opaque", None, wgpu::CompareFunction::Always, point),
             shell_like_drawn("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always, point),
             shell_like_drawn("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always, point),
+            shell_like_drawn("vs_backdrop", "fs_backdrop_add_one", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always, point),
         ];
         ScenePipelines { mesh, mesh_blend, mesh_blend_no_z, mesh_add, mesh_add_no_z, sky, blit, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops, backdrop_points }
     }
@@ -2601,6 +2605,7 @@ impl Renderer {
                     BackdropBlend::Opaque => 0,
                     BackdropBlend::Alpha => 1,
                     BackdropBlend::Add => 2,
+                    BackdropBlend::AddOne => 3,
                 };
                 pass.set_pipeline(if b.points { &pipes.backdrop_points[k] } else { &pipes.backdrops[k] });
                 pass.set_bind_group(0, &globals_bind, &[]);

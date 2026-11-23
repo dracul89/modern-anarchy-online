@@ -151,6 +151,13 @@ fn fs_shell_add(in: ShellOut) -> @location(0) vec4<f32> {
     return vec4(texel.rgb * texel.a, 0.0);
 }
 
+// A backdrop added whole (`SRCBLEND ONE`, `DESTBLEND ONE`): the texture times the diffuse colour, its alpha no weight.
+@fragment
+fn fs_backdrop_add_one(in: ShellOut) -> @location(0) vec4<f32> {
+    let texel = clamp(textureSample(sheet, samp, in.uv).rgb * in.colour.rgb, vec3(0.0), vec3(1.0));
+    return vec4(texel, 0.0);
+}
+
 @fragment
 fn fs_shell_blend(in: ShellOut) -> @location(0) vec4<f32> {
     return clamp(textureSample(sheet, samp, in.uv) * in.colour, vec4(0.0), vec4(1.0));

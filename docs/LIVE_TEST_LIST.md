@@ -1425,3 +1425,5 @@ steps run, a fight).
   players' tags as they run past, and the floating numbers of a fight over a moving target.
 - [ ] **1** Cast a nano that takes a second or more, standing still: the character gathers, releases and stands again,
   never lying on the ground; the buff bots of a city square stand between their casts.
+- [ ] **1** Jobe Research and a Shadowlands playfield, day and night: the vortex in the sky fades evenly, no pale
+  sheets with straight edges; its flare glows without wedges.

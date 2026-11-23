@@ -8,6 +8,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### World
 
+- The Shadowlands' sky vortex no longer shows as pale sheets with straight edges: it fades evenly into the fog, as in the original, and its flare glows evenly instead of in wedges.
 - Casting a nano that takes time no longer leaves the caster lying on the ground as if dead: after the cast the character stands (or walks) again. It struck everyone who cast, buff bots included.
 - Name tags, floating numbers and spell effects over other characters stay on their bodies: a following pet's name tag shook about it (the tag went to each place the server told while the body moved smoothly between them).
 - The black band printed with "Brink" along the edge of Nascense Frontier is gone: it is an editor's marker on the ground, see-through in the game's data, and the land now ends at the brink as in the original.

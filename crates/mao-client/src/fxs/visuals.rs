@@ -36,6 +36,9 @@ pub enum Blend {
     Opaque,
     Alpha,
     Add,
+    /// Added whole, `SRCBLEND ONE` / `DESTBLEND ONE`: the colour (texture times diffuse) added with no weight by its alpha,
+    /// which plays no part (the Shadowlands' vortex flares; their sun-ray fans flicker only in the vertices' alpha).
+    AddOne,
 }
 
 /// A light: its colour and the way it shines.
@@ -167,7 +170,9 @@ fn look(b: &StateBlob) -> Look {
     let no_write = state(zwrite) == Some(e("e_FALSE"));
     let blend = if state(alpha_on) == Some(e("e_TRUE")) {
         if state(dest) == Some(e("e_D3DBLEND_ONE")) {
-            Blend::Add
+            // (a source factor of one named: the colour added whole; else as by its alpha, the source factor left to the
+            // device's state, which the suns of Rubi-Ka name nothing for)
+            if state(src) == Some(e("e_D3DBLEND_ONE")) { Blend::AddOne } else { Blend::Add }
         } else {
             let _ = state(src);
             Blend::Alpha
@@ -702,7 +707,8 @@ mod tests {
         let f = v.frame(&super::super::clouds::Sky::default());
         let dots = f.draws.iter().find(|d| matches!(&d.shape, Shape::Points(_))).expect("the dot stars");
         assert!(matches!(&dots.shape, Shape::Points(p) if p.len() == 500));
-        assert!(dots.backdrop && dots.blend == Blend::Add, "{:?} {:?}", dots.backdrop, dots.blend);
+        // (added whole: the blob names `SRCBLEND ONE` with `DESTBLEND ONE`)
+        assert!(dots.backdrop && dots.blend == Blend::AddOne, "{:?} {:?}", dots.backdrop, dots.blend);
     }
 }
 

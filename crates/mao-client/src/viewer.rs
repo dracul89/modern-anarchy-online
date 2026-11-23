@@ -3884,6 +3884,7 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
                     Blend::Opaque => mao_render::BackdropBlend::Opaque,
                     Blend::Alpha => mao_render::BackdropBlend::Alpha,
                     Blend::Add => mao_render::BackdropBlend::Add,
+                    Blend::AddOne => mao_render::BackdropBlend::AddOne,
                 };
                 // (a draw whose blob turns the fog on fades into it by how far it is from the eye: the Shadowlands' vortex
                 // dome, a quarter to a half of the view distance out, which under an area's fog shows as that fog's colour
@@ -3892,17 +3893,22 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
                 // some blobs set, is the first alone. The fog is the world's own, `sky_fog`, so the dome meets the far
                 // ground.)
                 let mut haze: Option<mao_render::Backdrop> = None;
-                if let (true, Some((world_fog, start, end, linear))) = (d.fogged, fog) {
+                if let (true, Some((world_fog, start, end, _))) = (d.fogged, fog) {
                     let colour = d.fog_colour.unwrap_or(world_fog);
                     let black = colour.iter().all(|c| *c <= 0.0);
                     if black || d.blend == Blend::Opaque {
+                        // (the original's fog is randy31's vertex fog, linear (`SetFogParameters`: `FOGVERTEXMODE` 3, no
+                        // table mode) and by the vertex's depth along the view, range fog being off (`RANGEFOGENABLE`
+                        // 0 among the device's first states): a disc facing the eye is fogged evenly. By the distance to
+                        // each corner, and eased, the vortex's few large triangles each took a fog of their own and
+                        // showed as pale sheets with straight edges across the Shadowlands' sky (the user, 2026-11-21))
+                        let ahead = [forward[0], forward[2], forward[1]];
                         let amounts: Vec<f32> = vertices
                             .iter()
                             .map(|v| {
                                 let r = [v.position[0] - eye[0], v.position[1] - eye[2], v.position[2] - eye[1]];
-                                let far = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
-                                let f = ((far - start) / (end - start).max(1.0)).clamp(0.0, 1.0);
-                                if linear { f } else { f * f * (3.0 - 2.0 * f) }
+                                let depth = r[0] * ahead[0] + r[1] * ahead[1] + r[2] * ahead[2];
+                                ((depth - start) / (end - start).max(1.0)).clamp(0.0, 1.0)
                             })
                             .collect();
                         for (v, f) in vertices.iter_mut().zip(&amounts) {
@@ -3924,7 +3930,7 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
                 backdrops.extend(haze);
             } else if !points {
                 // (the shells are triangle lists: a point list drawn with the depth test has none to go to; no script has one)
-                shells.push(mao_render::Shell { sprite, additive: d.blend == Blend::Add, vertices });
+                shells.push(mao_render::Shell { sprite, additive: matches!(d.blend, Blend::Add | Blend::AddOne), vertices });
             }
         }
     }
