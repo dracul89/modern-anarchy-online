@@ -1414,3 +1414,5 @@ steps run, a fight).
   and going to the character list shows none either.
 - [ ] **1** Zone a few times (a Whom-Pah, a door into a building, a grid exit): no red box where your character stands
   as the new playfield appears; your character is there in its clothes from the first picture.
+- [ ] **1** Borealis by day and night: the mountain ring stands on the horizon the right way up all round, the sky is
+  clear above the city (no dark band over it), the moons where they were.

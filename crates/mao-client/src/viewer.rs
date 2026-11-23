@@ -3837,12 +3837,26 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
                         Some(b) => ([b[0], b[1], b[2], b[3]], [b[4], b[5], b[6]], [b[12], b[13], b[14]]),
                         None => ([1.0, 1.0, 1.0, 1.0], [0.0; 3], [0.0; 3]),
                     };
+                    // (MAO_SKY_DEBUG: each sky mesh part's own frame and its stored height range)
+                    if std::env::var_os("MAO_SKY_DEBUG").is_some() {
+                        let range = |k: usize| part.vertices.iter().fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(v.position[k]), b.max(v.position[k])));
+                        let (x, y, z) = (range(0), range(1), range(2));
+                        eprintln!("  mesh {name} part {index} '{}': x {:.1}..{:.1} y {:.1}..{:.1} z {:.1}..{:.1}, frame {:?}", part.name, x.0, x.1, y.0, y.1, z.0, z.1, part.world);
+                    }
+                    // (a mesh whose own frame is a half turn about x, `diag(1, -1, -1)`: Borealis's mountain ring
+                    // (`backdrop_mountains`, stored y-up and upside down) and the moons. That frame negates z as the
+                    // reading above does and also turns y over: applied in place of the bare negation, the ring stands on
+                    // the horizon the right way up where it hung over the sky upside down; the moons, plain spheres, are
+                    // where they were. The domes' frame, the exporter's quarter turn, stays left out as before. A guess
+                    // inside the sky's open departure (`fxs::ROT_REVERSED`).)
+                    let w = &part.world;
+                    let half_turn = zneg && [w[0], w[5], w[10]].iter().zip([1.0f32, -1.0, -1.0]).all(|(a, b)| (a - b).abs() < 1e-3) && [w[1], w[2], w[4], w[6], w[8], w[9]].iter().all(|a| a.abs() < 1e-3);
                     let vertices = part
                         .indices
                         .iter()
                         .filter_map(|&i| part.vertices.get(i as usize))
                         .map(|v| {
-                            let flip = |p: [f32; 3]| if zneg { [p[0], p[1], -p[2]] } else { p };
+                            let flip = |p: [f32; 3]| if half_turn { [p[0], -p[1], -p[2]] } else if zneg { [p[0], p[1], -p[2]] } else { p };
                             let p = visuals::transform(&m, visuals::transform(&own, flip(v.position)));
                             let n = visuals::turn(&m, visuals::turn(&own, flip(v.normal)));
                             let colour = if d.light.is_some() { visuals::lit(d, n, material) } else { [1.0, 1.0, 1.0, material.0[3].max(0.0)] };

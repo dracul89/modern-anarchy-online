@@ -8008,6 +8008,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `crates/mao-client/src/fxs/mod.rs:2070`; `crates/mao-client/src/viewer.rs:3271`; `docs/ORIGINAL_AUDIT.md:93`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-19, overnight): The decompile says FUN_10005600 composes [ROT] with the turn so far first (o*acc), and the mesh pool keeps meshes as stored; the client's reversed order and negated z are what lays the horizon's dish level. Following the decompile reopens the sky's look, which can only be judged against original screenshots; the switch to compare exists. Left.
+- Seen 2026-11-21 (the user: Borealis's sky picture upside down): the fitted reading holds for the round meshes (domes, clouds, the dish; their own frame the exporter's quarter turn about x, data z-up) but not for `backdrop_mountains.abiff` (data y-up, its frame a half turn about x, `diag(1,-1,-1)`): it hung over the sky upside down. A mesh with that half-turn frame now has it applied in place of the bare z negation (the same z, y turned over too; the moons, which carry it as well, are spheres and do not change). Still a guess inside this entry: the frames suggest the original's mesh data has its frames built in, which would make the right reading frames applied in a y-up space, not yet tried against the domes.
 
 #### `RND-109` Haze start is a fixed fraction of the view distance
 

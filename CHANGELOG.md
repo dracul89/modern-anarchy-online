@@ -8,6 +8,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### World
 
+- Borealis's mountains stand on the horizon the right way up: their ring hung over the sky upside down, and its dark underside hid the sky above the city.
 - After zoning, your character is no longer drawn as a red box for a moment: your own look is kept across the zoning, and your character is never drawn as the client's stand-in box.
 
 ### Interface
