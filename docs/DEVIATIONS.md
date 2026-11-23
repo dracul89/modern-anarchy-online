@@ -9718,6 +9718,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `crates/mao-client/src/chatgroups.rs:19`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-19, overnight): The original keeps each chat window in the character's `Chat/Windows/Window<n>/Config.xml` under the original client's Prefs folder; the client reads those files as its start (chatgroups.rs) but never writes into the original's folder (writing would change the installed original client's own layout, and under %APPDATA% the client's writes are not even the user's files). Writing the same XML into the client's own folder instead of chatwindows.ini would change only the file's format, for no player-visible gain; left.
+- Note (2026-11-23): `chatwindows.ini` is now the character's own (`chars/<character id>/` beside `mao.ini`, `charprefs.rs`), as the original keeps `Chat/Windows/` in the character's folder; a character's first start copies the shared file. The file's format is still the client's own.
 
 #### `SET-002` Hotbars saved in hotbar.ini
 
@@ -9759,6 +9760,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `crates/mao-client/src/layout.rs:353`; `crates/mao-client/src/layout.rs:5`; `docs/CLIENT_UI.md:1824`; `docs/CLIENT_UI.md:1949`; `docs/GUI_DLL_PARITY.md:59`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-19, overnight): As SET-001: the original keeps window places in its `*Config` values inside the character's own Prefs files, which the client reads as starting places (SET-003, `aoprefs.rs`) but does not write; its own ini files hold what it changes. Round-tripping with the original would mean writing into the installed original client's folder; left.
+- Note (2026-11-23): these files (`layout.ini`, `sizes.ini`, `tabs.ini`, `lists.ini`, `open.ini`, and `rollup.ini`, `docks.ini`, `pins.ini`) are now each character's own, in `chars/<character id>/` beside `mao.ini` (`charprefs.rs`), as the original keeps each window's `*Config` in the character's own `Prefs.xml`; a character's first start copies the shared ones (the client's own seeding: the original starts a new character from `CharPrefs.xml`'s defaults). Their format is still the client's own.
 
 #### `SET-006` Backpack names kept in backpacks.ini; rename by right click on empty space
 

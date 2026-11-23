@@ -19,7 +19,7 @@
 //! of its own whose window's corner is there (FUN_1003b263), but only when its area lists more than one view.
 //! Closing the window asks each of its views to close (FUN_1003c94d).
 //!
-//! The areas are kept in `docks.ini` beside `mao.ini` (`area<TAB>shown view<TAB>view…` a line, the views in their tabs'
+//! The areas are kept in the character's `docks.ini` (`charprefs.rs`; `area<TAB>shown view<TAB>view…` a line, the views in their tabs'
 //! order), as the original keeps `DockAreas/<area>.xml` (FUN_1003aad8: `dock_name`, `dock_type`, and `dock_config`
 //! with `docked_view_identities`, the frame and `selected_tab`). Without the file the areas start as the original's
 //! own files for the character have them (`aoprefs::dock_files`), and their windows at its frames. A window's place is
@@ -255,7 +255,7 @@ struct State {
 static STATE: Mutex<State> = Mutex::new(State { areas: Vec::new(), loaded: false, seeded: false, frame: 1, shown: BTreeMap::new(), titles: BTreeMap::new(), drawn: BTreeMap::new(), strips: Vec::new(), carried: None });
 
 fn path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("docks.ini")
+    crate::charprefs::file("docks.ini")
 }
 
 /// (the tests and the previews never read or write the player's files)

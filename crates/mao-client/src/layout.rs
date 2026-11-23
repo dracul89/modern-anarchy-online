@@ -1,5 +1,7 @@
-//! Where the player left the windows: each movable window's position is saved in `layout.ini` beside `mao.ini` (one line per
-//! window, `name x y`) and used as the window's starting place the next time. `MAO_NO_LAYOUT=1` ignores it; the offline previews
+//! Where the player left the windows: each movable window's position is saved in `layout.ini` (one line per window, `name
+//! x y`) and used as the window's starting place the next time. Like every file here it is the character's own, in
+//! `chars/<character id>/` beside `mao.ini` (`charprefs.rs`), as the original keeps each window's `*Config` in the
+//! character's `Prefs.xml`; before the character is known, the shared one beside `mao.ini`. `MAO_NO_LAYOUT=1` ignores it; the offline previews
 //! (`MAO_UI_PREVIEW`) ignore it too so their pictures do not depend on the player's layout.
 //!
 //! A window the player can size keeps its size too, in `sizes.ini` beside it (`name width height`, the whole window's):
@@ -64,7 +66,7 @@ struct Layout {
 static LAYOUT: Mutex<Layout> = Mutex::new(Layout { spots: BTreeMap::new(), sizes: BTreeMap::new(), sizable: BTreeSet::new(), sizes_dirty: false, original: None, character: None, screen: [0.0; 2], auto: BTreeSet::new(), relocate: BTreeSet::new(), pending: BTreeSet::new(), shown: BTreeSet::new(), loaded: false, dirty: false, written: None, tabs: None, lists: None, lists_dirty: false });
 
 fn path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("layout.ini")
+    crate::charprefs::file("layout.ini")
 }
 
 /// (the tests never read or write the player's files)
@@ -223,12 +225,24 @@ pub fn character() -> Option<u32> {
     LAYOUT.lock().unwrap().character
 }
 
-/// The character playing (the original's per-character preferences are looked up by its id).
+/// The character playing (the original's per-character preferences are looked up by its id). Its own files are read
+/// from now on (`charprefs.rs`: `chars/<id>/` beside `mao.ini`, started from the shared ones on its first start); what
+/// was read or noted before it was known is dropped, and the windows shown so far go to the character's places.
 pub fn set_character(id: u32) {
+    crate::charprefs::set_character(id);
     let mut layout = LAYOUT.lock().unwrap();
     if layout.character != Some(id) {
         layout.character = Some(id);
         layout.original = None;
+        if layout.loaded {
+            layout.loaded = false;
+            layout.spots.clear();
+            layout.sizes.clear();
+            (layout.dirty, layout.sizes_dirty) = (false, false);
+            let shown: Vec<String> = layout.shown.iter().cloned().collect();
+            layout.relocate.extend(shown);
+        }
+        (layout.tabs, layout.lists, layout.lists_dirty) = (None, None, false);
         // (places noted while no character was known are not the player's: the windows go to the original's frames)
         let auto = std::mem::take(&mut layout.auto);
         for name in auto {
@@ -312,7 +326,7 @@ pub fn set_tab(config: &str, tab: usize) {
 /// order. The original keeps them in each window's config as `listview_config` (GUI.dll `MultiListView_c::StoreColumnInfo`
 /// 0x10133655: `col_id`, `col_flags`, `col_width`; `ItemListViewBase_c`'s FUN_100411b8 adds `list_sort_column` and
 /// `list_sort_order`), written when the window goes and read when it is made (`LoadColumnInfo` 0x10136a6d,
-/// FUN_10041352). Here: a line of `lists.ini` beside `layout.ini`, one set for all characters like `tabs.ini`, written
+/// FUN_10041352). Here: a line of `lists.ini` beside `layout.ini`, the character's own like `tabs.ini`, written
 /// with the windows' places soon after a change. Not kept: the hidden flag and the columns' order as something the
 /// player can change (this client's headers have neither the menu nor the dragging), the grid's own sort and the
 /// list mode (kept in `tabs.ini` where a window has them).

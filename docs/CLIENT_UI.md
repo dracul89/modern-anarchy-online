@@ -8789,3 +8789,34 @@ The vortex over the Shadowlands' skies (`shadowlands_vortex.abiff`, opaque with 
 Checked against that capture the same day (the user's go-ahead): `arete-20261031-0842` is in Inferno (4605) from 1793454746.6 to 1793455133.9; its camera looks along the ground, and the one shot with the horizon in view (1793454873556, the character at 2720.6, 84.9, 2735.2, heading 0.91) shows one dark orange haze, about (65, 40, 20), over the whole horizon and the top of the view. This client there, with that place and an area fog given by hand, shows the vortex's purple at the top and pale distant hills. Fogging the sky draws that name no fog state (the rule above) changed nothing visible at that place and was not kept: it would change every sky. What differs is more likely the fog's colour and range (the offline fog is set by hand, and the headless fog is known to differ) than which draws are fogged; a live look in Inferno at the same hour is the next step.
 
 2026-11-22, the user's Nascense Frontier shots from the original (light blue sky, a pale blue-white swirl round a white sun with rays, a rainbow halo): this client drew the vortex as a dark blue disc with black edges. The cause was the fog's range, as guessed above. The effect scripts' atmosphere adds its fog to `VisualFog_t` (DisplaySystem FUN_1005b633: `AddFog(AddFogR, AddFogG, AddFogB, AddFogI)`; `AddFogI` is 0.1 in `Tweak_Shadowlands_Atmosphere`, 0.025 in Rubi-Ka's, 0.45 in Pandemonium's), gathered with the area's fogs by the same rules, and Gamecode hands it the camera's front and back planes (`AddClipPlanes(camera +0xb4, +0xb8)`, FUN_100b77cb / FUN_100b79f7; randy31's `RCamera_t` keeps front at 0xb4 and back at 0xb8). So outdoors the original always fogs, linearly from 0.2 to `back − (back − 5.2) × weight`. The client kept only the atmosphere's colour (`Frame::fog`) and fogged the sky from a seventh of the view distance out, the world not at all (RND-185 removed its own haze on the belief that the area's fog was the only one). `Frame::fog` now carries the weight; the live frame gathers it into the area's (`environment::add_fog`), and the world and the sky's fogged draws use that one fog (`sky_fog`). Offline (`MAO_SKY=12 MAO_SKY_PLAYFIELD=4310 MAO_SKY_EXPANSION=3`): the vortex is a pale haze with the swirl faint near the sun, close to the shots' colours (theirs about (148, 193, 223) over the swirl, the fog colour (155, 198, 214)); far land is hazed. Note `MAO_SKY_EXPANSION` must be 2 or more for the Shadowlands' `Expansion EP01` blocks (the vortex meshes), as a live account's stat 389 is. Not tried live; the world's fog still goes by distance where the original's goes by depth.
+
+## Each character's own preferences (2026-11-23)
+
+The original keeps its preferences on three levels (GUI.dll, and the players' own `Prefs` folders): the install's
+`Prefs/Prefs.xml` (the values the game's `MainPrefs.xml` declares: display, chat font, sound on/off), the account's
+`Prefs/<account>/Prefs.xml` (the values of `LoginPrefs.xml`: mouse, volumes, Escape closes, target's target, bounding
+box targeting, auto-reject duels ...; `ControlCenterModule_c::LoadUserConfig` 0x1006c3b1 loads it with
+`DistributedValue_c::LoadConfig(path, 2)`) and the character's `Prefs/<account>/Char<id>/` (the same function's
+`LoadConfig(path, 3)` and `Preferences_t::LoadCharPrefs` 0x10124b86 with its `Char.cfg`). The character's `Prefs.xml`
+holds the values of `CharPrefs.xml` (`NumHotbars`, `LockHotbars`, `ShowFightTargetNCU`, `LockEquipment`,
+`VisiblePVPTitle`, the pet names ...) and every window's `*Config` archive (its `WindowFrame`, selected tab,
+`listview_config`, pin); `DockAreas/` the docked windows and `RollupArea`, `Chat/Windows/` the chat windows,
+`Containers/ShortcutBar_<n>.xml` the shortcut bars. Until now this client kept all of it once beside `mao.ini`, so
+every character shared the same window places, bars and options.
+
+`charprefs.rs` gives each character a folder, `chars/<character id>/` beside `mao.ini`. The character is known at
+`net::live`'s start (`layout::set_character`), before the game's window draws anything: the launcher starts a game
+process for one character. The files the original keeps per character are read and written there from then on;
+before the character is known (the launcher's own process) the shared ones are. On a character's first start each of
+its files it lacks is copied from the shared one (the setup all characters shared until now), and the shared files
+are not written again by a game with a character: they stay the seed of the next new character. That seeding is this
+client's own, for the players who set up their windows here before; the original starts a new character from
+`CharPrefs.xml`'s defaults.
+
+The window layout (`layout.ini`, `sizes.ini`, `tabs.ini`, `lists.ini`, `open.ini`, `rollup.ini`, `docks.ini`,
+`pins.ini`, `chatwindows.ini`) is per character. `layout::set_character` drops what was read or noted before the
+character was known and sends the windows shown so far to the character's places. Not per character yet:
+`places.ini` (it keeps every character's item cells in one file, by character, already), the macros (the original's
+`TextMacro.bin`), the ignore list (`IgnoreList.bin`), the pet names and the pet window's switches, the hidden nano
+programs and the bag names. Tests `charprefs::tests::a_characters_files_are_in_its_own_folder`,
+`the_first_start_seeds_from_the_shared_files`. **Not tried live.**

@@ -20,7 +20,7 @@ use crate::theme::Palette;
 static PINNED: Mutex<Option<Vec<String>>> = Mutex::new(None);
 
 fn pins_path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("pins.ini")
+    crate::charprefs::file("pins.ini")
 }
 
 pub fn pinned(name: &str) -> bool {

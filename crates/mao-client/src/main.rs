@@ -94,6 +94,7 @@ mod launcher;
 mod loginviews;
 mod look;
 mod layout;
+mod charprefs;
 mod loot;
 mod houses;
 mod places;

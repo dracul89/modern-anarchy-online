@@ -1435,3 +1435,11 @@ steps run, a fight).
 - [ ] **1** Nascense Frontier by day, against the original's shots: the vortex a pale blue-white swirl melting into the
   sky round the sun, no dark blue disc or black edges; far land hazed light blue, near land clear. On Rubi-Ka the
   distance hazes only lightly.
+
+## Each character's own preferences (2026-11-23)
+
+- [ ] **1** Enter the game with one character: `chars/<its id>/` appears beside `mao.ini` holding copies of
+  `layout.ini`, `sizes.ini`, `open.ini` ... (the log says which files it started from). Move and size a few windows,
+  pin one, change the side column, log out. Enter with a second character: its windows stand where they all stood
+  before, not where the first character left them. Move them elsewhere, log out; each character finds its own
+  places at the next start.

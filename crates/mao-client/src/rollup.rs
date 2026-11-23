@@ -29,7 +29,7 @@
 //! Here a window is a page while its name is on the list ([`docked`]); `chrome::window` draws such a window through
 //! [`page`] instead of as a free window, so the window's code is the same either way. A window with a menu of its own
 //! shows it with its own last entry ("Close Window"). The list, each page's rolled state and its view's height in
-//! pixels are kept in `rollup.ini` beside `mao.ini` (`name 1|0 height` per line, in order; an older file's lines have no
+//! pixels are kept in the character's `rollup.ini` (`charprefs.rs`; `name 1|0 height` per line, in order; an older file's lines have no
 //! height); without the file the original's own `DockAreas/RollupArea.xml` for the character gives them once the
 //! character is known (`aoprefs::rollup_file`), else the original's default set is docked, all expanded. A window
 //! coming in takes the room its
@@ -103,7 +103,7 @@ thread_local! {
 }
 
 fn path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("rollup.ini")
+    crate::charprefs::file("rollup.ini")
 }
 
 fn disabled() -> bool {

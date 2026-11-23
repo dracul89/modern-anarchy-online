@@ -17,7 +17,7 @@
 //! place among the frame's tabs (`tab_index`); the original's two start in one frame, and so do the player's own in
 //! their files. Here a window is a [`Pane`]; the client's chat window shows the panes of the first one's frame as its
 //! tabs and each other frame in a window of its own. They start as the character's own from the original client's
-//! folder when there are some, else as the original's two, and are kept in `chatwindows.ini` beside `mao.ini`.
+//! folder when there are some, else as the original's two, and are kept in the character's `chatwindows.ini` (`charprefs.rs`).
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -518,7 +518,7 @@ pub fn parse(text: &str) -> Vec<Pane> {
 }
 
 fn path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("chatwindows.ini")
+    crate::charprefs::file("chatwindows.ini")
 }
 
 /// Whether the player's file is left alone (previews and tests).
