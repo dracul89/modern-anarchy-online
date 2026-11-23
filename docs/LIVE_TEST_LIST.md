@@ -1416,3 +1416,5 @@ steps run, a fight).
   as the new playfield appears; your character is there in its clothes from the first picture.
 - [ ] **1** Borealis by day and night: the mountain ring stands on the horizon the right way up all round, the sky is
   clear above the city (no dark band over it), the moons where they were.
+- [ ] **1** A new settings file starts with the locked camera. In a shop interior (Borealis's basic weapon shop) with
+  camera_mode lock or rubber: the camera stays behind the character; with trail it goes to the room's camera points.

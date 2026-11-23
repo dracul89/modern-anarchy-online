@@ -6731,6 +6731,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `crates/mao-client/src/viewer.rs:1042-1049`; `crates/mao-client/src/settings.rs:641-654`; `docs/LIVE_TEST_LIST.md:368`
 - Decision: [x] port  [ ] leave
 - Done (2026-11-19, overnight): The original's default when nothing is preferred is the free camera, mode 1 (GUI.dll FUN_10021859); the client gave the rubber camera to any name it did not know. `viewer::camera_mode` now gives the free camera for "trail" and any unknown name, the rubber one only for "rubber". Test: `viewer::camera_tests::camera_modes_by_name`. (The settings file only accepts lock, rubber and trail, so this matters for hand-edited or older values.)
+- Corrected (2026-11-21): the default when nothing is preferred is 3, the locked camera: the preference's own default in GUI.dll's `IndependentPrefs_t` table (`PreferredCameraMode`, 3, range 0..3); FUN_10021859 only makes a stored 0 (first person) the free camera 1. The settings' default and any unknown name are now the locked camera.
 
 #### `CAM-003` Camera smoothing scaled to sixty frames a second
 

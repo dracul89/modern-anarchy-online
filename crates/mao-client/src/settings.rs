@@ -757,7 +757,7 @@ pub const DEFAULT_SHADOWLANDS_MAP: &str = "SLmap/SLmap.txt";
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, texture_compression: true, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, log_messages: false, original_font: true, own_map: true, smart_hotbar: false, hotbars: 1, lock_hotbars: false, camera_mode: "trail".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, remember_pet_names: true, keymap: Keymap::default() }
+        Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, texture_compression: true, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, log_messages: false, original_font: true, own_map: true, smart_hotbar: false, hotbars: 1, lock_hotbars: false, camera_mode: "lock".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, remember_pet_names: true, keymap: Keymap::default() }
     }
 }
 
@@ -1087,8 +1087,8 @@ log_messages = on
 ");
         assert!(s.log_messages);
         assert!(Settings::from_text(&s.to_text()).log_messages);
-        // (the camera: the original's free one unless another is chosen, by its name in the game too)
-        assert_eq!(Settings::default().camera_mode, "trail");
+        // (the camera: the original's locked one unless another is chosen, by its name in the game too)
+        assert_eq!(Settings::default().camera_mode, "lock");
         let mut c = Settings::default();
         assert_eq!(c.set_option("camera_mode", "rubber"), "camera_mode is now rubber.");
         assert_eq!(c.camera_mode, "rubber");

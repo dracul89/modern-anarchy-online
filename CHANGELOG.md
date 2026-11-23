@@ -6,6 +6,11 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Camera
+
+- The camera is locked behind your character by default, as in the original (it was the trailing camera).
+- Inside shops and other rooms with fixed camera points, a locked or rubber camera stays behind your character: it was pulled to the room's camera point whatever mode was set, and setting locked did nothing there. Only the trailing camera goes to those points, as in the original.
+
 ### World
 
 - Borealis's mountains stand on the horizon the right way up: their ring hung over the sky upside down, and its dark underside hid the sky above the city.

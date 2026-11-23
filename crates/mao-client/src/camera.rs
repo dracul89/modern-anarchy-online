@@ -6,7 +6,8 @@
 //!   the preferred distance, so it ends up behind the character as it walks), 2 the rubber camera and 3 the locked camera
 //!   (`CameraVehicleFixedThird_t`, FUN_1001faa1, with `snap` false / true: the preferred direction turns with the
 //!   character; the rubber one steers to that point, the locked one is put there). The default when nothing is
-//!   preferred is 1 (FUN_10021859).
+//!   preferred is 3, the locked camera (the preference's own default, GUI.dll's `IndependentPrefs_t` table; FUN_10021859
+//!   makes a stored 0, first person, the free camera 1 when third person is asked for).
 //! - **The vehicle** (`Vehicle_t::Run` → FUN_1000e3d3, substeps of at most 0.4 s): `CalcSteering` gives a force, clamped
 //!   to the maximum force, which changes the velocity by `force × dt / mass`; the speed is clamped to the maximum
 //!   velocity and the position moves by `velocity × dt`. `SteeringArrive` (0x1000ab28): the wanted speed is
@@ -603,10 +604,12 @@ impl SteeringCamera {
                 return self.update(0.0, look, heading, char_speed, Inputs::default(), surface);
             }
         }
-        // The steering (CalcSteering) and the vehicle's step. Drawn to a room's camera attractor, the vehicle arrives at its
-        // point instead (`PointCameraAttractor_t`'s steering, slot 1 of its table: `SteeringArrive` with a 0.1 radius) and
-        // keeps looking at the character.
-        if let Some(at) = self.attractor.filter(|_| self.mode != Mode::First) {
+        // The steering (CalcSteering) and the vehicle's step. Drawn to a room's camera attractor, the free camera arrives at
+        // its point instead (`PointCameraAttractor_t`'s steering, slot 1 of its table: `SteeringArrive` with a 0.1 radius)
+        // and keeps looking at the character. Only the free camera: `CameraVehicle_t::CalcSteering` (N3.dll 0x1001e797)
+        // asks the attractor (+0x1a0) first, `CameraVehicleFixedThird_t::CalcSteering` (0x1001f752), the rubber and
+        // locked cameras', never does. (It pulled a locked camera to a shop's vantage point, where no mode could free it.)
+        if let Some(at) = self.attractor.filter(|_| self.mode == Mode::Free) {
             let force = self.arrive(at);
             self.integrate(force, dt, surface);
             return (self.pos, look);
@@ -860,6 +863,23 @@ mod tests {
         held.set_mode(Mode::First);
         held.update(0.016, look, 0.0, 7.0, Inputs { zoom_out: true, hold_third: true, ..Default::default() }, &mut Sight(clear));
         assert_eq!(held.mode, Mode::First);
+    }
+
+    /// A room's camera attractor draws the free camera to its point; the locked and rubber cameras stay behind the
+    /// character, as only `CameraVehicle_t::CalcSteering` asks the attractor (N3.dll 0x1001e797, not 0x1001f752).
+    #[test]
+    fn a_rooms_camera_point_draws_the_free_camera_only() {
+        let look = [0.0, 1.8, 0.0];
+        let point = [6.0, 3.0, 6.0];
+        for mode in [Mode::Free, Mode::Rubber, Mode::Locked] {
+            let mut c = SteeringCamera::new(mode);
+            c.attractor = Some(point);
+            for _ in 0..600 {
+                c.update(0.016, look, 0.0, 0.0, Inputs::default(), &mut Sight(clear));
+            }
+            let at_point = length(sub(c.pos, point)) < 0.5;
+            assert_eq!(at_point, mode == Mode::Free, "{mode:?} at {:?}", c.pos);
+        }
     }
 
     #[test]
