@@ -6,6 +6,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### Interface
+
+- The side column's pages (wear, NCU, nano programs, team ...) are all the column's width and stand one under the other without overlapping, as in the original: the wear page grew wider than the others to fit its tabs, and a page taller than its room ran over the next one.
+
 ### Camera
 
 - The camera is locked behind your character by default, as in the original (it was the trailing camera).

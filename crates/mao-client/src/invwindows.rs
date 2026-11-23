@@ -779,8 +779,11 @@ impl ItemWindows {
             let wear = &mut self.wear;
             let title = crate::gui::xml::ldb_text("#10000:383874");
             crate::chrome::window(ctx, palette, "Wear", &title, &mut wear_open, |w| w.default_pos(crate::layout::pos("Wear", egui::pos2(380.0, 70.0))).resizable(false), |ui| {
-                // (as wide as its four tabs: the window sizes itself by what is in it, and the grid is narrower than they)
-                ui.set_min_width(crate::chrome::tabs_width(ui, &name_refs));
+                // (as wide as its four tabs: the window sizes itself by what is in it, and the grid is narrower than they.
+                // Docked in the rollup column it is the column's width, its tabs squeezed to it, as the original's)
+                if !crate::rollup::docked("Wear") {
+                    ui.set_min_width(crate::chrome::tabs_width(ui, &name_refs));
+                }
                 crate::chrome::tab_view(ui, palette, &name_refs, &mut tab, |ui, t| {
                     let view = &mut wear[t];
                     let (tree, root, list) = (&mut view.tree, view.root, view.list);

@@ -36,8 +36,8 @@
 //! free window had (`layout::saved_size`), else a starting height of this client's ([`default_height`]). The column's
 //! scroll is kept too (a `scroll_offset` line, FUN_10048e92 / FUN_100489f9), and with `MouseWheel` 1 the wheel over the
 //! world scrolls it 40 a notch ([`wheel`]). Not done: the views' own smallest and largest heights and their grid steps
-//! (a page's height is only kept above none here); a view needing more than the column's width widens its page (the
-//! original's would not).
+//! (a page's height is only kept above none here). A view is laid out in its page's rectangle and cut there (2026-11-21:
+//! a view wanting more than the column's width widened its page, and one taller than its page ran over the next).
 
 use std::sync::Mutex;
 
@@ -520,12 +520,15 @@ pub fn page<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str, 
     // The view: an egui window with no title bar at a fixed place under the header, its room the page's view.
     let shown = if expanded {
         let view = egui::Rect::from_min_size(egui::pos2(left, bounds.top() + header + ABOVE), egui::vec2(width, height));
-        let mut body_width = width;
+        // (the view is laid out in its page's rectangle, the column's width by the page's height, and cut there, as the
+        // original's page frames its view (FUN_10049797): a view wanting more width no longer widens its page, nor does
+        // one taller than its page run over the next; the grip gives it more height)
         let shown = egui::Window::new(title).id(egui::Id::unique(("rollup-body", name))).title_bar(false).collapsible(false).resizable(false).movable(false).fixed_pos(view.min).fixed_size(view.size()).constrain(false).frame(egui::Frame::NONE).show(ctx, |ui| {
+            ui.set_clip_rect(view.intersect(ui.clip_rect()));
+            ui.set_max_width(width);
             let under = ui.painter().add(egui::Shape::Noop);
             let result = add(ui);
-            body_width = ui.min_rect().width().max(width);
-            ui.painter().set(under, background(egui::Rect::from_min_size(view.min, egui::vec2(body_width, height))));
+            ui.painter().set(under, background(view));
             result
         });
         // The grip under the view: its own area, which sizes the page.
@@ -539,7 +542,7 @@ pub fn page<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str, 
             }
         });
         if let Some(p) = STATE.lock().unwrap().pages.iter_mut().find(|p| p.name == name) {
-            p.width = body_width;
+            p.width = WIDTH;
         }
         shown
     } else {

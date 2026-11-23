@@ -1418,3 +1418,5 @@ steps run, a fight).
   clear above the city (no dark band over it), the moons where they were.
 - [ ] **1** A new settings file starts with the locked camera. In a shop interior (Borealis's basic weapon shop) with
   camera_mode lock or rubber: the camera stays behind the character; with trail it goes to the room's camera points.
+- [ ] **1** The side column (wear, NCU, nano programs, team, faction): every page the same width, one under the other,
+  none over another; the grip under a page makes it taller and the pages under it move down.
