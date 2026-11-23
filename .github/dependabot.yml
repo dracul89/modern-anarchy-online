@@ -1,0 +1,43 @@
+# Dependabot: weekly update pull requests for the Rust crates (Cargo.lock) and the GitHub Actions the workflows use.
+# CI runs on every pull request, so each update is built and tested before it is merged.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # wgpu, egui and winit move together (egui-wgpu and egui-winit pin their versions): one pull request for the set
+      gpu-and-ui:
+        patterns:
+          - "wgpu*"
+          - "naga*"
+          - "egui*"
+          - "epaint*"
+          - "emath*"
+          - "ecolor*"
+          - "winit*"
+      # everything else's minor and patch releases in one pull request
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+        exclude-patterns:
+          - "wgpu*"
+          - "naga*"
+          - "egui*"
+          - "epaint*"
+          - "emath*"
+          - "ecolor*"
+          - "winit*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"

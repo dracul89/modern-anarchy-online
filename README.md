@@ -1,5 +1,14 @@
 # Modern Anarchy Online (MAO)
 
+[![CI](https://github.com/dracul89/modern-anarchy-online/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dracul89/modern-anarchy-online/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/dracul89/modern-anarchy-online)](https://github.com/dracul89/modern-anarchy-online/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/dracul89/modern-anarchy-online/total)](https://github.com/dracul89/modern-anarchy-online/releases)
+[![License: MIT](https://img.shields.io/github/license/dracul89/modern-anarchy-online)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/etFuqTMvH)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-informational)
+![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B%20(edition%202024)-orange?logo=rust)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)](.github/dependabot.yml)
+
 A new 64-bit, multiplatform client for Anarchy Online: Windows, Linux x86-64
 and Apple-silicon macOS, rendering through `wgpu` (Vulkan, Metal, Direct3D 12).
 
