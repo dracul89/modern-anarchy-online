@@ -1409,7 +1409,7 @@ steps run, a fight).
 - [ ] **1** Chat bar: type `/`: the command list sits on the bar, at most 15 rows; the wheel and its bar scroll it,
   the row under the pointer lights, a click puts `/command ` in the bar with the keys still in it.
 - [ ] **1** Drag the health, nano, experience and alien experience bars and the compass somewhere else, play a minute,
-  quit, start again: each is where it was left.
+  quit, start again: each is where it was left. Put the compass near the bottom edge too (it was pushed up at start).
 - [ ] **1** Press PLAY in the launcher: the login window comes up with the hall drawn, no white box first; logging in
   and going to the character list shows none either.
 - [ ] **1** Zone a few times (a Whom-Pah, a door into a building, a grid exit): no red box where your character stands

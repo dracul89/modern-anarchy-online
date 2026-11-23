@@ -38,9 +38,10 @@ fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
     // (`layout::relocate`): it is put at its place then, as the windows are, and noted again from there on; without it
     // the compass was never noted again and its place was lost at every start)
     let place = crate::layout::pos("compass", start);
-    let area = egui::Area::new(egui::Id::unique("compass")).movable(true);
+    let id = egui::Id::unique("compass");
+    let area = egui::Area::new(id).movable(true).constrain(false);
     let area = if crate::layout::relocate("compass") { area.current_pos(place) } else { area.default_pos(place) };
-    area.show(ctx, |ui| {
+    keep_reachable(ctx, id, area).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(frame, egui::Sense::hover());
         // the bearing, clockwise from north (the map's +z), of the way the camera looks
         let bearing = (-yaw.cos()).atan2(-yaw.sin());
@@ -63,6 +64,18 @@ fn compass(ctx: &egui::Context, skin: &Skin, yaw: f32) {
         }
         skin.draw(ui.painter(), "GFX_GUI_COMPASS_FRAME", rect.min, 1.0, egui::Color32::WHITE);
     });
+}
+
+/// A HUD area whose place the layout file keeps (the compass, the four bars) is not kept on the screen by egui
+/// (`constrain`, on by default): the game window's first frames have the settings' height (1400 for a 1440 monitor in
+/// borderless mode) and egui pushed a compass kept near the bottom up out of its place, where it stayed and was noted
+/// again. The place is left as the player put it; only an area wholly off the screen is brought back inside it.
+fn keep_reachable(ctx: &egui::Context, id: egui::Id, area: egui::Area) -> egui::Area {
+    let screen = ctx.content_rect();
+    match ctx.memory(|m| m.area_rect(id)) {
+        Some(r) if !r.intersects(screen) => area.current_pos(r.min.clamp(screen.min, (screen.max - r.size()).max(screen.min))),
+        _ => area,
+    }
 }
 
 /// The target buttons beside the menu strips (GUI.dll's two `CCTargetControl_c`, FUN_10074d26, their button +0x148 at 0x10073651):
@@ -205,7 +218,7 @@ fn char_bar(ctx: &egui::Context, skin: &Skin, at: impl Fn(egui::Vec2) -> egui::P
     // player drags it: its first frame's place would be the not yet laid out wing's)
     let id = egui::Id::unique(name);
     let moved = ctx.data(|d| d.get_temp::<bool>(id.with("moved")).unwrap_or(false));
-    let area = egui::Area::new(id).movable(true);
+    let area = egui::Area::new(id).movable(true).constrain(false);
     // (a place asked for before the screen's size was known is dropped and the bar marked to be moved
     // (`layout::relocate`): it is put at its place then, as the windows are, and noted again from there on; without it
     // the bars shown from the first frames (health, nano, experience) were never noted again and their places were
@@ -217,7 +230,7 @@ fn char_bar(ctx: &egui::Context, skin: &Skin, at: impl Fn(egui::Vec2) -> egui::P
         None if !moved || relocate => area.current_pos(at(size)),
         None => area,
     };
-    let shown = area.show(ctx, |ui| {
+    let shown = keep_reachable(ctx, id, area).show(ctx, |ui| {
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
         let painter = ui.painter();
         let white = egui::Color32::WHITE;
