@@ -47,9 +47,11 @@
 //! original puts the item on the reference board, the Knowledge window, and makes a chat link only of what is
 //! dropped on the chat's line). The organization's contract has the first two entries only. The Looter entry and,
 //! in a raid, its teams are sub-menus (`gui::popup`, since 2026-11-18; they took the menu's place before). A plain
-//! right click takes the item, which is the original's for the bank, a chest and the overflow (the original uses an
-//! item of one's own backpack out of the bag); on a corpse it does nothing, as the corpse's list has the feature flag
-//! 0x400 that silences button 2 (FUN_100ce55d, FUN_1004141b).
+//! right click takes the item in the bank, a chest and the overflow, and uses one of one's own backpack where it is
+//! when it is to be used (`Can` 8: FUN_100cae1b's `N3Msg_UseItem`, [`right_click`]; one that is not, which the original
+//! wears from the bag, is still taken out); on a corpse it does nothing, as the corpse's list has the feature flag
+//! 0x400 that silences button 2 (FUN_100ce55d, FUN_1004141b). An item taken up is let go over the world by either
+//! button, as the inventory's, and the world's own clicks wait while it is in hand ([`item_in_hand`]).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -187,6 +189,25 @@ pub enum Take {
     /// The item at `place` of the container destroyed (`N3Msg_DeleteItem`), after the question: it has to be the item
     /// of these templates still when the message goes out.
     Delete { handle: u32, place: u32, low: u32, high: u32 },
+    /// The item at `place` of one's own backpack used where it is (a right click, FUN_100cae1b's `N3Msg_UseItem`): the
+    /// use message with its own identity, `(0x6b, handle << 16 | place)`.
+    Use { handle: u32, place: u32 },
+}
+
+/// What a plain right click (nothing in hand) on an item of a container does (GUI.dll FUN_100cae1b, the list's click
+/// signal for the right button): in one's own backpack the item is used where it is (`N3Msg_UseItem`), in the bank,
+/// a chest, the overflow or another's container it is taken into the inventory (`MoveItemToInventory`); on a corpse
+/// nothing (its list's feature flag 0x400 silences the right button, FUN_100ce55d). `can` is the item's `Can` flags:
+/// `N3Msg_UseItem` sends the use only for an item with 8, "use"; one without it the original wears from the bag (or
+/// leaves alone), which is not ported: such an item is still taken into the inventory here.
+pub fn right_click(kind: u32, own: bool, can: u32, handle: u32, place: u32) -> Option<Take> {
+    if !right_click_takes(kind) {
+        None
+    } else if own && kind != BANK && can & 8 != 0 {
+        Some(Take::Use { handle, place })
+    } else {
+        Some(Take::One { handle, place })
+    }
 }
 
 /// An entry of an item's menu in a container window, or of its Looter submenus.
@@ -425,6 +446,33 @@ static BANK_ITEM_HELD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU
 /// Whether a bank item was in hand at `frame`: the bank's window had it taken up this frame or the last ([`BANK_ITEM_HELD`]).
 fn bank_item_in_hand(held: u64, frame: u64) -> bool {
     held != 0 && held >= frame
+}
+
+/// Whether an item of an open container window is in hand (set after the windows are drawn, [`set_item_in_hand`]).
+static ITEM_IN_HAND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Notes whether an item of an open container window is in hand: the world's buttons then do nothing of their own
+/// (GUI.dll FUN_1002ce31 and FUN_1002cfac ask for no drag object), as with an inventory item in hand (`gear::held`).
+pub fn set_item_in_hand(held: bool) {
+    ITEM_IN_HAND.store(held, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether an item of an open container window is in hand.
+pub fn item_in_hand() -> bool {
+    ITEM_IN_HAND.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether a container's item in hand is let go: by the left button anywhere, or by the right over the world (no
+/// window under the pointer) when it is not a split, as `gear::world_release` for the inventory's.
+fn lets_go(left: bool, right: bool, over_window: bool, split: u32) -> bool {
+    left || (right && !over_window && split == 0)
+}
+
+impl LootWindow {
+    /// Whether an item of this window is in hand.
+    pub fn holds_item(&self) -> bool {
+        self.open && self.dragging.is_some()
+    }
 }
 
 /// Whether a plain right click on an item of a container takes it (FUN_1004141b's button 2, the use signal): not on a
@@ -737,8 +785,17 @@ impl LootWindow {
                     && ui.input(|i| i.pointer.secondary_clicked())
                 {
                     match crate::gear::held() {
-                        None if !right_click_takes(view.identity.0) => {}
-                        None => take = Some(Take::One { handle: view.handle, place: slot as u32 }),
+                        // (in one's own backpack the item is used where it is, a key opening its door from the bag;
+                        // until 2026-11-23 it was taken out instead)
+                        None => {
+                            let can = view.items.iter().find(|i| i.slot as i64 == slot).map_or(0, |i| i.can);
+                            if let Some(t) = right_click(view.identity.0, view.own, can, view.handle, slot as u32) {
+                                if crate::gear::traced() {
+                                    eprintln!("items: a right click on the container's place {slot}: {t:?}");
+                                }
+                                take = Some(t);
+                            }
+                        }
                         // (the item in hand is used on the one clicked, FUN_100cc855's right button: not a split, and
                         // not with Shift, which is the inventory's combine and ends the drag anywhere else.)
                         Some(from) => {
@@ -810,7 +867,12 @@ impl LootWindow {
             if let (Some(at), Some(icon)) = (pointer, view.items.iter().find(|i| i.slot == place).and_then(|i| i.icon.as_ref()).and_then(|icon| self.textures.get(&icon.id))) {
                 ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("dragged-loot"))).image(icon.id(), egui::Rect::from_center_size(at, egui::vec2(40.0, 40.0)), egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::from_white_alpha(200));
             }
-            if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) && self.taken_up != ctx.cumulative_frame_nr() {
+            // (let go by the left button, or over the world by either: `WindowController_c::HandleMouseUp` drops a drag
+            // object over no window on any button's release, as `gear::letting_go_on_world` has it for the inventory's.
+            // Until 2026-11-23 a bag's item in hand took no right click on the world: a Shadowlands garden key taken
+            // from a bag and right-clicked on its statue did nothing)
+            let (left, right) = ctx.input(|i| (i.pointer.button_released(egui::PointerButton::Primary), i.pointer.button_released(egui::PointerButton::Secondary)));
+            if lets_go(left, right, ctx.is_pointer_over_egui(), self.split) && self.taken_up != ctx.cumulative_frame_nr() {
                 self.dragging = None;
                 let split = std::mem::take(&mut self.split);
                 if crate::gear::traced() {
@@ -1149,6 +1211,30 @@ mod tests {
     fn a_right_click_takes_but_not_from_a_corpse() {
         assert!(!right_click_takes(CORPSE));
         assert!(right_click_takes(BAG) && right_click_takes(BANK));
+    }
+
+    /// FUN_100cae1b: a right click uses an item of one's own backpack where it is (`N3Msg_UseItem`; a Shadowlands key
+    /// in a bag did nothing when it was taken out instead), takes one of the bank or another's container, and does
+    /// nothing on a corpse.
+    #[test]
+    fn a_right_click_uses_an_item_of_ones_own_backpack() {
+        assert_eq!(right_click(BAG, true, 8, 0x70, 6), Some(Take::Use { handle: 0x70, place: 6 }));
+        assert_eq!(right_click(BAG, false, 8, 0x70, 6), Some(Take::One { handle: 0x70, place: 6 }));
+        assert_eq!(right_click(BANK, true, 8, 0x70, 6), Some(Take::One { handle: 0x70, place: 6 }));
+        assert_eq!(right_click(CORPSE, false, 8, 0x70, 6), None);
+        // (an item that is not to be used: the original wears it from the bag; taken out here)
+        assert_eq!(right_click(BAG, true, 0, 0x70, 6), Some(Take::One { handle: 0x70, place: 6 }));
+    }
+
+    /// A bag's item in hand (a Shadowlands garden key, "pick it up and click on the statue") is let go over the world
+    /// by either button, as the inventory's; over a window only by the left; a split never by the right.
+    #[test]
+    fn a_bags_item_in_hand_is_let_go_on_the_world_by_either_button() {
+        assert!(lets_go(true, false, true, 0));
+        assert!(lets_go(false, true, false, 0));
+        assert!(!lets_go(false, true, true, 0));
+        assert!(!lets_go(false, true, false, 3));
+        assert!(!lets_go(false, false, false, 0));
     }
 
     /// FUN_100ca891: the bank's window going down is told; one that was not up, or that is gone, is not.

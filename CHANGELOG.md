@@ -16,6 +16,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### Interface
 
+- A key in a bag works: taken up from the bag and clicked on its statue or door with either mouse button, it is used on it, as one from the inventory. A right click on the statue did nothing with a key from a bag, and also used the statue without the key. A right click on a usable item in your own bag now uses it there, as in the original, instead of taking it out.
 - The side column's pages (wear, NCU, nano programs, team ...) are all the column's width and stand one under the other without overlapping, as in the original: the wear page grew wider than the others to fit its tabs, and a page taller than its room ran over the next one.
 
 ### Camera

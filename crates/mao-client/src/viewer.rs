@@ -84,6 +84,8 @@ pub struct Input {
     /// An item of a container window to destroy: a counter, the container's handle, the item's place, and its low
     /// and high template as the question showed it.
     pub bag_delete: (u8, u32, u32, u32, u32),
+    /// An item of one's own backpack used where it is: a counter, the bag's handle and the item's place.
+    pub bag_use: (u8, u32, u32),
     /// Follow the target (a counter that steps with each `/follow`).
     pub follow: u8,
     /// Say what is known of the target (a counter that steps with each `/inspect`).
@@ -1502,7 +1504,9 @@ impl ApplicationHandler for App {
                     self.moved = 0.0;
                 }
                 // (with an item in hand the buttons do nothing here: FUN_1002ce31 and FUN_1002cfac ask for no drag object)
-                let free = crate::gear::held().is_none();
+                // (an item of a container window in hand is one too: until 2026-11-23 a right click on a statue with a
+                // bag's garden key in hand was also taken as a use of the statue alone)
+                let free = crate::gear::held().is_none() && !crate::loot::item_in_hand();
                 // (the second press of a double click: `N3Msg_DefaultActionOnDynel` at once, FUN_1002ce31)
                 if state == ElementState::Pressed && button == MouseButton::Left && free && self.pointer.second_press(std::time::Instant::now(), self.last) {
                     let own = self.hud.pickables.iter().find(|p| p.own).map(|p| p.id);
@@ -3437,6 +3441,9 @@ impl ApplicationHandler for App {
                             }
                             crate::loot::Take::Delete { handle, place, low, high } => {
                                 self.keys.bag_delete = (self.keys.bag_delete.0.wrapping_add(1), handle, place, low, high);
+                            }
+                            crate::loot::Take::Use { handle, place } => {
+                                self.keys.bag_use = (self.keys.bag_use.0.wrapping_add(1), handle, place);
                             }
                         }
                     }

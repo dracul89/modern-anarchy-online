@@ -1372,6 +1372,7 @@ impl Ui {
                     }
                 }
             }
+            crate::loot::set_item_in_hand(bag_windows.values().any(|w| w.holds_item()));
             // (the bank's window shut by the player, by its close or by name: the server is told, FUN_100ca891's
             // `N3Msg_UseItem(0xdead)`)
             if crate::loot::bank_shut(bag_windows.iter().find(|(id, _)| id.0 == crate::loot::BANK).map(|(_, w)| w.open)) {

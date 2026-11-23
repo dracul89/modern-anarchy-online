@@ -5555,6 +5555,13 @@ and a chest's deletes and every loot access on the code alone. Found and not cha
 - **A plain right click** takes the item here. That is the original's for the bank, a chest and the overflow; on
   an item of **one's own backpack** the original uses or wears it straight out of the bag (`N3Msg_UseItem` with
   the bag identity), and on a **corpse** it does nothing (list flag 0x400).
+  (2026-11-23, the user: a Shadowlands key did not work from a bag. Done: an item of one's own backpack whose `Can`
+  has 8 is used where it is, the use message with `(0x6b, handle << 16 | place)`, `loot::right_click`; one without it,
+  which `N3Msg_UseItem` wears from the bag, is still taken out. The garden keys themselves have `Can` 1: their text
+  says to pick the key up and click the statue. A bag's item in hand took only the left button's release, and the
+  world's own click code did not know it was in hand: a right click on the statue used the statue alone. Now either
+  button lets it go over the world (`loot::lets_go`, as `gear::world_release`), and the world's buttons wait while it
+  is in hand (`loot::item_in_hand`, as for `gear::held`). Not tried live.)
 Tests: `an_items_menu_follows_its_container`, `a_containers_item_is_deleted_by_the_servers_word`,
 `an_item_is_deleted_by_its_own_identity`.
 

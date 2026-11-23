@@ -9341,6 +9341,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let mut bag_join_seen = 0u8;
         let mut bag_split_seen = 0u8;
         let mut bag_delete_seen = 0u8;
+        let mut bag_use_seen = 0u8;
         let mut cancel_seen = 0u8;
         let mut grid_seen = 0u8;
         let mut signup_seen = 0u8;
@@ -11362,6 +11363,18 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         let _ = connection.send(&n3::delete_item_at(own, item, low, high));
                     }
                     None => eprintln!("[{:6.1}] not deleting place {place} of the container {handle:#x}: it is no longer the item {low}/{high}", clock.elapsed().as_secs_f32()),
+                }
+            }
+            // (an item of one's own backpack used where it is, a right click in its window: Gamecode `N3Msg_UseItem`
+            // sends the use message with the item's own identity, `(0x6b, handle << 16 | place)`, as for an item of the
+            // inventory. A Shadowlands key opens its door from the bag so; until 2026-11-23 it was taken out instead.)
+            if keys.bag_use.0 != bag_use_seen {
+                bag_use_seen = keys.bag_use.0;
+                let (_, handle, place) = keys.bag_use;
+                if state.bags.values().any(|b| b.handle == handle && b.entries.iter().any(|e| e.slot == place)) {
+                    eprintln!("[{:6.1}] using place {place} of the bag {handle:#x}", clock.elapsed().as_secs_f32());
+                    uses += 1;
+                    let _ = connection.send(&n3::use_object(own, uses, (0x6b, handle << 16 | (place & 0xffff))));
                 }
             }
             // An item destroyed: asked of the server (Gamecode `N3Msg_DeleteItem` 0x1001c864); the item leaves the window
