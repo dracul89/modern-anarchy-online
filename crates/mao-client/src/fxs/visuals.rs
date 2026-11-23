@@ -96,6 +96,10 @@ pub struct Draw {
     /// `ZFUNC` always and no depth written: drawn before the world, behind everything.
     pub backdrop: bool,
     pub blend: Blend,
+    /// The blending once it is on, whoever turns it on: the blob itself (then it is `blend`), or the material of a mesh
+    /// drawn under a blob that left it off (`sky_draws`): by the blob's factors, else the device's (source alpha and one
+    /// less it).
+    pub blending: Blend,
     pub cull: bool,
     /// The light when lighting is on (the one the `SunlightType` names, else the ground's), and the ambient render state.
     pub light: Option<Light>,
@@ -151,6 +155,7 @@ fn argb(w: u32) -> [f32; 4] {
 struct Look {
     backdrop: bool,
     blend: Blend,
+    blending: Blend,
     lighting: bool,
     cull: bool,
     ambient: [f32; 3],
@@ -169,18 +174,16 @@ fn look(b: &StateBlob) -> Look {
     let stage = |which: u32| b.stages.iter().rev().find(|s| s[0] == 0 && s[2] == which).map(|s| s[3]);
     let always = state(zfunc) == Some(e("e_D3DCMP_ALWAYS"));
     let no_write = state(zwrite) == Some(e("e_FALSE"));
-    let blend = if state(alpha_on) == Some(e("e_TRUE")) {
-        if state(dest) == Some(e("e_D3DBLEND_ONE")) {
-            // (a source factor of one named: the colour added whole; else as by its alpha, the source factor left to the
-            // device's state, which the suns of Rubi-Ka name nothing for)
-            if state(src) == Some(e("e_D3DBLEND_ONE")) { Blend::AddOne } else { Blend::Add }
-        } else {
-            let _ = state(src);
-            Blend::Alpha
-        }
+    let blending = if state(dest) == Some(e("e_D3DBLEND_ONE")) {
+        // (a source factor of one named: the colour added whole; else as by its alpha, the source factor left to the
+        // device's state, which the suns of Rubi-Ka name nothing for. The destination's alpha as the source factor, which
+        // only the Shadowlands' vortex top names, is one too: the back buffer keeps no alpha, and Direct3D reads a
+        // missing alpha as 1. That the original's back buffer has none is not read from it: an inference.)
+        if state(src) == Some(e("e_D3DBLEND_ONE")) || state(src) == Some(e("e_D3DBLEND_DESTALPHA")) { Blend::AddOne } else { Blend::Add }
     } else {
-        Blend::Opaque
+        Blend::Alpha
     };
+    let blend = if state(alpha_on) == Some(e("e_TRUE")) { blending } else { Blend::Opaque };
     // (the texture factor: the special render state's value, when a stage's alpha takes it)
     let tfactor = b.special.as_ref().map(super::rt_word).unwrap_or(0xffff_ffff);
     let takes_tfactor = [e("e_D3DTSS_ALPHAARG1"), e("e_D3DTSS_ALPHAARG2")].iter().any(|&a| stage(a) == Some(e("e_D3DTA_TFACTOR")));
@@ -196,6 +199,7 @@ fn look(b: &StateBlob) -> Look {
     Look {
         backdrop: always && no_write,
         blend,
+        blending,
         lighting: state(lighting).is_none_or(|v| v != e("e_FALSE")),
         cull: state(cull).is_none_or(|v| v != e("e_D3DCULL_NONE")),
         ambient: state(ambient).map_or([0.0; 3], |w| {
@@ -341,6 +345,7 @@ impl Visuals {
             init_direction: o.variable_named("InitDirection").map_or([0.0, 0.0, 1.0], |v| super::vector_of(&v)),
             backdrop: l.backdrop,
             blend: l.blend,
+            blending: l.blending,
             cull: l.cull,
             light: light.flatten(),
             ambient: l.ambient,
@@ -383,6 +388,7 @@ impl Visuals {
                 init_direction: [0.0, 0.0, 1.0],
                 backdrop: true,
                 blend: Blend::Alpha,
+                blending: Blend::Alpha,
                 cull: false,
                 light: None,
                 ambient: [0.0; 3],
@@ -688,6 +694,38 @@ mod tests {
         assert!(f.draws.iter().any(|d| d.shape == Shape::Mesh("star_dome.abiff".into()) || d.shape == Shape::Mesh("nebulas_sphere.abiff".into())));
         assert!(f.draws.iter().any(|d| d.kind == 5 && matches!(&d.shape, Shape::Triangles(t) if t.len() == 12)));
         assert!(f.lights.ground.is_some());
+    }
+
+    /// Nascense's vortex (`Tweak_Playfield_SL_Nascense.txt`): its blob turns the blending off and the fog on and names no
+    /// factors, so a material of its mesh that turns the blending on is blended by the device's (`blending` Alpha); its
+    /// top's blob adds by the destination's alpha, which a back buffer without alpha makes one: added whole, under a fog
+    /// of black.
+    #[test]
+    fn the_shadowlands_vortex_is_fogged_and_its_top_added() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        super::super::reset();
+        super::super::set_data_path(&std::path::Path::new(&game).join("cd_image"));
+        super::super::load_playfield(4310, 0);
+        // (the expansions an account with the Shadowlands has: with 1 alone the vortex's `Expansion EP01` blocks are not taken)
+        super::super::set_expansion(3);
+        super::super::start_automatic();
+        let (sun1, sun2) = super::super::sun::rotations(0.0);
+        super::super::set_game(&super::super::Game { delta_time: 0.05, sun1, sun2, ..Default::default() });
+        let mut v = Visuals::default();
+        for _ in 0..3 {
+            super::super::frame_process();
+            v.start(super::super::take_started());
+        }
+        let f = v.frame(&super::super::clouds::Sky::default());
+        let named = |name: &str| f.draws.iter().find(|d| d.shape == Shape::Mesh(name.into())).unwrap_or_else(|| panic!("{name}"));
+        let vortex = named("shadowlands_vortex.abiff");
+        assert!(vortex.backdrop && vortex.fogged && vortex.fog_colour.is_none());
+        assert_eq!((vortex.blend, vortex.blending), (Blend::Opaque, Blend::Alpha));
+        let top = named("shadowlands_vortex_bg.abiff");
+        assert!(top.backdrop && top.fogged && top.fog_colour == Some([0.0; 3]));
+        assert_eq!((top.blend, top.blending), (Blend::AddOne, Blend::AddOne));
+        // (the atmosphere adds its fog at `AddFogI` 0.1)
+        assert!(f.fog.is_some_and(|(_, weight)| (weight - 0.1).abs() < 1e-6), "{:?}", f.fog);
     }
 
     /// With the first expansion the outdoor sky's dot stars (`Tweak_Rubi-Ka_DotStars.txt`, `Visualization: e_Render_Dots`)

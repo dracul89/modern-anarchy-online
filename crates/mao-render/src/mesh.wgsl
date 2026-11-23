@@ -208,7 +208,7 @@ fn shade(in: VertexOut) -> vec4<f32> {
     let near = globals.eye.w;
     let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
     let amount = fog * globals.fog.w * (1.0 - flags.z);
-    colour = mix(colour, fog_colour(), amount);
+    colour = fogged_by(colour, amount);
     return vec4<f32>(colour, alpha);
 }
 
@@ -237,9 +237,14 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
     // (under the effect scripts the sky is their domes; what shows between them is the haze colour they gave, as the
     // original's frame is cleared to the fog's colour)
     if scripted() {
-        sky = globals.horizon.rgb;
+        sky = shown_to_light(globals.horizon.rgb);
     }
-    return vec4<f32>(mix(sky, fog_colour(), globals.fog.w * (1.0 - smoothstep(0.5, 1.0, t))), 1.0);
+    let light = fogged_by(sky, globals.fog.w * (1.0 - smoothstep(0.5, 1.0, t)));
+    // (backdrops follow: the picture holds the light's square roots until they are drawn, `particle.wgsl`)
+    if globals.zenith.w > 0.5 {
+        return vec4<f32>(sqrt(max(light, vec3<f32>(0.0))), 1.0);
+    }
+    return vec4<f32>(light, 1.0);
 }
 
 struct WaterOut {
@@ -333,6 +338,6 @@ fn fs_water(in: WaterOut) -> @location(0) vec4<f32> {
     let near = globals.eye.w;
     let fog = clamp((distance(in.world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
     let amount = fog * globals.fog.w;
-    colour = mix(colour, fog_colour(), amount);
+    colour = fogged_by(colour, amount);
     return vec4<f32>(colour, mix(0.62, 0.94, fresnel));
 }

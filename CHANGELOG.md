@@ -8,6 +8,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### World
 
+- The Shadowlands' sky shows its vortex again: a pale swirl round the sun in a blue sky by day, a deep blue one at night, where a flat white, grey or brown sheet covered the sky. The vortex is see-through but for its swirl and was drawn solid, and the haze was far too strong: the game's colours were taken for amounts of light where they are colours as shown. With that put right, far land everywhere keeps its colours in the haze instead of washing out, skies by day are deeper, and Rubi-Ka's night sky and clouds are as dark as the original's.
 - The Shadowlands' sky no longer shows the vortex as a flat grey or brown disc with a hard edge against the blue: the atmosphere around it is hazed as well, as the original's fog does to every sky layer that asks for it.
 - The sky and the distance are hazed by the atmosphere's fog, as in the original: the Shadowlands' vortex is a pale swirl melting into the sky around the sun, where it showed as a dark blue disc with black edges, and far land fades into the haze (lightly on Rubi-Ka, more in the Shadowlands). The atmosphere's fog was taken for its colour only and drawn on nothing.
 - The Shadowlands' sky vortex no longer shows as pale sheets with straight edges: it fades evenly into the fog, as in the original, and its flare glows evenly instead of in wedges.

@@ -10,7 +10,7 @@ struct Globals {
     eye: vec4<f32>,
     // rgb: the sky at the horizon; w: where the area's fog ends.
     horizon: vec4<f32>,
-    // rgb: the sky overhead.
+    // rgb: the sky overhead; w: 1 when backdrops are drawn over the sky (it is written as they are, `particle.wgsl`).
     zenith: vec4<f32>,
     // x: 1 when shadows are drawn; y: a shadow texel in world units;
     // z: the water's level; w: 1 when there is water.
@@ -51,6 +51,28 @@ fn day() -> f32 {
 // world is clear to the far plane, and `fog.w` is 0).
 fn fog_colour() -> vec3<f32> {
     return globals.fog.rgb;
+}
+
+// A colour as shown (the game's own numbers, what Direct3D wrote to the screen) and the light the renderer works in:
+// the sRGB curve both ways.
+fn shown_to_light(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3<f32>(0.0));
+    return select(pow((x + 0.055) / 1.055, vec3<f32>(2.4)), x / 12.92, x <= vec3<f32>(0.04045));
+}
+
+fn light_to_shown(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3<f32>(0.0));
+    return select(1.055 * pow(x, vec3<f32>(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3<f32>(0.0031308));
+}
+
+// A colour faded into the fog by `amount`, as Direct3D did it: the fog's colour is a colour as shown, and the two are
+// mixed as shown colours. (Mixed as light, and the fog's numbers taken for light, a fog of two fifths over dark land came
+// out a pale grey nearly as bright as the full fog: the far land and the Shadowlands' sky were washed out.)
+fn fogged_by(colour: vec3<f32>, amount: f32) -> vec3<f32> {
+    if amount <= 0.0 {
+        return colour;
+    }
+    return shown_to_light(mix(light_to_shown(colour), fog_colour(), amount));
 }
 
 @group(0) @binding(0) var<uniform> globals: Globals;

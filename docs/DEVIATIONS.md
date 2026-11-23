@@ -7913,6 +7913,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `docs/LIVE_TEST_LIST.md:674`; `docs/CLIENT_UI.md:1307`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-19, overnight): Notes only: no rule named. The cause of the Shadowlands sky difference was never found; finding it needs the original's sky and the client's side by side on the same Shadowlands playfield at the same game hour (a live comparison), which cannot be done tonight.
+- Looked at again (2026-11-23): three causes found from the user's shots of both clients at Nascense Frontier and fixed (`docs/CLIENT_UI.md`, the same date): the vortex mesh's own material turns the blending on and it was drawn solid; its top is added whole; and the scripts' and the fog's colours are colours as shown, which the renderer took for light. One departure comes with the fix: the sky's layers are blended in the square roots of the light (a display of gamma 2), not along sRGB's curve, so a blend of two sky layers can differ from the original's by a few steps of 255; a colour drawn alone is exact. Offline pictures only, not tried live.
 
 #### `RND-100` Cargo box doors never open
 

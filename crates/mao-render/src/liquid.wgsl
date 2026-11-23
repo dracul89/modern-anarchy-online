@@ -104,7 +104,7 @@ fn fogged(colour: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
     let near = globals.eye.w;
     let fog = clamp((distance(world, globals.eye.xyz) - near) / max(far - near, 1.0), 0.0, 1.0);
     let amount = fog * globals.fog.w;
-    return mix(colour, fog_colour(), amount);
+    return fogged_by(colour, amount);
 }
 
 @fragment

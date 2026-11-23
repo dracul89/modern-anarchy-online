@@ -599,6 +599,10 @@ pub enum BackdropBlend {
     Add,
     /// `ONE` / `ONE`: the colour added whole, its alpha no weight.
     AddOne,
+    /// Opaque, and faded into the frame's fog by each pixel's depth (Direct3D's fog, before the blending).
+    OpaqueFogged,
+    /// Blended by its alpha, its colour first faded into the frame's fog by each pixel's depth.
+    AlphaFogged,
 }
 
 /// A backdrop: a triangle list of the sky (the effect scripts' domes, moons, suns and clouds), textured with a sprite
@@ -1103,9 +1107,10 @@ struct ScenePipelines {
     /// The shells, added and blended.
     shell_add: wgpu::RenderPipeline,
     shell_blend: wgpu::RenderPipeline,
-    backdrops: [wgpu::RenderPipeline; 4],
+    backdrops: [wgpu::RenderPipeline; 6],
     /// The same for point lists.
-    backdrop_points: [wgpu::RenderPipeline; 4],
+    backdrop_points: [wgpu::RenderPipeline; 6],
+    backdrop_resolve: wgpu::RenderPipeline,
 }
 
 impl ScenePipelines {
@@ -1333,18 +1338,39 @@ impl ScenePipelines {
         let shell_blend = shell_like("vs_shell", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Less);
         let backdrops = [
             shell_like("vs_backdrop", "fs_backdrop_opaque", None, wgpu::CompareFunction::Always),
-            shell_like("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always),
-            shell_like("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
+            shell_like("vs_backdrop", "fs_backdrop_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always),
+            shell_like("vs_backdrop", "fs_backdrop_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
             shell_like("vs_backdrop", "fs_backdrop_add_one", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always),
+            shell_like("vs_backdrop", "fs_backdrop_opaque_fogged", None, wgpu::CompareFunction::Always),
+            shell_like("vs_backdrop", "fs_backdrop_blend_fogged", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always),
         ];
         let point = wgpu::PrimitiveTopology::PointList;
         let backdrop_points = [
             shell_like_drawn("vs_backdrop", "fs_backdrop_opaque", None, wgpu::CompareFunction::Always, point),
-            shell_like_drawn("vs_backdrop", "fs_shell_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always, point),
-            shell_like_drawn("vs_backdrop", "fs_shell_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always, point),
+            shell_like_drawn("vs_backdrop", "fs_backdrop_blend", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always, point),
+            shell_like_drawn("vs_backdrop", "fs_backdrop_add", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always, point),
             shell_like_drawn("vs_backdrop", "fs_backdrop_add_one", Some(wgpu::BlendState { color: additive, alpha: additive }), wgpu::CompareFunction::Always, point),
+            shell_like_drawn("vs_backdrop", "fs_backdrop_opaque_fogged", None, wgpu::CompareFunction::Always, point),
+            shell_like_drawn("vs_backdrop", "fs_backdrop_blend_fogged", Some(wgpu::BlendState::ALPHA_BLENDING), wgpu::CompareFunction::Always, point),
         ];
-        ScenePipelines { mesh, mesh_blend, mesh_blend_no_z, mesh_add, mesh_add_no_z, sky, blit, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops, backdrop_points }
+        // (the backdrops' picture squared back to light: what is there times itself, its alpha kept; `particle.wgsl`)
+        let backdrop_resolve = {
+            let squared = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::Dst, operation: wgpu::BlendOperation::Add };
+            let kept = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add };
+            let t = targets(Some(wgpu::BlendState { color: squared, alpha: kept }), false);
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("backdrop resolve"),
+                layout: Some(&shaders.particle_layout),
+                vertex: wgpu::VertexState { module: particle_shader, entry_point: Some("vs_backdrop_resolve"), compilation_options: Default::default(), buffers: &[] },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: depth(false, wgpu::CompareFunction::Always, Default::default()),
+                multisample,
+                fragment: Some(wgpu::FragmentState { module: particle_shader, entry_point: Some("fs_backdrop_resolve"), compilation_options: Default::default(), targets: &t }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        ScenePipelines { mesh, mesh_blend, mesh_blend_no_z, mesh_add, mesh_add_no_z, sky, blit, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops, backdrop_points, backdrop_resolve }
     }
 }
 
@@ -2346,6 +2372,7 @@ impl Renderer {
         let player_now = [player.x, player.y, player.z, self.started.elapsed().as_secs_f32()];
         let previous_vp = self.previous.unwrap_or(unjittered);
         self.previous = Some(unjittered);
+        let backdrops_follow = scene.backdrops.iter().any(|b| !b.vertices.is_empty());
         let globals = Globals {
             view_proj: view_proj.to_cols_array(),
             current_vp: unjittered.to_cols_array(),
@@ -2358,7 +2385,7 @@ impl Renderer {
             player: player_now,
             eye: [eye.x, eye.y, eye.z, fog_start],
             horizon: [scene.sky.0[0], scene.sky.0[1], scene.sky.0[2], fog_end],
-            zenith: [scene.sky.1[0], scene.sky.1[1], scene.sky.1[2], 0.0],
+            zenith: [scene.sky.1[0], scene.sky.1[1], scene.sky.1[2], backdrops_follow as u32 as f32],
             ambient: [scene.ambient[0], scene.ambient[1], scene.ambient[2], scene.daylight],
             fog: [fog_colour[0], fog_colour[1], fog_colour[2], area],
             script_sun: scene.lighting.map_or([0.0; 4], |(_, s)| [s[0], s[1], s[2], 1.0]),
@@ -2606,12 +2633,22 @@ impl Renderer {
                     BackdropBlend::Alpha => 1,
                     BackdropBlend::Add => 2,
                     BackdropBlend::AddOne => 3,
+                    BackdropBlend::OpaqueFogged => 4,
+                    BackdropBlend::AlphaFogged => 5,
                 };
                 pass.set_pipeline(if b.points { &pipes.backdrop_points[k] } else { &pipes.backdrops[k] });
                 pass.set_bind_group(0, &globals_bind, &[]);
                 pass.set_bind_group(1, self.sprites.get(&b.sprite).unwrap_or(&self.white_sprite), &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..b.vertices.len() as u32, 0..1);
+            }
+            // (the sky and its backdrops were written as square roots of the light, to blend as shown colours do: squared
+            // back before the world is drawn)
+            if backdrops_follow {
+                pass.set_pipeline(&pipes.backdrop_resolve);
+                pass.set_bind_group(0, &globals_bind, &[]);
+                pass.set_bind_group(1, &self.white_sprite, &[]);
+                pass.draw(0..3, 0..1);
             }
             // (the meshes: the opaque parts, then the blended ones one by one in their order)
             pass.set_bind_group(0, &globals_bind, &[]);
@@ -3297,6 +3334,56 @@ mod tests {
         assert_eq!((packed.parts[1].base_vertex, packed.parts[1].first_index), (4, 6));
         let again = renderer.render_to_image(&gpu, &packed, &camera, 160, 120);
         assert_eq!((count(&again, true), count(&again, false)), (count(&image, true), count(&image, false)));
+    }
+
+    /// The backdrops (the effect scripts' sky) are blended as Direct3D blended them, in the colours as shown: a colour
+    /// drawn alone is the one named; two halves added come near white, where added as light they would be a grey; a
+    /// fogged draw far beyond the fog's end is the fog's colour as named, and one not fogged is left as it is.
+    #[test]
+    fn the_backdrops_blend_as_shown_colours() {
+        // (skipped on a machine without a graphics device)
+        let Some((_turn, gpu)) = test_gpu() else { return };
+        // (the eye at (10, 0, 0) looking down -x at a sheet 510 ahead that fills the view)
+        let camera = Camera { target: Vec3::ZERO, distance: 10.0, yaw: 0.0, pitch: 0.0, half_height: None, up: None };
+        let sheet = |colour: [f32; 4], blend: BackdropBlend| {
+            let c = |y: f32, z: f32| ShellVertex { position: [-500.0, y, z], uv: [0.5, 0.5], colour };
+            let (a, b) = (-5000.0, 5000.0);
+            Backdrop { sprite: NO_SPRITE, blend, vertices: vec![c(a, a), c(b, a), c(b, b), c(a, a), c(b, b), c(a, b)], points: false }
+        };
+        let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
+        let mut scene = renderer.upload(&gpu, &Model::default(), &mut |_, _| None);
+        let mut centre = |scene: &Scene| {
+            let image = renderer.render_to_image(&gpu, scene, &camera, 160, 120);
+            let at = (60 * 160 + 80) * 4;
+            [image[at], image[at + 1], image[at + 2]]
+        };
+        // (the picture is light: a shown half is 0.214 of full light, 55 of 255)
+        let light = |shown: f32| (if shown <= 0.04045 { shown / 12.92 } else { ((shown + 0.055) / 1.055).powf(2.4) } * 255.0).round() as i32;
+        let near = |got: [u8; 3], want: [i32; 3]| got.iter().zip(want).all(|(g, w)| (*g as i32 - w).abs() <= 3);
+        let half = [0.5, 0.5, 0.5, 1.0];
+        scene.backdrops = vec![sheet(half, BackdropBlend::Opaque)];
+        let alone = centre(&scene);
+        assert!(near(alone, [light(0.5); 3]), "{alone:?}");
+        // (blended at a half over black: a quarter as shown, where mixed as light it would be 0.107 of full, 27)
+        scene.backdrops = vec![sheet([0.0, 0.0, 0.0, 1.0], BackdropBlend::Opaque), sheet([0.5, 0.5, 0.5, 0.5], BackdropBlend::Alpha)];
+        let mixed = centre(&scene);
+        assert!(mixed[0] < 20 && mixed[0] > 8, "{mixed:?}");
+        // (two halves added: near white)
+        scene.backdrops = vec![sheet(half, BackdropBlend::Opaque), sheet(half, BackdropBlend::AddOne)];
+        let added = centre(&scene);
+        assert!(added.iter().all(|c| *c > 200), "{added:?}");
+        // (a fog of full density ends 5 from the front plane: the sheet is all fog, in the colour named)
+        scene.fog = (40.0, 1000.0);
+        scene.area_fog = Some(([0.2, 0.4, 0.8], 1.0));
+        scene.backdrops = vec![sheet([0.0, 0.0, 0.0, 1.0], BackdropBlend::OpaqueFogged)];
+        let fogged = centre(&scene);
+        assert!(near(fogged, [light(0.2), light(0.4), light(0.8)]), "{fogged:?}");
+        scene.backdrops = vec![sheet(half, BackdropBlend::Opaque), sheet([0.0, 0.0, 0.0, 0.5], BackdropBlend::AlphaFogged)];
+        let through = centre(&scene);
+        assert!(through[2] > through[0] + 20 && through[2] < fogged[2], "{through:?}");
+        scene.backdrops = vec![sheet([0.0, 0.0, 0.0, 1.0], BackdropBlend::Opaque)];
+        let clear = centre(&scene);
+        assert!(clear.iter().all(|c| *c < 3), "{clear:?}");
     }
 
     #[test]

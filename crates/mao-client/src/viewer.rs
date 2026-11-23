@@ -3817,14 +3817,15 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
     let (mut backdrops, mut shells) = (Vec::new(), Vec::new());
     for d in &frame.draws {
         let m = visuals::place(d, eye, forward, distance);
-        let mut parts: Vec<(u16, Vec<mao_render::ShellVertex>)> = Vec::new();
+        // (each part with its blending: the draw's, or its own material's over a blob that left the blending off)
+        let mut parts: Vec<(u16, Vec<mao_render::ShellVertex>, Blend)> = Vec::new();
         let scaled = |c: [f32; 4]| [c[0] * d.factor[0], c[1] * d.factor[1], c[2] * d.factor[2], c[3] * d.factor[3]];
         // (a point list stays one: `BlueprintRender`'s dots)
         let points = matches!(d.shape, Shape::Points(_));
         match &d.shape {
             Shape::Triangles(t) | Shape::Points(t) => {
                 let sprite = d.texture.as_deref().map_or(mao_render::NO_SPRITE, |n| named_sheet(c.named, renderer, n));
-                parts.push((sprite, t.iter().map(|v| mao_render::ShellVertex { position: world(visuals::transform(&m, v.pos)), uv: visuals::texture_uv(d, v.uv), colour: scaled(v.colour) }).collect()));
+                parts.push((sprite, t.iter().map(|v| mao_render::ShellVertex { position: world(visuals::transform(&m, v.pos)), uv: visuals::texture_uv(d, v.uv), colour: scaled(v.colour) }).collect(), d.blend));
             }
             Shape::Mesh(name) => {
                 let Some(model) = c.meshes.entry(name.clone()).or_insert_with(|| textures.mesh_named(name)).as_ref() else { continue };
@@ -3883,79 +3884,74 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
                             mao_render::ShellVertex { position: world(p), uv: visuals::texture_uv(d, v.uv), colour: scaled(colour) }
                         })
                         .collect();
-                    parts.push((sprite, vertices));
+                    // (the mesh is rasterised after the blob is set (`VisualGenericMeshObject`'s draw, DisplaySystem
+                    // FUN_1005c334: `blob_set`, then the visual's rasterising), and each of its materials sets its own
+                    // delta state over the blob's: one that turns the blending on (`ALPHABLENDENABLE`, as the
+                    // Shadowlands' vortex's does) is blended although its blob turned it off, by the factors the blob
+                    // left; one that also names the destination one is added. Drawn opaque, the vortex, whose texture
+                    // is see-through but for its swirl, was a black sheet over the atmosphere's blue.)
+                    let blend = match (d.blend, part.material.blend) {
+                        (Blend::Opaque, mao_formats::model::Blend::Alpha) => d.blending,
+                        (Blend::Opaque, mao_formats::model::Blend::Add) => Blend::Add,
+                        (own, _) => own,
+                    };
+                    parts.push((sprite, vertices, blend));
                 }
             }
         }
         if std::env::var_os("MAO_SKY_DEBUG").is_some() {
-            let el: Vec<f32> = parts.iter().flat_map(|(_, v)| v.iter()).map(|v| {
+            let el: Vec<f32> = parts.iter().flat_map(|(_, v, _)| v.iter()).map(|v| {
                 let r = [v.position[0] - eye[0], v.position[1] - eye[2], v.position[2] - eye[1]];
                 (r[2] / (r[0] * r[0] + r[1] * r[1]).sqrt()).atan().to_degrees()
             }).collect();
             let (lo, hi) = el.iter().fold((f32::MAX, f32::MIN), |(a, b), &x| (a.min(x), b.max(x)));
-            let far = parts.iter().flat_map(|(_, v)| v.iter()).map(|v| ((v.position[0] - eye[0]).powi(2) + (v.position[1] - eye[2]).powi(2) + (v.position[2] - eye[1]).powi(2)).sqrt()).fold((f32::MAX, 0.0f32), |(a, b), x| (a.min(x), b.max(x)));
+            let far = parts.iter().flat_map(|(_, v, _)| v.iter()).map(|v| ((v.position[0] - eye[0]).powi(2) + (v.position[1] - eye[2]).powi(2) + (v.position[2] - eye[1]).powi(2)).sqrt()).fold((f32::MAX, 0.0f32), |(a, b), x| (a.min(x), b.max(x)));
             eprintln!("sky draw {} sorting {}: elevations {lo:.1}..{hi:.1} distances {:.0}..{:.0} fogged {} {:?}", d.kind, d.sorting, far.0, far.1, d.fogged, d.fog_colour);
-            let colours: Vec<[f32; 4]> = parts.iter().filter_map(|(_, v)| v.first().map(|v| v.colour)).collect();
-            eprintln!("  shape {:?} blend {:?} backdrop {} factor {:?} texture {:?} light {} material {} parts {:?} first colours {:.2?}", match &d.shape { Shape::Mesh(n) => n.clone(), Shape::Triangles(t) => format!("{} triangles", t.len() / 3), Shape::Points(t) => format!("{} points", t.len()) }, d.blend, d.backdrop, d.factor, d.texture, d.light.is_some(), d.material.is_some(), parts.iter().map(|(s, v)| (*s, v.len())).collect::<Vec<_>>(), colours);
+            let colours: Vec<[f32; 4]> = parts.iter().filter_map(|(_, v, _)| v.first().map(|v| v.colour)).collect();
+            eprintln!("  shape {:?} blend {:?} backdrop {} factor {:?} texture {:?} light {} material {} parts {:?} first colours {:.2?}", match &d.shape { Shape::Mesh(n) => n.clone(), Shape::Triangles(t) => format!("{} triangles", t.len() / 3), Shape::Points(t) => format!("{} points", t.len()) }, d.blend, d.backdrop, d.factor, d.texture, d.light.is_some(), d.material.is_some(), parts.iter().map(|(s, v, _)| (*s, v.len())).collect::<Vec<_>>(), colours);
         }
-        for (sprite, mut vertices) in parts {
+        for (sprite, mut vertices, part_blend) in parts {
             if d.backdrop {
-                let blend = match d.blend {
+                let mut blend = match part_blend {
                     Blend::Opaque => mao_render::BackdropBlend::Opaque,
                     Blend::Alpha => mao_render::BackdropBlend::Alpha,
                     Blend::Add => mao_render::BackdropBlend::Add,
                     Blend::AddOne => mao_render::BackdropBlend::AddOne,
                 };
-                // (a draw whose blob turns the fog on fades into it by how far it is from the eye: the Shadowlands' vortex
-                // dome, a quarter to a half of the view distance out, which under an area's fog shows as that fog's colour
-                // towards the horizon and as itself overhead; drawn without it, it was an opaque blue sheet over the whole
-                // sky. The colour times what the fog leaves, then the fog's own share added over it; a fog of black, which
-                // some blobs set, is the first alone. The fog is the world's own, `sky_fog`, so the dome meets the far
-                // ground.)
-                let mut haze: Option<mao_render::Backdrop> = None;
-                if let (true, Some((world_fog, start, end, _))) = (d.fogged, fog) {
-                    let colour = d.fog_colour.unwrap_or(world_fog);
-                    let black = colour.iter().all(|c| *c <= 0.0);
-                    // (Direct3D's fog takes the colour towards the fog's before the blending, whatever the blending: an
-                    // alpha-blended draw is fogged too, its fog's share then weighed by its alpha as its colour is. Until
-                    // 2026-11-23 only opaque draws were: the Shadowlands' atmosphere, alpha-blended with its fog on, stayed
-                    // clear round the fogged vortex, which showed as a flat grey disc with a hard edge.)
-                    let alpha = d.blend == Blend::Alpha;
-                    if black || d.blend == Blend::Opaque || alpha {
-                        // (the original's fog is randy31's vertex fog, linear (`SetFogParameters`: `FOGVERTEXMODE` 3, no
-                        // table mode) and by the vertex's depth along the view, range fog being off (`RANGEFOGENABLE`
-                        // 0 among the device's first states): a disc facing the eye is fogged evenly. By the distance to
-                        // each corner, and eased, the vortex's few large triangles each took a fog of their own and
-                        // showed as pale sheets with straight edges across the Shadowlands' sky (the user, 2026-11-21))
+                // (a draw whose blob turns the fog on fades into it by its depth, as the world does: Direct3D's fog takes
+                // the colour towards the fog's before the blending, whatever the blending. The fog is the frame's own,
+                // `sky_fog`: randy31's vertex fog, linear (`SetFogParameters`: `FOGVERTEXMODE` 3, no table mode) and by
+                // the depth along the view, range fog being off (`RANGEFOGENABLE` 0 among the device's first states).
+                // An opaque or alpha-blended draw in the frame's fog colour is fogged by the renderer, each pixel by
+                // its depth and in the colours as they are shown, as Direct3D mixes them (`OpaqueFogged`,
+                // `AlphaFogged`). A fog of black, which the blobs of the added draws set, only darkens the colour: by
+                // each corner's depth here. The colours go to the renderer as the scripts name them: it blends the
+                // backdrops as shown colours (`particle.wgsl`). Until 2026-11-23 the fog's share was a second, added
+                // draw: it took no account of the texture's alpha, and it and the fog's colour were mixed as light,
+                // not as shown colours, which made a fog of two fifths look like one of four.)
+                if let (true, Some((_, start, end, _))) = (d.fogged, fog) {
+                    if d.fog_colour.is_some_and(|c| c.iter().all(|c| *c <= 0.0)) {
                         let ahead = [forward[0], forward[2], forward[1]];
-                        let amounts: Vec<f32> = vertices
-                            .iter()
-                            .map(|v| {
-                                let r = [v.position[0] - eye[0], v.position[1] - eye[2], v.position[2] - eye[1]];
-                                let depth = r[0] * ahead[0] + r[1] * ahead[1] + r[2] * ahead[2];
-                                ((depth - start) / (end - start).max(1.0)).clamp(0.0, 1.0)
-                            })
-                            .collect();
-                        for (v, f) in vertices.iter_mut().zip(&amounts) {
+                        for v in &mut vertices {
+                            let r = [v.position[0] - eye[0], v.position[1] - eye[2], v.position[2] - eye[1]];
+                            let depth = r[0] * ahead[0] + r[1] * ahead[1] + r[2] * ahead[2];
+                            let f = ((depth - start) / (end - start).max(1.0)).clamp(0.0, 1.0);
                             for c in &mut v.colour[..3] {
                                 *c *= 1.0 - f;
                             }
                         }
-                        if !black {
-                            haze = Some(mao_render::Backdrop {
-                                sprite: mao_render::NO_SPRITE,
-                                blend: mao_render::BackdropBlend::Add,
-                                vertices: vertices.iter().zip(&amounts).map(|(v, f)| mao_render::ShellVertex { position: v.position, uv: [0.5, 0.5], colour: [colour[0], colour[1], colour[2], if alpha { f * v.colour[3] } else { *f }] }).collect(),
-                                points,
-                            });
-                        }
+                    } else if d.fog_colour.is_none() {
+                        blend = match blend {
+                            mao_render::BackdropBlend::Opaque => mao_render::BackdropBlend::OpaqueFogged,
+                            mao_render::BackdropBlend::Alpha => mao_render::BackdropBlend::AlphaFogged,
+                            other => other,
+                        };
                     }
                 }
                 backdrops.push(mao_render::Backdrop { sprite, blend, vertices, points });
-                backdrops.extend(haze);
             } else if !points {
                 // (the shells are triangle lists: a point list drawn with the depth test has none to go to; no script has one)
-                shells.push(mao_render::Shell { sprite, additive: matches!(d.blend, Blend::Add | Blend::AddOne), vertices });
+                shells.push(mao_render::Shell { sprite, additive: matches!(part_blend, Blend::Add | Blend::AddOne), vertices });
             }
         }
     }
