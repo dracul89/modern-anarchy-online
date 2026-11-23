@@ -1412,3 +1412,5 @@ steps run, a fight).
   quit, start again: each is where it was left.
 - [ ] **1** Press PLAY in the launcher: the login window comes up with the hall drawn, no white box first; logging in
   and going to the character list shows none either.
+- [ ] **1** Zone a few times (a Whom-Pah, a door into a building, a grid exit): no red box where your character stands
+  as the new playfield appears; your character is there in its clothes from the first picture.

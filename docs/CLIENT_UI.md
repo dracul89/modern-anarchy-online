@@ -8741,3 +8741,7 @@ the same every frame, with flag 0x4 set or not).
 **Not done.** The client still adds every quad. Template 7100 (flag 0x1000: a `GfxVisualSprite3` not added, which the
 original draws `DESTCOLOR`, `SRCCOLOR`, a doubled darkening) and a template with flag 0x4 set (none in the file) would
 blend otherwise in the original. Not seen in the live game yet (LIVE_TEST_LIST).
+
+## One's own character as a red box after a zoning (2026-11-21, the user's report)
+
+"When zoning the character is drawn as a red box at first (possible race condition)." A zoning cleared every character's appearance (`state.infos`), one's own too, and set one's own place again at once; the loading picture lets go when the new playfield is drawn, and when that came before the server's full update for one's own character in the new playfield, `overlay_model` had a place and no body and drew the client's stand-in: a 0.6 x 1.8 box, red for one's own (blue for others, green for players). Now one's own appearance is kept across the zoning (the full update replaces it), and one's own character with no body to draw is drawn as nothing, as the original has no such box; the others keep their stand-ins (a creature this client has no body for). Test: `net::door_tests::ones_own_character_without_a_body_is_not_a_red_box`. Not tried live.

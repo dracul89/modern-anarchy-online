@@ -6,6 +6,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### World
+
+- After zoning, your character is no longer drawn as a red box for a moment: your own look is kept across the zoning, and your character is never drawn as the client's stand-in box.
+
 ### Interface
 
 - No white box when the login window opens: it now appears with the login hall already drawn. It was put on the screen empty for about half a second while the graphics started, and Windows filled it white.

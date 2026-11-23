@@ -8032,7 +8032,12 @@ fn overlay_model(world: &World, props: &BTreeMap<u32, (u32, [f32; 3], [f32; 4])>
                 eprintln!("no model: {id:#x} {:?} template {:x?} breed {:?} humanoid {:?} flags {:x?}", world.names.get(&id).map(|n| n.0.as_str()), info.and_then(|i| i.template), info.map(|i| i.breed), info.map(|i| i.is_humanoid()), info.map(|i| i.flags));
             }
         }
-        model.instances.push((if id == world.own { 0 } else if player { 3 } else { 1 }, place));
+        // (one's own character with no body to draw for the moment is drawn as nothing, as the original has no such box:
+        // the red stand-in showed at a zoning, before the new playfield's full update; the others keep theirs)
+        if id == world.own {
+            continue;
+        }
+        model.instances.push((if player { 3 } else { 1 }, place));
         model.instances.push((2, place));
     }
     // The machines (shop booths): one copy of each model's parts, an instance of each per machine.
@@ -9759,7 +9764,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     state.last_seen.clear_all();
                     state.speeds.clear_all();
                     state.names.clear_all();
+                    // (one's own appearance is kept: the server's full update in the new playfield replaces it, and until
+                    // that came, the playfield drawn first showed one's own character as the red stand-in box)
+                    let own_info = state.infos.remove(&own);
                     state.infos.clear_all();
+                    if let Some(info) = own_info {
+                        state.infos.insert(own, info);
+                    }
                     state.rotations.clear_all();
                     state.entities.clear();
                     state.props.clear();
@@ -14418,6 +14429,18 @@ fn parse_capture_world(log: &str) -> Result<World, String> {
 #[cfg(test)]
 mod door_tests {
     use super::*;
+
+    /// One's own character with a place but no body yet (a zoning, before the new playfield's full update) is drawn as
+    /// nothing, not as the red stand-in box; another character in the same state keeps its stand-in.
+    #[test]
+    fn ones_own_character_without_a_body_is_not_a_red_box() {
+        let mut world = World { own: 7, ..World::default() };
+        world.entities.insert(7, ([10.0, 0.0, 10.0], 0));
+        world.entities.insert(8, ([12.0, 0.0, 10.0], 0));
+        let (model, _, _) = overlay_model(&world, &BTreeMap::new(), &mut None, &|_| true, false);
+        assert!(!model.instances.iter().any(|(part, _)| *part == 0));
+        assert_eq!(model.instances.iter().filter(|(part, _)| *part == 1).count(), 1);
+    }
 
     /// A worn mesh's place names its attractor by the whole name (AttractorMesh::GetName's table): the head's place
     /// (and a mesh standing in for the head) the head, 5 the back, 14 the left forearm; nothing past the table.
