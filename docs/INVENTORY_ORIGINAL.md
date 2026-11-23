@@ -181,7 +181,7 @@ So: armour, weapons and implants are worn / taken off by the right click, decide
     0x100c757b deletes the view) **[V GC 10087f63, 1007e6e2, 1003f61c; GUI 100c757b]**. That the server answers a second use with
     0x66 is the server's doing **[NF in the client]**.
   - Picking the bag up in the inventory (FUN_100cc6e8) or from the shortcut bar (FUN_100d8837): `CloseContainer` (0x100c7548 -> vtable `+0xfc`) **[V]**.
-  - A teleport closes all (`SlotTeleportStarted` 0x100c7523) **[V]**.
+  - A teleport closes all (`SlotTeleportStarted` 0x100c7523: each view deleted, nothing sent) **[V]**. Ported 2026-11-23.
   - Moving away: Gamecode's FUN_1003f8fc walks the open containers and closes a chest that is not one's own or not reachable,
     a character's more than 3 away, the bank when not at a terminal **[V GC 1003f8fc]**.
   - Escape closes them when `esc_backpacks` / `esc_chests` / `esc_corpses` (all default true; `esc_inventory` false) **[V 100ccefe, LoginPrefs.xml]**.

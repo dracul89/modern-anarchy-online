@@ -1427,6 +1427,8 @@ steps run, a fight).
   never lying on the ground; the buff bots of a city square stand between their casts.
 - [ ] **1** Jobe Research and a Shadowlands playfield, day and night: the vortex in the sky fades evenly, no pale
   sheets with straight edges; its flare glows without wedges.
+- [ ] **1** Zone with a bag's window open: every container window closes. Open the bag again, then use a Shadowlands
+  key from it on a Statue of Transit or a garden statue: you are taken in.
 - [ ] **1** A Shadowlands garden key (or the Temple of Three Winds key) inside a bag: take it up from the bag's window and
   right-click (then, another time, left-click) its statue: you are taken in. A usable item in a bag (a stim, a
   recharger) right-clicked in the bag's window is used there and stays in the bag.

@@ -9808,10 +9808,21 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     // (the overflow goes with the character's object, made anew empty in the new playfield, and its
                     // window with the other containers', FUN_1005aa4f)
                     state.overflow.clear();
-                    if state.loots.iter().any(|l| l.identity.0 == crate::loot::OVERFLOW) {
-                        state.loots.retain(|l| l.identity.0 != crate::loot::OVERFLOW);
+                    // (a teleport closes every container window, one's own bags too: GUI.dll's `SlotTeleportStarted`
+                    // (0x100c7523) deletes each view and sends nothing. The server no longer counts a bag as open after
+                    // the zoning: an item of it is used only once the bag has been used, opened, again. Until 2026-11-23
+                    // the bags' windows stayed up and a reopening sent nothing, so a Shadowlands key out of a bag was
+                    // refused, or accepted to no effect, at the statues past the first zoning; the original's capture
+                    // uses the bag (inventory place 0x4d) a few seconds before each key.)
+                    if !state.loots.is_empty() {
+                        state.loots.clear();
                         state.loot_changed = true;
                     }
+                    if !state.bags.is_empty() {
+                        state.bags.clear();
+                        state.bags_changed = true;
+                    }
+                    state.silent_bags.clear();
                     // (a new playfield makes the characters anew: their spell queues go and their state flags start again from
                     // stat 224, FUN_1004496c)
                     state.spell_queue = Default::default();

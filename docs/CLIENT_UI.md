@@ -5562,6 +5562,15 @@ and a chest's deletes and every loot access on the code alone. Found and not cha
   world's own click code did not know it was in hand: a right click on the statue used the statue alone. Now either
   button lets it go over the world (`loot::lets_go`, as `gear::world_release`), and the world's buttons wait while it
   is in hand (`loot::item_in_hand`, as for `gear::held`). Not tried live.)
+  (Later the same night, the user: still refused past a zoning, and it works in the original. The original's capture
+  uses the bag (inventory place 0x4d) a few seconds before each key use from it (#7796, #11287): the server lets
+  items of a bag be used only while it counts the bag as open, and a zoning ends that. GUI.dll's
+  `SlotTeleportStarted` (0x100c7523) deletes every container view at a teleport and sends nothing, so the player
+  opens the bag again, which sends its use. Here the windows stayed up and a reopening sent nothing (INVENTORY_ORIGINAL
+  #6): a bag key was accepted to no effect in Inferno and refused at the garden's Statue of Transit, and the same
+  key worked from the inventory. Now the zoning closes every container window (`net.rs`, the zoning: `bags`, `loots`
+  and `silent_bags` emptied). Still not ported: a second use of an open bag and a window's close sending the use
+  again (FUN_100cae1b, FUN_100ca891). Not tried live.)
 Tests: `an_items_menu_follows_its_container`, `a_containers_item_is_deleted_by_the_servers_word`,
 `an_item_is_deleted_by_its_own_identity`.
 
