@@ -3916,7 +3916,12 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
                 if let (true, Some((world_fog, start, end, _))) = (d.fogged, fog) {
                     let colour = d.fog_colour.unwrap_or(world_fog);
                     let black = colour.iter().all(|c| *c <= 0.0);
-                    if black || d.blend == Blend::Opaque {
+                    // (Direct3D's fog takes the colour towards the fog's before the blending, whatever the blending: an
+                    // alpha-blended draw is fogged too, its fog's share then weighed by its alpha as its colour is. Until
+                    // 2026-11-23 only opaque draws were: the Shadowlands' atmosphere, alpha-blended with its fog on, stayed
+                    // clear round the fogged vortex, which showed as a flat grey disc with a hard edge.)
+                    let alpha = d.blend == Blend::Alpha;
+                    if black || d.blend == Blend::Opaque || alpha {
                         // (the original's fog is randy31's vertex fog, linear (`SetFogParameters`: `FOGVERTEXMODE` 3, no
                         // table mode) and by the vertex's depth along the view, range fog being off (`RANGEFOGENABLE`
                         // 0 among the device's first states): a disc facing the eye is fogged evenly. By the distance to
@@ -3940,7 +3945,7 @@ fn sky_draws(frame: &crate::fxs::visuals::Frame, eye: [f32; 3], forward: [f32; 3
                             haze = Some(mao_render::Backdrop {
                                 sprite: mao_render::NO_SPRITE,
                                 blend: mao_render::BackdropBlend::Add,
-                                vertices: vertices.iter().zip(&amounts).map(|(v, f)| mao_render::ShellVertex { position: v.position, uv: [0.5, 0.5], colour: [colour[0], colour[1], colour[2], *f] }).collect(),
+                                vertices: vertices.iter().zip(&amounts).map(|(v, f)| mao_render::ShellVertex { position: v.position, uv: [0.5, 0.5], colour: [colour[0], colour[1], colour[2], if alpha { f * v.colour[3] } else { *f }] }).collect(),
                                 points,
                             });
                         }

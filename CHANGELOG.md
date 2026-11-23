@@ -8,6 +8,7 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ### World
 
+- The Shadowlands' sky no longer shows the vortex as a flat grey or brown disc with a hard edge against the blue: the atmosphere around it is hazed as well, as the original's fog does to every sky layer that asks for it.
 - The sky and the distance are hazed by the atmosphere's fog, as in the original: the Shadowlands' vortex is a pale swirl melting into the sky around the sun, where it showed as a dark blue disc with black edges, and far land fades into the haze (lightly on Rubi-Ka, more in the Shadowlands). The atmosphere's fog was taken for its colour only and drawn on nothing.
 - The Shadowlands' sky vortex no longer shows as pale sheets with straight edges: it fades evenly into the fog, as in the original, and its flare glows evenly instead of in wedges.
 - Casting a nano that takes time no longer leaves the caster lying on the ground as if dead: after the cast the character stands (or walks) again. It struck everyone who cast, buff bots included.
