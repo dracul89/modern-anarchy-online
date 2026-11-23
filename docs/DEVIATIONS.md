@@ -9729,6 +9729,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `crates/mao-client/src/hotbar.rs:273`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-19, overnight): As SET-001: the original's shortcut bars live in its own per-character config files, which the client does not write; hotbar.ini is the client's copy. Writing the original's archive format into the client's folder would change only the format; left.
+- Note (2026-11-23): `hotbar.ini` and `shortcutbars.ini` are now each character's own (`chars/<character id>/` beside `mao.ini`, `charprefs.rs`), as the original keeps its bars in the character's `Containers/`, and so are `NumHotbars` and `LockHotbars` (`character.ini`); a character's first start copies the shared files. The format is still the client's own.
 
 #### `SET-003` New windows start at the original client's frame, scaled; another character's layout used
 

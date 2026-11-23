@@ -270,7 +270,7 @@ pub fn from_text(text: &str) -> Hotbars {
 }
 
 pub fn path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("hotbar.ini")
+    crate::charprefs::file("hotbar.ini")
 }
 
 pub fn load() -> Hotbars {

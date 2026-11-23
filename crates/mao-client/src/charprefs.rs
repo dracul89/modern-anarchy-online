@@ -16,7 +16,8 @@
 //! `chars/<character id>/` beside it once the character is known (`net::live`'s start, before the game's window draws
 //! anything: the game process is started for one character). The files there are [`FILES`]. On a character's first
 //! start each of its files is copied from the shared one beside `mao.ini` (the setup every character shared before
-//! the split), so nobody starts from nothing; from then on the character's own files are read and written, and the
+//! the split), so nobody starts from nothing (and `character.ini`, the settings of `mao.ini` the original keeps per
+//! character, from `mao.ini`'s: `settings.rs`); from then on the character's own files are read and written, and the
 //! shared ones are left as they are, the seed of the next new character. (The original starts a new character from
 //! `CharPrefs.xml`'s defaults; the seeding is this client's, for the players who set up their windows here before.)
 //!
@@ -39,6 +40,10 @@ pub const FILES: &[&str] = &[
     "docks.ini",
     "pins.ini",
     "chatwindows.ini",
+    // (the bars: the original's shortcut bars, this client's smart hotbars; their number and lock are in the
+    // character's `character.ini`, `settings.rs`)
+    "shortcutbars.ini",
+    "hotbar.ini",
 ];
 
 static CHARACTER: Mutex<Option<u32>> = Mutex::new(None);

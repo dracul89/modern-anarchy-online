@@ -1443,3 +1443,7 @@ steps run, a fight).
   pin one, change the side column, log out. Enter with a second character: its windows stand where they all stood
   before, not where the first character left them. Move them elsewhere, log out; each character finds its own
   places at the next start.
+- [ ] **1** Shortcut bars per character: on one character put something new on a bar, show a second bar from the
+  option panel (Number of shortcut bars) and lock them; log out. A second character starts with the bars as they
+  all were before, one bar, unlocked (or as `mao.ini` had them). Each keeps its own bars at the next start;
+  `chars/<id>/character.ini` holds `hotbars` and `lock_hotbars`.

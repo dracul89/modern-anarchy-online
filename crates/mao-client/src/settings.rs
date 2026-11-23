@@ -755,6 +755,9 @@ pub struct Settings {
 pub const DEFAULT_PLANET_MAP: &str = "SaavicksMap/saavicksmap.txt";
 pub const DEFAULT_SHADOWLANDS_MAP: &str = "SLmap/SLmap.txt";
 
+/// The character's own settings file in its folder (`charprefs.rs`), [`Settings::character_text`].
+const CHARACTER_FILE: &str = "character.ini";
+
 impl Default for Settings {
     fn default() -> Self {
         Settings { mode: WindowMode::Windowed, width: 1280, height: 800, adapter: String::new(), game_dir: String::new(), fps_limit: 0, background_fps: 30, shadows: mao_render::Shadows::High, texture_compression: true, monitor: 0, vsync: false, render_scale: 1.0, sharpness: 0.2, antialiasing: mao_render::Antialiasing::default(), ui_scale: 1.0, view_distance: 1800.0, char_distance: 0.0, auto_loot: false, theme: "original".into(), aou_mod: String::new(), gui_dir: String::new(), debug_overlay: false, perf_overlay: false, log_messages: false, original_font: true, own_map: true, smart_hotbar: false, hotbars: 1, lock_hotbars: false, camera_mode: "lock".into(), planet_map: DEFAULT_PLANET_MAP.into(), shadowlands_map: DEFAULT_SHADOWLANDS_MAP.into(), pet_buttons: true, fixed_pet_buttons: false, remember_pet_names: true, keymap: Keymap::default() }
@@ -853,7 +856,7 @@ impl Settings {
     pub fn to_text(&self) -> String {
         let mut out = String::from("; Modern Anarchy Online settings\n[window]\n; windowed | borderless | fullscreen (F11 / Alt+Enter change it while playing)\n");
         out += &format!("mode = {}\nwidth = {}\nheight = {}\n; the graphics device (empty: the system's choice; the launcher's settings list them)\nadapter = {}\nvsync = {}\n; the most frames a second (0: no limit), and while the window is not in front (0: the same)\nfps_limit = {}\nbackground_fps = {}\n; off | low | medium | high\nshadows = {}\n; the textures block-compressed on the graphics card (a quarter of the video memory, a little longer to load)\ntexture_compression = {}\n; the monitor a borderless or full-screen window covers (0: the window's own)\nmonitor = {}\nrender_scale = {}\nsharpness = {}\nantialiasing = {}\nui_scale = {}\nview_distance = {}\nchar_distance = {}\nauto_loot = {}\n\n", self.mode.name(), self.width, self.height, self.adapter, if self.vsync { "on" } else { "off" }, self.fps_limit, self.background_fps, self.shadows.name(), if self.texture_compression { "on" } else { "off" }, self.monitor, self.render_scale, self.sharpness, self.antialiasing.name(), self.ui_scale, self.view_distance, self.char_distance, if self.auto_loot { "on" } else { "off" });
-        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the frame rate, processor, memory and graphics card over the game (/perf)\nperf_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n; the planet maps: an index file under a maps' folder (the client's PlanetMap folder, then the game's textures/PlanetMap)\nplanet_map = {}\nshadowlands_map = {}\n; the shortcut bars: the original's (smart_hotbar = off; how many show, 1 to 10, and whether they are locked) or this client's smart hotbars\nsmart_hotbar = {}\nhotbars = {}\nlock_hotbars = {}\n; this client's own round corner map and its overlay (on), beside the original's square playfield map window (the Map menu)\nround_map = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.perf_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode, self.planet_map, self.shadowlands_map, if self.smart_hotbar { "on" } else { "off" }, self.hotbars, if self.lock_hotbars { "on" } else { "off" }, if self.own_map { "on" } else { "off" });
+        out += &format!("[interface]\n; built-in | original | aou_translucent | aou_cyt | aou_slim_cni | aou_slim_cnt | a folder with GUIColors.xml\ntheme = {}\n; the AOU mod's folder (the one with Gui in it), for its themes\naou_mod = {}\n; a skin folder (Graphics.uvga and Graphics.uvgi, as the original's Gui/<skin> folders), used before the theme's and the game's own pictures\ngui_dir = {}\n; show the location and coordinates, the frame rate and key hints over the game (for developers)\ndebug_overlay = {}\n; the frame rate, processor, memory and graphics card over the game (/perf)\nperf_overlay = {}\n; the chat lines in the original's own bitmap font\noriginal_font = {}\n; the third-person camera: lock (stays behind the character), rubber (swings round behind it), trail (slowly)\ncamera_mode = {}\n; the planet maps: an index file under a maps' folder (the client's PlanetMap folder, then the game's textures/PlanetMap)\nplanet_map = {}\nshadowlands_map = {}\n; the shortcut bars: the original's (smart_hotbar = off; how many show, 1 to 10, and whether they are locked: each character keeps its own in chars/<id>/character.ini, these start a new character) or this client's smart hotbars\nsmart_hotbar = {}\nhotbars = {}\nlock_hotbars = {}\n; this client's own round corner map and its overlay (on), beside the original's square playfield map window (the Map menu)\nround_map = {}\n\n", self.theme, self.aou_mod, self.gui_dir, if self.debug_overlay { "on" } else { "off" }, if self.perf_overlay { "on" } else { "off" }, if self.original_font { "on" } else { "off" }, self.camera_mode, self.planet_map, self.shadowlands_map, if self.smart_hotbar { "on" } else { "off" }, self.hotbars, if self.lock_hotbars { "on" } else { "off" }, if self.own_map { "on" } else { "off" });
         out += &format!("; the pet window: the buttons beside each pet's bar, and the pets in fixed rows by their kind\npet_buttons = {}\nfixed_pet_buttons = {}\n; a pet that comes is given the name last kept for its kind\nremember_pet_names = {}\n\n", if self.pet_buttons { "on" } else { "off" }, if self.fixed_pet_buttons { "on" } else { "off" }, if self.remember_pet_names { "on" } else { "off" });
         out += &format!("[game]\n; the original game's folder (the one with cd_image in it); the launcher's settings set it\ndir = {}\n\n", self.game_dir);
         out += &crate::helpwindow::settings_text();
@@ -982,14 +985,65 @@ impl Settings {
         settings
     }
 
-    /// Writes the settings to the file (what the options window does).
+    /// Writes the settings to the file (what the options window does). In the game, the settings the original keeps
+    /// per character go to the character's own file ([`Settings::character_text`]), and `mao.ini` keeps what it had
+    /// for them: the start of the next new character.
     pub fn save(&self) {
         let path = Settings::path();
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        if let Err(e) = std::fs::write(&path, self.to_text()) {
+        let mut shared = self.clone();
+        if let Some(own) = Settings::character_file() {
+            if let Err(e) = std::fs::write(&own, self.character_text()) {
+                eprintln!("can't save the character's settings to {}: {e}", own.display());
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                shared.apply_character(&text);
+            }
+        }
+        if let Err(e) = std::fs::write(&path, shared.to_text()) {
             eprintln!("can't save the settings to {}: {e}", path.display());
+        }
+    }
+
+    /// The character's own settings file once the character is known (`charprefs.rs`; never in the tests).
+    fn character_file() -> Option<PathBuf> {
+        (!cfg!(test) && crate::charprefs::character().is_some()).then(|| crate::charprefs::file(CHARACTER_FILE))
+    }
+
+    /// The settings the original keeps per character, among the values of its `CharPrefs.xml` (saved in the
+    /// character's `Prefs.xml`): how many shortcut bars show (`NumHotbars`) and whether they are locked (`LockHotbars`).
+    /// The rest of `mao.ini` is the install's or the account's (`MainPrefs.xml`, `LoginPrefs.xml`) or this client's own.
+    pub fn character_text(&self) -> String {
+        format!(
+            "; this character's own settings (the rest are in mao.ini)
+[interface]
+; how many of the original's shortcut bars show, 1 to 10, and whether they are locked
+hotbars = {}
+lock_hotbars = {}
+",
+            self.hotbars,
+            if self.lock_hotbars { "on" } else { "off" }
+        )
+    }
+
+    /// The per-character settings ([`Settings::character_text`]) read from a settings text (the character's file, or
+    /// `mao.ini`'s same lines) over these; the other lines are left alone.
+    pub fn apply_character(&mut self, text: &str) {
+        let mut section = String::new();
+        for line in text.lines().map(str::trim) {
+            if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+                section = name.trim().to_ascii_lowercase();
+                continue;
+            }
+            let Some((key, value)) = line.split_once('=') else { continue };
+            let (key, value) = (key.trim(), value.trim());
+            match (section.as_str(), key) {
+                ("interface", "hotbars") => self.hotbars = value.parse().unwrap_or(self.hotbars).clamp(1, 10),
+                ("interface", "lock_hotbars") => self.lock_hotbars = matches!(value.to_ascii_lowercase().as_str(), "on" | "true" | "1" | "yes"),
+                _ => {}
+            }
         }
     }
 
@@ -1024,6 +1078,15 @@ impl Settings {
                 defaults
             }
         };
+        // (in the game: the character's own settings over mao.ini's; its first start takes mao.ini's)
+        if let Some(own) = Settings::character_file() {
+            match std::fs::read_to_string(&own) {
+                Ok(text) => settings.apply_character(&text),
+                Err(_) => {
+                    let _ = std::fs::write(&own, settings.character_text());
+                }
+            }
+        }
         let args: Vec<String> = std::env::args().collect();
         let value = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned();
         if let Some(mode) = value("--window-mode").and_then(|v| WindowMode::parse(&v)) {
@@ -1041,6 +1104,27 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
+    /// A character's own settings file holds the bars' number and lock and comes back as written; read over other
+    /// settings it changes those two alone, and `mao.ini`'s same lines read the same way (a character's first start).
+    #[test]
+    fn a_characters_own_settings_are_the_bars() {
+        let mut own = super::Settings { hotbars: 4, lock_hotbars: true, ..Default::default() };
+        let text = own.character_text();
+        let mut other = super::Settings { hotbars: 1, lock_hotbars: false, vsync: true, ..Default::default() };
+        other.apply_character(&text);
+        assert_eq!((other.hotbars, other.lock_hotbars, other.vsync), (4, true, true));
+        own.hotbars = 2;
+        own.apply_character(&super::Settings { hotbars: 7, lock_hotbars: false, ..Default::default() }.to_text());
+        assert_eq!((own.hotbars, own.lock_hotbars), (7, false));
+        // (a number out of range is held to 1..10; another section's line of the same name is not read)
+        own.apply_character("[interface]
+hotbars = 40
+[window]
+lock_hotbars = on
+");
+        assert_eq!((own.hotbars, own.lock_hotbars), (10, false));
+    }
+
     /// The frame limit: the general one in front, the background's behind (never above the general one), none at 0.
     #[test]
     fn the_frame_limit_follows_the_windows_place() {

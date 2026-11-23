@@ -171,7 +171,7 @@ pub fn from_text(text: &str) -> ShortcutBars {
 }
 
 pub fn path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("shortcutbars.ini")
+    crate::charprefs::file("shortcutbars.ini")
 }
 
 /// The bars as kept, or the first run's (with its macro made) when none were kept.

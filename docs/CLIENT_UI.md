@@ -8820,3 +8820,11 @@ character was known and sends the windows shown so far to the character's places
 `TextMacro.bin`), the ignore list (`IgnoreList.bin`), the pet names and the pet window's switches, the hidden nano
 programs and the bag names. Tests `charprefs::tests::a_characters_files_are_in_its_own_folder`,
 `the_first_start_seeds_from_the_shared_files`. **Not tried live.**
+
+The bars too (2026-11-23): `shortcutbars.ini` (the original's shortcut bars, its `Containers/ShortcutBar_<n>.xml`) and
+`hotbar.ini` (this client's smart hotbars) are the character's own. Of `mao.ini`'s settings, the two the original keeps
+in the character's `Prefs.xml` (its `CharPrefs.xml` declares them) are the character's too: `hotbars` (`NumHotbars`)
+and `lock_hotbars` (`LockHotbars`), in the character's `character.ini` (`Settings::character_text`), read over
+`mao.ini`'s by `Settings::load` once the character is known, and written there by `Settings::save`, which leaves
+`mao.ini`'s two lines as they were (the start of a new character). `smart_hotbar`, the choice of this client's
+own bars, stays the install's. Test `settings::tests::a_characters_own_settings_are_the_bars`. **Not tried live.**
