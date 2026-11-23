@@ -8831,7 +8831,17 @@ and `lock_hotbars` (`LockHotbars`), in the character's `character.ini` (`Setting
 `mao.ini`'s two lines as they were (the start of a new character). `smart_hotbar`, the choice of this client's
 own bars, stays the install's. Test `settings::tests::a_characters_own_settings_are_the_bars`. **Not tried live.**
 
-The option values too (2026-11-23): the control center's store (`gui::dvalue::Store`) now knows which values are
+The ignore list, the pet names and the bag names too (2026-11-23): `ignore.ini`, `petnames.ini` and
+`backpacks.ini` are in the character's folder (`charprefs::FILES`). The original keeps them per character as well:
+`IgnoreSystem_t` (0x10124559) is made with the character's path and keeps `IgnoreList.bin` there, which
+`Preferences_t::DeleteGamePrefs` (0x10124eb4) deletes from `GetCharacterPath`; `PetName1-6` are `CharPrefs.xml`
+values; a bag's name is in the character's `Containers/Container_%ux%u.xml`. The files keep this client's formats
+(`petnames.ini` still names the character on each line). `charprefs::set_character` drops the pet and bag names read
+before (`pets::forget_names`, `loot::forget_bag_names`); the chat window reads the character's ignore list when it
+loads the character's chat windows (`ChatWindow::load_panes`). Still shared: `places.ini`, the macros, the pet
+window's switches and the hidden nano programs. **Not tried live.**
+
+ the control center's store (`gui::dvalue::Store`) now knows which values are
 the character's: those the game's (and the skin's) `CharPrefs.xml` declares (`ShowFightTargetNCU`,
 `ShowNanoTargetNCU`, `cc_hostile_health_bar`, `cc_friendly_health_bar` and the other `cc_*` parts, `LockEquipment`,
 `VisiblePVPTitle`, `NumHotbars`, `LockHotbars`, `IconTimers` ...; its `PetName1-6` and `AutoPetRenaming` are not this

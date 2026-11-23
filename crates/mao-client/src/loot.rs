@@ -94,11 +94,12 @@ pub const BAG: u32 = 0xc749;
 /// The places of one's own backpack (`ItemContainerView_c` FUN_100ce55d: `SetMaxItemCount(21)`).
 pub const BAG_PLACES: usize = 21;
 
-/// The names the player gave their backpacks, by the bag's identity (`InventoryGUIModule_c::SetBackpackName`).
+/// The names the player gave their backpacks, by the bag's identity (`InventoryGUIModule_c::SetBackpackName`): the
+/// character's, `backpacks.ini` in its folder.
 static BAG_NAMES: Mutex<Option<BTreeMap<(u32, u32), String>>> = Mutex::new(None);
 
 fn names_path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("backpacks.ini")
+    crate::charprefs::file("backpacks.ini")
 }
 
 /// Whether the names are kept on disk (not in tests and previews).
@@ -126,6 +127,11 @@ fn with_names<R>(f: impl FnOnce(&mut BTreeMap<(u32, u32), String>) -> R) -> R {
     let mut names = BAG_NAMES.lock().unwrap_or_else(|e| e.into_inner());
     let names = names.get_or_insert_with(|| if names_kept() { std::fs::read_to_string(names_path()).map(|t| parse_names(&t)).unwrap_or_default() } else { BTreeMap::new() });
     f(names)
+}
+
+/// The character changed: its own names are read when next asked (`charprefs.rs`).
+pub fn forget_bag_names() {
+    *BAG_NAMES.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 /// The name the player gave a backpack, if any.

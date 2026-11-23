@@ -91,7 +91,8 @@ static COMMANDS: Mutex<Vec<((u32, u32), u32, String)>> = Mutex::new(Vec::new());
 static NANOS: Mutex<Vec<(u32, std::sync::Arc<Vec<crate::ncu::NanoInfo>>)>> = Mutex::new(Vec::new());
 /// "Remember Pet Names" (`AutoPetRenaming`), as the settings have it: the connection asks it when a pet comes.
 static REMEMBER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-/// The names kept by character and place (`PetName<place>`): `petnames.ini`.
+/// The names kept by character and place (`PetName<place>`, the original's in the character's preferences):
+/// `petnames.ini` in the character's folder.
 static NAMES: Mutex<Option<std::collections::BTreeMap<(u32, u32), String>>> = Mutex::new(None);
 
 pub fn set_nanos(nanos: Vec<(u32, std::sync::Arc<Vec<crate::ncu::NanoInfo>>)>) {
@@ -126,7 +127,7 @@ pub fn place(family: Option<u16>, pet_type: Option<u16>) -> u32 {
 }
 
 fn names_path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("petnames.ini")
+    crate::charprefs::file("petnames.ini")
 }
 
 fn names_kept() -> bool {
@@ -153,6 +154,11 @@ fn with_names<R>(f: impl FnOnce(&mut std::collections::BTreeMap<(u32, u32), Stri
     let mut names = NAMES.lock().unwrap_or_else(|e| e.into_inner());
     let names = names.get_or_insert_with(|| if names_kept() { std::fs::read_to_string(names_path()).map(|t| parse_names(&t)).unwrap_or_default() } else { Default::default() });
     f(names)
+}
+
+/// The character changed: its own names are read when next asked (`charprefs.rs`).
+pub fn forget_names() {
+    *NAMES.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 /// The name kept for a character's pet of that place.

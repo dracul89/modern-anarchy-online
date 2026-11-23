@@ -9769,6 +9769,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Original: The window's menu (FUN_100cbace) has Rename; the dialog (FUN_100cb852) saves container_name in the bag's own file Containers/Container_%ux%u.xml.
 - Client: A right click on empty space of an own backpack window opens a one-entry menu; names are kept in backpacks.ini beside mao.ini; the reset button is labelled "Its own name" by default.
 - A player notices: Bag names live in a different file and are renamed from a different gesture.
+- Note (2026-11-23): `backpacks.ini` is now in the character's folder (`chars/<id>/`), as the original's `Container_%ux%u.xml` is in the character's `Containers/`.
 - Where: `crates/mao-client/src/loot.rs:14`; `docs/CLIENT_UI.md:1793`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-20, long tail): The original renames a bag from its backpack window's own menu (FUN_100cbace's Rename, the dialog FUN_100cb852) and keeps the name in the bag's `Containers/Container_%ux%u.xml`; the client's backpack windows have no window-menu button yet, so the right click on empty space stands in, and the name stays in the client's own backpacks.ini (the client's own files are kept by the user's decision, SET-001/002/005). Porting the gesture needs the container windows' menu button first.
@@ -10008,6 +10009,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Original: not stated how the original keeps or announces ignoring
 - Client: the list (lower-case names) is stored in ignore.ini beside mao.ini; hides tells and channel lines; says "X is ignored: their tells and channel lines are hidden."
 - A player notices: ignoring is local to this client and not shared with the original
+- Note (2026-11-23): `ignore.ini` is now in the character's folder (`chars/<id>/`), as the original's `IgnoreList.bin` is in the character's.
 - Where: `crates/mao-client/src/chatwindow.rs:267`; `docs/CLIENT_UI.md:1834`
 - Decision: [ ] port  [ ] leave
 - Looked at, left (2026-11-20, long tail): What was portable of `/ignore` (GUI.dll FUN_100bafeb) was done the night before (the words, the texts, the own-character refusal). Still left, each for a reason: a number as a character's id needs the id's name, which only the chat connection's thread knows (the window's list is by name), so the toggle would have to go through the chat thread and back; the target's kind check (`CanOnlyIgnoreCharacters`) never fires here, since only characters get the client's target bars that `/ignore` takes the name from; keeping the list in the original's `IgnoreList.bin` by character identity would write the original's files (the client's own ignore.ini is kept, SET-001/002/005).

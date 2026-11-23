@@ -471,7 +471,8 @@ pub struct ChatWindow {
     scroll_to_end: bool,
     /// Keeps the command list shown when the window itself has no keyboard focus (the previews).
     keep_list: bool,
-    /// The characters whose tells and channel lines are hidden (lower case), kept in `ignore.ini` beside `mao.ini`.
+    /// The characters whose tells and channel lines are hidden (lower case), kept in the character's `ignore.ini`
+    /// (the original's `IgnoreList.bin` in the character's folder: `IgnoreSystem_t`, `Preferences_t::DeleteGamePrefs`).
     ignored: std::collections::BTreeSet<String>,
     /// The lines sent before, oldest first, and the one recalled with the arrow keys (`None`: the line being typed).
     history: Vec<String>,
@@ -499,7 +500,7 @@ impl Default for ChatWindow {
 }
 
 fn ignore_path() -> std::path::PathBuf {
-    crate::settings::Settings::path().with_file_name("ignore.ini")
+    crate::charprefs::file("ignore.ini")
 }
 
 /// The ignore list as the chat connection's thread sees it (`IgnoreSystem_t::IsCharacterIgnored`, which
@@ -741,6 +742,8 @@ impl ChatWindow {
             return;
         }
         self.loaded_for = Some(character);
+        // (the ignore list is the character's too)
+        self.ignored = load_ignored();
         let prefs = character.and_then(crate::aoprefs::prefs_dirs).map(|d| d.1);
         self.panes = chatgroups::load(prefs.as_deref());
         self.tab = self.tab.min(self.panes.len().saturating_sub(1));

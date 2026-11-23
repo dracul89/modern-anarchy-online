@@ -22,9 +22,8 @@
 //! `CharPrefs.xml`'s defaults; the seeding is this client's, for the players who set up their windows here before.)
 //!
 //! Not per character (yet): `places.ini` keeps every character's item cells in one file, by character already;
-//! the macros (the original's `TextMacro.bin`), the ignore list (`IgnoreList.bin`), the pet names (`petnames.ini`;
-//! the original's `PetName1-6`) and the pet window's switches in `mao.ini` (`AutoPetRenaming`, `PetWindowConfig`),
-//! the hidden nano programs and the bag names are still kept once for the install.
+//! the macros (the original's `TextMacro.bin`), the pet window's switches in `mao.ini` (`AutoPetRenaming`,
+//! `PetWindowConfig`) and the hidden nano programs are still kept once for the install.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -47,6 +46,11 @@ pub const FILES: &[&str] = &[
     "hotbar.ini",
     // (the option values: the character's are read from its copy, the account's from the shared one, `gui::dvalue`)
     "prefs.xml",
+    // (the ignore list: the original's `IgnoreList.bin` in the character's folder; the pets' names, the original's
+    // `PetName1-6`; the names given to the backpacks)
+    "ignore.ini",
+    "petnames.ini",
+    "backpacks.ini",
 ];
 
 static CHARACTER: Mutex<Option<u32>> = Mutex::new(None);
@@ -93,6 +97,9 @@ pub fn set_character(id: u32) -> Vec<String> {
     }
     *guard = Some(id);
     drop(guard);
+    // (the names read for the character before, if any, are dropped: the new one's are read when next asked)
+    crate::loot::forget_bag_names();
+    crate::pets::forget_names();
     if detached() {
         return Vec::new();
     }

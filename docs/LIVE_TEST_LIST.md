@@ -1451,3 +1451,6 @@ steps run, a fight).
   the option panel; log out. A second character has no fight target NCU window (its own option, off as before) but
   has target's target on (the account's). Each keeps its own fight target NCU setting at the next start;
   `chars/<id>/prefs.xml` holds only the character's values, `prefs.xml` beside `mao.ini` the account's.
+- [ ] **1** Ignore list, pet names and bag names per character: on one character `/ignore` someone, rename a pet and
+  a backpack; log out. A second character does not ignore them and has its own pet and bag names (those all shared
+  before). `chars/<id>/` holds `ignore.ini`, `petnames.ini` and `backpacks.ini`.
