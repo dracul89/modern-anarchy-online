@@ -6,6 +6,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### World
+
+- The black band printed with "Brink" along the edge of Nascense Frontier is gone: it is an editor's marker on the ground, see-through in the game's data, and the land now ends at the brink as in the original.
+
 ### Interface
 
 - The side column's pages (wear, NCU, nano programs, team ...) are all the column's width and stand one under the other without overlapping, as in the original: the wear page grew wider than the others to fit its tabs, and a page taller than its room ran over the next one.

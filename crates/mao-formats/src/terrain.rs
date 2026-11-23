@@ -243,7 +243,11 @@ impl Terrain {
                         world: IDENTITY,
                         vertices: Vec::new(),
                         indices: Vec::new(),
-                        material: Material { name: format!("tile {index}"), diffuse: [1.0; 3], opacity: 1.0, textures: vec![(quality_type, instance)], ..Default::default() },
+                        // (the ground's textures are opaque, alpha 255 throughout, but for the editor's markers, which
+                        // are see-through: Nascense Frontier's "shadowbrink" band along the playfield's edge is alpha 2
+                        // on every texel and is never seen in the original. Its alpha test leaves those out and touches
+                        // nothing else. The ground's own draw is randy31's, not ported; a reading of its data.)
+                        material: Material { name: format!("tile {index}"), diffuse: [1.0; 3], opacity: 1.0, textures: vec![(quality_type, instance)], alpha_ref: Some(0.5), ..Default::default() },
                     });
                 }
                 let part = parts.last_mut().unwrap();

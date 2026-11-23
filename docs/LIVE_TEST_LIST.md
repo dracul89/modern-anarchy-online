@@ -1420,3 +1420,4 @@ steps run, a fight).
   camera_mode lock or rubber: the camera stays behind the character; with trail it goes to the room's camera points.
 - [ ] **1** The side column (wear, NCU, nano programs, team, faction): every page the same width, one under the other,
   none over another; the grip under a page makes it taller and the pages under it move down.
+- [ ] **1** Nascense Frontier's edge (near x 685, z 1980): no black "Brink" band; the ground ends at the brink.

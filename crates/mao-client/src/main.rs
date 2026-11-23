@@ -442,6 +442,22 @@ pub(crate) fn load_terrain(db: &ResourceDatabase, playfield: u32) -> Result<Mode
                 *beyond.entry(i).or_default() += 1;
             }
         }
+        // (MAO_TILE_AT=x,z: the tile word at that place, its index and its ground texture's instance, along a line of cells
+        // to +z, to tell which tile a texture on the ground is)
+        if let Some([x, z]) = std::env::var("MAO_TILE_AT").ok().and_then(|v| {
+            let n: Vec<f32> = v.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+            <[f32; 2]>::try_from(n).ok()
+        }) {
+            let (cx, cz) = ((x / terrain.tile_size) as usize, (z / terrain.tile_size) as usize);
+            for step in 0..12usize {
+                let cz = cz + step * 2;
+                if cx + 1 < terrain.width && cz + 1 < terrain.height {
+                    let word = terrain.tiles[cz * (terrain.width - 1) + cx];
+                    let index = word & terrain.mask;
+                    eprintln!("tile at cell ({cx}, {cz}) (z {:.0}): word {word:#06x}, index {index}, ground texture {:?}", cz as f32 * terrain.tile_size, terrain.tile_types.get(index as usize).map(|t| format!("{t:#x}")));
+                }
+            }
+        }
         if std::env::var_os("MAO_TILE_STATS").is_some() {
             // The tile indices of the steep cells (cliffs), to compare with the original's look.
             let mut steep: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
