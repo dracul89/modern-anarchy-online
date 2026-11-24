@@ -6,49 +6,60 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+## 0.1.10 (2026-11-24)
+
+The sky's haze as the original draws it, each character's own settings, and fixes for what was met in play.
+
+### Sky and haze
+
+- The sky and the distance are hazed by the atmosphere's fog, as in the original: far land fades into the haze (lightly on Rubi-Ka, more in the Shadowlands), skies by day are deeper, and Rubi-Ka's night sky and clouds are as dark as the original's. The atmosphere's fog was taken for its colour only and drawn on nothing, and the sky's colours were mixed as amounts of light where the game means colours as shown.
+- The Shadowlands' sky shows its vortex again: a pale swirl melting into the blue round the sun by day, a deep blue one at night, where a flat white, grey or brown sheet, or a dark disc with hard edges, covered the sky. The vortex is see-through but for its swirl and was drawn solid; it and the atmosphere around it now fade evenly into the haze, and its flare glows evenly instead of in wedges.
+- The sky's far layers fade into the haze as the original's do: Jobe's cloud ring is a soft band on the horizon where it stood dark and hard-edged, and the painted sea and sand under the horizon, seen from a height, are hazed instead of standing out in full colour. The original leaves its distance fog on for every sky layer that does not switch it off; this client fogged only those that switched it on.
+- Borealis's mountains stand on the horizon the right way up: their ring hung over the sky upside down, and its dark underside hid the sky above the city.
+
 ### World
 
 - ICC's chimneys smoke again: dark smoke rises from the stacks beside the tall chimneys, thin at the stack and widening as it drifts. Smoke was added to the picture like a glow, so black smoke could not be seen, and it left its stack sideways; it is now laid over the picture and rises along its stack. The steam of the ground vents is kept as it was.
-- The sky's far layers fade into the haze as the original's do: Jobe's cloud ring is a soft band on the horizon where it stood dark and hard-edged, and the painted sea and sand under the horizon, seen from a height, are hazed instead of standing out in full colour. The original leaves its distance fog on for every sky layer that does not switch it off; this client fogged only those that switched it on.
-- The Shadowlands' sky shows its vortex again: a pale swirl round the sun in a blue sky by day, a deep blue one at night, where a flat white, grey or brown sheet covered the sky. The vortex is see-through but for its swirl and was drawn solid, and the haze was far too strong: the game's colours were taken for amounts of light where they are colours as shown. With that put right, far land everywhere keeps its colours in the haze instead of washing out, skies by day are deeper, and Rubi-Ka's night sky and clouds are as dark as the original's.
-- The Shadowlands' sky no longer shows the vortex as a flat grey or brown disc with a hard edge against the blue: the atmosphere around it is hazed as well, as the original's fog does to every sky layer that asks for it.
-- The sky and the distance are hazed by the atmosphere's fog, as in the original: the Shadowlands' vortex is a pale swirl melting into the sky around the sun, where it showed as a dark blue disc with black edges, and far land fades into the haze (lightly on Rubi-Ka, more in the Shadowlands). The atmosphere's fog was taken for its colour only and drawn on nothing.
-- The Shadowlands' sky vortex no longer shows as pale sheets with straight edges: it fades evenly into the fog, as in the original, and its flare glows evenly instead of in wedges.
 - Casting a nano that takes time no longer leaves the caster lying on the ground as if dead: after the cast the character stands (or walks) again. It struck everyone who cast, buff bots included.
 - Name tags, floating numbers and spell effects over other characters stay on their bodies: a following pet's name tag shook about it (the tag went to each place the server told while the body moved smoothly between them).
 - The black band printed with "Brink" along the edge of Nascense Frontier is gone: it is an editor's marker on the ground, see-through in the game's data, and the land now ends at the brink as in the original.
+- After zoning, your character is no longer drawn as a red box for a moment: your own look is kept across the zoning, and your character is never drawn as the client's stand-in box.
+
+### Each character's own settings
+
+- Each character keeps its own window layout, as in the original: where the windows stand and their sizes, their tabs and list columns, the windows left open, the side column, the docked windows, the pins and the chat windows are kept for each character apart (in `chars/<character id>/` beside `mao.ini`). Moving a window on one character no longer moves it on the others. A character's first start after this update takes the layout all characters shared until now, so nobody loses theirs.
+- Each character keeps its own shortcut bars (or smart hotbars), with how many bars show and whether they are locked, as in the original: what one character puts on its bars no longer turns up on the others'. Its first start takes the bars all characters shared until now.
+- Each character keeps its own keys, as in the original: a key changed on one character no longer changes on the others. The pet window's switches (the buttons beside each pet, the pets in fixed rows, remembering pet names) and the choice between the original's shortcut bars and the smart hotbars are each character's own too. A character's first start takes the keys and switches all characters shared until now.
+- The option panel's fight and character options are each character's own, as in the original: showing the fight target's and nano target's NCU windows, the hostile and friendly health bars and the rest of the control center's parts; the equipment lock and the PvP title shown. The account's options stay shared by all your characters, also as in the original: target's target, targeting by bounding boxes, auto-reject duels, the double-click action, the mouse, the sounds and what Escape closes. A character's first start takes the options all characters shared until now.
+- Each character keeps its own ignore list, pet names and bag names, as the original keeps them in the character's folder: ignoring someone on one character no longer hides them from the others, and a name given to one character's pets or bags is not offered to another's. A character's first start takes the lists all characters shared until now.
+- Each character keeps its own hidden nano programs, knowledge board, corner map (its place, size and land-control button) and the tips it switched off, as the original keeps them with the character. Tips on or off as a whole stays the account's, as in the original. A character's first start takes what all characters shared until now.
 
 ### Interface
 
 - The names over characters have the original's colours: blue for the friendly people of the towns (merchants, colonists, those who hand out tasks: the characters the game marks so), green for the few it marks the other way, white for everyone else. They were all white.
 - Credits given or taken in a trade with another player show in your total as the trade completes, as in the original: the total stayed as it was, so after giving credits away the client still showed them (the server leaves that sum to the client). The credits you type into a trade reach your partner a second after you stop typing, as in the original, where they went only with Enter or Accept, and the partner's credits show with their thousands grouped.
-- Each character keeps its own window layout, as in the original: where the windows stand and their sizes, their tabs and list columns, the windows left open, the side column, the docked windows, the pins and the chat windows are kept for each character apart (in `chars/<character id>/` beside `mao.ini`). Moving a window on one character no longer moves it on the others. A character's first start after this update takes the layout all characters shared until now, so nobody loses theirs.
-- Each character keeps its own shortcut bars (or smart hotbars), with how many bars show and whether they are locked, as in the original: what one character puts on its bars no longer turns up on the others'. Its first start takes the bars all characters shared until now.
-- The option panel's fight and character options are each character's own, as in the original: showing the fight target's and nano target's NCU windows, the hostile and friendly health bars and the rest of the control center's parts; the equipment lock and the PvP title shown. The account's options stay shared by all your characters, also as in the original: target's target, targeting by bounding boxes, auto-reject duels, the double-click action, the mouse, the sounds and what Escape closes. A character's first start takes the options all characters shared until now.
-- Each character keeps its own ignore list, pet names and bag names, as the original keeps them in the character's folder: ignoring someone on one character no longer hides them from the others, and a name given to one character's pets or bags is not offered to another's. A character's first start takes the lists all characters shared until now.
-- Each character keeps its own keys, as in the original: a key changed on one character no longer changes on the others. The pet window's switches (the buttons beside each pet, the pets in fixed rows, remembering pet names) and the choice between the original's shortcut bars and the smart hotbars are each character's own too. A character's first start takes the keys and switches all characters shared until now.
-- Each character keeps its own hidden nano programs, knowledge board, corner map (its place, size and land-control button) and the tips it switched off, as the original keeps them with the character. Tips on or off as a whole stays the account's, as in the original. A character's first start takes what all characters shared until now.
 - Zoning closes every container window, your bags included, as the original does: open the bag again in the new playfield before using what is in it. The bags stayed open, but the server no longer counted them as open, so a Shadowlands key taken from a bag was refused at the statues, or accepted with nothing happening.
 - A key in a bag works: taken up from the bag and clicked on its statue or door with either mouse button, it is used on it, as one from the inventory. A right click on the statue did nothing with a key from a bag, and also used the statue without the key. A right click on a usable item in your own bag now uses it there, as in the original, instead of taking it out.
 - The side column's pages (wear, NCU, nano programs, team ...) are all the column's width and stand one under the other without overlapping, as in the original: the wear page grew wider than the others to fit its tabs, and a page taller than its room ran over the next one.
+- The health, nano, experience and alien experience bars, and the compass, stay where you dragged them the next time you play. Only the alien experience bar was remembered; the others went back to the control center's wings at every start. A compass put near the bottom of the screen also kept its place now: it was pushed up while the game window was still at its first size, and stayed there.
+- The list of slash commands over the chat bar works with the mouse: a click takes a command, the wheel or the list's bar scrolls through every match, and a row under the pointer lights up. The list is at most 15 rows high and sits right on the bar (it filled the screen above it and could not be scrolled).
+- The nano programs window's school buttons (Misc, Combat, Medical, Prot, Psi, Space) flow in rows across the window again, as in the original: they stood one under another, each in a row of its own.
+- The nano programs window's menu button (the "i" at the left of its title) shows the window's menu, with its sorting (Order: by name and the other columns, ascending or descending), List Mode and Show Hidden, then Close Window, as in the original; it showed only Autofade and Close.
+- No white box when the login window opens: it now appears with the login hall already drawn. It was put on the screen empty for about half a second while the graphics started, and Windows filled it white.
 
 ### Camera
 
 - The camera is locked behind your character by default, as in the original (it was the trailing camera).
 - Inside shops and other rooms with fixed camera points, a locked or rubber camera stays behind your character: it was pulled to the room's camera point whatever mode was set, and setting locked did nothing there. Only the trailing camera goes to those points, as in the original.
 
-### World
+### Not yet seen in a live game
 
-- Borealis's mountains stand on the horizon the right way up: their ring hung over the sky upside down, and its dark underside hid the sky above the city.
-- After zoning, your character is no longer drawn as a red box for a moment: your own look is kept across the zoning, and your character is never drawn as the client's stand-in box.
-
-### Interface
-
-- No white box when the login window opens: it now appears with the login hall already drawn. It was put on the screen empty for about half a second while the graphics started, and Windows filled it white.
-- The health, nano, experience and alien experience bars, and the compass, stay where you dragged them the next time you play. Only the alien experience bar was remembered; the others went back to the control center's wings at every start. A compass put near the bottom of the screen also kept its place now: it was pushed up while the game window was still at its first size, and stayed there.
-- The list of slash commands over the chat bar works with the mouse: a click takes a command, the wheel or the list's bar scrolls through every match, and a row under the pointer lights up. The list is at most 15 rows high and sits right on the bar (it filled the screen above it and could not be scrolled).
-- The nano programs window's school buttons (Misc, Combat, Medical, Prot, Psi, Space) flow in rows across the window again, as in the original: they stood one under another, each in a row of its own.
-- The nano programs window's menu button (the "i" at the left of its title) shows the window's menu, with its sorting (Order: by name and the other columns, ascending or descending), List Mode and Show Hidden, then Close Window, as in the original; it showed only Autofade and Close.
+Read from the original client and tried offline or by test only, with no word yet from a live game: the haze and the
+skies (Jobe's and the Shadowlands' still differ from the original's in places: Jobe's red sky is flatter here and its
+planet brighter), ICC's chimney smoke, the names' colours, the credits of a trade between two players, and each
+character's own settings with their first start from the shared ones. The other fixes answer things met in play and
+wait for a second look there: the keys from bags at the Shadowlands' statues, the caster after a cast, the name tags
+over pets, the camera in shops, and the bars' and the compass's places.
 
 ## 0.1.9 (2026-11-21)
 
