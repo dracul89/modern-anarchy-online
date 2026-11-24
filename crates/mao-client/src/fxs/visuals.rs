@@ -207,7 +207,14 @@ fn look(b: &StateBlob) -> Look {
             [c[0], c[1], c[2]]
         }),
         factor,
-        fogged: state(e("e_D3DRENDERSTATE_FOGENABLE")) == Some(e("e_TRUE")),
+        // (fogged unless the blob turns the fog off: the device's fog is on while the frame is drawn. `VisualFog_t`'s
+        // `process` gives randy31 the fog each frame and its `SetFogParameters` sets `FOGENABLE` (render state 0x1c)
+        // to 1 with it; a blob sets only the states it names and puts the old ones back after the draw. So the sky
+        // layers that name nothing, the universe, the far moons, the horizon and the cloud ring, fade into the fog by
+        // their depth, and the scripts turn it off by name where a far draw must stay clear: the suns. Until
+        // 2026-11-23 only a blob that named it on was fogged, and Jobe's cloud ring stood dark and hard-edged on the
+        // horizon where the original's is a soft band in the haze.)
+        fogged: state(e("e_D3DRENDERSTATE_FOGENABLE")) != Some(e("e_FALSE")),
         fog_colour: state(e("e_D3DRENDERSTATE_FOGCOLOR")).map(|w| {
             let c = argb(w);
             [c[0], c[1], c[2]]
@@ -694,6 +701,36 @@ mod tests {
         assert!(f.draws.iter().any(|d| d.shape == Shape::Mesh("star_dome.abiff".into()) || d.shape == Shape::Mesh("nebulas_sphere.abiff".into())));
         assert!(f.draws.iter().any(|d| d.kind == 5 && matches!(&d.shape, Shape::Triangles(t) if t.len() == 12)));
         assert!(f.lights.ground.is_some());
+    }
+
+    /// Jobe's sky (`Tweak_Playfield_SL_Jobe.txt`): a draw is fogged unless its blob turns the fog off. The cloud ring
+    /// and the universe name nothing and are fogged; the cloud ring's rim names the fog on, under a fog of black; the
+    /// suns' rays turn it off.
+    #[test]
+    fn a_sky_draw_is_fogged_unless_its_blob_turns_the_fog_off() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        super::super::reset();
+        super::super::set_data_path(&std::path::Path::new(&game).join("cd_image"));
+        super::super::load_playfield(4531, 0);
+        super::super::set_expansion(3);
+        super::super::start_automatic();
+        // (by day: the suns' rays are drawn)
+        let (sun1, sun2) = super::super::sun::rotations(12.0 * 3600.0);
+        super::super::set_game(&super::super::Game { delta_time: 0.05, sun1, sun2, ..Default::default() });
+        let mut v = Visuals::default();
+        for _ in 0..3 {
+            super::super::frame_process();
+            v.start(super::super::take_started());
+        }
+        let f = v.frame(&super::super::clouds::Sky::default());
+        let named = |name: &str| f.draws.iter().find(|d| d.shape == Shape::Mesh(name.into())).unwrap_or_else(|| panic!("{name}"));
+        let ring = named("jobe_cloudlayers_regular.abiff");
+        assert!(ring.backdrop && ring.fogged && ring.fog_colour.is_none());
+        let rim = named("jobe_cloudlayers_regular_rim.abiff");
+        assert!(rim.fogged && rim.fog_colour == Some([0.0; 3]));
+        assert!(named("nebulas_sphere.abiff").fogged && named("horizon_object.abiff").fogged);
+        let rays: Vec<_> = f.draws.iter().filter(|d| d.texture.as_deref() == Some("newsun_frame01.png")).collect();
+        assert!(!rays.is_empty() && rays.iter().all(|d| !d.fogged), "{}", rays.len());
     }
 
     /// Nascense's vortex (`Tweak_Playfield_SL_Nascense.txt`): its blob turns the blending off and the fog on and names no
