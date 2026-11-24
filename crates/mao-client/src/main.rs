@@ -331,12 +331,20 @@ impl Textures {
         if kind == meshswap::TEXTURE_KIND {
             return meshswap::texture(instance);
         }
+        // (a picture from a file in a database texture's place, and the textures written out: `meshswap`)
+        if let Some(texture) = meshswap::texture_stand_in(kind, instance) {
+            return Some(texture);
+        }
         let object = self.db.get(Id { kind, instance }).ok()??;
-        match kind {
+        let texture = match kind {
             0xf6956 | 0xf6965 | 0xf6966 => texture::decode_ground(&object).ok(),
             mao_formats::item::ICON_TYPE => texture::decode(&object).ok().map(icon_key),
             _ => texture::decode(&object).ok(),
+        };
+        if let Some(texture) = &texture {
+            meshswap::export_texture(kind, instance, texture);
         }
+        texture
     }
 }
 

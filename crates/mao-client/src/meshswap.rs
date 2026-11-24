@@ -9,6 +9,13 @@
 //! file bakes those. Which way the file's triangles wind is settled against the original's (see [`outward`]), so a
 //! file made with a mirrored axis still shows its outside.
 //!
+//! In the same folder `<type in hex>_<instance in hex>.png` (`f6954_40f1.png`) stands in for that texture, whatever
+//! draws it: a body's skin or armour, a wall, the ground. It is taken as it is (its alpha too, which the materials
+//! read as the original's), at any size.
+//!
+//! `MAO_TEXTURE_EXPORT=<folder>`: every texture the client decodes from the database is written there under that
+//! name, once: the list of what a scene uses, and what a stand-in is painted from.
+//!
 //! `MAO_MESH_EXPORT=<folder>`: every static mesh that is loaded is also written there as `<instance in hex>.obj`
 //! (each part in its own space, its world matrix and texture in comments) with its parts' textures as PNG files: what
 //! a stand-in is fitted to. Files made from the game's meshes are not for the repository.
@@ -36,6 +43,34 @@ fn replace_folder() -> Option<&'static PathBuf> {
 fn export_folder() -> Option<&'static PathBuf> {
     static FOLDER: OnceLock<Option<PathBuf>> = OnceLock::new();
     FOLDER.get_or_init(|| folder("MAO_MESH_EXPORT")).as_ref()
+}
+
+fn texture_export_folder() -> Option<&'static PathBuf> {
+    static FOLDER: OnceLock<Option<PathBuf>> = OnceLock::new();
+    FOLDER.get_or_init(|| folder("MAO_TEXTURE_EXPORT")).as_ref()
+}
+
+/// A texture's stand-in from the folder, when it has one.
+pub fn texture_stand_in(kind: u32, instance: u32) -> Option<Texture> {
+    let path = replace_folder()?.join(format!("{kind:x}_{instance:x}.png"));
+    if !path.is_file() {
+        return None;
+    }
+    let rgba = image::open(&path).map_err(|e| eprintln!("texture stand-in {}: {e}", path.display())).ok()?.to_rgba8();
+    Some(Texture { width: rgba.width(), height: rgba.height(), format: Format::Png, rgba: rgba.into_raw(), mips: 1, packed: None })
+}
+
+/// A texture decoded from the database, written out when that is asked for (its first level, once).
+pub fn export_texture(kind: u32, instance: u32, texture: &Texture) {
+    let Some(folder) = texture_export_folder() else { return };
+    let picture = folder.join(format!("{kind:x}_{instance:x}.png"));
+    let size = (texture.width * texture.height * 4) as usize;
+    if picture.exists() || texture.rgba.len() < size {
+        return;
+    }
+    if let Err(e) = image::save_buffer(&picture, &texture.rgba[..size], texture.width, texture.height, image::ColorType::Rgba8) {
+        eprintln!("texture export {}: {e}", picture.display());
+    }
 }
 
 /// A static mesh as it was built from the database, or its stand-in when the folder has one (and the original written
