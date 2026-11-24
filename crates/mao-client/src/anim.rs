@@ -60,6 +60,8 @@ pub fn player(db: Arc<ResourceDatabase>, breed: u8, sex: u8, anim: u32, image: O
     let body_id = index.find(0xf6952, body_name).ok_or_else(|| format!("{body_name} not in the index"))?;
     let head_name = head_name.ok_or("that body has no head")?;
     let head_id = index.find(0xf6951, head_name).ok_or_else(|| format!("{head_name} not in the index"))?;
+    // (MAO_HEAD=<mesh instance in hex>: that head in the place of the breed's first, to look at any of the creation's heads on its body)
+    let head_id = std::env::var("MAO_HEAD").ok().and_then(|v| u32::from_str_radix(v.trim(), 16).ok()).unwrap_or(head_id);
     eprintln!("body {body_name} = {body_id:#x}, head {head_name} = {head_id:#x}");
     let body: CatMesh = catmesh::parse(&load(&db, 0xf6952, body_id)?).map_err(|e| e.to_string())?;
     let head = crate::load_model_attached(&db, Id { kind: 0xf6951, instance: head_id })?;
