@@ -55,6 +55,7 @@ mod dimensions;
 mod dropitem;
 mod picking;
 mod bareskin;
+mod meshswap;
 mod loading;
 mod whiteout;
 mod missionlog;
@@ -326,12 +327,24 @@ impl Textures {
     }
 
     fn load(&self, kind: u32, instance: u32) -> Option<Texture> {
+        // (a mesh's stand-in from a file brings its own picture: `meshswap`)
+        if kind == meshswap::TEXTURE_KIND {
+            return meshswap::texture(instance);
+        }
+        // (a picture from a file in a database texture's place, and the textures written out: `meshswap`)
+        if let Some(texture) = meshswap::texture_stand_in(kind, instance) {
+            return Some(texture);
+        }
         let object = self.db.get(Id { kind, instance }).ok()??;
-        match kind {
+        let texture = match kind {
             0xf6956 | 0xf6965 | 0xf6966 => texture::decode_ground(&object).ok(),
             mao_formats::item::ICON_TYPE => texture::decode(&object).ok().map(icon_key),
             _ => texture::decode(&object).ok(),
+        };
+        if let Some(texture) = &texture {
+            meshswap::export_texture(kind, instance, texture);
         }
+        texture
     }
 }
 
@@ -358,7 +371,7 @@ fn icon_key(mut t: Texture) -> Texture {
 pub(crate) fn load_model(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
     let mesh = mesh::parse(&object).map_err(|e| e.to_string())?;
-    model::build_placed(&mesh).map_err(|e| e.to_string())
+    model::build_placed(&mesh).map_err(|e| e.to_string()).map(|m| meshswap::apply(db, id, m))
 }
 
 /// [`load_model`] with each part's animation.
@@ -379,14 +392,14 @@ pub(crate) fn load_model_dynel_animated(db: &ResourceDatabase, id: Id) -> Result
 pub(crate) fn load_model_dynel(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
     let mesh = mesh::parse(&object).map_err(|e| e.to_string())?;
-    model::build_dynel(&mesh).map_err(|e| e.to_string())
+    model::build_dynel(&mesh).map_err(|e| e.to_string()).map(|m| meshswap::apply(db, id, m))
 }
 
 /// A mesh attached to a body (a head, worn gear): with its whole root transform.
 pub(crate) fn load_model_attached(db: &ResourceDatabase, id: Id) -> Result<Model, String> {
     let object = db.get(id).map_err(|e| e.to_string())?.ok_or("no such object")?;
     let mesh = mesh::parse(&object).map_err(|e| e.to_string())?;
-    model::build(&mesh).map_err(|e| e.to_string())
+    model::build(&mesh).map_err(|e| e.to_string()).map(|m| meshswap::apply(db, id, m))
 }
 
 /// The ground of a playfield.
