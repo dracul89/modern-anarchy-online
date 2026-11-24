@@ -681,6 +681,11 @@ pub struct Smoke {
     pub kind: i32,
     pub heights: (f32, f32),
     pub strength: f32,
+    /// Whether the sprites are added to the picture: only template 0x13885's are. FUN_100f0cd4 makes the stream's
+    /// `GfxVisualSprite2Type0` with no delta state and "additive" set for that template alone; every other stream's
+    /// visual blends by its alpha (DisplaySystem's constructor: `DESTBLEND` 2, one, when additive, else 6, one minus the
+    /// source's alpha, with `SRCBLEND` 5, the source's alpha).
+    pub additive: bool,
 }
 
 impl Smoke {
@@ -707,6 +712,7 @@ impl Smoke {
             kind: r.int(29),
             heights: (r.float(27), r.float(28)),
             strength: r.float(30),
+            additive: r.id == 0x13885,
         })
     }
 }

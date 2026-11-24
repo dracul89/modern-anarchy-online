@@ -521,7 +521,8 @@ pub struct Scene {
     /// The water light (the effect scripts' `WaterLightCurrent` and `WaterLightDirection`) when they give it: the liquid
     /// passes are lit by it; without one, by the sun and the day.
     pub water_light: Option<WaterLight>,
-    /// Soft glowing sprites drawn over the scene, added to its colours (nano effects). Set by the caller every frame.
+    /// Sprites drawn over the scene: added to its colours (the nano effects' glows), or, a particle marked `blended`,
+    /// blended over it by its alpha (smoke); the blended ones first, the farthest first. Set by the caller every frame.
     pub particles: Vec<Particle>,
     /// The characters' blob shadows (the original's `GfxVisualSimpleShadow_c`): translucent triangles laid on the ground, drawn
     /// after the parts without writing depth. Set by the caller every frame.
@@ -569,6 +570,14 @@ pub struct Particle {
     pub up: [f32; 3],
     /// A billboard's turn in its own plane, radians (the original's sprites' +0x14: the suns of `_GfxControlSuns_t`).
     pub spin: f32,
+    /// Blended over what is there by its alpha, not added to it: the original's sprites whose visual blends by the
+    /// source's alpha against one minus it (`GfxVisualSprite2Type0` made not additive, render states 0x13 = 5 and
+    /// 0x14 = 6: a smoke stream's). Black smoke added to the picture adds nothing.
+    pub blended: bool,
+    /// A billboard's height when it is not its width (`size`); 0: as tall as it is wide. The original's smoke sprites
+    /// have a width and a height of their own (`GfxVisualSprite2Type0`'s draw, FUN_10025391: the sizes at +0x24 and
+    /// +0x28 across the camera's right and up): a chimney's smoke leaves as a streak a fifth of a metre wide and two tall.
+    pub tall: f32,
 }
 
 /// The sprite number of a particle that is a soft dot, not cut from a sheet.
@@ -817,13 +826,13 @@ pub fn sun() -> Vec3 {
 impl Particle {
     /// A soft round dot.
     pub fn dot(position: [f32; 3], size: f32, colour: [f32; 4]) -> Particle {
-        Particle { position, size, colour, sprite: NO_SPRITE, rect: [0.0; 4], right: [0.0; 3], up: [0.0; 3], spin: 0.0 }
+        Particle { position, size, colour, sprite: NO_SPRITE, rect: [0.0; 4], right: [0.0; 3], up: [0.0; 3], spin: 0.0, blended: false, tall: 0.0 }
     }
 
     /// A quad laid in the world: its centre, its half extents, its colour, the sheet and the part of it, and whether it fades by
     /// its facing.
     pub fn quad(position: [f32; 3], right: [f32; 3], up: [f32; 3], colour: [f32; 4], sprite: u16, rect: [f32; 4], facing: bool) -> Particle {
-        Particle { position, size: if facing { 1.0 } else { 0.0 }, colour, sprite, rect, right, up, spin: 0.0 }
+        Particle { position, size: if facing { 1.0 } else { 0.0 }, colour, sprite, rect, right, up, spin: 0.0, blended: false, tall: 0.0 }
     }
 }
 
@@ -1103,7 +1112,9 @@ struct ScenePipelines {
     liquid: wgpu::RenderPipeline,
     liquid_inverse: wgpu::RenderPipeline,
     blob: wgpu::RenderPipeline,
+    /// The sprites, added and blended.
     particle: wgpu::RenderPipeline,
+    particle_blend: wgpu::RenderPipeline,
     /// The shells, added and blended.
     shell_add: wgpu::RenderPipeline,
     shell_blend: wgpu::RenderPipeline,
@@ -1293,22 +1304,27 @@ impl ScenePipelines {
         ];
         let additive = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add };
         let added = targets(Some(wgpu::BlendState { color: additive, alpha: additive }), false);
-        let particle = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("particle"),
-            layout: Some(&shaders.particle_layout),
-            vertex: wgpu::VertexState {
-                module: particle_shader,
-                entry_point: Some("vs_particle"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 80, step_mode: wgpu::VertexStepMode::Instance, attributes: &particle_attributes })],
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: depth(false, wgpu::CompareFunction::Less, Default::default()),
-            multisample,
-            fragment: Some(wgpu::FragmentState { module: particle_shader, entry_point: Some("fs_particle"), compilation_options: Default::default(), targets: &added }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let particle_drawn = |entry: &str, targets: &[Option<wgpu::ColorTargetState>]| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("particle"),
+                layout: Some(&shaders.particle_layout),
+                vertex: wgpu::VertexState {
+                    module: particle_shader,
+                    entry_point: Some("vs_particle"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout { array_stride: 80, step_mode: wgpu::VertexStepMode::Instance, attributes: &particle_attributes })],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: depth(false, wgpu::CompareFunction::Less, Default::default()),
+                multisample,
+                fragment: Some(wgpu::FragmentState { module: particle_shader, entry_point: Some(entry), compilation_options: Default::default(), targets }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let particle = particle_drawn("fs_particle", &added);
+        // (blended by the sprite's alpha over what is there: `SRCBLEND` the source's alpha, `DESTBLEND` one minus it)
+        let particle_blend = particle_drawn("fs_particle_blend", &targets(Some(wgpu::BlendState::ALPHA_BLENDING), false));
         let shell_attributes = [
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x2, offset: 12, shader_location: 1 },
@@ -1370,7 +1386,7 @@ impl ScenePipelines {
                 cache: None,
             })
         };
-        ScenePipelines { mesh, mesh_blend, mesh_blend_no_z, mesh_add, mesh_add_no_z, sky, blit, water, liquid, liquid_inverse, blob, particle, shell_add, shell_blend, backdrops, backdrop_points, backdrop_resolve }
+        ScenePipelines { mesh, mesh_blend, mesh_blend_no_z, mesh_add, mesh_add_no_z, sky, blit, water, liquid, liquid_inverse, blob, particle, particle_blend, shell_add, shell_blend, backdrops, backdrop_points, backdrop_resolve }
     }
 }
 
@@ -2733,31 +2749,42 @@ impl Renderer {
                 pass.draw(0..shell.vertices.len() as u32, 0..1);
             }
             if !scene.particles.is_empty() {
-                // grouped by sprite sheet (a sheet that is not loaded draws as dots), one draw for each
-                let mut order: Vec<&Particle> = scene.particles.iter().collect();
+                // The blended sprites first, the farthest first (each is laid over the ones behind it), then the added
+                // ones grouped by sprite sheet (a sheet that is not loaded draws as dots); one draw for each run of a sheet.
                 let sheet = |p: &Particle| if self.sprites.contains_key(&p.sprite) { p.sprite } else { NO_SPRITE };
-                order.sort_by_key(|p| sheet(p));
+                let far = |p: &Particle| Vec3::from(p.position).distance_squared(eye);
+                let mut order: Vec<&Particle> = scene.particles.iter().filter(|p| p.blended).collect();
+                order.sort_by(|a, b| far(b).total_cmp(&far(a)));
+                let blended = order.len();
+                let mut added: Vec<&Particle> = scene.particles.iter().filter(|p| !p.blended).collect();
+                added.sort_by_key(|p| sheet(p));
+                order.extend(added);
                 let data: Vec<[f32; 20]> = order
                     .iter()
                     .map(|p| {
                         let rect = if self.sprites.contains_key(&p.sprite) { p.rect } else { [0.0; 4] };
                         [
                             p.position[0], p.position[1], p.position[2], p.size, p.colour[0], p.colour[1], p.colour[2], p.colour[3], rect[0], rect[1], rect[2], rect[3],
-                            p.right[0], p.right[1], p.right[2], p.spin, p.up[0], p.up[1], p.up[2], 0.0,
+                            p.right[0], p.right[1], p.right[2], p.spin, p.up[0], p.up[1], p.up[2], p.tall,
                         ]
                     })
                     .collect();
                 let instances = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("particles"), contents: bytemuck::cast_slice(&data), usage: wgpu::BufferUsages::VERTEX });
-                pass.set_pipeline(&pipes.particle);
                 pass.set_bind_group(0, &globals_bind, &[]);
                 pass.set_vertex_buffer(0, instances.slice(..));
-                let mut start = 0;
-                while start < order.len() {
-                    let id = sheet(order[start]);
-                    let end = start + order[start..].iter().take_while(|p| sheet(p) == id).count();
-                    pass.set_bind_group(1, self.sprites.get(&id).unwrap_or(&self.white_sprite), &[]);
-                    pass.draw(0..6, start as u32..end as u32);
-                    start = end;
+                for (pipeline, range) in [(&pipes.particle_blend, 0..blended), (&pipes.particle, blended..order.len())] {
+                    if range.is_empty() {
+                        continue;
+                    }
+                    pass.set_pipeline(pipeline);
+                    let mut start = range.start;
+                    while start < range.end {
+                        let id = sheet(order[start]);
+                        let end = start + order[start..range.end].iter().take_while(|p| sheet(p) == id).count();
+                        pass.set_bind_group(1, self.sprites.get(&id).unwrap_or(&self.white_sprite), &[]);
+                        pass.draw(0..6, start as u32..end as u32);
+                        start = end;
+                    }
                 }
             }
         }
@@ -3334,6 +3361,38 @@ mod tests {
         assert_eq!((packed.parts[1].base_vertex, packed.parts[1].first_index), (4, 6));
         let again = renderer.render_to_image(&gpu, &packed, &camera, 160, 120);
         assert_eq!((count(&again, true), count(&again, false)), (count(&image, true), count(&image, false)));
+    }
+
+    /// A sprite marked blended is laid over the picture by its alpha, where the others are added: black smoke darkens
+    /// what is behind it, and added to the picture it changes nothing.
+    #[test]
+    fn a_blended_sprite_covers_what_is_behind_it() {
+        // (skipped on a machine without a graphics device)
+        let Some((_turn, gpu)) = test_gpu() else { return };
+        // (the eye at (10, 0, 0) looking down -x at a grey sheet 510 ahead that fills the view, a sprite at the target)
+        let camera = Camera { target: Vec3::ZERO, distance: 10.0, yaw: 0.0, pitch: 0.0, half_height: None, up: None };
+        let c = |y: f32, z: f32| ShellVertex { position: [-500.0, y, z], uv: [0.5, 0.5], colour: [0.5, 0.5, 0.5, 1.0] };
+        let (a, b) = (-5000.0, 5000.0);
+        let mut renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
+        let mut scene = renderer.upload(&gpu, &Model::default(), &mut |_, _| None);
+        scene.backdrops = vec![Backdrop { sprite: NO_SPRITE, blend: BackdropBlend::Opaque, vertices: vec![c(a, a), c(b, a), c(b, b), c(a, a), c(b, b), c(a, b)], points: false }];
+        let mut centre = |scene: &Scene| {
+            let image = renderer.render_to_image(&gpu, scene, &camera, 160, 120);
+            let at = (60 * 160 + 80) * 4;
+            [image[at], image[at + 1], image[at + 2]]
+        };
+        let bare = centre(&scene);
+        assert!(bare[0] > 40, "{bare:?}");
+        let smoke = Particle::dot([0.0; 3], 4.0, [0.0, 0.0, 0.0, 1.0]);
+        scene.particles = vec![smoke];
+        assert_eq!(centre(&scene), bare);
+        scene.particles = vec![Particle { blended: true, ..smoke }];
+        let covered = centre(&scene);
+        assert!(covered.iter().all(|c| *c < 5), "{covered:?}");
+        // (at half its alpha: half way, in light)
+        scene.particles = vec![Particle { blended: true, colour: [0.0, 0.0, 0.0, 0.5], ..smoke }];
+        let half = centre(&scene);
+        assert!((half[0] as i32 - bare[0] as i32 / 2).abs() <= 3, "{half:?} {bare:?}");
     }
 
     /// The backdrops (the effect scripts' sky) are blended as Direct3D blended them, in the colours as shown: a colour

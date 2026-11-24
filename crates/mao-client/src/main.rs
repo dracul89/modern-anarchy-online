@@ -816,12 +816,12 @@ pub(crate) fn add_props(game: &str, db: &ResourceDatabase, playfield: u32, model
 }
 
 /// The statels' effects of the playfield an offline picture is made of (`map`), for `MAO_STATEL_EFFECTS`.
-pub(crate) static STATEL_EFFECTS: std::sync::Mutex<Vec<(mao_formats::attractors::Effect, [f32; 3])>> = std::sync::Mutex::new(Vec::new());
+pub(crate) static STATEL_EFFECTS: std::sync::Mutex<Vec<(mao_formats::attractors::Effect, crate::effects::Stand)>> = std::sync::Mutex::new(Vec::new());
 
 /// The effects the playfield's statels carry on their meshes' connectors (`mao_formats::attractors`: a campfire's fire,
-/// a lamp's halo, a chimney's smoke): each with its place in the viewer's world (Z up), the connector's frame through
-/// the statel's placement as the parts go.
-pub(crate) fn statel_effects(game: &str, db: &ResourceDatabase, playfield: u32) -> Vec<(mao_formats::attractors::Effect, [f32; 3])> {
+/// a lamp's halo, a chimney's smoke): each with its place in the viewer's world (Z up) and its connector's axes there,
+/// the connector's frame through the statel's placement as the parts go.
+pub(crate) fn statel_effects(game: &str, db: &ResourceDatabase, playfield: u32) -> Vec<(mao_formats::attractors::Effect, crate::effects::Stand)> {
     // (the statels where the playfield's props stand: an interior's by its rooms, a generated building's by the rooms
     // it was built of. The original's effects hang on the mesh's connectors — `VisualMesh_t::GetEffectData`, Gamecode
     // FUN_1010ca78 — so they go where the room's copy of the statel goes, FUN_100ca6f8's `SetPos` / `SetRot`. Until
@@ -847,7 +847,11 @@ pub(crate) fn statel_effects(game: &str, db: &ResourceDatabase, playfield: u32) 
         let place = model::multiply(&s.matrix(), &swap);
         for (effect, frame) in effects.iter() {
             let m = model::multiply(frame, &place);
-            out.push((*effect, [m[12], m[13], m[14]]));
+            // (the connector's frame there, for the effects made in it: a chimney's smoke leaves along its −z. The
+            // vents' steam is kept upright as it was, `effects::KEPT_STEAM`.)
+            let kept = effect.id == crate::effects::KEPT_STEAM && std::env::var_os("MAO_STEAM_ORIGINAL").is_none();
+            let axes = (!kept).then_some([[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]]);
+            out.push((*effect, crate::effects::Stand { at: [m[12], m[13], m[14]], axes }));
         }
     }
     out
@@ -1195,7 +1199,7 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             let effects = statel_effects(game, &db, number);
             for (e, at) in &effects {
-                by_id.entry(e.id).or_default().push(*at);
+                by_id.entry(e.id).or_default().push(at.at);
             }
             for (id, places) in &by_id {
                 let kind = gfx.as_ref().and_then(|g| g.visual(*id)).map(|v| format!("{v:?}").chars().take_while(|c| c.is_alphanumeric()).collect::<String>());
@@ -2636,7 +2640,8 @@ mod generated_tests {
         // generated building had none at all before)
         let effects = super::statel_effects(game.to_str().unwrap(), &db, 382);
         assert_eq!(effects.len(), 21);
-        for (_, at) in &effects {
+        for (_, stand) in &effects {
+            let at = stand.at;
             let inside = rooms.rooms.iter().any(|r| {
                 let half = (r.rect[2].saturating_sub(r.rect[0]).max(r.rect[3].saturating_sub(r.rect[1])) as f32) + 10.0;
                 (at[0] - r.position[0]).abs() <= half && (at[1] - r.position[2]).abs() <= half

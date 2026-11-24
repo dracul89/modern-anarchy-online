@@ -37,6 +37,7 @@ struct In {
     @location(2) rect: vec4<f32>,
     // The half extents of a laid quad (both zero: a billboard; right alone zero: a standing quad); w a billboard's spin.
     @location(3) right: vec4<f32>,
+    // (w: a billboard's height when it is not its width; 0: as tall as wide)
     @location(4) up: vec4<f32>,
 }
 
@@ -79,8 +80,11 @@ fn vs_particle(in: In) -> Out {
         // (GfxVisualSol's draw, FUN_10020836: a growing angle turns the quad's up toward the view's right, clockwise)
         let cs = cos(in.right.w);
         let sn = sin(in.right.w);
-        let turned = vec2(c.x * cs + c.y * sn, c.y * cs - c.x * sn);
-        world = in.centre.xyz + (globals.right.xyz * turned.x + globals.up.xyz * turned.y) * in.centre.w * 0.5;
+        // (a width and a height of its own: the original's smoke sprites, FUN_10025391)
+        let tall = select(in.centre.w, in.up.w, in.up.w > 0.0);
+        let q = vec2(c.x * in.centre.w, c.y * tall);
+        let turned = vec2(q.x * cs + q.y * sn, q.y * cs - q.x * sn);
+        world = in.centre.xyz + (globals.right.xyz * turned.x + globals.up.xyz * turned.y) * 0.5;
     }
     var out: Out;
     out.position = globals.view_proj * vec4(world, 1.0);
@@ -105,6 +109,23 @@ fn fs_particle(in: Out) -> @location(0) vec4<f32> {
     }
     let texel = textureSample(sheet, samp, in.uv);
     return vec4(texel.rgb * texel.a * in.colour.rgb * in.colour.a, 0.0);
+}
+
+// A sprite blended over the scene by its alpha (the original's sprites of a visual that is not additive: smoke): the
+// texture's colour and alpha times the sprite's, as the effects' texture stage modulates both (`gfxvisual.rs
+// texture_stages`). A soft dot fades to its edge by its alpha.
+@fragment
+fn fs_particle_blend(in: Out) -> @location(0) vec4<f32> {
+    if in.flat_dot > 0.5 {
+        let r2 = dot(in.offset, in.offset);
+        if r2 >= 1.0 {
+            discard;
+        }
+        let falloff = (1.0 - r2) * (1.0 - r2) * (1.0 - r2);
+        return vec4(in.colour.rgb, clamp(in.colour.a * falloff, 0.0, 1.0));
+    }
+    let texel = textureSample(sheet, samp, in.uv);
+    return vec4(clamp(texel.rgb * in.colour.rgb, vec3(0.0), vec3(1.0)), clamp(texel.a * in.colour.a, 0.0, 1.0));
 }
 
 // The shells (the original's `GfxVisualShield`): textured triangles, the texture times the vertex colour, added (its alpha

@@ -8394,19 +8394,19 @@ pub(crate) struct Area {
     pub(crate) falls: Vec<[f32; 3]>,
     /// The statels' own effects (`crate::statel_effects`): each one's template, with the colour and size its
     /// connector's name gives it, and its place in the viewer's world.
-    pub(crate) statel_effects: Vec<(mao_formats::attractors::Effect, [f32; 3])>,
+    pub(crate) statel_effects: Vec<(mao_formats::attractors::Effect, crate::effects::Stand)>,
 }
 
 /// The statels' effects grouped for the viewer: one effect for each template in each colour and size, with its places.
 /// (An effect the effects' file has no template for is dropped: 12200, 12570 and 96003 in the playfields looked at.)
-pub(crate) fn group_statel_effects(list: Vec<(mao_formats::attractors::Effect, [f32; 3])>, gfx: Option<&mao_formats::gfx::Gfx>) -> Vec<(mao_formats::gfx::Visual, Vec<[f32; 3]>)> {
+pub(crate) fn group_statel_effects(list: Vec<(mao_formats::attractors::Effect, crate::effects::Stand)>, gfx: Option<&mao_formats::gfx::Gfx>) -> Vec<(mao_formats::gfx::Visual, Vec<crate::effects::Stand>)> {
     type Key = (i32, Option<[u32; 4]>, Option<u32>);
-    let mut groups: std::collections::BTreeMap<Key, (mao_formats::attractors::Effect, Vec<[f32; 3]>)> = std::collections::BTreeMap::new();
+    let mut groups: std::collections::BTreeMap<Key, (mao_formats::attractors::Effect, Vec<crate::effects::Stand>)> = std::collections::BTreeMap::new();
     for (effect, at) in list {
         let key = (effect.id, effect.colour.map(|c| c.map(f32::to_bits)), effect.radius.map(f32::to_bits));
         groups.entry(key).or_insert_with(|| (effect, Vec::new())).1.push(at);
     }
-    groups.into_values().filter_map(|(effect, places)| Some((gfx?.visual(effect.id)?.with_overrides(effect.colour, effect.radius), places))).collect()
+    groups.into_values().filter_map(|(effect, places)| Some((crate::effects::statel_visual(gfx?, &effect)?, places))).collect()
 }
 
 pub(crate) fn load_area(game: &str, db: &Arc<ResourceDatabase>, playfield: u32) -> Result<Area, String> {
@@ -8512,7 +8512,7 @@ pub(crate) fn load_area_with(game: &str, db: &Arc<ResourceDatabase>, playfield: 
     let falls = anarchy.as_ref().map_or(Vec::new(), |a| crate::liquid::fall_effects(&a.water, &closest));
     // (the statels' own effects: a campfire's fire, a chimney's smoke, a lamp's halo; the ones whose name gives them a
     // colour or a size of their own with it, `Visual::with_overrides`)
-    let statel_effects: Vec<(mao_formats::attractors::Effect, [f32; 3])> = crate::statel_effects(game, db, playfield);
+    let statel_effects: Vec<(mao_formats::attractors::Effect, crate::effects::Stand)> = crate::statel_effects(game, db, playfield);
     if !statel_effects.is_empty() {
         eprintln!("playfield {playfield}: {} statel effects", statel_effects.len());
     }
@@ -9186,7 +9186,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         let (mut pending_keep_camera, mut houses_drawn) = (false, false);
         // (the new playfield's waterfalls' feet, for the viewer's fall effects)
         let mut pending_falls: Option<Vec<[f32; 3]>> = Some(falls);
-        let mut pending_statel_effects: Option<Vec<(mao_formats::attractors::Effect, [f32; 3])>> = Some(statel_effects);
+        let mut pending_statel_effects: Option<Vec<(mao_formats::attractors::Effect, crate::effects::Stand)>> = Some(statel_effects);
         let first_inventory = state.inventory.take();
         // (the backpack as the login gave it, for the log: place, item, quality, count and the flags; a loot of 2026-11-15
         // found the client's list one entry longer than the server's)

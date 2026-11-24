@@ -2836,9 +2836,27 @@ pub fn volgrid_particles(g: &VolGrid, feet: [f32; 3], time: f32, salt: u32) -> V
 /// then 5 about y, 6 about z) and offset place at the attach point; its sizes, colour and frame run from start to end over its
 /// life. Push kind 5 rises 1.5 a second on top, kind 7 flies at a random direction at the kind's speed; the other kinds ride the
 /// effect handler's force, which the client does not keep (so they only drift). The original's random numbers are stood in for by
-/// a hash of the sprite's number, so each keeps its path from frame to frame; the sprites' spin (the original's Type0 quads turn)
-/// is not drawn, the client's billboards do not turn.
+/// a hash of the sprite's number, so each keeps its path from frame to frame. Each sprite is a quad its width across and its
+/// height up, facing the camera.
+///
+/// The sprites are blended over the picture by their alpha, not added (`Particle::blended`), but for the one template
+/// the original makes additive (`Smoke::additive`): black smoke added to the picture is not seen.
 pub fn smoke_particles(s: &Smoke, feet: [f32; 3], time: f32) -> Vec<Particle> {
+    smoke_particles_in(s, feet, None, time)
+}
+
+/// [`smoke_particles`] in a frame of its own: `axes` are the images in the world (Z up) of the emitter's three axes, the
+/// rows of its locator's matrix. The original bears each sprite in the control's frame and takes its place and its
+/// velocity to the world through the locator's matrix (FUN_100f04bd: FUN_101063d9, then FUN_100d76dc for the place and
+/// FUN_100dcd23 for the velocity), which for an effect on a mesh's connector is the connector's own (the locator's kind
+/// 3, FUN_10106a5e / FUN_10106591: the resource's world matrix). A chimney's connector points its −z up, so the stream,
+/// which leaves along −z, rises; without the frame it left sideways. The template's offset is not in that matrix: the
+/// locator adds it, along the matrix's rows, to its own place only (FUN_10106193, +0xc), which a stream whose flags
+/// lack bit 2 does not use for its sprites (FUN_101063d9 hands the matrix; FUN_10106306 the place only with the bit
+/// set), so in a frame the sprites are born round the connector itself: ICC's smoke leaves the middle of its stacks,
+/// not a metre and a half times the statel's scale beside them. With no axes the frame is the body's upright one, the
+/// original's Y up, and the offset is added as before (the body's locator was not read again for this).
+pub fn smoke_particles_in(s: &Smoke, feet: [f32; 3], axes: Option<&[[f32; 3]; 3]>, time: f32) -> Vec<Particle> {
     let mut out = Vec::new();
     if s.rate <= 0.0 || s.life <= 0.0 || time < 0.0 {
         return out;
@@ -2853,8 +2871,10 @@ pub fn smoke_particles(s: &Smoke, feet: [f32; 3], time: f32) -> Vec<Particle> {
         let (sz, cz) = s.turn[2].sin_cos();
         [v[0] * cz - v[1] * sz, v[0] * sz + v[1] * cz, v[2]]
     };
-    // (the original's Y-up frame to the client's Z-up world)
-    let world = |v: [f32; 3]| [feet[0] + v[0], feet[1] + v[2], feet[2] + v[1]];
+    // (the emitter's frame to the client's Z-up world: the locator's axes, or the original's Y-up frame)
+    let framed = axes.is_some();
+    let axes = axes.copied().unwrap_or([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]]);
+    let world = |v: [f32; 3]| [0, 1, 2].map(|i| v[0] * axes[0][i] + v[1] * axes[1][i] + v[2] * axes[2][i]);
     // (only the sprites that can still be alive: the ones born within the longest life)
     let made = (s.rate * time).floor() as u32;
     let first = (((time - s.life * 1.3).max(0.0) * s.rate).floor() as u32 + 1).max(made.saturating_sub(600));
@@ -2887,31 +2907,62 @@ pub fn smoke_particles(s: &Smoke, feet: [f32; 3], time: f32) -> Vec<Particle> {
             _ => {}
         }
         let (p, v) = (turn(p), turn(v));
-        let mut local = [0, 1, 2].map(|i| p[i] + s.offset[i] + v[i] * age);
+        // (in the world from here: the sprite's place from the attach point and its velocity; the offset only without
+        // a frame, see above)
+        let offset = if framed { [0.0; 3] } else { s.offset };
+        let (p, v) = (world([0, 1, 2].map(|i| p[i] + offset[i])), world(v));
+        let mut place = [0, 1, 2].map(|i| feet[i] + p[i] + v[i] * age);
         if (1..=6).contains(&s.kind) {
             // (the push of word 29's kinds by the smoothed wind: its curve of the sprite's height between words 27 and 28 above its
-            // birth height, times word 30's strength (0.1 + 0.9 random), added every frame; summed over the age in steps; in the
-            // original's Y-up frame, so the wind is turned back to it)
+            // birth height, times word 30's strength (0.1 + 0.9 random), added every frame; summed over the age in steps. The
+            // sprites are in the world when they are moved, `ProcessSprites`: the height is the world's, the wind as it blows)
             let strength = (0.1 + 0.9 * hash(salt, 10)) * s.strength;
             let (_, smooth) = wind();
-            let smooth = [smooth[0], smooth[2], smooth[1]];
-            let born = p[1] + s.offset[1];
             let steps = 12;
             let mut weight = 0.0;
             for i in 0..steps {
                 let tau = (i as f32 + 0.5) / steps as f32 * age;
-                let height = p[1] + s.offset[1] + v[1] * tau - born;
+                let height = v[2] * tau;
                 weight += push_curve(s.kind, push_fraction(height, s.heights)) * age / steps as f32;
             }
             for i in 0..3 {
-                local[i] += smooth[i] * strength * weight;
+                place[i] += smooth[i] * strength * weight;
             }
         }
         let colour = [1, 2, 3, 0].map(|c| lerp((s.colour_a[c], s.colour_b[c]), t));
-        let size = lerp(s.width, t).max(lerp(s.height, t)) * scale;
-        out.push(sprite(s.material, t, world(local), size.max(0.0), colour));
+        // (a quad its width across and its height up the camera's axes: DisplaySystem FUN_10025391. Until 2026-11-23 a
+        // square of the larger of the two.)
+        let (wide, tall) = ((lerp(s.width, t) * scale).max(0.0), (lerp(s.height, t) * scale).max(0.0));
+        out.push(Particle { blended: !s.additive, tall, ..sprite(s.material, t, place, wide, colour) });
     }
     out
+}
+
+/// Where a statel's effect stands: its connector's place (world, Z up) and, when the effect is made in the connector's
+/// frame, the images of the frame's three axes there (the rows of the connector's matrix through the statel's
+/// placement, its scale with them).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Stand {
+    pub at: [f32; 3],
+    pub axes: Option<[[f32; 3]; 3]>,
+}
+
+/// The white smoke of the statels' `eff_smoke1` connectors (template 0x8fd): ICC's steam vents. Kept as this client drew
+/// it before 2026-11-23, added to the picture and without its connector's frame, at the user's word that day ("our steam
+/// is better"): the original blends it by its alpha and sends it along its connector's −z as every other stream.
+/// `MAO_STEAM_ORIGINAL` draws it the original's way.
+pub const KEPT_STEAM: i32 = 0x8fd;
+
+/// A statel's effect as it is drawn: the template with the colour and size its connector's name gives it
+/// (`Visual::with_overrides`), and [`KEPT_STEAM`] kept added.
+pub fn statel_visual(gfx: &mao_formats::gfx::Gfx, effect: &mao_formats::attractors::Effect) -> Option<Visual> {
+    let mut visual = gfx.visual(effect.id)?.with_overrides(effect.colour, effect.radius);
+    if effect.id == KEPT_STEAM && std::env::var_os("MAO_STEAM_ORIGINAL").is_none() {
+        if let Visual::Smoke(s) = &mut visual {
+            s.additive = true;
+        }
+    }
+    Some(visual)
 }
 
 /// `_GfxControlGlobalSmoke_t`'s sprites (kind 3017) `time` seconds after it began at `at` (world, Z up), its frame turned by
@@ -2985,9 +3036,16 @@ pub fn global_smoke_particles(s: &GlobalSmoke, at: [f32; 3], heading: f32, time:
 /// The sparks of a visual made alone at `at` (world, Z up), with no body, `time` seconds in; `eye` (world, Z up) is for the
 /// visuals that hide far from the camera.
 pub fn placed_particles(v: &Visual, at: [f32; 3], time: f32, eye: [f32; 3]) -> Vec<Particle> {
+    placed_particles_in(v, at, None, time, eye)
+}
+
+/// [`placed_particles`] in a frame of its own (`axes`, see [`smoke_particles_in`]): a statel's effect on its connector.
+/// Only the smoke's stream is made in it; the other kinds stand upright as before.
+pub fn placed_particles_in(v: &Visual, at: [f32; 3], axes: Option<&[[f32; 3]; 3]>, time: f32, eye: [f32; 3]) -> Vec<Particle> {
     match v {
         Visual::GlobalSmoke(s) => global_smoke_particles(s, at, 0.0, time, Some(eye)),
-        Visual::Meta(children) => children.iter().flat_map(|c| placed_particles(c, at, time, eye)).collect(),
+        Visual::Smoke(s) if axes.is_some() => smoke_particles_in(s, at, axes, time),
+        Visual::Meta(children) => children.iter().flat_map(|c| placed_particles_in(c, at, axes, time, eye)).collect(),
         other => visual_particles(other, at, time, Reach::Small),
     }
 }
@@ -3318,7 +3376,7 @@ fn sprite(material: i32, t: f32, position: [f32; 3], size: f32, colour: [f32; 4]
             let frame = first as u32 + (t.clamp(0.0, 0.999) * frames).floor() as u32;
             let (col, row) = (frame % cols.max(1) as u32, frame / cols.max(1) as u32);
             let (du, dv) = (1.0 / cols.max(1) as f32, 1.0 / rows.max(1) as f32);
-            Particle { position, size, colour, sprite: material as u16, rect: [col as f32 * du, row as f32 * dv, du, dv], right: [0.0; 3], up: [0.0; 3], spin: 0.0 }
+            Particle { position, size, colour, sprite: material as u16, rect: [col as f32 * du, row as f32 * dv, du, dv], right: [0.0; 3], up: [0.0; 3], spin: 0.0, blended: false, tall: 0.0 }
         }
         None => Particle::dot(position, size, colour),
     }
@@ -4463,6 +4521,82 @@ mod tests {
         assert!(!sprite_particles(&counted, feet, 1.9).is_empty() && sprite_particles(&counted, feet, 2.1).is_empty());
     }
 
+    /// A chimney's smoke (template 2300's shape on a connector whose −z points up, as the statels' `eff_smoke`
+    /// connectors do): the stream rises along the connector's −z from the connector itself (the template's offset is
+    /// the locator's own, not the sprites'), is blended and not added, and each sprite keeps its own width and height;
+    /// without the frame the same stream leaves sideways from the offset point, as it did. Only template 0x13885 is added.
+    #[test]
+    fn a_chimneys_smoke_rises_along_its_connector_and_is_blended() {
+        let s = Smoke {
+            flags: 5,
+            attach: 0,
+            offset: [0.0, 1.5, 0.0],
+            turn: [0.0; 3],
+            duration: -1.0,
+            material: 31,
+            rate: 2.567,
+            radius: (0.0, 0.1),
+            drift: 8.0,
+            width: (0.2, 5.0),
+            height: (2.0, 5.0),
+            colour_a: [1.0, 0.0, 0.0, 0.0],
+            colour_b: [0.0; 4],
+            life: 6.0,
+            rise: (0.0, 0.0),
+            // (kind 7's flight and the wind's push left out of it: only the drift)
+            kind: 0,
+            heights: (0.0, 8.0),
+            strength: 0.25,
+            additive: false,
+        };
+        let at = [3305.0, 811.0, 63.8];
+        // (the connector's axes in the world, Z up: x east, y north, z down)
+        let axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]];
+        let up = smoke_particles_in(&s, at, Some(&axes), 30.0);
+        assert!(up.len() >= 12, "{}", up.len());
+        assert!(up.iter().all(|p| p.blended && p.colour[..3] == [0.0; 3]));
+        // (every sprite is above the connector, none more than the drift and its scatter up; the oldest are near the top)
+        let heights: Vec<f32> = up.iter().map(|p| p.position[2] - at[2]).collect();
+        assert!(heights.iter().all(|h| *h >= -0.11 && *h <= 8.0 + 0.11), "{heights:?}");
+        assert!(heights.iter().cloned().fold(f32::MIN, f32::max) > 5.0, "{heights:?}");
+        // (the stream stays over the connector but for its scatter: the offset moves no sprite)
+        assert!(up.iter().all(|p| (p.position[0] - at[0]).abs() < 0.5 && (p.position[1] - at[1]).abs() < 0.5));
+        // (a newborn is a streak, narrow and tall; an old one nearly square)
+        let young = up.iter().min_by(|a, b| a.position[2].total_cmp(&b.position[2])).unwrap();
+        assert!(young.size < 1.5 && young.tall > young.size, "{} {}", young.size, young.tall);
+        // (without the frame: upright as on a body, the offset up and the drift sideways)
+        let flat = smoke_particles(&s, at, 30.0);
+        assert!(flat.iter().all(|p| (p.position[2] - at[2] - 1.5).abs() < 0.5));
+        assert!(flat.iter().map(|p| (p.position[1] - at[1]).abs()).fold(0.0, f32::max) > 5.0);
+        // (the one additive template's sprites are added)
+        let added = Smoke { additive: true, ..s.clone() };
+        assert!(smoke_particles(&added, at, 30.0).iter().all(|p| !p.blended));
+    }
+
+    /// The real templates (`MAO_GAME`): the statels' smoke, 2300 to 2302, is blended (FUN_100f0cd4 adds only 0x13885);
+    /// a statel's `eff_smoke1`, the vents' steam, is kept added (`KEPT_STEAM`).
+    #[test]
+    fn the_smoke_templates_are_blended_but_one() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let data = std::fs::read(std::path::Path::new(&game).join("Setupf").join("gfxtweak.bin")).unwrap();
+        let gfx = mao_formats::gfx::Gfx::parse(&data).unwrap();
+        let additive = |id: i32| match gfx.visual(id) {
+            Some(Visual::Smoke(s)) => s.additive,
+            other => panic!("{id}: {other:?}"),
+        };
+        // (0x13885 itself has a word less than the reader takes, so no stream is made of it here)
+        assert_eq!([2300, 2301, 2302].map(additive), [false, false, false]);
+        assert!(gfx.visual(0x13885).is_none());
+        let effect = |id: i32| mao_formats::attractors::Effect { id, colour: None, radius: None };
+        let drawn = |id: i32| match statel_visual(&gfx, &effect(id)) {
+            Some(Visual::Smoke(s)) => s.additive,
+            other => panic!("{id}: {other:?}"),
+        };
+        if std::env::var_os("MAO_STEAM_ORIGINAL").is_none() {
+            assert_eq!([2300, KEPT_STEAM, 2302].map(drawn), [false, true, false]);
+        }
+    }
+
     #[test]
     fn smoke_streams_from_its_emitter_and_drifts_the_way_its_turn_points() {
         // (template 45076's shape: ten a second for 25 s, born 1.2–1.9 out at 0.5–1 up, drifting 2 along −z over 2 s, which the
@@ -4486,6 +4620,7 @@ mod tests {
             kind: 4,
             heights: (1.0, 8.0),
             strength: 0.25,
+            additive: false,
         };
         let feet = [100.0, 200.0, 10.0];
         // nothing yet, then one sprite a tenth of a second, up to the live ones over a life

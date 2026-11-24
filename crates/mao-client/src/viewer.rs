@@ -195,7 +195,7 @@ pub struct Update {
     pub falls: Option<(Vec<[f32; 3]>, Option<mao_formats::gfx::Visual>)>,
     /// With a new playfield: its statels' own effects (`crate::statel_effects`: a campfire's fire, a chimney's smoke, a
     /// lamp's halo), each effect with the places it burns at (the viewer's world, Z up).
-    pub statel_effects: Option<Vec<(mao_formats::gfx::Visual, Vec<[f32; 3]>)>>,
+    pub statel_effects: Option<Vec<(mao_formats::gfx::Visual, Vec<crate::effects::Stand>)>>,
     /// The eye's jolts from strikes near (the quake's kick, `Quake::jolt`).
     pub jolts: Vec<f32>,
     /// The characters' landings (server coordinates, Y up): the environment's effect 0x2c at each (`Sky::landing`).
@@ -542,10 +542,10 @@ pub fn headless_on(model: &Model, textures: &Textures, out: &str, ui: Option<(&H
         if let (Some(g), Ok(age)) = (gfx, age.parse::<f32>()) {
             let e = camera.eye();
             let before = scene.particles.len();
-            for (effect, at) in crate::STATEL_EFFECTS.lock().unwrap().iter() {
-                if let Some(v) = g.visual(effect.id).map(|v| v.with_overrides(effect.colour, effect.radius)) {
-                    scene.particles.extend(crate::effects::placed_particles(&v, *at, age, [e.x, e.y, e.z]));
-                    scene.shells.extend(crate::effects::placed_shells(&v, *at, age, [e.x, e.y, e.z], (camera.target - e).to_array()));
+            for (effect, stand) in crate::STATEL_EFFECTS.lock().unwrap().iter() {
+                if let Some(v) = crate::effects::statel_visual(&g, effect) {
+                    scene.particles.extend(crate::effects::placed_particles_in(&v, stand.at, stand.axes.as_ref(), age, [e.x, e.y, e.z]));
+                    scene.shells.extend(crate::effects::placed_shells(&v, stand.at, age, [e.x, e.y, e.z], (camera.target - e).to_array()));
                 }
             }
             eprintln!("statel effects: {} sparks, {} shells", scene.particles.len() - before, scene.shells.len());
@@ -719,7 +719,7 @@ struct App {
     /// The waterfalls' feet (Z up) and the fall effect drawn at each since the playfield came, when it has any.
     falls: Option<(std::time::Instant, Vec<[f32; 3]>, mao_formats::gfx::Visual)>,
     /// The playfield's statels' own effects: when they began, the effect, its places.
-    statel_effects: Vec<(std::time::Instant, mao_formats::gfx::Visual, Vec<[f32; 3]>)>,
+    statel_effects: Vec<(std::time::Instant, mao_formats::gfx::Visual, Vec<crate::effects::Stand>)>,
     /// The area's fog as the environment gives it, before the camera's own (under a liquid) is gathered into it.
     area_fog_base: Option<([f32; 3], f32)>,
     /// The lightning's flashes and bolts under way.
@@ -2755,10 +2755,11 @@ impl ApplicationHandler for App {
                         let reach = self.settings.view_distance;
                         for (began, visual, places) in &self.statel_effects {
                             let age = began.elapsed().as_secs_f32();
-                            for (i, at) in places.iter().enumerate() {
+                            for (i, stand) in places.iter().enumerate() {
+                                let at = stand.at;
                                 if (at[0] - eye.x).powi(2) + (at[1] - eye.y).powi(2) + (at[2] - eye.z).powi(2) < reach * reach {
-                                    sparks.extend(crate::effects::placed_particles(visual, *at, age + (i % 16) as f32 * 0.37, [eye.x, eye.y, eye.z]));
-                                    shells.extend(crate::effects::placed_shells(visual, *at, age + (i % 16) as f32 * 0.37, [eye.x, eye.y, eye.z], (w.camera.target - eye).to_array()));
+                                    sparks.extend(crate::effects::placed_particles_in(visual, at, stand.axes.as_ref(), age + (i % 16) as f32 * 0.37, [eye.x, eye.y, eye.z]));
+                                    shells.extend(crate::effects::placed_shells(visual, at, age + (i % 16) as f32 * 0.37, [eye.x, eye.y, eye.z], (w.camera.target - eye).to_array()));
                                 }
                             }
                         }
