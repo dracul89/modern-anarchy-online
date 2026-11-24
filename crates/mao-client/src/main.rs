@@ -2625,6 +2625,52 @@ mod animation_tests {
 
 #[cfg(test)]
 mod generated_tests {
+    /// `MAO_GAME`: the Whom-Pah pillar (`whompa_pillar_default.abiff`, mesh 297463) carries the connector
+    /// `eff_universal_96003` at the top of its mast, 65.8 up: Old Athen's stands at (449, 8, 313), so the effect is at
+    /// (449, 313, 73.8) in the viewer's world. The template is a vein (kind 3014) of six strands, 51 tall, added: the
+    /// beam of light that shows a Whom-Pah from afar. Borealis has one too. So has Andromeda (ICC), where no beam is
+    /// seen from the ground: its pillar stands inside the transport tower (`icc_tower3.abiff`, mesh 296252), whose roof
+    /// is above the beam's top. (Past 100 units from the eye the strands grow by ln(d / 36.79), and from some 270 away
+    /// the tip is over that roof, here as by the original's numbers; whether the original still shows the statel's
+    /// effect from there was not read.)
+    #[test]
+    fn the_whom_pah_pillars_carry_their_beam() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let game = game.to_str().unwrap();
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(game)).unwrap();
+        let effects = super::statel_effects(game, &db, 540);
+        let beams: Vec<_> = effects.iter().filter(|(e, _)| e.id == 96003).collect();
+        assert_eq!(beams.len(), 1);
+        let at = beams[0].1.at;
+        assert!((at[0] - 449.0).abs() < 0.5 && (at[1] - 313.0).abs() < 0.5 && (at[2] - 73.8).abs() < 0.5, "{at:?}");
+        assert_eq!(super::statel_effects(game, &db, 800).iter().filter(|(e, _)| e.id == 96003).count(), 1);
+        let data = std::fs::read(std::path::Path::new(game).join("Setupf").join("gfxtweak.bin")).unwrap();
+        let gfx = mao_formats::gfx::Gfx::parse(&data).unwrap();
+        let groups = super::net::group_statel_effects(effects.clone(), Some(&gfx));
+        let (visual, places) = groups.iter().find(|(_, places)| places.iter().any(|p| p.at == at)).expect("the beam's group");
+        assert_eq!(places.len(), 1);
+        // (seen from 60 away, nearer than where the strands begin to grow with the distance)
+        let shells = crate::effects::placed_shells(visual, at, 30.0, [at[0], at[1] - 60.0, at[2]], [0.0, 1.0, 0.0]);
+        assert_eq!(shells.len(), 1);
+        assert!(shells[0].additive);
+        let top = shells[0].vertices.iter().map(|v| v.position[2] - at[2]).fold(f32::MIN, f32::max);
+        let wide = shells[0].vertices.iter().map(|v| (v.position[0] - at[0]).hypot(v.position[1] - at[1])).fold(0.0f32, f32::max);
+        assert!((top - 51.0).abs() < 0.5 && wide > 3.0 && wide < 12.0, "{top} {wide}");
+        // (the first gradient's bottom, 0x50e0ff: blue)
+        assert!(shells[0].vertices.iter().any(|v| (v.colour[0] - 0x50 as f32 / 255.0).abs() < 1e-6 && v.colour[2] == 1.0));
+        // Andromeda's: under the roof of the tower it stands in, by 40 units
+        let icc = super::statel_effects(game, &db, 655);
+        let beams: Vec<_> = icc.iter().filter(|(e, _)| e.id == 96003).collect();
+        assert_eq!(beams.len(), 1);
+        let foot = beams[0].1.at;
+        let tower = super::placed_statels(game, &db, 655).unwrap().into_iter().find(|s| s.mesh == 296252 && (s.position[0] - foot[0]).hypot(s.position[2] - foot[1]) < 2.0).expect("the tower round the pillar");
+        let object = db.get(mao_formats::resource::Id { kind: 0xf6951, instance: 296252 }).unwrap().unwrap();
+        let model = mao_formats::model::build_dynel(&mao_formats::mesh::parse(&object).unwrap()).unwrap();
+        let roof = model.parts.iter().flat_map(|p| p.vertices.iter().map(move |v| v.position[0] * p.world[1] + v.position[1] * p.world[5] + v.position[2] * p.world[9] + p.world[13])).fold(f32::MIN, f32::max);
+        assert!((roof - 167.5).abs() < 0.5, "{roof}");
+        assert!(foot[2] + top < tower.position[1] + roof - 40.0, "{} {}", foot[2] + top, tower.position[1] + roof);
+    }
+
     /// `MAO_GAME`: the Arete Landing capture's alien ship (instance 0x20da1b, template playfield 382): its eight rooms laid out
     /// from the playfield message, and the six doors the server placed there (`DoorFullUpdate`) each on a room's edge.
     #[test]

@@ -8398,7 +8398,8 @@ pub(crate) struct Area {
 }
 
 /// The statels' effects grouped for the viewer: one effect for each template in each colour and size, with its places.
-/// (An effect the effects' file has no template for is dropped: 12200, 12570 and 96003 in the playfields looked at.)
+/// (An effect whose template the client cannot play is dropped. The Whom-Pah pillars' 96003, the beam of light over
+/// each pillar, has been played since the veins were, kind 3014.)
 pub(crate) fn group_statel_effects(list: Vec<(mao_formats::attractors::Effect, crate::effects::Stand)>, gfx: Option<&mao_formats::gfx::Gfx>) -> Vec<(mao_formats::gfx::Visual, Vec<crate::effects::Stand>)> {
     type Key = (i32, Option<[u32; 4]>, Option<u32>);
     let mut groups: std::collections::BTreeMap<Key, (mao_formats::attractors::Effect, Vec<crate::effects::Stand>)> = std::collections::BTreeMap::new();

@@ -2029,6 +2029,14 @@ fn vein_gradient(bottom: u32, top: u32, strands: usize) -> Vec<([f32; 3], f32)> 
 /// colour the first gradient's. Drawn twice: then turned about the up axis by the time and shrunk by 0.7 twice, coloured by
 /// the second gradient (word 27's towards word 26's). Added (flag 0x200 without 0x8000) or blended by alpha. The locator's
 /// following (0x1000) and the ground (0x4000) are not played: the client places the vein once.
+///
+/// Two things are not as the original's (2026-11-23, the Whom-Pah pillars' beam, template 96003, against the user's shot
+/// `scrn0088`). The gradients' colours are colours as shown, and the original adds the strands, which lie over one
+/// another, as those numbers; the renderer's shells add light, and the numbers are handed over as they are. Handed over
+/// as light instead (sRGB's curve) the beam's hue came nearer the original's and the beam darker by a fifth, no nearer
+/// overall, so that was not kept: the mending is the shells added as shown colours, in the renderer. And the original
+/// leaves the device's fog on for the vein (its states are `gfxbparticle.rs`'s `states(this, false)`: the fog's state is
+/// not named), so Direct3D mixes the fog's colour into what each strand adds, by its depth; here nothing is.
 pub fn vein_shells(v: &mao_formats::gfx::Vein, at: [f32; 3], t: f32, eye: [f32; 3], look: [f32; 3]) -> Vec<Shell> {
     if t < 0.0 || t >= v.life || (v.duration > 0.0 && t > v.duration) || v.strands < 1 || v.segments < 1 {
         return Vec::new();
