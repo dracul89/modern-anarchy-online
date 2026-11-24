@@ -28,6 +28,19 @@
 //! which has the stock and the bought items and no "Sold items" list, and the view's own flag at +0x1a8 is put
 //! out: nothing of one's own goes in ([`Rates::buy_only`]). Not seen at such a shop: the view was checked against
 //! the game's file only.
+//!
+//! **A trade with a player and its credits** (2026-11-23, Gamecode's `TradeIIR_t`, FUN_1007abff, and its switch
+//! FUN_100679f1). Each character has a trade of its own (FUN_10058d0e, the character's +0x1c8) holding its partner,
+//! the stat traded in (61) and the cash it puts in (+0x14), and a `Trade` message works on the trade of the character
+//! it is addressed as. Open (0, FUN_1006692a, taken for the client's character only) starts both trades at no cash.
+//! Action 7 (FUN_1006780d) sets the cash of the character addressed: the server sends the client's own back under its
+//! own identity, which shows nowhere, and the partner's under the partner's, which goes to `PartnerCashView`
+//! (`TradeView_c` FUN_100e074d, `FormatNumeric`). Complete (4, FUN_10066e17) comes once for each side, and **the
+//! client moves the credits itself**: the character addressed loses its cash and its partner gains it, neither going
+//! below nothing. The server says nothing of stat 61 after a trade with a player (the 2026-10-31 15:05 capture: the
+//! two `Complete`s and no `Stat` of 61; after a shop's trade it does send one), so a client that does not do this
+//! keeps showing the credits it had. [`PlayerCash`] is that. The credits typed in `OurCashView` are sent a second
+//! after the last change ([`CASH_DELAY`]), or at once by Accept (FUN_100e0622).
 
 use std::sync::Arc;
 
@@ -76,7 +89,7 @@ pub enum Change {
     Complete,
     /// A trade with another player opened (`Trade` action 0 naming them): `TradeView_c` in its player mode.
     PlayerOpen { partner: u32, name: String },
-    /// The partner's credits (action 7 naming them).
+    /// The partner's credits (action 7 addressed as them).
     PartnerCredits(i64),
     /// Your side confirmed (action 3 naming you), or the partner's confirmed or accepted (3 or 1 naming them).
     Confirmed { ours: bool },
@@ -143,6 +156,61 @@ pub enum ShopCommand {
     /// `N3Msg_TradeConfirm`: a player trade's Accept button (the final accept follows the "Are you sure" dialog).
     Confirm,
 }
+
+/// The credits of a trade with a player, as Gamecode keeps them: what each side puts in while its trade is under way
+/// (the character's state 8, set by Open and put out by its own Complete or by a Decline).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PlayerCash {
+    pub partner: u32,
+    ours: Option<i64>,
+    theirs: Option<i64>,
+}
+
+impl PlayerCash {
+    /// Open (FUN_1006692a, FUN_10066705): both sides' trades start with no cash.
+    pub fn open(partner: u32) -> Self {
+        Self { partner, ours: Some(0), theirs: Some(0) }
+    }
+
+    /// Whether this character is the partner and its side is still under way: its messages are still the trade's.
+    pub fn awaits(&self, who: u32) -> bool {
+        self.partner == who && self.theirs.is_some()
+    }
+
+    /// Action 7 (FUN_1006780d) addressed as one side: its cash, the message's second word as a signed number, taken
+    /// while that side's trade is under way and the number is not below nothing. The partner's is what their field
+    /// shows (the signal GUI.dll's FUN_100e074d takes); the client's own, the server's echo, shows nowhere.
+    pub fn set(&mut self, ours: bool, word: u32) -> Option<i64> {
+        let amount = word as i32;
+        let side = if ours { &mut self.ours } else { &mut self.theirs };
+        if side.is_none() || amount < 0 {
+            return None;
+        }
+        *side = Some(i64::from(amount));
+        (!ours).then_some(i64::from(amount))
+    }
+
+    /// Complete (4, FUN_10066e17) addressed as one side, whose trade ends with it: the client's credits after it,
+    /// less its own cash at its own Complete and more by the partner's at theirs, never below nothing.
+    pub fn complete(&mut self, ours: bool, credits: i64) -> i64 {
+        let side = if ours { &mut self.ours } else { &mut self.theirs };
+        match side.take() {
+            Some(cash) => (if ours { credits - cash } else { credits + cash }).max(0),
+            None => credits,
+        }
+    }
+
+    /// Decline (2, FUN_10066be9): the trade of the character addressed ends, and its partner's with it.
+    pub fn end(&mut self) {
+        (self.ours, self.theirs) = (None, None);
+    }
+}
+
+/// How long after the last change of the typed credits they are sent: `TradeView_c`'s timer at +0x200, started once
+/// for 1,000,000 microseconds by the slot at GUI.dll 0x100e011c, which hangs on the signal the cash field's text
+/// renderer raises when its text is replaced (`TextRenderer_c::TextReplaced`, +0x84); FUN_100e0231 sends the field's
+/// number when it runs out.
+pub const CASH_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// A shop's pricing stats: 427 (what it sells at, in percent of the value), 426 (what it buys at) and 156 (its type).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -352,6 +420,8 @@ pub struct ShopWindow {
     /// The credits last sent, and a confirm waiting for the frame after them.
     credits_sent: i64,
     pending_confirm: bool,
+    /// When the typed credits are due out ([`CASH_DELAY`] after their last change).
+    cash_due: Option<std::time::Instant>,
     /// The docks' lists (none where the view has no such dock), the rows each last showed, and the keepers of their
     /// widths and list sorts.
     lists: [Option<crate::gui::view::Id>; 3],
@@ -535,12 +605,14 @@ impl ShopWindow {
         let buy_only = self.buy_only && self.partner.is_none();
         let name = if self.name.is_empty() { format!("Booth {:x}", self.shop.1 & 0xffff) } else { self.name.clone() };
         let (partner_credits, confirmed) = (self.partner_credits, self.confirmed);
-        // (the partner's credits in their field, `PartnerCashView`, which the player does not type in)
+        // (the partner's credits in their field, `PartnerCashView`, which the player does not type in: FUN_100e074d,
+        // the number as `FormatNumeric` writes it)
+        let partner_cash = crate::vitals::grouped(partner_credits);
         if self.partner.is_some()
             && let Some(id) = tree.find(root, "PartnerCashView")
-            && crate::gui::textinput::text(tree, id) != Some(partner_credits.to_string().as_str())
+            && crate::gui::textinput::text(tree, id) != Some(partner_cash.as_str())
         {
-            crate::gui::textinput::set_text(tree, id, &partner_credits.to_string());
+            crate::gui::textinput::set_text(tree, id, &partner_cash);
         }
         // (the partner's name in its `ScrollingTextView`, started over only when it changes)
         if let Some(id) = tree.find(root, "PartnerName") {
@@ -697,22 +769,18 @@ impl ShopWindow {
         }
         // (a player trade: the credits typed in, `OurCashView`'s text as a number)
         let typed = tree.find(root, "OurCashView").and_then(|id| crate::gui::textinput::text(tree, id)).map(|t| t.chars().filter(char::is_ascii_digit).collect::<String>().parse::<i64>().unwrap_or(0));
-        for (id, signal) in std::mem::take(&mut tree.signals) {
-            let name = tree.get(id).name.clone();
+        let signals: Vec<(crate::gui::host::Signal, String)> = std::mem::take(&mut tree.signals).into_iter().map(|(id, signal)| (signal, tree.get(id).name.clone())).collect();
+        for (signal, name) in signals {
             match (signal, name.as_str()) {
                 // (FUN_100e0622: the cash sent, then a player trade confirmed, a shop's accepted)
-                (crate::gui::host::Signal::Clicked, "AcceptButton") if player => {
-                    if let Some(credits) = typed.filter(|&c| c != self.credits_sent) {
-                        self.credits_sent = credits;
-                        command = Some(ShopCommand::Credits(credits));
-                        self.pending_confirm = true;
-                    } else {
-                        command = Some(ShopCommand::Confirm);
-                    }
-                }
+                (crate::gui::host::Signal::Clicked, "AcceptButton") if player => command = Some(self.accept_player(typed)),
                 (crate::gui::host::Signal::Clicked, "AcceptButton") => command = Some(ShopCommand::Accept),
+                // (FUN_100e00ff: the timer stopped, the trade aborted)
                 (crate::gui::host::Signal::Clicked, "DeclineButton") => is_open = false,
+                // (the typed credits changed: they go a second after the last change)
+                (crate::gui::host::Signal::Edited, "OurCashView") if player => self.cash_edited(std::time::Instant::now()),
                 (crate::gui::host::Signal::Enter, "OurCashView") if player => {
+                    self.cash_due = None;
                     if let Some(credits) = typed.filter(|&c| c != self.credits_sent) {
                         self.credits_sent = credits;
                         command = Some(ShopCommand::Credits(credits));
@@ -725,12 +793,52 @@ impl ShopWindow {
         if command.is_none() && std::mem::take(&mut self.pending_confirm) {
             command = Some(ShopCommand::Confirm);
         }
+        // (the typed credits' timer run out; a frame is asked for at its end)
+        if command.is_none() {
+            command = self.cash_timed(std::time::Instant::now(), typed);
+        }
+        if let Some(due) = self.cash_due {
+            ctx.request_repaint_after(due.saturating_duration_since(std::time::Instant::now()));
+        }
         if !is_open && self.open {
             self.open = false;
             self.partner = None;
+            self.cash_due = None;
             command = Some(ShopCommand::Close);
         }
         command
+    }
+
+    /// The credits typed in a trade with a player changed: their timer starts over ([`CASH_DELAY`]).
+    fn cash_edited(&mut self, now: std::time::Instant) {
+        self.cash_due = Some(now + CASH_DELAY);
+    }
+
+    /// The timer run out: the typed credits go (FUN_100e0231, `N3Msg_TradeSetCash` with the field's number, whatever
+    /// went before).
+    fn cash_timed(&mut self, now: std::time::Instant, typed: Option<i64>) -> Option<ShopCommand> {
+        if !self.cash_due.is_some_and(|due| now >= due) {
+            return None;
+        }
+        self.cash_due = None;
+        let credits = typed?;
+        self.credits_sent = credits;
+        Some(ShopCommand::Credits(credits))
+    }
+
+    /// A player trade's Accept (FUN_100e0622): a running timer is stopped and its credits sent first, the confirm
+    /// then following them; with none running the confirm alone (and the credits before it all the same when the
+    /// field's number is not the one last sent, which the original cannot come to).
+    fn accept_player(&mut self, typed: Option<i64>) -> ShopCommand {
+        let running = self.cash_due.take().is_some();
+        match typed.filter(|&c| running || c != self.credits_sent) {
+            Some(credits) => {
+                self.credits_sent = credits;
+                self.pending_confirm = true;
+                ShopCommand::Credits(credits)
+            }
+            None => ShopCommand::Confirm,
+        }
     }
 }
 
@@ -784,6 +892,70 @@ mod tests {
         assert!(w.asking && w.partner_credits == 500);
         w.apply(Change::Complete);
         assert!(!w.open && w.partner.is_none() && !w.asking);
+    }
+
+    /// The user's log of 2026-11-23 (own character 0x630193db giving 549,977,999 credits to 0x4deb9279): Open, the
+    /// server's echo of the client's own cash under its own identity, which is not the partner's and shows nowhere,
+    /// then Complete addressed as the client's character (its credits go) and as the partner (who put nothing in).
+    #[test]
+    fn the_credits_given_in_a_player_trade_leave_the_total() {
+        let mut cash = PlayerCash::open(0x4deb9279);
+        assert!(cash.awaits(0x4deb9279) && !cash.awaits(0x630193db));
+        // (`0000000002070000 00000000 20c7ff8f ...` from c350:630193db)
+        assert_eq!(cash.set(true, 0x20c7ff8f), None);
+        // (`...0204 c350 4deb9279 ...` from c350:630193db: 549,977,999 of 550,000,000 go)
+        let after = cash.complete(true, 550_000_000);
+        assert_eq!(after, 22_001);
+        // (the same from c350:4deb9279: the partner's side, nothing put in; their side is over with it)
+        assert!(cash.awaits(0x4deb9279));
+        assert_eq!(cash.complete(false, after), 22_001);
+        assert!(!cash.awaits(0x4deb9279));
+        // (a Complete come twice moves nothing more)
+        assert_eq!((cash.complete(true, after), cash.complete(false, after)), (22_001, 22_001));
+    }
+
+    /// The other side of the same trade: the partner's cash comes addressed as them and shows in their field, and
+    /// their Complete adds it to the client's credits. A number below nothing is not taken (FUN_1006780d's
+    /// `-1 < amount`), the credits never go below nothing (FUN_10066e17), and a Decline ends both sides.
+    #[test]
+    fn the_credits_taken_in_a_player_trade_join_the_total() {
+        let mut cash = PlayerCash::open(0x630193db);
+        assert_eq!(cash.set(false, 0x20c7ff8f), Some(549_977_999));
+        assert_eq!(cash.set(false, 0xffff_ffff), None);
+        // (the 2026-10-31 15:05 capture's own cash, 100000 then 1000000: the last one counts)
+        assert_eq!((cash.set(true, 100_000), cash.set(true, 1_000_000)), (None, None));
+        assert_eq!(cash.complete(true, 250_000), 0);
+        assert_eq!(cash.complete(false, 0), 549_977_999);
+        let mut declined = PlayerCash::open(7);
+        declined.set(true, 500);
+        declined.end();
+        assert!(!declined.awaits(7));
+        assert_eq!((declined.set(false, 9), declined.complete(true, 1000), declined.complete(false, 1000)), (None, 1000, 1000));
+        // (no trade: nothing is taken)
+        assert_eq!(PlayerCash::default().set(false, 5), None);
+    }
+
+    /// The typed credits go a second after their last change (`TradeView_c`'s timer), each change starting the
+    /// second over; Accept with the timer running sends them at once and confirms after them, and without it
+    /// confirms alone.
+    #[test]
+    fn typed_credits_go_a_second_after_the_last_change() {
+        let mut w = ShopWindow::default();
+        w.apply(Change::PlayerOpen { partner: 0x57d8, name: "Partner".into() });
+        let start = std::time::Instant::now();
+        let ms = |n: u64| start + std::time::Duration::from_millis(n);
+        assert_eq!(w.cash_timed(ms(5000), Some(0)), None);
+        w.cash_edited(ms(0));
+        w.cash_edited(ms(600));
+        assert_eq!(w.cash_timed(ms(1500), Some(100_000)), None);
+        assert_eq!(w.cash_timed(ms(1600), Some(100_000)), Some(ShopCommand::Credits(100_000)));
+        assert_eq!(w.cash_timed(ms(9000), Some(100_000)), None);
+        // (the capture: 1000000 typed and Accept pressed within the second, the cash and the confirm together)
+        w.cash_edited(ms(2000));
+        assert_eq!(w.accept_player(Some(1_000_000)), ShopCommand::Credits(1_000_000));
+        assert!(w.pending_confirm && w.cash_due.is_none());
+        w.pending_confirm = false;
+        assert_eq!(w.accept_player(Some(1_000_000)), ShopCommand::Confirm);
     }
 
     /// FUN_1004141b for a list whose flags have bit 2: a left click and a right click raise the click signal, a

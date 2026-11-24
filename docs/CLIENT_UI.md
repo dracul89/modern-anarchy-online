@@ -8900,3 +8900,56 @@ keeps the character's values it held as they were, for the next new character. W
 launcher's process) everything goes to the shared file as before. Not split: `audio.rs` reads the sound values from
 the shared file at start, all of them the account's. Tests `gui::dvalue::tests::the_characters_values_are_kept_apart`.
 **Not tried live.**
+
+## A player trade's credits (2026-11-23, the user: "trade credits does not reflect correctly")
+
+The user's log of a trade between two of their characters, the giver on this client (`game-log.txt`; own character
+`0x630193db`, partner `0x4deb9279`): every `Trade` message came under the client's own identity but the last. Open
+naming the partner; action 7 with `(0, 549977999)`; Confirm naming the client's character; Accept naming the partner;
+Complete naming the partner, then Complete naming the client's character under the partner's identity. The client took
+action 7 for the partner's credits only under the partner's identity, which was right, and did nothing else with
+credits, which was not.
+
+Read from the original (Gamecode; `TradeIIR_t`, registered by FUN_1000e8e9, executes in FUN_1007abff): the message's
+identity names a character, and the switch FUN_100679f1 runs on that character's own trade (FUN_10058d0e makes it,
+the character's +0x1c8: its partner at +0, its cash at +0x14, the stat traded in at +0x1c, the character at +0x20).
+
+- Open (0, FUN_1006692a) is taken only for the client's own character; it starts that character's trade and, the
+  partner being a character, the partner's too (FUN_10066705: the stat 61, no cash, both characters in state 8).
+- Action 7 (FUN_1006780d) sets the cash of the character addressed, its second word a signed number not below
+  nothing. Only when that character is not the client's and its partner is does it raise the signal the trade
+  window's FUN_100e074d takes, which writes the number into `PartnerCashView` with `FormatNumeric`. So the message
+  under the client's own identity is the server's echo of `N3Msg_TradeSetCash` (the 2026-10-31 15:05 capture has it
+  after each of the original's own two: #18234, #18241) and shows nowhere; what it sets is what Complete takes.
+- Complete (4, FUN_10066e17) on the character addressed: its state 8 ends, the window goes if it is the client's
+  (signal +0xe4), its trade's items go to the partner, and **the credits are moved by the client**: the character's
+  stat 61 less its cash and the partner's stat 61 plus that cash, each kept from going below nothing. It comes
+  twice, once for each side. The capture has no `Stat` of 61 after its two Completes (#18253 to #18255; the `Stat`
+  there is 521), where a shop's trade is preceded by one (the 2026-10-30 16:55 capture, #24133): the server leaves
+  the sum to the client. This client never did it, so the giver kept showing the credits given away.
+- The typed credits (GUI.dll, `TradeView_c`): `OurCashView`'s text renderer raises its signal at +0x84
+  (`TextRenderer_c::TextReplaced`) into the slot at 0x100e011c, which starts the view's timer (+0x200) once for
+  1,000,000 microseconds; FUN_100e0231 then sends `N3Msg_TradeSetCash` with the field's number. Accept
+  (FUN_100e0622) stops a running timer and sends at once before `N3Msg_TradeConfirm`; Decline (FUN_100e00ff) stops
+  it. The capture shows both: 100000 a second after it was typed, 1000000 and the Confirm a millisecond apart.
+  This client sent the credits only on Enter or Accept.
+
+Done: `shop::PlayerCash` keeps both sides' cash as the original's two trades do (`open`, `set`, `complete`, `end`),
+and `net.rs` runs the trade's messages through it: action 7 under either identity, Complete under the client's own
+identity (its credits less its own cash, the window closed) and under the partner's, which was dropped before because
+the trade was already forgotten (its credits plus the partner's cash). Stat 61 changes in place and goes to the
+interface like any told stat. The window sends the typed credits a second after the last change (`CASH_DELAY`,
+`cash_edited`, `cash_timed`), Accept sends them first when the second is still running (`accept_player`), and the
+partner's field shows the number grouped (`vitals::grouped`). Tests
+`the_credits_given_in_a_player_trade_leave_the_total` (the log's messages),
+`the_credits_taken_in_a_player_trade_join_the_total` and `typed_credits_go_a_second_after_the_last_change`.
+**Not tried live.**
+
+Left as it was: at Complete the original also moves the trade's items between the two inventories itself
+(FUN_10066e17's loop over the character's trade places, FUN_1002af63), and this client still waits for the server
+to tell them; what the server tells of a partner's items is in no capture (`INV-055`). On Accept the original
+writes the client's own field anew with `FormatNumeric` and takes its editing away (feature flag 1) until the
+"Are you sure" dialog is answered no (FUN_100e0260); here the field stays as typed and can still be changed.
+Enter in the field still sends at once, which the original leaves to the timer. Whether 549,977,999 was the
+number typed is not known: nothing in the log said what the client sent. It does now (`trade: credits N sent`),
+and each side's Complete writes `trade complete (own side): credits A -> B`, to check a live trade by.

@@ -9271,8 +9271,9 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
         // (the backpack places put into the open shop's trade: gone from the backpack when the trade completes. The server
         // says nothing more of them: a sale's log has `AddItem` for each place, then `Complete`, then the shop opened anew.)
         let mut shop_sold: Vec<u32> = Vec::new();
-        // (the player a trade is open with)
+        // (the player a trade is open with, and each side's credits in it: kept until both sides' Complete has come)
         let mut player_trade: Option<u32> = None;
+        let mut trade_cash = crate::shop::PlayerCash::default();
         let (mut shop_rates, mut shop_rows, mut pending_shop_changes) = (crate::shop::Rates { buy: 0, sell: 0, kind: 0 }, Vec::<crate::shop::Row>::new(), Vec::<crate::shop::Change>::new());
         // After a trade completes the server wants the booth used again (as the original does) for the next one.
         let mut shop_reuse: Option<Instant> = None;
@@ -9553,9 +9554,10 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     }
                     // The trade's echoes (to us): an item put in (5) shows in its list, one taken out (6) leaves it, and
                     // action 4 (captured after both a purchase and a sale) is the trade completed.
-                    // (a trade with a player: the partner's own echoes come under their identity, as the 2026-10-31 15:05
-                    // capture's last Complete)
-                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x36284f6e && (m.identity == (0xc350, own) || Some(m.identity.1) == player_trade) && m.data.len() >= 22) {
+                    // (a trade with a player: a message works on the trade of the character it is addressed as, Gamecode's
+                    // `TradeIIR_t` FUN_1007abff, so the partner's side comes under their identity: their credits, and the
+                    // 2026-10-31 15:05 capture's last Complete, which comes after the client's own has closed the window)
+                    if let Some(m) = Message::parse(&frame).filter(|m| m.kind == 0x36284f6e && (m.identity == (0xc350, own) || Some(m.identity.1) == player_trade || trade_cash.awaits(m.identity.1)) && m.data.len() >= 22) {
                         let word = |i: usize| u32::from_be_bytes(m.data[6 + 4 * i..10 + 4 * i].try_into().unwrap());
                         let item = [word(0), word(1), word(2), word(3)];
                         let naming = |who: u32| item[0] == n3::CHARACTER && item[1] == who;
@@ -9563,19 +9565,44 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                             // (Open naming another character: a trade with a player, `N3Msg_TradeStart` or theirs)
                             0 if item[0] == n3::CHARACTER && item[1] != own && shop_booth.is_none() => {
                                 player_trade = Some(item[1]);
+                                trade_cash = crate::shop::PlayerCash::open(item[1]);
                                 let name = state.names.get(&item[1]).map_or_else(|| format!("Character {:x}", item[1]), |n| n.0.clone());
                                 pending_shop_changes.push(crate::shop::Change::PlayerOpen { partner: item[1], name });
                             }
-                            7 if player_trade.is_some() && m.identity.1 != own => pending_shop_changes.push(crate::shop::Change::PartnerCredits(word(1) as i64)),
+                            // (the cash of the character addressed, FUN_1006780d: the partner's shows in their field; the
+                            // client's own, which the server sends back under the client's identity, shows nowhere and is
+                            // what its Complete takes: the user's log of 2026-11-23 has `0207 00000000 20c7ff8f` so)
+                            7 => {
+                                if let Some(credits) = trade_cash.set(m.identity.1 == own, word(1)) {
+                                    pending_shop_changes.push(crate::shop::Change::PartnerCredits(credits));
+                                }
+                            }
                             3 if player_trade.is_some() && naming(own) => pending_shop_changes.push(crate::shop::Change::Confirmed { ours: true }),
                             1 | 3 if player_trade.is_some_and(|p| naming(p)) => pending_shop_changes.push(crate::shop::Change::Confirmed { ours: false }),
                             2 if player_trade.is_some() => {
                                 player_trade = None;
+                                trade_cash.end();
                                 pending_shop_changes.push(crate::shop::Change::Declined);
                             }
-                            4 if player_trade.is_some() => {
-                                player_trade = None;
-                                pending_shop_changes.push(crate::shop::Change::Complete);
+                            // (Complete, FUN_10066e17, once for each side: the client moves the credits itself, the
+                            // character addressed losing its cash and its partner gaining it. The server sends no stat 61
+                            // after a trade with a player. The window goes with the client's own.)
+                            4 if m.identity.1 == own && player_trade.is_some() || m.identity.1 != own && trade_cash.awaits(m.identity.1) => {
+                                let ours = m.identity.1 == own;
+                                if let Some(credits) = state.stats.get(&61).copied() {
+                                    let after = trade_cash.complete(ours, credits);
+                                    eprintln!("trade complete ({} side): credits {credits} -> {after}", if ours { "own" } else { "the partner's" });
+                                    if after != credits {
+                                        state.stats.insert(61, after);
+                                        state.stats_changed = true;
+                                    }
+                                } else {
+                                    trade_cash.complete(ours, 0);
+                                }
+                                if ours {
+                                    player_trade = None;
+                                    pending_shop_changes.push(crate::shop::Change::Complete);
+                                }
                             }
                             5 if item[0] == 0xc75b && item[2] == 0x6f => {
                                 if let Some(row) = shop_rows.get(item[3] as usize) {
@@ -10731,9 +10758,11 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                         shop_booth = None;
                         shop_sold.clear();
                         player_trade = None;
+                        trade_cash.end();
                     }
                     // (a player trade: `N3Msg_TradeSetCash`, action 7 with the credits second; `N3Msg_TradeConfirm`, action 3)
                     crate::shop::ShopCommand::Credits(credits) => {
+                        eprintln!("trade: credits {credits} sent");
                         let _ = connection.send(&n3::trade(own, 7, [0, credits.clamp(0, u32::MAX as i64) as u32, 0, 0]));
                     }
                     crate::shop::ShopCommand::Confirm => {

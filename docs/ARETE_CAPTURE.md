@@ -119,6 +119,9 @@ Every zoning is the server's `43197d22` (the place, the rotation and the playfie
 - **Pets**: `PetCommand` (`6b333303`) 7 (attack) to all pets; `AddPet` names them after each zoning. Ported as `/pet` (1160fdd).
 - **Player trade** with `0x57d8`: Open naming the partner, AddItem `(0x68, 0x54)`, credits 100000 then 1000000, Confirm, the
   partner's Accept, ours, Complete for both. Ported (ad6dbbe). The partner put nothing in, so their items' messages are unknown.
+  The server sends the client's own credits back under the client's identity (#18234, #18241) and no `Stat` of 61 after
+  the two Completes (#18253 to #18255): the original moves the credits itself, which the client does since 2026-11-23
+  (`docs/CLIENT_UI.md`, "A player trade's credits").
 - **Team**: two invitations accepted (`TeamRequestReply` 0x1c, already handled); sending an invitation and kicking are not in it.
 - Also seen, not yet used: `SetStat` 264 stepped 0 to 100 (a slider), `N3Teleport` before each zoning, `DoorFullUpdate`,
   `PlayfieldAllTowers` / `AllCities`, `ResearchUpdate`, `OrgServer`.
