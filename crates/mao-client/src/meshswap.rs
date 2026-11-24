@@ -22,7 +22,7 @@
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use mao_formats::model::{Model, Part, Vertex};
 use mao_formats::resource::{Id, ResourceDatabase};
@@ -48,6 +48,24 @@ fn export_folder() -> Option<&'static PathBuf> {
 fn texture_export_folder() -> Option<&'static PathBuf> {
     static FOLDER: OnceLock<Option<PathBuf>> = OnceLock::new();
     FOLDER.get_or_init(|| folder("MAO_TEXTURE_EXPORT")).as_ref()
+}
+
+/// The meshes that have a stand-in, as the database has them.
+fn originals() -> &'static Mutex<std::collections::HashMap<u32, Arc<Model>>> {
+    static ORIGINALS: OnceLock<Mutex<std::collections::HashMap<u32, Arc<Model>>>> = OnceLock::new();
+    ORIGINALS.get_or_init(Default::default)
+}
+
+/// The database's own mesh of one that was loaded with a stand-in in its place: for whoever needs the original's
+/// texture layout. A stand-in is laid out for its own picture alone, so a helmet's face (drawn with its wearer's head's
+/// material) and a mesh worn with another texture take the original.
+pub fn original(instance: u32) -> Option<Arc<Model>> {
+    originals().lock().ok()?.get(&instance).cloned()
+}
+
+/// Whether a material is a stand-in's: its picture is the file's own, and no texture of the database fits its layout.
+pub fn is_stand_in(material: &mao_formats::model::Material) -> bool {
+    material.textures.first().is_some_and(|t| t.0 == TEXTURE_KIND)
 }
 
 /// A texture's stand-in from the folder, when it has one.
@@ -88,6 +106,9 @@ pub fn apply(db: &ResourceDatabase, id: Id, model: Model) -> Model {
     match stand_in(&path, id.instance, &model) {
         Ok(new) => {
             eprintln!("mesh {:x}: stand-in {} ({} triangles in {} parts)", id.instance, path.display(), new.parts.iter().map(|p| p.indices.len() / 3).sum::<usize>(), new.parts.len());
+            if let Ok(mut kept) = originals().lock() {
+                kept.insert(id.instance, Arc::new(model));
+            }
             new
         }
         Err(e) => {

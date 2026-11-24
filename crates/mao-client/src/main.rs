@@ -1008,7 +1008,8 @@ fn add_statels(db: &ResourceDatabase, model: &mut Model, statels: &[mao_formats:
             .or_insert_with(|| {
                 let (mut m, anims) = if split { load_model_animated(db, Id { kind: 0xf6951, instance: s.mesh }).ok()? } else { (load_model(db, Id { kind: 0xf6951, instance: s.mesh }).ok()?, Vec::new()) };
                 for (material, texture) in &overrides {
-                    if let Some(part) = m.parts.get_mut(*material as usize) {
+                    // (a stand-in from a file keeps its own picture: no texture of the database fits its layout)
+                    if let Some(part) = m.parts.get_mut(*material as usize).filter(|p| !meshswap::is_stand_in(&p.material)) {
                         part.material.textures = vec![(0xf6954, *texture)];
                     }
                 }

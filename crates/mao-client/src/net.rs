@@ -6255,10 +6255,12 @@ pub(crate) fn wear(db: &ResourceDatabase, cache: &mut std::collections::HashMap<
     let mut parts = Vec::new();
     // (the head a helmet stands in for, `n3::FACE_DONOR`: its `head` part's material is the helmet's face. The original
     // puts the head's texture on the face's own material; that material is the modeller's plain blue, so the whole of
-    // the head's is taken here)
+    // the head's is taken here. Of a head with a stand-in from a file the database's own is asked: the helmet's face is
+    // laid out for that head's texture, `meshswap::original`)
     let face = gear.iter().find(|g| g.0 == mao_net::n3::FACE_DONOR).and_then(|g| {
         let head = cache.entry(g.1).or_insert_with(|| crate::load_model_attached(db, Id { kind: 0xf6951, instance: g.1 }).ok());
-        head.as_ref().and_then(|m| m.parts.iter().find(|p| p.name.contains("head")).map(|p| p.material.clone()))
+        let original = crate::meshswap::original(g.1);
+        original.as_deref().or(head.as_ref()).and_then(|m| m.parts.iter().find(|p| p.name.contains("head")).map(|p| p.material.clone()))
     });
     for &(position, mesh, texture) in gear {
         if position == mao_net::n3::FACE_DONOR {
@@ -6267,7 +6269,9 @@ pub(crate) fn wear(db: &ResourceDatabase, cache: &mut std::collections::HashMap<
         let Some(point) = attractor_name(position).and_then(|name| body.attractor_named(name)) else { continue };
         let piece = cache.entry(mesh).or_insert_with(|| crate::load_model_attached(db, Id { kind: 0xf6951, instance: mesh }).ok());
         if let Some(piece) = piece {
-            let mut worn = body.attach(bones, point, piece);
+            // (a mesh worn with another texture than its own is the database's, not its stand-in: `meshswap::original`)
+            let original = if texture != 0 { crate::meshswap::original(mesh) } else { None };
+            let mut worn = body.attach(bones, point, original.as_deref().unwrap_or(piece));
             if texture != 0 {
                 for part in &mut worn {
                     part.material.textures = vec![(0xf6954, texture)];
