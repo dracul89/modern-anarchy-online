@@ -2773,6 +2773,7 @@ dependencies = [
  "pollster 1.0.1",
  "rfd",
  "rodio",
+ "serde_json",
  "sysinfo",
  "time",
  "ureq",
