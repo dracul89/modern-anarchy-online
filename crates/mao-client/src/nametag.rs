@@ -7,7 +7,7 @@
 //!
 //! A tag is a sprite 128 pixels wide (256 when the text is wider), 32 tall, standing in the world 1/128 m a pixel across
 //! and 0.3 m high, 0.4 m over the character's mesh (1.9 m when it has none). Its text is the name (in the game shell's
-//! bitmap font, white) and, with `IsOrgNameShownOverHead`, the organization's under it in the side's colour (Clan
+//! bitmap font, in [`name_colour`]'s colour: white but for flagged characters) and, with `IsOrgNameShownOverHead`, the organization's under it in the side's colour (Clan
 //! 0x8888aa, Omni 0xaa88aa, else 0x88aaaa); with brackets, the brackets' halves at its ends and a 64-pixel health bar
 //! (pixels 14 to 18) in the consider colour over 0x333333.
 
@@ -19,6 +19,8 @@ pub struct Tag {
     /// Where its middle stands (Z up): the top of the head plus 0.4.
     pub at: [f32; 3],
     pub name: String,
+    /// The name's colour (0xRRGGBB): [`name_colour`].
+    pub colour: u32,
     pub org: Option<(String, u8)>,
     /// The selection's (false) or the attack's (true) brackets, with the health bar; none for a plain tag.
     pub brackets: Option<bool>,
@@ -110,6 +112,20 @@ pub fn consider_colour(ratio: f32) -> u32 {
     }
 }
 
+/// The name's colour (FUN_1002596c): by two bits of the character's flags (stat 0, `>> 22`): with 0x800000 the font
+/// system's colour 10, a blue (0x2299ff); with 0x400000 alone its colour 31, a green (0x00ee00) (the table at
+/// 0x1026349c is 0, 31, 10, 10; the colours are `FontSystem_t::SetColorsIntoMap`'s, 0x1012e402). With neither, a
+/// character that is no NPC and whose stat 0x159 (345) is set is colour 12, red; everyone else is the font's white.
+/// `marked` is that last case: no NPC, stat 345 not zero.
+pub fn name_colour(flags: u32, marked: bool) -> u32 {
+    match (flags >> 22) & 3 {
+        0 if marked => 0xff_0000,
+        0 => 0xff_ffff,
+        1 => 0x00_ee00,
+        _ => 0x22_99ff,
+    }
+}
+
 /// The organization line's colour by side (FUN_1002596c).
 pub fn org_colour(side: u8) -> u32 {
     match side {
@@ -174,7 +190,7 @@ pub fn draw(ctx: &egui::Context, painter: &egui::Painter, screen: egui::Rect, ta
                 }
             }
         };
-        line(&tag.name, 1.0, 0xff_ffff);
+        line(&tag.name, 1.0, tag.colour);
         if let Some((org, side)) = &tag.org {
             line(org, 19.0, org_colour(*side));
         }
@@ -207,7 +223,7 @@ mod tests {
     #[test]
     fn the_lines_of_sight_are_spread_over_the_frames() {
         use super::{update_sight, Tag, SIGHT_EVERY};
-        let tag = |name: &str, x: f32| Tag { at: [x, 0.0, 0.0], name: name.into(), org: None, brackets: None, health: None, consider: 0.0, hidden: false, own: false };
+        let tag = |name: &str, x: f32| Tag { at: [x, 0.0, 0.0], name: name.into(), colour: 0xff_ffff, org: None, brackets: None, health: None, consider: 0.0, hidden: false, own: false };
         let mut tags: Vec<Tag> = (0..8).map(|i| tag(&format!("n{i}"), i as f32)).collect();
         let mut kept = Vec::new();
         // (the tags at x of 6 and more are out of view; those at an odd x are behind a wall)
@@ -230,6 +246,16 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_name_is_coloured_by_the_characters_flags() {
+        // (FUN_1002596c: the flags' bits 22 and 23 pick the colour; stat 345 only without them)
+        assert_eq!(name_colour(0x18_1241, false), 0xff_ffff);
+        assert_eq!(name_colour(0x18_1241, true), 0xff_0000);
+        assert_eq!(name_colour(0x40_0000, true), 0x00_ee00);
+        assert_eq!(name_colour(0x80_0001, false), 0x22_99ff);
+        assert_eq!(name_colour(0xc0_0000, false), 0x22_99ff);
+    }
 
     #[test]
     fn consider_runs_green_to_red() {

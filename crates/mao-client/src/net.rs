@@ -12971,6 +12971,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 at: [p[0], p[2], p[1] + crate::nametag::height(tag_heights.get(&id).copied())],
                                 own: id == own,
                                 name,
+                                // (the flags are stat 0: one's own stat, another's from its info packet, where they are
+                                // the word after the name. Stat 345 is known of oneself only: another player's is not
+                                // kept, so the red of FUN_1002596c shows on one's own tag alone.)
+                                colour: crate::nametag::name_colour(
+                                    if id == own { state.stats.get(&0).copied().unwrap_or(0) as u32 } else { info.map_or(0, |i| i.flags2) },
+                                    id == own && state.stats.get(&345).is_some_and(|v| *v != 0),
+                                ),
                                 org: state.orgs.get(&id).filter(|_| orgs_shown).map(|o| (o.clone(), side)),
                                 brackets,
                                 health: state.health.get(&id).copied(),
