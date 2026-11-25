@@ -1658,3 +1658,10 @@ are about real key and button timing). One character unless said.
   blue indicator in that area, and the planet map, the corner map and the area map a blue dot at the terminal.
   Does the item go back at that terminal (and at another)?
 - [ ] **2** A story mission (from a character, not a terminal) in the tracker: its steps and place.
+
+## Links in the chat (2026-11-25)
+
+- [x] **1** (the user, 2026-11-25: "links work now"; which kinds were tried was not said) A click on an item's
+  link in a chat line opens its info page; on a name it starts a tell; on a
+  channel's name in brackets it picks the channel. The right button on a name opens the name's menu. The same in
+  a tell window.

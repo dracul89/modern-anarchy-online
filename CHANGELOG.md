@@ -6,6 +6,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+- Links in the chat work again: an item's link, a name, a channel's name. Since 0.1.11, when links were made to act as the mouse button goes down, a press on one did nothing.
+
 ## 0.1.12 (2026-11-25)
 
 A mission tracker, the pet window as the original's with a nano bar, and fixes for what was met in play.

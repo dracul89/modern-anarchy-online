@@ -776,7 +776,12 @@ pub fn markup_click(ui: &mut egui::Ui, palette: &Palette, text: &str, font: Font
     }
     let view = view.unwrap_or_else(build);
     view.paint(&Paint { painter: ui.painter(), env: &env, rect, hovered: response.hovered(), pressed: false, enabled: true });
-    let over = response.hover_pos().and_then(|p| view.link_at(p - rect.min.to_vec2()));
+    // (where the pointer is over the text: while it hovers, and on the frame a button goes down on it. In a list that
+    // scrolls by dragging, the press makes the list the dragged thing at once and nothing else counts as hovered
+    // from that frame on, so the press's own place is asked. With the hover alone a link in the chat was never
+    // pressed: found 2026-11-25, the same day links were made to act on the press.)
+    let pointer = response.hover_pos().or_else(|| response.interact_pointer_pos().filter(|_| response.is_pointer_button_down_on()));
+    let over = pointer.and_then(|p| view.link_at(p - rect.min.to_vec2()));
     if over.is_some() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }

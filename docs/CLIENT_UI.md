@@ -5634,6 +5634,20 @@ Test: `a_death_is_told_by_the_message_that_carries_its_reason`.
 Tests: `a_pet_has_its_place_and_its_kept_name`, `a_pets_name_is_kept_and_given_back`,
 `a_pet_command_carries_its_pets_and_its_text`.
 
+**Links in the chat did nothing (2026-11-25, in 0.1.11 and 0.1.12).** The same day's change that made a link act
+as the button goes down (`TextRenderer_c::MouseDown`, `controls::markup_click`) asked for the link under the
+pointer by the line's hover. The chat's lines stand in a list that scrolls by dragging: the interface library
+makes that list the dragged thing on the very frame of the press (a widget that senses drags only is dragged at
+once, `interaction.rs`), and from then on nothing else is hovered. So on the press the line had the button down
+on it and no hover: no link was found; and the release, where the hover is back, no longer counts. A scripted
+click with its press and release in one frame passed, which is how it went unseen (the trap of the held keys
+again: a pass by script proves nothing about the real mouse). `markup_click` now takes the press's own place
+(`interact_pointer_pos` while the button is down on the line) when there is no hover. Traced in the preview with
+the press and the release a frame apart (`MAO_UI_PREVIEW=chat MAO_CLICK=410,617`, the sample's "Training
+Pistol"): before, the press frame had no link; after, it has. Seen live by the user the same day ("links work
+now"; which kinds of link were tried was not said). The view system's own text views
+(the info window, NPC chat, tips) take the mouse another way (`TextView::mouse`) and were not touched.
+
 **The mission tracker and the terminal's marker (2026-11-25), this client's own** (the user: "a custom mission
 window ... a drop down with all the missions when selected missions would upload the location, give the player a
 summary of objectives and rewards", "decoded step list, only missions I hold", and "the original mission terminal ...
