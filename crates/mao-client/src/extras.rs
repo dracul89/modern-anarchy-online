@@ -6,6 +6,8 @@
 //! | `damage` | `/damage`, `/dps` | the damage meter (`damage.rs`) |
 //! | `find` | `/find <part of a name>` | where a thing is, on any of the player's characters (`itemindex.rs`) |
 //! | `crafting` | `/crafting [text]`, `/craft` | the tradeskill guide read from the game's items (`craftguide.rs`) |
+//!
+//! The mission tracker (`/tracker`) is one too, kept with the journal whose missions it shows (`missionlog.rs`).
 
 use crate::theme::Palette;
 

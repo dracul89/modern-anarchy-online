@@ -6,6 +6,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+- New, this client's own: the mission tracker (`/tracker`). Pick one of the missions you hold from its list and its place is uploaded to the map; under the list it says where the mission is, the time left, its steps and what it pays, and has the mission's text.
+- For a mission that wants an item brought back, the mission terminal to bring it to is marked in blue on the compass, the planet map, the corner map and the area map while the mission's waypoint is up, and the chat says so when the place is uploaded.
 - The time left on a locked item counts down in the inventory, in bags and on the nano programs. It stood still at the number it had when the window's items last changed (a recharger said "15s" for good), and so did the icon's fade. Items in bags show the time and the fade now too.
 - With a pet out, the Pets menu and its "Pet Info" entry, which opens the pet window, are in the control center's menus again. The menu is shown while the character has pets, and the client never counted them, so it was never there.
 - The pet window looks like the original's: its "Pets" tab stands in the title row with the window's own menu button, the pets are listed from the top, and the row under a pet's bar shows its empty program cells across the window.

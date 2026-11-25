@@ -77,6 +77,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("invite <name>", "asks the character into your private chat group; /kick <name> puts one out, /leave <name> leaves that character's group"),
     ("assist [name]", "fights whomever your target (or the character named) is fighting"),
     ("damage", "the damage meter (also /dps)"),
+    ("tracker", "the mission tracker: pick a mission, see its steps and reward"),
     ("crafting [text]", "the tradeskill guide: what the game's items and books say about making things"),
     ("find <part of a name>", "where a thing is, on any of your characters this client has played"),
     ("help", "this list"),
@@ -282,7 +283,7 @@ pub fn suggest_with(input: &str, scripts: &[String]) -> Vec<String> {
 /// The command with this name (any case), as the original writes it.
 /// Commands of this client's own, beyond the original's list.
 /// `/pet` is Gamecode's own (FUN_100542ad), not in the input line's list, but the control center's Pets menu runs it.
-pub const EXTRA: &[&str] = &["befriend", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk", "crafting", "craft"];
+pub const EXTRA: &[&str] = &["befriend", "pet", "perf", "damage", "dps", "find", "messagebox", "perks", "perk", "crafting", "craft", "tracker"];
 
 /// `/pet`'s commands that take no argument and their `PetCommand` numbers (Gamecode FUN_100542ad's first table).
 pub const PET_COMMANDS: &[(&str, u32)] = &[
@@ -545,6 +546,7 @@ pub fn parse(line: &str) -> Parsed {
         "perf" => Parsed::Perf,
         // (this client's own tool windows: `extras.rs`)
         "damage" | "dps" => Parsed::Window { name: "damage".to_string(), open: true },
+        "tracker" => Parsed::Window { name: "tracker".to_string(), open: true },
         // (`/crafting [text]`: the tradeskill guide, with that to look for)
         "crafting" | "craft" => Parsed::Window { name: format!("crafting {text}").trim().to_string(), open: true },
         // (`/find <part of a name>`: the item finder with that to look for; alone, the window)
@@ -882,6 +884,7 @@ mod tests {
         assert_eq!(parse("/open raid"), Parsed::Window { name: "raid".into(), open: true });
         assert_eq!(parse("/damage"), Parsed::Window { name: "damage".into(), open: true });
         assert_eq!(parse("/dps"), Parsed::Window { name: "damage".into(), open: true });
+        assert_eq!(parse("/tracker"), Parsed::Window { name: "tracker".into(), open: true });
         assert_eq!(parse("/find Treatment Kit"), Parsed::Window { name: "find Treatment Kit".into(), open: true });
         assert_eq!(parse("/find"), Parsed::Window { name: "find".into(), open: true });
         assert_eq!(parse("/crafting nano crystal"), Parsed::Window { name: "crafting nano crystal".into(), open: true });

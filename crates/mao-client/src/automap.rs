@@ -207,6 +207,24 @@ impl MapBuilder {
     }
 }
 
+/// This client's own: the mission terminal an item goes back to (`missionlog::terminal_mark`), when it stands in
+/// this playfield: its place (x, z), a blue dot on the corner map and the playfield map. Set each frame.
+static TERMINAL_HERE: std::sync::Mutex<Option<[f32; 2]>> = std::sync::Mutex::new(None);
+
+pub fn set_terminal_here(at: Option<[f32; 2]>) {
+    *TERMINAL_HERE.lock().unwrap_or_else(|e| e.into_inner()) = at;
+}
+
+fn terminal_here() -> Option<[f32; 2]> {
+    *TERMINAL_HERE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The terminal's dot: blue in a white ring.
+fn terminal_dot(painter: &egui::Painter, at: egui::Pos2) {
+    painter.circle_filled(at, 5.0, crate::missionlog::TERMINAL_BLUE);
+    painter.circle_stroke(at, 5.0, egui::Stroke::new(1.5, egui::Color32::WHITE));
+}
+
 /// A dot on the map: where (x, z) and what it is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DotKind {
@@ -605,6 +623,9 @@ impl AutoMap {
                 painter.circle_stroke(p, 6.5, egui::Stroke::new(1.0, egui::Color32::WHITE));
             }
         }
+        if let Some(p) = terminal_here().map(|t| Self::to_screen(rect, center, px_per_unit, yaw, t)).filter(|p| inside(*p)) {
+            terminal_dot(painter, p);
+        }
         for (pos, kind) in dots {
             let p = Self::to_screen(rect, center, px_per_unit, yaw, *pos);
             if !inside(p) {
@@ -778,6 +799,9 @@ impl AutoMap {
                 painter.text(rect.min + egui::vec2(5.0, 5.0), egui::Align2::LEFT_TOP, text, egui::FontId::proportional(12.0), egui::Color32::WHITE);
             }
             let skin = crate::skin::skin(ctx);
+            if let Some(at) = terminal_here().map(|t| Self::to_screen(rect, center, PX, None, t)).filter(|at| rect.contains(*at)) {
+                terminal_dot(&painter, at);
+            }
             for (p, kind) in dots {
                 let at = Self::to_screen(rect, center, PX, None, *p);
                 if !rect.contains(at) {

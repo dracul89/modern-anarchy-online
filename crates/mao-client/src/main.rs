@@ -2297,6 +2297,37 @@ fn run(args: &[String]) -> Result<(), String> {
                             *hud.mission_log_preview.lock().unwrap() = Some(window);
                         }
                     }
+                    if preview.as_deref() == Some("tracker") {
+                        // The mission tracker on the missions of captures (MAO_CAPTURE=<capture.log>[;<another>], every
+                        // `QuestFullUpdate` of theirs, each mission once as it was last told); MAO_TRACKER_PICK=<n> picks
+                        // the n-th, MAO_TRACKER_ONLY=<part of a title> keeps the missions whose title has it.
+                        let textures2 = textures.clone_handle();
+                        let icon = |id: u32| textures2.get(mao_formats::item::ICON_TYPE, id).map(|x| std::sync::Arc::new(gear::Icon { id, width: x.width as usize, height: x.height as usize, rgba: x.rgba }));
+                        let mut missions: Vec<missionlog::Mission> = Vec::new();
+                        for log in std::env::var("MAO_CAPTURE").unwrap_or_default().split(';').filter(|l| !l.is_empty()) {
+                            for value in net::capture_messages(log, 0x465a4061, usize::MAX) {
+                                for m in missionlog::missions_from(&value, &icon) {
+                                    missions.retain(|had| had.id != m.id);
+                                    missions.push(m);
+                                }
+                            }
+                        }
+                        if let Ok(only) = std::env::var("MAO_TRACKER_ONLY") {
+                            missions.retain(|m| only.split(';').any(|part| m.description.contains(part) || m.title.contains(part)));
+                        }
+                        let names: std::collections::HashMap<u32, String> = mao_formats::playfield::all(&db).into_iter().map(|p| (p.number, p.name.trim().to_string())).collect();
+                        let terminal = |playfield: u32, instance: u32| table_dynels(&db, playfield).into_iter().find(|d| d.0 == missionlog::TERMINAL_TYPE && d.1 == instance).map(|d| d.2);
+                        let reward = |low: u32| {
+                            let template = db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: low }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d))?;
+                            Some((template.name.clone(), template.icon().and_then(&icon)))
+                        };
+                        missionlog::fill(&mut missions, &names, &terminal, &reward);
+                        let mut window = missionlog::MissionLog::default();
+                        window.tracker_open = true;
+                        window.set(missions);
+                        window.pick(std::env::var("MAO_TRACKER_PICK").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
+                        *hud.mission_log_preview.lock().unwrap() = Some(window);
+                    }
                     if preview.as_deref() == Some("planetmap") {
                         // The planet map over the playfield shown (MAO_WAYPOINT=pf,x,z for a waypoint).
                         let mut window = planetwindow::PlanetWindow::default();

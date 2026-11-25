@@ -60,8 +60,101 @@ pub struct Reward {
     pub quality: u32,
 }
 
+/// A mission terminal's identity type (`0xdac1`). A terminal's instance is `0xC0000000 | its number << 16 | its
+/// playfield` (Old Athens' are `0xc000021c`, `0xc001021c`, ...: the playfield's dynel table has them with their
+/// places), so a terminal named in a mission is found in the game's files wherever the character is.
+pub const TERMINAL_TYPE: u32 = 0xdac1;
+
+/// The playfield a mission terminal stands in, by its identity's instance.
+pub fn terminal_playfield(instance: u32) -> u32 {
+    instance & 0xffff
+}
+
+/// A step of a mission (`QuestAction_t`, the message's `QuestActionInfo`), as far as its numbers were made out
+/// from the captures: 74 story missions of one step each and two missions of a terminal. The original's windows
+/// show none of this (GUI.dll never asks `N3Msg_GetQuestActionList`): the list of steps is this client's own.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Step {
+    /// The schema's `Version`, which is the step's kind (its `MissionActionType`: 1 kill a person, 8 use an item on
+    /// an item, 15 find an item, 16 find a person, 20 kill several; and by the story missions' titles 6 bring an
+    /// item to a person, 18 make an item, 23 talk to a person, 24 a step of the mission's own script).
+    pub kind: u32,
+    /// The schema's `Action`: the item of an item step (kinds 6, 8, 15, 18).
+    pub item: (u32, u32),
+    /// `UnknownId1`: what the item is used on (kind 8). A mission terminal's identity for a mission that wants its
+    /// item brought back ("retrieve the stolen info": the capture's "Mission Assignment").
+    pub target: (u32, u32),
+    /// `UnknownId2`: the person (kinds 1, 6, 16, 23).
+    pub person: (u32, u32),
+    /// `Deadline`: the server's time in seconds, 0 none.
+    pub deadline: u32,
+    /// Its playfield and place, when it names one.
+    pub place: Option<(u32, [f32; 3])>,
+}
+
+impl Step {
+    /// The mission terminal the step's item is brought back to: a "use item on item" step whose target is one.
+    pub fn return_to(&self) -> Option<(u32, u32)> {
+        (self.kind == 8 && self.target.0 == TERMINAL_TYPE).then_some(self.target)
+    }
+}
+
+/// A line of the step list: what to do, and where and by when if the step says.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StepLine {
+    pub text: String,
+    pub place: Option<(u32, [f32; 3])>,
+    pub deadline: u32,
+    /// The line of the mission terminal an item goes back to (the blue marker's).
+    pub terminal: bool,
+}
+
+/// The step list of a mission, in this client's own words: a line a step, and for a step that wants its item
+/// brought back to a mission terminal a second line for the terminal.
+pub fn step_lines(m: &Mission) -> Vec<StepLine> {
+    let mut out = Vec::new();
+    for s in &m.steps {
+        let line = |text: String| StepLine { text, place: s.place, deadline: s.deadline, terminal: false };
+        match s.kind {
+            1 => out.push(line("Kill the target".into())),
+            6 => out.push(line("Bring the item to the person".into())),
+            8 if s.return_to().is_some() => {
+                out.push(line("Find the item".into()));
+                out.push(StepLine { text: "Bring it back to the mission terminal".into(), place: m.terminal, deadline: s.deadline, terminal: true });
+            }
+            8 => out.push(line("Use the item on its target".into())),
+            15 => out.push(line("Find the item".into())),
+            16 => out.push(line("Find the person".into())),
+            18 => out.push(line("Make the item".into())),
+            20 if m.count_left > 0 => out.push(line(format!("Kill the creatures: {} left", m.count_left))),
+            20 => out.push(line("Kill the creatures".into())),
+            23 => out.push(line("Talk to the person".into())),
+            24 => out.push(line("Do as the mission's text says".into())),
+            kind => out.push(line(format!("A step of kind {kind}"))),
+        }
+    }
+    out
+}
+
+/// What the network thread, which has the game's files, adds to missions just read: the names of the playfields
+/// they name, the place of the mission terminal an item goes back to (`terminal(playfield, instance)`, the
+/// playfield's dynel table), and the reward items' names and icons.
+pub fn fill(missions: &mut [Mission], names: &std::collections::HashMap<u32, String>, terminal: &dyn Fn(u32, u32) -> Option<[f32; 3]>, item: &dyn Fn(u32) -> Option<(String, Option<Arc<Icon>>)>) {
+    for m in missions {
+        m.terminal = m.steps.iter().find_map(Step::return_to).and_then(|(_, instance)| {
+            let playfield = terminal_playfield(instance);
+            Some((playfield, terminal(playfield, instance)?))
+        });
+        let mut places: Vec<u32> = m.steps.iter().filter_map(|s| s.place.map(|p| p.0)).chain(m.terminal.map(|t| t.0)).collect();
+        places.sort_unstable();
+        places.dedup();
+        m.place_names = places.into_iter().filter_map(|pf| Some((pf, names.get(&pf)?.clone()))).collect();
+        m.reward_items = m.rewards.iter().map(|r| item(r.low).or_else(|| item(r.high)).unwrap_or_else(|| (format!("Item #{}", r.low), None))).collect();
+    }
+}
+
 /// One of the character's missions.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Mission {
     pub id: (u32, u32),
     pub title: String,
@@ -78,6 +171,18 @@ pub struct Mission {
     pub rewards: Vec<Reward>,
     /// Each action's deadline (`QuestAction_t` +0x5c, the server's time in seconds; 0 none), in the actions' order.
     pub deadlines: Vec<u32>,
+    /// The steps, for this client's own step list ([`step_lines`]).
+    pub steps: Vec<Step>,
+    /// Who gave it (the identity after the mission's text): a character's, or a mission terminal's.
+    pub origin: (u32, u32),
+    /// The schema's `Unknown23`: how many are left to kill of a kill-several step (the capture's "Terminate 5
+    /// Malfunctioning Cleaning Robots" came with 5 and later with 3).
+    pub count_left: i64,
+    /// The mission terminal its item goes back to, playfield and place ([`fill`]); none for any other mission.
+    pub terminal: Option<(u32, [f32; 3])>,
+    /// The names of the playfields it names, and its reward items' names and icons ([`fill`]).
+    pub place_names: Vec<(u32, String)>,
+    pub reward_items: Vec<(String, Option<Arc<Icon>>)>,
 }
 
 impl Mission {
@@ -96,6 +201,11 @@ impl Mission {
     /// `N3Msg_IsTeamMission`.
     pub fn team(&self) -> bool {
         self.flags & 0x100 != 0
+    }
+
+    /// A playfield's name as the mission's own list has it, else its number.
+    pub fn place_name(&self, playfield: u32) -> String {
+        self.place_names.iter().find(|p| p.0 == playfield).map_or_else(|| format!("Playfield {playfield}"), |p| p.1.clone())
     }
 
     /// `itemid://<type>/<instance>`, as FUN_100d2cfa writes it ("%d").
@@ -140,11 +250,14 @@ pub fn missions_from(v: &Value, icon: &dyn Fn(u32) -> Option<Arc<Icon>>) -> Vec<
                 Some(Value::List(actions)) => actions,
                 _ => &[],
             };
-            let place = actions.iter().find_map(|a| {
+            let place_of = |a: &Value| {
                 let pf = a.get("PlayfieldId").map_or(0, |p| int(p, "Instance") as u32);
                 let p = a.get("Position")?;
                 (pf != 0).then(|| (pf, [float(p, "X"), float(p, "Y"), float(p, "Z")]))
-            });
+            };
+            let place = actions.iter().find_map(place_of);
+            let identity = |v: &Value, f: &str| v.get(f).map_or((0, 0), |i| (int(i, "Type") as u32, int(i, "Instance") as u32));
+            let steps = actions.iter().map(|a| Step { kind: int(a, "Version") as u32, item: identity(a, "Action"), target: identity(a, "UnknownId1"), person: identity(a, "UnknownId2"), deadline: int(a, "Deadline") as u32, place: place_of(a) }).collect();
             let rewards = match q.get("MissionItemData") {
                 Some(Value::List(items)) => items.iter().map(|r| Reward { low: int(r, "LowId") as u32, high: int(r, "HighId") as u32, quality: int(r, "Ql") as u32 }).collect(),
                 _ => Vec::new(),
@@ -160,6 +273,10 @@ pub fn missions_from(v: &Value, icon: &dyn Fn(u32) -> Option<Arc<Icon>>) -> Vec<
                 xp: int(q, "Xp"),
                 rewards,
                 deadlines: actions.iter().map(|a| int(a, "Deadline") as u32).collect(),
+                steps,
+                origin: identity(q, "UnknownId1"),
+                count_left: int(q, "Unknown23"),
+                ..Default::default()
             }
         })
         .collect()
@@ -250,6 +367,9 @@ pub struct MissionLog {
     /// The mission whose menu is open with its entries' names, and the menu (`PopupMenu_c`).
     menu: Option<((u32, u32), Vec<&'static str>)>,
     popup: Option<crate::gui::popup::PopupMenu>,
+    /// The mission tracker (`tracker`), this client's own window, and the mission picked in it.
+    pub tracker_open: bool,
+    tracker_pick: Option<(u32, u32)>,
 }
 
 /// What a frame of the window did.
@@ -342,6 +462,10 @@ impl MissionLog {
             Some((pf, p)) => {
                 (shown.waypoint, shown.waypoint_of) = (Some((pf, p)), Some(id));
                 shown.lines.extend(upload_lines(pf, playfield));
+                // (this client's own: the terminal the mission's item goes back to is marked too)
+                if let Some((terminal, _)) = m.terminal {
+                    shown.lines.push(format!("The mission terminal to bring the item back to, in {}, is shown as a blue dot on the map and a blue indicator on the compass.", m.place_name(terminal)));
+                }
                 let changed = self.active != Some(id);
                 (self.active, self.uploaded) = (Some(id), true);
                 if changed {
@@ -501,6 +625,205 @@ impl MissionLog {
     }
 }
 
+/// The mission terminal's marker, this client's own: the terminal the item of the mission whose waypoint is up goes
+/// back to (playfield and place), set each frame by the interface. The compass draws a blue indicator at its bearing
+/// and the maps a blue dot.
+static TERMINAL_MARK: std::sync::Mutex<Option<(u32, [f32; 3])>> = std::sync::Mutex::new(None);
+
+pub fn set_terminal_mark(mark: Option<(u32, [f32; 3])>) {
+    *TERMINAL_MARK.lock().unwrap_or_else(|e| e.into_inner()) = mark;
+}
+
+pub fn terminal_mark() -> Option<(u32, [f32; 3])> {
+    *TERMINAL_MARK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The marker's colour.
+pub const TERMINAL_BLUE: egui::Color32 = egui::Color32::from_rgb(70, 150, 255);
+
+/// A mission's text without the server's markup: `<br>` a new line, every other tag left out.
+pub fn plain_text(markup: &str) -> String {
+    let mut out = String::new();
+    let mut rest = markup;
+    while let Some(at) = rest.find('<') {
+        out += &rest[..at];
+        let Some(end) = rest[at..].find('>') else {
+            rest = &rest[at..];
+            break;
+        };
+        if rest[at + 1..at + end].trim().eq_ignore_ascii_case("br") {
+            out.push('\n');
+        }
+        rest = &rest[at + end + 1..];
+    }
+    out += rest;
+    let out = out.replace("\\n", "\n");
+    let mut text = String::new();
+    for line in out.lines().map(str::trim) {
+        // (no more than one empty line in a row)
+        if line.is_empty() && (text.is_empty() || text.ends_with("\n\n")) {
+            continue;
+        }
+        text += line;
+        text.push('\n');
+    }
+    text.trim_end().to_string()
+}
+
+/// The time left as the tracker writes it.
+pub fn left_text(seconds: i64) -> String {
+    let minutes = seconds.max(0) / 60;
+    let (days, hours, minutes) = (minutes / 1440, minutes / 60 % 24, minutes % 60);
+    if days > 0 { format!("{days} d {hours} h {minutes} min") } else if hours > 0 { format!("{hours} h {minutes} min") } else { format!("{minutes} min") }
+}
+
+impl MissionLog {
+    /// The n-th mission picked in the tracker (a picture's).
+    pub fn pick(&mut self, n: usize) {
+        self.tracker_pick = self.missions.get(n).map(|m| m.id);
+    }
+
+    /// The mission the tracker has picked.
+    pub fn picked(&self) -> Option<(u32, u32)> {
+        self.tracker_pick
+    }
+
+    /// The terminal the item of that mission goes back to, for the marker.
+    pub fn terminal_of(&self, id: Option<(u32, u32)>) -> Option<(u32, [f32; 3])> {
+        let id = id?;
+        self.missions.iter().find(|m| m.id == id)?.terminal
+    }
+
+    /// The mission tracker, this client's own window (`/tracker`, `/open tracker`): a list to pick one of the
+    /// missions held from, and under it what the mission is: where, the time left, the steps ([`step_lines`]),
+    /// what it pays and its text. Picking a mission uploads its place, as "Upload to map" does, and makes it the
+    /// active mission; a mission that wants its item back at a mission terminal has that terminal marked in blue
+    /// on the compass and the maps while its waypoint is up.
+    pub fn tracker(&mut self, ctx: &egui::Context, palette: &Palette, playfield: u32) -> Shown {
+        let mut shown = Shown::default();
+        if !self.tracker_open {
+            return shown;
+        }
+        let accent = crate::chrome::rgb(palette.accent);
+        let colour = crate::chrome::rgb(palette.text);
+        let dim = colour.gamma_multiply(0.7);
+        let now = crate::gametime::server_now();
+        let held = |id: &(u32, u32)| self.missions.iter().any(|m| m.id == *id);
+        let showing = self.tracker_pick.filter(held).or(self.active.filter(held)).or(self.missions.first().map(|m| m.id));
+        let mut picked = None;
+        let mut upload = false;
+        let mut open = self.tracker_open;
+        let missions = &self.missions;
+        let textures = &mut self.textures;
+        let size = |w: egui::Window<'static>| w.resizable(true).default_size(egui::vec2(330.0, 340.0)).min_size(egui::vec2(260.0, 160.0));
+        crate::chrome::window(ctx, palette, "MissionTracker", "Mission tracker", &mut open, size, |ui| {
+            let Some(m) = showing.and_then(|id| missions.iter().rev().find(|m| m.id == id)) else {
+                ui.label(egui::RichText::new("You hold no missions.").color(colour));
+                return;
+            };
+            let name = |m: &Mission| match m.remaining(now) {
+                left if left > 0 => format!("{}  ({})", m.title, remaining_cell(left)),
+                _ => m.title.clone(),
+            };
+            // (the missions held, each once: a mission told again stands in the list twice)
+            let mut listed: Vec<&Mission> = Vec::new();
+            for other in missions.iter().rev() {
+                if !listed.iter().any(|l| l.id == other.id) {
+                    listed.push(other);
+                }
+            }
+            listed.reverse();
+            egui::ComboBox::from_id_salt("mission-tracker-pick").selected_text(egui::RichText::new(name(m)).color(colour)).width(ui.available_width()).show_ui(ui, |ui| {
+                for other in listed {
+                    if ui.selectable_label(other.id == m.id, name(other)).clicked() {
+                        picked = Some(other.id);
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                if crate::chrome::button(ui, palette, &text("Upload2Map"), m.place.is_some()).clicked() {
+                    upload = true;
+                }
+                if crate::chrome::button(ui, palette, &text("Look@Mission"), true).clicked() {
+                    shown.info = Some(m.url());
+                }
+            });
+            ui.separator();
+            let head = |ui: &mut egui::Ui, t: &str| {
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(t).color(accent).strong());
+            };
+            let at = |place: (u32, [f32; 3])| format!("{} ({:.0}, {:.0}){}", m.place_name(place.0), place.1[0], place.1[2], if place.0 == playfield { ", this area" } else { "" });
+            crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().id_salt("mission-tracker-body").auto_shrink([false, false]), |ui| {
+                ui.label(egui::RichText::new(&m.title).color(colour).strong());
+                if m.team() {
+                    ui.label(egui::RichText::new("A team mission").color(dim).small());
+                }
+                head(ui, "Where");
+                match m.place {
+                    Some(place) => ui.label(egui::RichText::new(at(place)).color(colour)),
+                    None => ui.label(egui::RichText::new("The mission names no place.").color(dim)),
+                };
+                let left = m.remaining(now);
+                if left > 0 {
+                    head(ui, "Time left");
+                    ui.label(egui::RichText::new(left_text(left)).color(colour));
+                }
+                head(ui, "Steps");
+                let lines = step_lines(m);
+                if lines.is_empty() {
+                    ui.label(egui::RichText::new("The mission lists no steps.").color(dim));
+                }
+                for (k, line) in lines.iter().enumerate() {
+                    ui.label(egui::RichText::new(format!("{}. {}", k + 1, line.text)).color(if line.terminal { TERMINAL_BLUE } else { colour }));
+                    match line.place {
+                        Some(place) => drop(ui.label(egui::RichText::new(format!("     {}", at(place))).color(dim).small())),
+                        None if line.terminal => drop(ui.label(egui::RichText::new("     the terminal's place is not known").color(dim).small())),
+                        None => {}
+                    }
+                }
+                head(ui, "Reward");
+                if m.credits > 0 {
+                    ui.label(egui::RichText::new(format!("{} credits", crate::vitals::grouped(m.credits))).color(colour));
+                }
+                if m.xp > 0 {
+                    ui.label(egui::RichText::new(format!("{} experience", crate::vitals::grouped(m.xp))).color(colour));
+                }
+                for (k, r) in m.rewards.iter().enumerate() {
+                    let (item, icon) = m.reward_items.get(k).cloned().unwrap_or_else(|| (format!("Item #{}", r.low), None));
+                    let row = ui.horizontal(|ui| {
+                        if let Some(icon) = &icon {
+                            let texture = textures.entry(icon.id).or_insert_with(|| ctx.load_texture(format!("mission-icon-{}", icon.id), egui::ColorImage::from_rgba_unmultiplied([icon.width, icon.height], &icon.rgba), egui::TextureOptions::LINEAR));
+                            ui.image((texture.id(), egui::vec2(24.0, 24.0)));
+                        }
+                        ui.add(egui::Label::new(egui::RichText::new(format!("{item} (quality {})", r.quality)).color(colour)).sense(egui::Sense::click()))
+                    });
+                    if row.inner.clicked() || row.response.interact(egui::Sense::click()).clicked() {
+                        shown.info = Some(format!("itemref://{}/{}/{}", r.low, r.high, r.quality));
+                    }
+                }
+                if m.credits <= 0 && m.xp <= 0 && m.rewards.is_empty() {
+                    ui.label(egui::RichText::new("none").color(dim));
+                }
+                let words = plain_text(&m.description);
+                if !words.is_empty() {
+                    head(ui, "Mission text");
+                    ui.label(egui::RichText::new(words).color(dim).small());
+                }
+            });
+        });
+        self.tracker_open = open;
+        // (a mission picked: shown from now on and its place uploaded, which makes it the active mission)
+        if let Some(id) = picked {
+            self.tracker_pick = Some(id);
+            self.upload(id, playfield, &mut shown);
+        } else if upload && let Some(id) = showing {
+            self.upload(id, playfield, &mut shown);
+        }
+        shown
+    }
+}
+
 /// How a mission's experience is told to the one who reads its page (FUN_100360d5, 0x1003645d on): in points; for
 /// a reader of level 200 to 220 in shadow knowledge, and that only where shadow knowledge can be had
 /// (`N3InterfaceModule_t::CanReceiveSK`: in a Shadowlands playfield), elsewhere not at all.
@@ -605,7 +928,7 @@ mod tests {
     use super::*;
 
     fn mission(deadlines: &[u32]) -> Mission {
-        Mission { id: (MISSION_TYPE, 7), title: "A mission".into(), description: "Go there\\nand back".into(), icon: None, place: None, flags: 2, credits: 0, xp: 0, rewards: Vec::new(), deadlines: deadlines.to_vec() }
+        Mission { id: (MISSION_TYPE, 7), title: "A mission".into(), description: "Go there\\nand back".into(), icon: None, place: None, flags: 2, credits: 0, xp: 0, rewards: Vec::new(), deadlines: deadlines.to_vec(), ..Default::default() }
     }
 
     /// The missions stack: a second accepted mission comes alone in its message and stands beside the first (the
@@ -692,6 +1015,58 @@ mod tests {
         assert_eq!(remaining_cell(59), "00:00");
         assert_eq!(remaining_cell(-1), "00:00");
         assert_eq!(remaining_cell(3600 * 100 + 61), "100:01");
+    }
+
+    /// The steps, as the capture's two terminal missions have them: "Mission Assignment 53442-675" (retrieve the
+    /// stolen info) is one "use item on item" step whose target is the mission terminal it came from, which makes two
+    /// lines, the second the terminal's; the kill mission is one line. A terminal's instance names its playfield, and
+    /// (`MAO_GAME`) the playfield's own table has its place: the marker's.
+    #[test]
+    fn the_steps_are_listed_and_the_terminal_found() {
+        let s = |v: Vec<(&str, Value)>| Value::Struct(v.into_iter().map(|(n, v)| (n.to_string(), v)).collect());
+        let id = |t: i64, i: i64| s(vec![("Type", Value::Int(t)), ("Instance", Value::Int(i))]);
+        let place = |pf: i64, x: f64, z: f64| vec![("PlayfieldId", id(40016, pf)), ("Position", s(vec![("X", Value::Float(x)), ("Y", Value::Float(18.9)), ("Z", Value::Float(z))]))];
+        // (the terminal's instance as the schema reads it, a signed number: 0xc000028f)
+        let terminal = id(56001, -1073741169);
+        let mut bring = vec![("Version", Value::Int(8)), ("Action", id(51005, 1498046865)), ("UnknownId1", terminal.clone()), ("Deadline", Value::Int(1_794_356_426))];
+        bring.extend(place(505, 2790.56, 1411.43));
+        let mut kill = vec![("Version", Value::Int(1)), ("UnknownId2", id(50000, 2063422754)), ("Deadline", Value::Int(1_792_899_118))];
+        kill.extend(place(665, 573.8, 1549.4));
+        let quest = |n: i64, actions: Vec<Value>, left: i64| s(vec![("QuestId", id(MISSION_TYPE as i64, n)), ("ShortInfo", Value::Str("A mission".into())), ("UnknownId1", terminal.clone()), ("Unknown23", Value::Int(left)), ("MissionItemData", Value::List(vec![s(vec![("LowId", Value::Int(210678)), ("HighId", Value::Int(210678)), ("Ql", Value::Int(118))])])), ("QuestActions", Value::List(actions))]);
+        let several = s(vec![("Version", Value::Int(20))]);
+        let odd = s(vec![("Version", Value::Int(77))]);
+        let mut list = missions_from(&s(vec![("Quests", Value::List(vec![quest(1, vec![s(bring)], 0), quest(2, vec![s(kill)], 0), quest(3, vec![several, odd], 3)]))]), &|_| None);
+        assert_eq!(list[0].steps[0], Step { kind: 8, item: (51005, 1498046865), target: (TERMINAL_TYPE, 0xc000_028f), person: (0, 0), deadline: 1_794_356_426, place: Some((505, [2790.56, 18.9, 1411.43])) });
+        assert_eq!((list[0].origin, list[0].steps[0].return_to(), terminal_playfield(0xc000_028f), terminal_playfield(0xc005_021c)), ((TERMINAL_TYPE, 0xc000_028f), Some((TERMINAL_TYPE, 0xc000_028f)), 655, 540));
+        assert_eq!(list[1].steps[0].return_to(), None);
+        // (what the network thread adds)
+        let names: std::collections::HashMap<u32, String> = [(505, "Avalon".to_string()), (655, "Andromeda".to_string())].into_iter().collect();
+        fill(&mut list, &names, &|playfield, instance| (playfield == 655 && instance == 0xc000_028f).then_some([3236.5, 35.1, 921.2]), &|low| (low == 210678).then(|| ("A crystal".to_string(), None)));
+        assert_eq!((list[0].terminal, list[1].terminal), (Some((655, [3236.5, 35.1, 921.2])), None));
+        assert_eq!((list[0].place_name(505), list[0].place_name(655), list[1].place_name(665)), ("Avalon".to_string(), "Andromeda".to_string(), "Playfield 665".to_string()));
+        assert_eq!(list[0].reward_items[0].0, "A crystal");
+        let texts = |m: &Mission| step_lines(m).into_iter().map(|l| (l.text, l.place.map(|p| p.0), l.terminal)).collect::<Vec<_>>();
+        assert_eq!(texts(&list[0]), [("Find the item".to_string(), Some(505), false), ("Bring it back to the mission terminal".to_string(), Some(655), true)]);
+        assert_eq!(texts(&list[1]), [("Kill the target".to_string(), Some(665), false)]);
+        assert_eq!(texts(&list[2]), [("Kill the creatures: 3 left".to_string(), None, false), ("A step of kind 77".to_string(), None, false)]);
+        // (the marker's mission, and the line an upload of it adds)
+        let mut log = MissionLog::default();
+        log.set(list);
+        assert_eq!((log.terminal_of(Some((MISSION_TYPE, 1))), log.terminal_of(Some((MISSION_TYPE, 2))), log.terminal_of(None)), (Some((655, [3236.5, 35.1, 921.2])), None, None));
+        let mut shown = Shown::default();
+        log.upload((MISSION_TYPE, 1), 655, &mut shown);
+        assert!(shown.lines.len() == 3 && shown.lines[2].contains("Andromeda") && shown.waypoint == Some((505, [2790.56, 18.9, 1411.43])));
+        let mut shown = Shown::default();
+        log.upload((MISSION_TYPE, 2), 655, &mut shown);
+        assert_eq!(shown.lines.len(), 2);
+        // (the tracker's words)
+        assert_eq!(plain_text("One<BR><br><font color=\"#63ad63\">Two:</font><BR>three\\nfour"), "One\n\nTwo:\nthree\nfour");
+        assert_eq!((left_text(172_799), left_text(7_260), left_text(59)), ("1 d 23 h 59 min".to_string(), "2 h 1 min".to_string(), "0 min".to_string()));
+        // (the game's own table has the capture's terminal where the tracker says)
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let at = crate::table_dynels(&db, 655).into_iter().find(|d| d.0 == TERMINAL_TYPE && d.1 == 0xc000_028f).map(|d| d.2).unwrap();
+        assert!((at[0] - 3236.5).abs() < 1.0 && (at[2] - 921.2).abs() < 1.0, "{at:?}");
     }
 
     /// A `QuestFullUpdate`'s fields as the schema names them.

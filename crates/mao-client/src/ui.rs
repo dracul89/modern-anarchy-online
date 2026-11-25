@@ -798,6 +798,7 @@ impl Ui {
             "programs" => self.programs.open,
             "actions" => self.actions.open,
             "missions" | "mission" => self.mission_log.open,
+            "tracker" | "missiontracker" | "mission tracker" => self.mission_log.tracker_open,
             "missionselection" => self.mission.open,
             "friends" => self.friends.open,
             "factions" | "faction" => self.faction.open,
@@ -1055,6 +1056,7 @@ impl Ui {
             "help" => &mut self.help.open,
             "actions" => &mut self.actions.open,
             "missions" | "mission" => &mut self.mission_log.open,
+            "tracker" | "missiontracker" | "mission tracker" => &mut self.mission_log.tracker_open,
             "missionselection" | "mission selection" => &mut self.mission.open,
             "mail" => &mut self.mail.open,
             "signup" => &mut self.signup.open,
@@ -1640,15 +1642,28 @@ impl Ui {
                     _ => None,
                 };
             }
-            let shown = mission_log.show(&ctx, palette, hud.playfield);
-            requests.mission_log.extend(shown.commands);
-            if shown.waypoint.is_some() {
-                (requests.waypoint, requests.waypoint_of) = (shown.waypoint, shown.waypoint_of);
+            // (the journal, then this client's own mission tracker: what either did)
+            for shown in [mission_log.show(&ctx, palette, hud.playfield), mission_log.tracker(&ctx, palette, hud.playfield)] {
+                requests.mission_log.extend(shown.commands);
+                if shown.waypoint.is_some() {
+                    (requests.waypoint, requests.waypoint_of) = (shown.waypoint, shown.waypoint_of);
+                }
+                requests.lines.extend(shown.lines);
+                if let Some(url) = shown.info {
+                    info_view.show_url(&url);
+                }
             }
-            requests.lines.extend(shown.lines);
-            if let Some(url) = shown.info {
-                info_view.show_url(&url);
+            // (this client's own: the mission terminal the item of the mission whose waypoint is up goes back to, a
+            // blue indicator on the compass when it is in this playfield and a blue dot on the maps)
+            let terminal = mission_log.terminal_of(requests.waypoint_of.or(hud.waypoint_of).filter(|_| requests.waypoint.or(hud.waypoint).is_some()));
+            crate::missionlog::set_terminal_mark(terminal);
+            if let Ok(mut b) = crate::vitals::TERMINAL_BEARING.lock() {
+                *b = match (terminal, hud.position) {
+                    (Some((pf, t)), Some(p)) if pf == hud.playfield => Some((t[0] - p[0]).atan2(t[2] - p[2])),
+                    _ => None,
+                };
             }
+            crate::automap::set_terminal_here(terminal.filter(|t| t.0 == hud.playfield).map(|t| [t.1[0], t.1[2]]));
             wt = crate::prof::lap("ui-w-actions-mission-shop", wt);
             planet.show(&ctx, palette, hud.playfield, crate::planetmaps::expansion_playfield(hud.playfield), hud.position, hud.heading, requests.waypoint.or(hud.waypoint));
             if npc_chat.open {
@@ -2246,6 +2261,17 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             if let Some(window) = preview_skills.as_mut() {
                 window.show(&ctx, &hud.character_name, &hud.stats, &hud.stat_parts, &palette);
             }
+            // (MAO_TERMINAL=pf,x,z: the mission terminal's marker, for a picture of the compass and the maps)
+            if let Some(t) = std::env::var("MAO_TERMINAL").ok().and_then(|v| {
+                let p: Vec<f32> = v.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+                (p.len() == 3).then(|| (p[0] as u32, [p[1], 0.0, p[2]]))
+            }) {
+                crate::missionlog::set_terminal_mark(Some(t));
+                crate::automap::set_terminal_here((t.0 == hud.playfield).then_some([t.1[0], t.1[2]]));
+                if let (Ok(mut b), Some(p)) = (crate::vitals::TERMINAL_BEARING.lock(), hud.position) {
+                    *b = (t.0 == hud.playfield).then(|| (t.1[0] - p[0]).atan2(t.1[2] - p[2]));
+                }
+            }
             if let Some(map) = preview_map.as_mut() {
                 let at = hud.position.unwrap_or([0.0; 3]);
                 map.set_land_control(hud.land_map.as_ref(), hud.lc_district.as_ref());
@@ -2267,6 +2293,19 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 }
                 if let Some(w) = shown.waypoint {
                     eprintln!("mission log: waypoint {w:?}");
+                }
+                // (the tracker, and the terminal's marker of the mission picked in it as if its waypoint were up)
+                window.tracker(&ctx, &palette, hud.playfield);
+                if window.tracker_open {
+                    let terminal = window.terminal_of(window.picked());
+                    crate::missionlog::set_terminal_mark(terminal);
+                    if let Ok(mut b) = crate::vitals::TERMINAL_BEARING.lock() {
+                        *b = match (terminal, hud.position) {
+                            (Some((pf, t)), Some(p)) if pf == hud.playfield => Some((t[0] - p[0]).atan2(t[2] - p[2])),
+                            _ => None,
+                        };
+                    }
+                    crate::automap::set_terminal_here(terminal.filter(|t| t.0 == hud.playfield).map(|t| [t.1[0], t.1[2]]));
                 }
             }
             if let Some(window) = preview_planet.as_mut() {

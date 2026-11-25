@@ -9742,7 +9742,15 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                                 // (the message's last byte, the schema's `Unknown28`: the missions are new. The original
                                 // then says so for each, Gamecode FUN_10056cdd, and the journal uploads the place.)
                                 let new = p.value.get("Unknown28").and_then(mao_net::schema::Value::as_int).unwrap_or(0) != 0;
-                                let missions = crate::missionlog::missions_from(&p.value, &icon);
+                                let mut missions = crate::missionlog::missions_from(&p.value, &icon);
+                                // (for this client's step list: the places' names, the place of the terminal an item
+                                // goes back to, from its playfield's own table, and the reward items)
+                                let terminal = |playfield: u32, instance: u32| crate::table_dynels(&gear_db, playfield).into_iter().find(|d| d.0 == crate::missionlog::TERMINAL_TYPE && d.1 == instance).map(|d| d.2);
+                                let reward = |low: u32| {
+                                    let template = gear_db.get(mao_formats::resource::Id { kind: mao_formats::item::TEMPLATE, instance: low }).ok().flatten().and_then(|d| mao_formats::item::Item::parse(&d))?;
+                                    Some((template.name.clone(), template.icon().and_then(&icon)))
+                                };
+                                crate::missionlog::fill(&mut missions, &names, &terminal, &reward);
                                 if new {
                                     for _ in &missions {
                                         state.game_lines.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, crate::feedback::plain("Feedback_YouGotANewMission")));
@@ -14447,7 +14455,13 @@ pub(crate) fn capture_quest_alternative(log: &str) -> Option<mao_net::schema::Va
 
 /// The first server N3 message of this kind in a capture, parsed by the schema.
 pub(crate) fn capture_message(log: &str, kind: u32) -> Option<mao_net::schema::Value> {
-    let text = std::fs::read_to_string(log).ok()?;
+    capture_messages(log, kind, 1).into_iter().next()
+}
+
+/// The first `most` messages of a kind the server sent in a capture, parsed.
+pub(crate) fn capture_messages(log: &str, kind: u32, most: usize) -> Vec<mao_net::schema::Value> {
+    let mut found = Vec::new();
+    let Ok(text) = std::fs::read_to_string(log) else { return found };
     let mut readers: BTreeMap<String, Reader> = BTreeMap::new();
     for line in text.lines() {
         let f: Vec<&str> = line.split_whitespace().collect();
@@ -14466,12 +14480,15 @@ pub(crate) fn capture_message(log: &str, kind: u32) -> Option<mao_net::schema::V
         while let Ok(Some(m)) = reader.next() {
             if let Some(msg) = Message::parse(&m).filter(|x| m.kind == frame::N3 && x.kind == kind) {
                 if let Ok(p) = mao_net::schema::Schema::global().parse_n3(msg.kind, &msg.data) {
-                    return Some(p.value);
+                    found.push(p.value);
+                    if found.len() >= most {
+                        return found;
+                    }
                 }
             }
         }
     }
-    None
+    found
 }
 
 /// `net <game dir> inventory <capture.log>`: the items in the first

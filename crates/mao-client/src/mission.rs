@@ -294,6 +294,7 @@ fn as_mission(o: &Offer) -> crate::missionlog::Mission {
         xp: o.xp,
         rewards: o.rewards.iter().map(|r| crate::missionlog::Reward { low: r.low, high: r.high, quality: r.quality as u32 }).collect(),
         deadlines: Vec::new(),
+        ..Default::default()
     }
 }
 

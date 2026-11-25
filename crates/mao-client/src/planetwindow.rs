@@ -228,6 +228,14 @@ impl PlanetWindow {
                 painter.circle_filled(at, 5.0, egui::Color32::WHITE);
                 painter.circle_stroke(at, 5.0, egui::Stroke::new(1.0, egui::Color32::BLACK));
             }
+            // (this client's own: the mission terminal an item goes back to, a blue dot)
+            if let Some((pf, p)) = crate::missionlog::terminal_mark()
+                && let Some((x, y)) = map.pixel(self.level, pf, p[0], p[2])
+            {
+                let at = origin + egui::vec2(x, y);
+                painter.circle_filled(at, 5.0, crate::missionlog::TERMINAL_BLUE);
+                painter.circle_stroke(at, 5.0, egui::Stroke::new(1.5, egui::Color32::WHITE));
+            }
             // The character: an arrow along its heading (north up).
             if let Some((x, y)) = me {
                 let at = origin + egui::vec2(x, y);

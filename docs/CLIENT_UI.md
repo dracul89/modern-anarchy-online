@@ -5634,6 +5634,44 @@ Test: `a_death_is_told_by_the_message_that_carries_its_reason`.
 Tests: `a_pet_has_its_place_and_its_kept_name`, `a_pets_name_is_kept_and_given_back`,
 `a_pet_command_carries_its_pets_and_its_text`.
 
+**The mission tracker and the terminal's marker (2026-11-25), this client's own** (the user: "a custom mission
+window ... a drop down with all the missions when selected missions would upload the location, give the player a
+summary of objectives and rewards", "decoded step list, only missions I hold", and "the original mission terminal ...
+as a blue marker on the compass and map (for return item only)").
+- **The window** (`MissionLog::tracker`, `/tracker`, `/open tracker`; `MissionTracker` in the layout files): a list
+  of the missions held, each once with its time left; picking one uploads its place as "Upload to map" does
+  (`upload`: the waypoint, the lines, the active mission) and shows it. Under the list: "Upload to map" and "Look
+  at Mission" (the info page), then where the mission is (the playfield's name, x and z, "this area" in the
+  character's playfield), the time left, the steps, what it pays (credits, experience, the items with their icons,
+  a click for an item's page) and the mission's text without its markup. It opens on the picked mission, else the
+  active one, else the first. Plain egui controls, as the client's other own tools.
+- **The steps** (`missionlog::Step`, `step_lines`). The original shows none (GUI.dll never asks
+  `N3Msg_GetQuestActionList`), so the lines are this client's words for what the message's `QuestActionInfo`
+  holds, read from the captures (74 story missions and two of a terminal, each of ONE step):
+  the schema's `Version` is the step's kind, its `MissionActionType` (1 kill a person, 8 use an item on an item, 15
+  find an item, 16 find a person, 20 kill several) and, by the story missions' titles, 6 bring an item to a person,
+  18 make an item, 23 talk to a person, 24 a step of the mission's own script; `Action` is the item, `UnknownId1`
+  what it is used on, `UnknownId2` the person, and the mission's `Unknown23` how many are left to kill ("Terminate 5
+  Malfunctioning Cleaning Robots" came with 5, later with 3). A kind not in this list is written as its number.
+  **No capture has a terminal's find-item, find-person or repair mission, nor a mission of several steps**: those
+  lines are untried.
+- **A mission that wants its item back** ("Mission Assignment 53442-675 ... retrieve the stolen info") is one step
+  of kind 8 whose target is the mission terminal it came from, `(0xdac1, 0xc000028f)`; the mission's own giver
+  (the identity after its text) is the same terminal. A terminal's instance is `0xC0000000 | number << 16 |
+  playfield` (`terminal_playfield`), and the playfield's dynel table has its place, so the terminal is found from
+  the mission alone, wherever the character is and whenever the mission was taken (`missionlog::fill`, done by the
+  network thread with the places' names and the reward items). Such a step is two lines, "Find the item" and
+  "Bring it back to the mission terminal" in blue with the terminal's playfield and place.
+- **The marker** (`missionlog::terminal_mark`): while a waypoint is up and its mission has such a terminal, a blue
+  indicator on the compass (`vitals::TERMINAL_BEARING`, in the terminal's playfield), a blue dot in a white ring on
+  the planet map, the corner map and the playfield map window (`automap::set_terminal_here`), and one more line
+  when the place is uploaded. Whether the server takes the item at any terminal or at this one only was not tried.
+Pictures: `MAO_UI_PREVIEW=tracker MAO_CAPTURE=capture-221539.log;captures/events-20261108-1811/net.log`
+(`MAO_TRACKER_ONLY=<parts of titles or texts>`, `MAO_TRACKER_PICK=<n>`); `MAO_TERMINAL=<pf>,<x>,<z>` puts the marker
+into the `map` and `planetmap` previews (pf 0 for the `map` preview, which has no playfield number). Seen live
+by the user the same day ("tracker works"); which kinds of mission were held, and whether the blue marker was
+looked at, was not said. Test: `the_steps_are_listed_and_the_terminal_found`.
+
 **A locked item's time stood still (2026-11-25).** The inventory makes its grid's items only when their places,
 counts or icons change (`invwindows::fill`), and the lock's fade and time text (`Item::left`, `Item::timer`,
 CMB-023) were worked out there: a recharger used showed the time its lock had when its count changed, "15s" in

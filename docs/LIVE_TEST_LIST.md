@@ -1645,3 +1645,14 @@ are about real key and button timing). One character unless said.
   time on its stack counts down each second and goes at nothing, the icon's fade running with it.
 - [ ] **1** The same on a recharger in an open bag.
 - [ ] **2** Cast a program with the nano programs window open: the time on the programs counts down.
+
+## The mission tracker and the terminal's marker (2026-11-25)
+
+- [x] **1** (the user, 2026-11-25: "tracker works") `/tracker` with missions held: the list has each once;
+  picking one says the upload's lines and the waypoint moves; the summary's place, time left and reward agree with "Look at Mission".
+- [ ] **1** The steps of each kind of terminal mission (kill, find item, find person, repair, bring back an
+  item): does each line say what the mission wants? Only the kill and the bring-back kinds were in a capture.
+- [ ] **1** A bring-back mission: the second step names the terminal's area and place in blue; the compass has a
+  blue indicator in that area, and the planet map, the corner map and the area map a blue dot at the terminal.
+  Does the item go back at that terminal (and at another)?
+- [ ] **2** A story mission (from a character, not a terminal) in the tracker: its steps and place.
