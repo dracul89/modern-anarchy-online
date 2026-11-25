@@ -6,39 +6,60 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
-- An item you cannot use says so: "You're unable to perform this action; please check the requirements of the item.", as the original does, where a right click did nothing at all (a mission item whose mission was already given, for one). The client now judges an item's use requirements itself before it sends the use.
+## 0.1.11 (2026-11-25)
+
+Every click in the windows gone through against the original, the keyboard's Shift, Ctrl and Alt reaching the windows,
+tabs in the title row, and a chat that is easier to read.
+
+### Clicks and keys, as the original has them
+
+- Shift and Ctrl held with a click count in the interface's windows: Shift+click on an item shows its info, Ctrl+click on a stack splits it, Shift + right click combines, Ctrl + right click puts an item into a trade. The keyboard's Shift, Ctrl and Alt never reached the windows, so each of these was taken for a plain click.
+- Clicks in the windows were gone through against the original, window by window (`docs/INTERACTIONS_ORIGINAL.md`: 634 of them, with what still differs). What follows now does what the original does. Some of it takes away a way this client had and the original has not: the box that asked how many of a stack, the menu on a right click beside a window's items, the button that put a window into the side column, Alt+Enter for the window mode (now F11) and the wheel's zoom on the planet map.
+- Shift + click on a nano program, on an action in the Actions window and on a shortcut of a bar shows its info. It cast the program, performed the action or used the shortcut.
+- A nano program, an action and a shortcut are taken up by holding the left button on them for a moment (0.3 seconds), moved or not. A quick press that moves a little is a click now; it used to drag the thing away.
+- In the NCU window a right click on a running nano takes it off, with the line "Deactivating friendly timed nanoprogram."; a hostile one stays, with "Can't remove hostile timed nanoprogram.". Holding the right button on a nano opens its menu, "Look at". A plain click does nothing and Shift + click shows the nano's info (any click did).
+- Asking for the info page that is already shown puts the info window away: a second Shift + click on the same item, a second click on the same mission.
+- Ctrl + click on a single item takes it up, like a plain click. It did nothing.
+- With an item in hand, Shift + click puts the item down like any click and no longer opens an info page as well.
+- With an item in hand, a right click beside the items of the inventory, the wear window, a bag or the bank puts the item back. It did nothing, or opened the window's menu and left the item in hand.
+- An item let go on a wear place that will not take it goes back to its place, with the line that says why. It stayed in hand.
+- With an item of a bag in hand, a right click on another item of that bag uses the one on the other. It used or took the item clicked and left the other in hand.
+- Escape puts back what is in hand: an item, a split of a stack, a window's tab or a chat tab being carried. The key never reached that test.
+- Shift + click on an item in the Inspect window shows its info.
+- The right button on a shortcut bar's end strip turns the bar upright or flat (not while the bars are locked); a double click no longer does. A locked bar can still be moved by its strip, and a shortcut pushed out of its slot by another dropped there comes into hand on a locked bar too.
+- At a mission terminal a click on the selected offer deselects it (its mark on the map goes), and Shift + click on an offer shows its page.
+- A stack is split with the mouse, as in the original: hold Ctrl, press the left button on the stack and move the mouse right for more or left for fewer; the number stands at the pointer in yellow, and letting go takes that many in hand. The box that asked for a number is gone.
+- A right click beside the items of a window no longer opens the window's menu (inventory, wear window, Inspect, bags, bank, nano programs, NCU, shop, Stats, the target's NCU windows, the map). The menu is on the button at the left end of the window's title, or of its header in the column at the screen's edge; the NCU, Stats, target NCU and map windows did not have it there and do now.
+- The NCU window's "Cancel this nano" entry is gone: a right click on the nano takes it off.
+- The button in a window's title that put it into the column at the screen's edge is gone. A window goes there as in the original: take its tab up with the right button and put it down on the column; hold the right button on a page of the column to take it out. The Faction and Stats windows have such a tab now. The pet window no longer goes into the column.
+- The chat window's menu no longer has "Move to a window of its own" and "Move into the window of ...": a chat tab is moved by carrying it.
+- Tips are the original's. The pointer has to rest for half a second; the tip then stays where it came up and goes when a button is pressed. A nano program's tip is its info page without the name, the skills and the requirements; a running nano's says Friendly, Hostile or Team, its NCU, the time left as hours, minutes and seconds, and what it changes; an item in a bag or the bank has the same tip as one in the inventory; a shortcut's is its name, a macro's its name and command. An item's tip no longer lists the nanos it casts nor the "if" conditions of its effects.
+- Alt+Enter starts typing, like Enter, and while you are typing takes the typing to the next chat window (with Shift the one before). It used to switch between window, borderless and full screen: that is F11, the options window (F10) and the launcher's page.
+- Tab on an empty chat line, or Ctrl+Tab, opens the list of the channels the window can talk to; pick one to talk there.
+- The middle mouse button does nothing in the world. It reset the camera, which keeps its key (numeric pad 5).
+- Planet map: the wheel moves the map up and down and no longer zooms. A double left click zooms in a level and a double right click zooms out, the place clicked brought to the middle. Dragging moves the map one and a half times as far as the mouse. "Zoom in" and "Zoom out" bring your character to the middle and are greyed at the last level. The coordinates under the pointer are no longer written on the map.
+- Enter in a player trade's credits field no longer sends the credits at once; they go a second after you stop typing, or when you press Accept.
+- Check boxes, radio buttons, the pin and the menu button in a window's title and the buttons of a page's header in the column act as the mouse button goes down, as the original's do, and so do links in text. An ordinary button still acts when the mouse button is let go over it, and now does so however long you held it (holding it for a second, or moving a little while pressing, lost the click).
+
+### Interface
+
 - The chat window, the inventory, the mission list, bags and the other windows that dock as tabs carry their tabs in the title row, as the original's do, where they had an empty title row with the tabs in a row of their own under it.
 - The chat is set in the original's chat font, Verdana of the size the `ChatFontSize` option gives (14 as the game ships), its lines as close together as the original's. It was set in a small pixel font the original's chat does not use, which was hard to read.
 - Text in Verdana is drawn sharp, each letter fitted to the pixels, where it was soft at the edges; the tabs' names have the original's size (they were a fifth larger).
+
+### Items and creatures
+
+- An item you cannot use says so: "You're unable to perform this action; please check the requirements of the item.", as the original does, where a right click did nothing at all (a mission item whose mission was already given, for one). The client now judges an item's use requirements itself before it sends the use.
 - 535 items were read wrongly from the game's data and came out with a garbled name, no icon and part of their numbers missing: the box of launcher ammunition, the Subturbine and Heavy Grinner weapons and others. A number among an item's own values was taken for the length of its name.
 - A creature that comes at you to fight faces the way it runs. One that was already fighting kept the facing it had, came up sideways or backwards and often did not turn to you at all.
-- Clicks in the windows were gone through against the original, window by window (`docs/INTERACTIONS_ORIGINAL.md`), and these now do what the original does:
-  - Shift + click on a nano program, on an action in the Actions window and on a shortcut of a bar shows its info. It cast the program, performed the action or used the shortcut.
-  - A nano program, an action and a shortcut are taken up by holding the left button on them for a moment (0.3 seconds), moved or not. A quick press that moves a little is a click now; it used to drag the thing away.
-  - In the NCU window a right click on a running nano takes it off, with the line "Deactivating friendly timed nanoprogram."; a hostile one stays, with "Can't remove hostile timed nanoprogram.". Holding the right button on a nano opens its menu, "Look at". A plain click does nothing and Shift + click shows the nano's info (any click did).
-  - Asking for the info page that is already shown puts the info window away: a second Shift + click on the same item, a second click on the same mission.
-  - Ctrl + click on a single item takes it up, like a plain click. It did nothing.
-  - With an item in hand, Shift + click puts the item down like any click and no longer opens an info page as well.
-  - With an item in hand, a right click beside the items of the inventory, the wear window, a bag or the bank puts the item back. It did nothing, or opened the window's menu and left the item in hand.
-  - An item let go on a wear place that will not take it goes back to its place, with the line that says why. It stayed in hand.
-  - With an item of a bag in hand, a right click on another item of that bag uses the one on the other. It used or took the item clicked and left the other in hand.
-  - Escape puts back what is in hand: an item, a split of a stack, a window's tab or a chat tab being carried. The key never reached that test.
-  - Shift + click on an item in the Inspect window shows its info.
-  - The right button on a shortcut bar's end strip turns the bar upright or flat (not while the bars are locked); a double click no longer does. A locked bar can still be moved by its strip, and a shortcut pushed out of its slot by another dropped there comes into hand on a locked bar too.
-  - At a mission terminal a click on the selected offer deselects it (its mark on the map goes), and Shift + click on an offer shows its page.
-  - A stack is split with the mouse, as in the original: hold Ctrl, press the left button on the stack and move the mouse right for more or left for fewer; the number stands at the pointer in yellow, and letting go takes that many in hand. The box that asked for a number is gone.
-  - A right click beside the items of a window no longer opens the window's menu (inventory, wear window, Inspect, bags, bank, nano programs, NCU, shop, Stats, the target's NCU windows, the map). The menu is on the button at the left end of the window's title, or of its header in the column at the screen's edge; the NCU, Stats, target NCU and map windows did not have it there and do now.
-  - The NCU window's "Cancel this nano" entry is gone: a right click on the nano takes it off.
-  - The button in a window's title that put it into the column at the screen's edge is gone. A window goes there as in the original: take its tab up with the right button and put it down on the column; hold the right button on a page of the column to take it out. The Faction and Stats windows have such a tab now. The pet window no longer goes into the column.
-  - The chat window's menu no longer has "Move to a window of its own" and "Move into the window of ...": a chat tab is moved by carrying it.
-  - Tips are the original's. The pointer has to rest for half a second; the tip then stays where it came up and goes when a button is pressed. A nano program's tip is its info page without the name, the skills and the requirements; a running nano's says Friendly, Hostile or Team, its NCU, the time left as hours, minutes and seconds, and what it changes; an item in a bag or the bank has the same tip as one in the inventory; a shortcut's is its name, a macro's its name and command. An item's tip no longer lists the nanos it casts nor the "if" conditions of its effects.
-  - Alt+Enter starts typing, like Enter, and while you are typing takes the typing to the next chat window (with Shift the one before). It used to switch between window, borderless and full screen: that is F11, the options window (F10) and the launcher's page.
-  - Tab on an empty chat line, or Ctrl+Tab, opens the list of the channels the window can talk to; pick one to talk there.
-  - The middle mouse button does nothing in the world. It reset the camera, which keeps its key (numeric pad 5).
-  - Planet map: the wheel moves the map up and down and no longer zooms. A double left click zooms in a level and a double right click zooms out, the place clicked brought to the middle. Dragging moves the map one and a half times as far as the mouse. "Zoom in" and "Zoom out" bring your character to the middle and are greyed at the last level. The coordinates under the pointer are no longer written on the map.
-  - Enter in a player trade's credits field no longer sends the credits at once; they go a second after you stop typing, or when you press Accept.
-  - Check boxes, radio buttons, the pin and the menu button in a window's title and the buttons of a page's header in the column act as the mouse button goes down, as the original's do, and so do links in text. An ordinary button still acts when the mouse button is let go over it, and now does so however long you held it (holding it for a second, or moving a little while pressing, lost the click).
-- Shift and Ctrl held with a click count in the interface's windows: Shift+click on an item shows its info, Ctrl+click on a stack splits it, Shift + right click combines, Ctrl + right click puts an item into a trade. The keyboard's Shift, Ctrl and Alt never reached the windows, so each of these was taken for a plain click.
+
+### Not yet seen in a live game
+
+Seen in a live game: Shift + click on an item of the inventory showing its info, and the line an item says that
+cannot be used. Everything else here was read from the original client and tried offline or by test only: the other
+clicks and keys (the split of a stack by the mouse, the tips, the planet map and docking by carrying a tab above
+all), the tabs in the title row, the chat's font, the 535 items and the creatures' facing. The windows not gone
+through yet are the skills, options, mail, organization and city, pet, tradeskill, vehicle, help and login windows.
 
 ## 0.1.10 (2026-11-24)
 
