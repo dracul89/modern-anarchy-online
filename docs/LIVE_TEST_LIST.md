@@ -1650,6 +1650,8 @@ are about real key and button timing). One character unless said.
 
 - [x] **1** (the user, 2026-11-25: "tracker works") `/tracker` with missions held: the list has each once;
   picking one says the upload's lines and the waypoint moves; the summary's place, time left and reward agree with "Look at Mission".
+- [x] **1** (the user, 2026-11-25: "button works") The Team menu's "Mission Tracker" (AOU skins) opens the
+  tracker and closes it again, lit while open.
 - [ ] **1** The steps of each kind of terminal mission (kill, find item, find person, repair, bring back an
   item): does each line say what the mission wants? Only the kill and the bring-back kinds were in a capture.
 - [ ] **1** A bring-back mission: the second step names the terminal's area and place in blue; the compass has a

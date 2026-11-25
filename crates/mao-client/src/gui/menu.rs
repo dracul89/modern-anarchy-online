@@ -137,9 +137,43 @@ fn actions(e: &Element) -> Vec<Actions> {
     out
 }
 
-/// FUN_10071a6e: the entries of a `<Menu>` element's children.
+/// FUN_10071a6e: the entries of a `<Menu>` element's children. This client's own entry for the mission tracker
+/// follows a written "Mission" entry ([`tracker_entry`]).
 pub fn entries(children: &[Element]) -> Vec<Entry> {
-    children.iter().filter(|c| c.name.eq_ignore_ascii_case("menu") || c.name.eq_ignore_ascii_case("menuentry")).map(Entry::from_element).collect()
+    let mut out = Vec::new();
+    for entry in children.iter().filter(|c| c.name.eq_ignore_ascii_case("menu") || c.name.eq_ignore_ascii_case("menuentry")).map(Entry::from_element) {
+        let own = tracker_entry(&entry);
+        out.push(entry);
+        out.extend(own);
+    }
+    out
+}
+
+/// The value of this client's own mission tracker window (`missionlog.rs`), as the menus' entries name theirs.
+pub const TRACKER_WINDOW: &str = "mission_tracker_window";
+
+/// This client's own menu entry for the mission tracker (the user, 2026-11-25: "can we add a button for mission
+/// tracker"): the skin's entry for the mission window, when it is a written one (the AOU skins' "Mission" in their
+/// Team menu; the game's own skin has the mission window as a picture in a row of pictures, which gets none), with
+/// its label's "Mission" made "Mission Tracker" and its actions turned to the tracker's value. No skin file is changed.
+pub fn tracker_entry(mission: &Entry) -> Option<Entry> {
+    if mission.name != "mission_window" || !mission.icon.is_empty() || mission.sub.is_some() || mission.label.is_empty() {
+        return None;
+    }
+    let mut own = mission.clone();
+    own.name = TRACKER_WINDOW.to_string();
+    own.label = if mission.label.contains("Mission") { mission.label.replacen("Mission", "Mission Tracker", 1) } else { "Mission Tracker".to_string() };
+    own.tooltip = "Mission Tracker".to_string();
+    own.tooltip_body = "Pick one of the missions you hold: its place goes to the map, and the window says its steps and what it pays.".to_string();
+    for block in &mut own.actions {
+        for action in &mut block.actions {
+            if let Action::SetValue { name, value } = action {
+                *name = name.replace("mission_window", TRACKER_WINDOW);
+                *value = value.replace("mission_window", TRACKER_WINDOW);
+            }
+        }
+    }
+    Some(own)
 }
 
 /// A script (`ActionMenu/<file>` of the first skin folder that has it): its root `<Menu>`'s entries.
@@ -160,6 +194,28 @@ pub fn sub_entries(dirs: &[std::path::PathBuf], sub: &Sub) -> Vec<Entry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A written "Mission" entry is followed by this client's own for the mission tracker, which turns the tracker's
+    /// value as the skin's entry turns the mission window's; a picture of an entry and any other entry get none.
+    #[test]
+    fn the_tracker_follows_a_written_mission_entry() {
+        let doc = crate::gui::xml::parse(
+            r#"<Menu>
+	<MenuEntry label="&lt;font color=#FFBE96&gt;Mission&lt;/font&gt;" name="mission_window" tooltip="Missions">
+		<Actions event="on_invoke"><CloseMenu/><SetValue name="mission_window" value="dvalue:mission_window==false"/></Actions>
+	</MenuEntry>
+	<MenuEntry label="Friends" name="friends_window"><Actions event="on_invoke"><SetValue name="friends_window" value="true"/></Actions></MenuEntry>
+	<MenuEntry bgicon="id:GFX_GUI_CC_ICONS_MISSIONS" label="Mission" name="mission_window"><Actions event="on_invoke"><SetValue name="mission_window" value="true"/></Actions></MenuEntry>
+</Menu>"#,
+        );
+        let list = entries(&doc[0].children);
+        assert_eq!(list.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["mission_window", TRACKER_WINDOW, "friends_window", "mission_window"]);
+        let own = &list[1];
+        assert_eq!((own.label.as_str(), own.mode), ("<font color=#FFBE96>Mission Tracker</font>", Mode::Toggle));
+        assert!(matches!(&own.actions[0].actions[..], [Action::CloseMenu, Action::SetValue { name, value }] if name == TRACKER_WINDOW && value == "dvalue:mission_tracker_window==false"));
+        // (the skin's own entry is as it was)
+        assert!(matches!(&list[0].actions[0].actions[1], Action::SetValue { name, value } if name == "mission_window" && value == "dvalue:mission_window==false"));
+    }
 
     #[test]
     fn reads_a_menu_script() {

@@ -37,6 +37,8 @@ pub const WINDOWS: &[(&str, &str)] = &[
     ("nano_window", "programs"),
     ("ncu_window", "ncu"),
     ("mission_window", "missions"),
+    // (this client's own mission tracker, whose entry `menu::tracker_entry` puts after a written "Mission")
+    (super::menu::TRACKER_WINDOW, "tracker"),
     ("friends_window", "friends"),
     ("faction_window", "factions"),
     ("pet_window", "pets"),

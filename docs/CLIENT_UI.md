@@ -5645,6 +5645,13 @@ as a blue marker on the compass and map (for return item only)").
   character's playfield), the time left, the steps, what it pays (credits, experience, the items with their icons,
   a click for an item's page) and the mission's text without its markup. It opens on the picked mission, else the
   active one, else the first. Plain egui controls, as the client's other own tools.
+- **Its menu entry** (the user: "can we add a button for mission tracker"). `menu::tracker_entry`: wherever a
+  skin's menu has the mission window as a written entry (the AOU skins' "Mission" in their Team menu), an entry
+  "Mission Tracker" follows it, made from that entry: its label's look, its actions turned to the tracker's own
+  value `mission_tracker_window` (`controlcenter::WINDOWS`). No skin file is changed. The game's own skin has the
+  mission window as a picture in a row of pictures and gets no entry: there the tracker opens by `/tracker`.
+  Seen in a picture (`MAO_CLICK=24,714`, the Team menu) and live by the user the same day ("button works"); test
+  `the_tracker_follows_a_written_mission_entry`.
 - **The steps** (`missionlog::Step`, `step_lines`). The original shows none (GUI.dll never asks
   `N3Msg_GetQuestActionList`), so the lines are this client's words for what the message's `QuestActionInfo`
   holds, read from the captures (74 story missions and two of a terminal, each of ONE step):
