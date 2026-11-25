@@ -5699,7 +5699,15 @@ confirmed in the code was ported, and no default look changes by it:
 - **The seven `VisualFlags` boxes** (`opt_bitnum`, `OptionCheckBox_c` FUN_100c22ba / FUN_100c21b7): **a fault**.
   Each box showed "the whole number is not 0" and wrote 0 or 1 over all seven; now each shows and sets its own bit
   (helmet 2, shoulder pads 0 1 3 4, social tab 5 6). The number is still not sent to the server (the original's
-  `CharacterAction` for stat 673 is not ported), so the boxes change nothing others see.
+  `CharacterAction` for stat 673 is not ported), so the boxes change nothing others see. **Sent since 2026-11-25**
+  (`visualflags.rs`, the user's "helmet visible option isn't working"): `MiscOptionsMonitor_c` (constructor
+  FUN_100c05d4) sets `VisualFlags` and `VisiblePVPTitle` (bits 7 and 8) from the stat at login, Gamecode sets
+  `VisualFlags` again when the own stat changes (FUN_1005a3b1), and a changed value goes to `N3Msg_EventFeedback`
+  with the event 0x46 (slots FUN_100c0427 and FUN_100c04c4; Gamecode 0x1001cc3d), which sends the `CharacterAction`
+  0xa6 with the number, as `/rp` does. A change of bit 5 (the social tab) while fighting is refused with
+  `Feedback_CantDoThisWhileFighting` and the value put back; of its two conditions only stat 410 is asked here, the
+  character's state at +0x1d4 was not read. The look itself is taken from the server's answer (stat and appearance
+  update); what FUN_1009cda2 does with bit 5 on the client's side is not ported. Not seen live.
 - **Escape** closes the raid window (`esc_raid`, FUN_10103127), the team search (`esc_lft`, FUN_100f0d2e) and the
   city terminal (`esc_cityterminal`, FUN_100e7847) by their options. **A fault with it**: the shared container
   window of a bag that is not one's own read `esc_backpacks`; the original reads `esc_chests` there and

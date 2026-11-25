@@ -47,6 +47,10 @@ tabs in the title row, and a chat that is easier to read.
 - The chat is set in the original's chat font, Verdana of the size the `ChatFontSize` option gives (14 as the game ships), its lines as close together as the original's. It was set in a small pixel font the original's chat does not use, which was hard to read.
 - Text in Verdana is drawn sharp, each letter fitted to the pixels, where it was soft at the edges; the tabs' names have the original's size (they were a fifth larger).
 
+### Options
+
+- The option panel's looks options do something: "Helmet visible", the four shoulder pad boxes, the two social tab boxes (Equipment page) and the PvP title shown (Character page) are sent to the server, which changes how your character looks to you and to everyone else, and the boxes show what the server has for the character when you log in. They only wrote a number into the settings and nothing happened. As in the original, the social tab is not switched while something fights you.
+
 ### Items and creatures
 
 - An item you cannot use says so: "You're unable to perform this action; please check the requirements of the item.", as the original does, where a right click did nothing at all (a mission item whose mission was already given, for one). The client now judges an item's use requirements itself before it sends the use.
@@ -58,7 +62,7 @@ tabs in the title row, and a chat that is easier to read.
 Seen in a live game: Shift + click on an item of the inventory showing its info, and the line an item says that
 cannot be used. Everything else here was read from the original client and tried offline or by test only: the other
 clicks and keys (the split of a stack by the mouse, the tips, the planet map and docking by carrying a tab above
-all), the tabs in the title row, the chat's font, the 535 items and the creatures' facing. The windows not gone
+all), the tabs in the title row, the chat's font, the looks options, the 535 items and the creatures' facing. The windows not gone
 through yet are the skills, options, mail, organization and city, pet, tradeskill, vehicle, help and login windows.
 
 ## 0.1.10 (2026-11-24)

@@ -1610,3 +1610,16 @@ are about real key and button timing). One character unless said.
 - [ ] **1** Perk window: a perk line's button acts as the mouse button goes down.
 - [ ] **2** Player trade: type credits and press Enter: the typing ends and nothing is sent at once; the other side
   sees the amount about a second after the last key. Press Accept right after typing: the amount goes first.
+
+## The looks options (2026-11-25): helmet, shoulder pads, social tab, PvP title
+
+`visualflags.rs`. With the game log open (`text command 0xa6 (<number>)` is each change sent):
+
+- [ ] **1** Wear a helmet. Options (F10), Equipment: untick "Helmet visible": the helmet goes and the head shows;
+  tick it: the helmet is back. A second character nearby sees the same.
+- [ ] **1** The shoulder pad boxes, with pads worn: right, left, and the two doubled ones.
+- [ ] **2** Log out and in: the boxes show what was set (they follow the server's stat 673, not the settings file).
+- [ ] **2** The social tab on, with something worn on the social page: the social clothes show; off: the combat
+  ones. While a creature fights you the box goes back and the chat says the original's line.
+- [ ] **3** Character page, "Display PvP title": each choice sends a number with bits 7 and 8 changed.
+- [ ] **3** `/rp` still turns its mark over, and the boxes keep their state after it.

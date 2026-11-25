@@ -391,6 +391,8 @@ pub struct Ui {
     pub control_center: Option<crate::gui::controlcenter::ControlCenter>,
     /// The skin's option panel (`OptionPanel/Root.xml`).
     pub option_panel: crate::gui::options::OptionPanel,
+    /// The looks options' monitor: the helmet, the shoulder pads, the social tab and the PvP title (`visualflags`).
+    pub visual_flags: crate::visualflags::Monitor,
     /// The containers' windows, by the container's identity: one's own backpacks' and every other open container's.
     pub bag_windows: std::collections::BTreeMap<(u32, u32), crate::loot::LootWindow>,
     pub chat: crate::chatwindow::ChatWindow,
@@ -646,7 +648,7 @@ impl Ui {
         let state = egui_winit::State::new(ctx.clone(), egui::ViewportId::ROOT, window, Some(window.scale_factor() as f32), window.theme(), Some(gpu.device.limits().max_texture_dimension_2d as usize));
         // (the widest picture the card takes, not egui's own 2048: on a screen of two pixels to the point a skin's long strip, GFX_GUI_CONTROLCENTER_WING_LEFT, is 6000 across, and egui stops the program over a wider one)
         let renderer = egui_wgpu::Renderer::new(&gpu.device, format, egui_wgpu::RendererOptions::default());
-        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_use_on: None, script_give: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), notices: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), shortcut_bars: crate::shortcutbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
+        let mut ui = Ui { ctx, state, renderer, open_seen: Vec::new(), injected: Default::default(), script_bag: None, script_invite: None, script_target: None, script_object: None, script_cast: None, script_use: None, script_use_on: None, script_give: None, script_move: None, duel_done: 0, duel_told: 0, options_open: false, gear_open: false, whompah_open: false, mission: Default::default(), mail: Default::default(), teleport: Default::default(), signup: Default::default(), laser: Default::default(), battle: Default::default(), tower: Default::default(), city_terminal: Default::default(), shop: Default::default(), npc_chat: Default::default(), mission_log: Default::default(), planet: Default::default(), actions: Default::default(), automap: Default::default(), stats: Default::default(), skills: Default::default(), team: Default::default(), pets: Default::default(), tradeskill: Default::default(), research: Default::default(), vehicles: Default::default(), extras: Default::default(), faction: Default::default(), raid: Default::default(), lft: Default::default(), knowledge: Default::default(), ncu: Default::default(), target_ncu: [crate::ncu::TargetNcu::new(false), crate::ncu::TargetNcu::new(true)], friends: Default::default(), programs: Default::default(), perks: Default::default(), help: Default::default(), tips: Default::default(), notices: Default::default(), info: Default::default(), browser: Default::default(), market_send: Default::default(), control_center: None, option_panel: Default::default(), visual_flags: Default::default(), bag_windows: Default::default(), chat: Default::default(), gear: Default::default(), hotbars: hotbar::load(), shortcut_bars: crate::shortcutbar::load(), clock: Instant::now(), rebinding: None, palette, themes: theme::available(&settings.aou_mod), last_frame: Instant::now(), fps: 60.0, perf: Default::default() };
         // (the windows the player left open come back open; the first time, the planet map, open in the original's default
         // layout at the top left)
         for name in crate::layout::load_open().unwrap_or_else(|| vec!["map".to_string()]) {
@@ -1188,6 +1190,7 @@ impl Ui {
         let duel_told = &mut self.duel_told;
         let bag_windows = &mut self.bag_windows;
         let option_panel = &mut self.option_panel;
+        let visual_flags = &mut self.visual_flags;
         let mut cc_windows: Vec<(&'static str, bool)> = Vec::new();
         let (hotbars, clock_now) = (&mut self.hotbars, self.clock.elapsed().as_secs_f64());
         let shortcut_bars = &mut self.shortcut_bars;
@@ -1488,6 +1491,24 @@ impl Ui {
                 for line in ncu_window.lines.drain(..) {
                     chat_window.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line.to_string()));
                 }
+            }
+            // (the looks options, bits of the character's stat 673, which the server keeps and makes the look from:
+            // a box turned in the option panel is sent, `visualflags`)
+            match control_center.as_mut().filter(|_| !hud.stats.is_empty()) {
+                Some(cc) => {
+                    let stat = hud.stats.get(&crate::visualflags::STAT).map_or(crate::visualflags::DEFAULT, |v| *v as u32);
+                    match visual_flags.step(&mut cc.store, stat, hud.stats.get(&410).is_some_and(|v| *v != 0)) {
+                        Some(crate::visualflags::Ask::Send(value)) => crate::net::text_command(mao_net::n3::ROLE_PLAY, value),
+                        Some(crate::visualflags::Ask::Refused) => {
+                            let line = crate::feedback::plain("Feedback_CantDoThisWhileFighting");
+                            if !line.is_empty() {
+                                chat_window.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line));
+                            }
+                        }
+                        None => {}
+                    }
+                }
+                None => visual_flags.forget(),
             }
             // (the equipment's lock, a value of the original's: the game loop asks it before a move,
             // `net::equipment_locked`)

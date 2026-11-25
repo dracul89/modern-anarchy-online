@@ -144,6 +144,7 @@ mod battlestation;
 mod laser;
 mod towerbuild;
 mod vehicles;
+mod visualflags;
 mod teleport;
 mod pets;
 mod tradeskill;
