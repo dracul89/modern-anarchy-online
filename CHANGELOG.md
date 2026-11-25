@@ -6,6 +6,8 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+- With a pet out, the Pets menu and its "Pet Info" entry, which opens the pet window, are in the control center's menus again. The menu is shown while the character has pets, and the client never counted them, so it was never there.
+
 ## 0.1.11 (2026-11-25)
 
 Every click in the windows gone through against the original, the keyboard's Shift, Ctrl and Alt reaching the windows,

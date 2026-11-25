@@ -5634,6 +5634,17 @@ Test: `a_death_is_told_by_the_message_that_carries_its_reason`.
 Tests: `a_pet_has_its_place_and_its_kept_name`, `a_pets_name_is_kept_and_given_back`,
 `a_pet_command_carries_its_pets_and_its_text`.
 
+**The Pets menu was never shown (2026-11-25).** The skins show the Pets menu, and with it "Pet Info"
+(`pet_window`), by `s:npcnumpets!=0` (`CommandMenu.xml`; the AOU skins' `Menu_Other.xml` has it on both the menu
+and the entry): the character's own stat 458, `NPCNumPets`. Nothing the server sent set it here (the user's menu was missing with a pet out, 2026-11-25). Gamecode's `NpcHolder_t`
+keeps it: nothing when it is made (FUN_10052181), the size of its pet list when a pet is added (FUN_1005299c) and
+when one is taken away (FUN_10052932). The client never set it, so with pets out there was no way to the pet
+window but `/open pets`. `World::count_pets` sets it now from the pet list on `AddPet`, `RemovePet` and a new
+playfield. Seen in a picture (`MAO_UI_PREVIEW=pets MAO_CLICK=56,714`, which counts its three sample pets): the
+Other menu has "Pets" and "Pet Info"; without pets it has neither. Seen live by the user the same day ("pet info
+button works now"); the entry's going with the pet was not reported. Test:
+`the_pets_are_counted_in_their_stat`.
+
 ## Popup menus like the original, and options that did nothing (2026-11-18)
 
 The user: "port SET-030 and WIN-111". Read anew in the original by two readers; what a port rests on was checked

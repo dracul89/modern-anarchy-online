@@ -1866,6 +1866,16 @@ impl World {
         }
     }
 
+    /// The character's own count of its pets, stat 458 `NPCNumPets`: Gamecode's `NpcHolder_t` sets it itself, to nothing
+    /// when it is made (FUN_10052181) and to its pet list's size when a pet is added (FUN_1005299c) or taken away
+    /// (FUN_10052932). The control center's Pets menu is shown by it (`CommandMenu.xml`: `s:npcnumpets!=0`).
+    fn count_pets(&mut self) {
+        let count = self.pets.len() as i64;
+        if self.stats.insert(458, count) != Some(count) {
+            self.stats_changed = true;
+        }
+    }
+
     /// The place a pet has by its kind (`pets::place`: `PetTypeToLocation`), 0 for none or for one not announced.
     fn pet_place(&self, pet: u32) -> u32 {
         self.infos.get(&pet).map_or(0, |i| crate::pets::place(i.family, i.pet_type))
@@ -2752,6 +2762,7 @@ impl World {
             }
             self.arrival = Some(arrival);
             self.pets.clear();
+            self.count_pets();
             self.instance_runs = m.instance_runs();
             if std::env::var_os("MAO_COMBAT_LOG").is_some() && !self.instance_runs.is_empty() {
                 eprintln!("instance runs: {:x?}", self.instance_runs);
@@ -4176,6 +4187,7 @@ impl World {
                 // (the damage meter counts a pet's damage with its owner's)
                 crate::damage::pet(pet.1, self.own, self.names.get(&self.own).map_or("You", |n| n.0.as_str()));
             }
+            self.count_pets();
         }
         if m.kind == TEAM_MEMBER || m.kind == TEAM_MEMBER_INFO {
             if let Ok(p) = mao_net::schema::Schema::global().parse_n3(m.kind, &m.data) {
@@ -15019,6 +15031,33 @@ mod door_tests {
         assert_eq!(w.pets_named(&["nobody".to_string()], None, 7), None);
         // (a service tower is told so: its `PetType` 15)
         assert!(!w.pet_is_tower(first.1));
+    }
+
+    /// The character counts its pets itself in stat 458 (`NPCNumPets`), which shows the control center's Pets menu
+    /// (`s:npcnumpets!=0`): a pet added, the same one told again, a second, one taken away, the last gone.
+    #[test]
+    fn the_pets_are_counted_in_their_stat() {
+        let own = 0x77bb02;
+        let mut w = World { own, ..World::default() };
+        let change = |kind: u32, pet: u32| {
+            let mut data = vec![0u8];
+            data.extend_from_slice(&0xc350u32.to_be_bytes());
+            data.extend_from_slice(&pet.to_be_bytes());
+            Message { kind, identity: (0xc350, own), data }.frame(1)
+        };
+        let (add, remove) = (0x194e4f76, 0x58742a0f);
+        let mut counts = Vec::new();
+        for (kind, pet) in [(add, 0x601), (add, 0x601), (add, 0x602), (remove, 0x601), (remove, 0x602)] {
+            w.stats_changed = false;
+            w.add(&change(kind, pet));
+            counts.push((w.stats.get(&458).copied(), w.stats_changed));
+        }
+        assert_eq!(counts, [(Some(1), true), (Some(1), false), (Some(2), true), (Some(1), true), (Some(0), true)]);
+        // (the menu's criteria, as the control center asks it)
+        let store = crate::gui::dvalue::Store::default();
+        assert!(!store.criteria("s:npcnumpets!=0", &w.stats, &|_| None));
+        w.add(&change(add, 0x603));
+        assert!(store.criteria("s:npcnumpets!=0", &w.stats, &|_| None));
     }
 
     /// One's own death is told by whichever message carries its reason. The Arete capture's own death came by a

@@ -1937,6 +1937,8 @@ fn run(args: &[String]) -> Result<(), String> {
                     // MAO_UI_PREVIEW=pets MAO_NANOS=<id:ms,id:ms,...>: those programs run on the sample's first pet.
                     if preview.as_deref() == Some("pets") {
                         let running: Vec<(u32, u32)> = std::env::var("MAO_NANOS").unwrap_or_default().split(',').filter_map(|e| { let (id, ms) = e.split_once(':')?; Some((id.trim().parse().ok()?, ms.trim().parse().ok()?)) }).collect();
+                        // (the sample's three pets, counted as the character counts its own: the Pets menu is shown by it)
+                        hud.stats.insert(458, 3);
                         pets::set_nanos(vec![(0x7b1e6d64, std::sync::Arc::new(ncu::describe(&db, &textures, &running, 220, std::time::Instant::now())))]);
                     }
                     // MAO_UI_PREVIEW=ncu MAO_NANOS=<id:ms,id:ms,...> (MAO_COMPARE=<stat file> for the NCU memory): the NCU window.

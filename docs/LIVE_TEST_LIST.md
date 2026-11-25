@@ -1623,3 +1623,9 @@ are about real key and button timing). One character unless said.
   ones. While a creature fights you the box goes back and the chat says the original's line.
 - [ ] **3** Character page, "Display PvP title": each choice sends a number with bits 7 and 8 changed.
 - [ ] **3** `/rp` still turns its mark over, and the boxes keep their state after it.
+
+## The Pets menu (2026-11-25)
+
+- [x] **1** (the user, 2026-11-25) Make a pet (an engineer's or a bureaucrat's): the control center's menu (the Actions menu in the
+  original's skin, the Other menu in the AOU skins) gets "Pets", and in it "Pet Info" opens the pet window.
+- [ ] **2** Terminate the pet, or let it die: the entry goes. Zone with a pet out: it is still there after.
