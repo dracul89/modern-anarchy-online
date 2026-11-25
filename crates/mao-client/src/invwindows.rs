@@ -11,8 +11,9 @@
 //!   by FUN_101a5910, FUN_101a5514, FUN_101a5734 and FUN_101a5b30; the labels text.mdb 505's 300+ for weapons, 100+ for
 //!   clothes and social, 200+ for implants).
 //!
-//! The mouse is the original's "new mouse" (`UseNewMouseFunc`; `ItemListViewBase_c`'s mouse down FUN_10041aa4 and up
-//! FUN_1004141b): a left click takes the item up, and it stays on the pointer until the next click puts it down (on a
+//! The mouse is the original's item lists' own (`ItemListViewBase_c`'s mouse down FUN_10041aa4 and up FUN_1004141b,
+//! the scheme of a list without `+0x319`, which `UseNewMouseFunc` does not reach; every gesture with its address is
+//! in `docs/INTERACTIONS_ORIGINAL.md`): a left click takes the item up, and it stays on the pointer until the next click puts it down (on a
 //! wear cell it is worn there, on the inventory it goes back into the backpack, on a hotbar slot it is added to it, on
 //! an open bag it goes in). A press that moves takes nothing up: the list signals a click only when the button comes
 //! up on the cell it went down on (`MultiListView_c::MouseUp`, 0x10133d04). A right click uses the item (button 2 is
@@ -155,8 +156,6 @@ pub struct ItemWindows {
     right_held: Option<(u32, std::time::Instant)>,
     popup: Option<crate::gui::popup::PopupMenu>,
     confirm: Option<u32>,
-    /// The stack a split is asked of (Ctrl+click), and the count typed so far.
-    split_box: Option<(u32, String)>,
     /// A backpack place about to get an item (a split's new stack, an item taken off), the cell it was let go on,
     /// and since when: the item is shown there when it comes (the original's `+0x150`, FUN_100ce25d).
     awaited: Option<(u32, crate::places::Cell, std::time::Instant)>,
@@ -213,47 +212,22 @@ pub enum Click {
     Nothing,
 }
 
-/// The box that asks how many of a stack of `count` to split off it (this client's own: the original counts by the
-/// mouse's sideways movement, FUN_10041ca4), `name` one of `chrome::DIALOGS`. Nothing while it waits; then the count
-/// (`places::split_count`), or none when it was closed, cancelled, or what was typed is no number.
-pub fn split_dialog(ctx: &egui::Context, palette: &Palette, name: &'static str, typed: &mut String, count: u32) -> Option<Option<u32>> {
-    let mut asking = count > 1;
-    let mut answer = None;
-    let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
-    crate::chrome::window(ctx, palette, name, "Split stack", &mut asking, |w| w.resizable(false).pivot(egui::Align2::CENTER_CENTER).default_pos(ctx.content_rect().center()), |ui| {
-        ui.label(format!("How many of the {count}?"));
-        let field = crate::chrome::text_edit(ui, palette, egui::TextEdit::singleline(typed).desired_width(80.0));
-        crate::chrome::focus_when_new(ctx, name, &field);
-        if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            answer = Some(true);
-        }
-        ui.horizontal(|ui| {
-            if crate::chrome::button(ui, palette, &text("MsgBox_OK", "OK"), true).clicked() {
-                answer = Some(true);
-            }
-            if crate::chrome::button(ui, palette, &text("MsgBox_Cancel", "Cancel"), true).clicked() {
-                answer = Some(false);
-            }
-        });
-    });
-    match answer {
-        Some(true) => Some(crate::places::split_count(typed, count)),
-        Some(false) => Some(None),
-        None if !asking => Some(None),
-        None => None,
-    }
-}
-
 /// A click's meaning by its count, the keys held, whether an item is in hand
-/// already and whether the item is a stack of the backpack (more than one). The original's lists look at the
-/// qualifiers first (FUN_10041aa4: Shift or Ctrl held, nothing is taken up; FUN_10041926: Ctrl on a stack of more
-/// than one starts a split).
+/// already and whether the item is a stack of the backpack (more than one). The original's item lists
+/// (`ItemListViewBase_c`, the scheme without `+0x319`):
+/// - with something in hand the button's release is the letting go and nothing else: the list's up handler raises
+///   only its drop signal when it is handed a drag object (FUN_1004141b's last branch), so Shift shows no info then;
+/// - Ctrl on a stack of more than one starts a split as the button goes down, whatever Shift (FUN_10041926 tests
+///   the qualifiers' `0xc` only), and the release ends the split;
+/// - else Shift is the info (the qualifier signal, 0x100414e8), and anything else takes the item up: the release
+///   tests Shift alone (`& 3`, 0x1004153e), so Ctrl on a single item is a plain click.
 pub fn click(clicks: u32, shift: bool, ctrl: bool, holding: bool, stack: bool) -> Click {
-    match (shift, ctrl) {
-        (true, _) => Click::Info,
-        (false, true) if clicks == 1 && stack && !holding => Click::Split,
-        (false, false) if !holding => Click::TakeUp,
-        _ => Click::Nothing,
+    match (holding, ctrl && stack, shift) {
+        (true, _, _) => Click::Nothing,
+        (false, true, _) if clicks == 1 => Click::Split,
+        (false, true, _) => Click::Nothing,
+        (false, false, true) => Click::Info,
+        (false, false, false) => Click::TakeUp,
     }
 }
 
@@ -396,7 +370,6 @@ impl InspectWindow {
             let on_top = if k == SOCIAL_PAGE { !self.social_labels_under } else { labels_on_top };
             multilist::set_grid(&mut view.tree, view.list, |m| m.labels_on_top = on_top);
         }
-        let mut menu_at = None;
         let skin = crate::skin::skin(ctx);
         let pointer = ctx.input(|i| i.pointer.hover_pos());
         let names: Vec<String> = WEAR_TABS.iter().map(|t| crate::gui::xml::ldb_text(t.name)).collect();
@@ -411,13 +384,13 @@ impl InspectWindow {
                 let view = &mut grids[t];
                 let (tree, root, list) = (&mut view.tree, view.root, view.list);
                 let response = filled_grid(ui, tree, root, list, skin.as_deref(), palette);
-                if let Some(at) = pointer {
-                    if let Some(slot) = multilist::item_at(tree, list, response.rect.min, at) {
-                        hovered = Some((slot as u32, cell_label(&WEAR_TABS[t], slot as u32)));
-                    } else if response.rect.contains(at) && ui.input(|i| i.pointer.secondary_clicked()) {
-                        // (the window's menu, FUN_100e20d6, by the right button beside the items)
-                        menu_at = Some(at);
-                    }
+                // (the right button beside the items does nothing: the list's FUN_10041aa4 returns when no item is
+                // under the pointer. The window's menu, FUN_100e20d6, is the frame's menu button's; until 2026-11-25
+                // a right click beside the items opened it here too.)
+                if let Some(at) = pointer
+                    && let Some(slot) = multilist::item_at(tree, list, response.rect.min, at)
+                {
+                    hovered = Some((slot as u32, cell_label(&WEAR_TABS[t], slot as u32)));
                 }
             });
         });
@@ -427,7 +400,7 @@ impl InspectWindow {
         }
         // (the same menu as the wear window's without "Unlock All Items", which is the character's own window's; it is
         // the frame's menu, so the frame's "Close Window" ends it)
-        if let Some(at) = menu_at.or_else(|| crate::chrome::frame_menu("Inspect")) {
+        if let Some(at) = crate::chrome::frame_menu("Inspect") {
             self.popup = Some(crate::chrome::menu_marked(ctx, at, &[(crate::gui::xml::ldb_named(10000, "LabelsOnTop", "Labels over the items"), true, Some(labels_on_top)), (crate::chrome::close_entry(), true, None)]));
         }
         match crate::chrome::menu(ctx, palette, "inspect-menu", &mut self.popup) {
@@ -439,10 +412,16 @@ impl InspectWindow {
             Some(1) => crate::chrome::close_next("Inspect"),
             _ => {}
         }
+        // (a click with Shift shows the item's info: the read-only view leaves the pick-up, drop and click signals
+        // unconnected, but the qualifier signal `+0x2e4` goes to FUN_100ca730 as in every item list, 0x100ccee8)
+        let shift = ctx.input(|i| i.modifiers.shift);
         for view in self.grids.iter_mut() {
             for (_, event) in multilist::take_events(&mut view.tree) {
                 if let multilist::ItemEvent::Clicked(slot, _) = event {
                     multilist::select(&mut view.tree, view.list, Some(slot));
+                    if let Some(item) = by_slot.get(&(slot as u32)).filter(|_| inspect_click_shows(shift)) {
+                        events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality));
+                    }
                 }
             }
             view.tree.signals.clear();
@@ -470,16 +449,19 @@ impl InspectWindow {
             }
             self.item_menu = popup.map(|p| (slot, p));
         }
-        if let Some((slot, _)) = hovered
-            && self.item_menu.is_none()
-            && let Some(item) = by_slot.get(&slot)
-        {
-            egui::Area::new(egui::Id::unique("inspect-tip")).order(egui::Order::Tooltip).fixed_pos(pointer.unwrap_or_default() + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| crate::gear::tooltip(ui, item, stats, palette));
-            });
-        }
+        // (the item under the pointer: its tip, FUN_10042193)
+        let tipped = hovered.as_ref().filter(|_| self.item_menu.is_none()).and_then(|(slot, _)| by_slot.get(slot));
+        let (title, text) = tipped.map_or_else(Default::default, |item| crate::gear::tip(item, stats));
+        let source = egui::Id::unique("inspect-tip");
+        crate::gui::tooltip::show(ctx, palette, source, tipped.map(|item| source.with(item.slot)), &title, &text);
         events
     }
+}
+
+/// Whether a left click on an inspected item shows its info: with Shift only (the list's qualifier signal; a plain
+/// click's pick-up signal has no listener in the read-only view, FUN_100ccde7's `+0x15c` test).
+pub fn inspect_click_shows(shift: bool) -> bool {
+    shift
 }
 
 /// The entries of an inspected item's menu (FUN_100caf07): Look At and Create Reference. Not ported: the lock entry the
@@ -509,10 +491,6 @@ impl ItemWindows {
         menu
     }
 
-    /// Asks how many to split off the stack at a backpack place: the box Ctrl+click opens.
-    pub fn ask_split(&mut self, place: u32) {
-        self.split_box = Some((place, "1".to_string()));
-    }
 
     fn build(&mut self, ctx: &egui::Context) {
         let mut inventory = GridView::new(ctx, PACK_PLACES as i32, 5);
@@ -552,6 +530,8 @@ impl ItemWindows {
             dragged = None;
         }
         let mut hovered_item: Option<(u32, String)> = None;
+        // (the right button clicked beside the items of a list with something in hand)
+        let mut right_beside = false;
 
         // The inventory.
         let mut pack: Vec<&GearItem> = items.iter().filter(|i| i.slot >= BACKPACK_FIRST).collect();
@@ -566,7 +546,6 @@ impl ItemWindows {
         });
         // (placed by hand: the grid while it is not arranged)
         let hand = arranged.is_none() && !in_list;
-        let mut inv_menu_at = None;
         if *open && let Some(view) = self.inventory.as_mut() {
             multilist::set_list_mode(&mut view.tree, view.list, in_list);
             if !in_list {
@@ -599,14 +578,12 @@ impl ItemWindows {
                 }
                 // (the cell under the pointer, with an item or not: where what is in hand is let go)
                 hovered_cell = pointer.and_then(|at| multilist::cell_at(tree, list, response.rect.min, at)).filter(|(x, y)| hand && y * columns + x < PACK_PLACES as usize);
-                // (the window's menu, FUN_100cbace: the right button beside the items; the original's is the frame's
-                // menu button)
-                if hovered_item.is_none()
-                    && dragged.is_none()
-                    && ui.input(|i| i.pointer.secondary_clicked())
-                    && let Some(at) = pointer.filter(|at| response.rect.contains(*at))
-                {
-                    inv_menu_at = Some(at);
+                // (the right button beside the items with nothing in hand does nothing, FUN_10041aa4: the window's
+                // menu, FUN_100cbace, is the frame's menu button's. Until 2026-11-25 it opened here by that click too.)
+                // (the right button beside the items with something in hand: the drag is given up and the item is
+                // back in its place, FUN_100cc855's button 2 on a cell without an item, 0x100ccc5f)
+                if hovered_item.is_none() && dragged.is_some() && ui.input(|i| i.pointer.secondary_clicked()) && pointer.is_some_and(|at| response.rect.contains(at)) {
+                    right_beside = true;
                 }
                 // (`MAO_ITEM_TRACE`: where each item is, in the window's pixels, for a script's clicks; told when it changes)
                 if crate::gear::traced() {
@@ -720,10 +697,10 @@ impl ItemWindows {
                     }
                 }
             }
-            Self::events_of(&mut view.tree, view.list, &mut events, items, dragged, &mut self.split_box);
+            Self::events_of(&mut view.tree, view.list, &mut events, items, dragged);
             self.inv_keeper.after("InventoryConfig", &view.tree, view.list, in_list);
             // (FUN_100cbace: List Mode with its mark, and Auto Arrange with its sub-menu, dead in list mode)
-            if let Some(at) = inv_menu_at.or_else(|| crate::chrome::frame_menu("Inventory")) {
+            if let Some(at) = crate::chrome::frame_menu("Inventory") {
                 use crate::gui::popup::Entry;
                 let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
                 let (arrange_keys, arrange) = crate::loot::arrange_menu(arranged, crate::loot::Arrange::Own);
@@ -775,7 +752,6 @@ impl ItemWindows {
                 let on_top = if k == SOCIAL_PAGE { !self.social_labels_under } else { labels_on_top };
                 multilist::set_grid(&mut view.tree, view.list, |m| m.labels_on_top = on_top);
             }
-            let mut wear_menu_at = None;
             let wear = &mut self.wear;
             let title = crate::gui::xml::ldb_text("#10000:383874");
             crate::chrome::window(ctx, palette, "Wear", &title, &mut wear_open, |w| w.default_pos(crate::layout::pos("Wear", egui::pos2(380.0, 70.0))).resizable(false), |ui| {
@@ -791,10 +767,12 @@ impl ItemWindows {
                     if let Some(at) = pointer {
                         if let Some(slot) = multilist::item_at(tree, list, response.rect.min, at) {
                             hovered_item = Some((slot as u32, cell_label(&WEAR_TABS[t], slot as u32)));
-                        } else if response.rect.contains(at) && dragged.is_none() && ui.input(|i| i.pointer.secondary_clicked()) {
-                            // (the window's menu, FUN_100e20d6: the right button beside the items; the original's is the
-                            // frame's menu button)
-                            wear_menu_at = Some(at);
+                        } else if response.rect.contains(at) && dragged.is_some() && ui.input(|i| i.pointer.secondary_clicked()) {
+                            // (with nothing in hand the right button beside the items does nothing: the window's
+                            // menu, FUN_100e20d6, is the frame's menu button's)
+                            // (with something in hand the right button on a cell without an item gives the drag up,
+                            // FUN_100e220f's 0x100e230f)
+                            right_beside = true;
                         }
                         // (an item let go over a wear cell is worn there; over a cell of the grid that is no place, at
                         // the item's own place on the page, its stat 0x58 (FUN_100e220f: FUN_100ce01d finds no place
@@ -826,19 +804,21 @@ impl ItemWindows {
             if let (Some(from), Some(to)) = (dragged, drop_on)
                 && from != to
             {
+                // (one the wear check refuses: the game loop asks the check again for the move, tells why and sends
+                // nothing; the hand is empty either way. The page's own handler, FUN_100e220f, returns on a refusal
+                // without a word to the drag, but the list has a second handler for the same signal, the container
+                // views' FUN_100cc855, which runs after it (`SignalBase_c::_Connect` puts a slot at the list's head,
+                // and the page's was connected last): for a left button and an item of another container it calls
+                // `N3Msg_ContainerAddItem` for the page (which is no container: nothing comes of it) and accepts
+                // the drag, 0x100cccce..0x100cccfb. Until 2026-11-25 the item stayed in hand here.)
                 events.moves.push((from, to));
-                // (one the wear check refuses is not accepted: it stays in hand, FUN_100e220f; the game loop asks the
-                // check again for the move and tells why, and sends nothing)
-                if crate::gear::wear_refused(from, to) == Some(true) {
-                    crate::gear::pick_up(from);
-                }
             }
             for view in self.wear.iter_mut() {
-                Self::events_of(&mut view.tree, view.list, &mut events, items, dragged, &mut self.split_box);
+                Self::events_of(&mut view.tree, view.list, &mut events, items, dragged);
             }
             // ("Labels On Top" with its mark, then "Unlock All Items", never greyed: it takes the lock off every wear
             // place, FUN_100e1f9b)
-            if let Some(at) = wear_menu_at.or_else(|| crate::chrome::frame_menu("Wear")) {
+            if let Some(at) = crate::chrome::frame_menu("Wear") {
                 self.wear_popup = Some(crate::chrome::menu_marked(ctx, at, &[(crate::gui::xml::ldb_named(10000, "LabelsOnTop", "Labels over the items"), true, Some(labels_on_top)), (crate::gui::xml::ldb_named(10000, "UnlockAllItems", "Unlock every item"), true, None), (crate::chrome::close_entry(), true, None)]));
             }
             match crate::chrome::menu(ctx, palette, "wear-menu", &mut self.wear_popup) {
@@ -924,16 +904,17 @@ impl ItemWindows {
                 }
             }
         }
-        // (the item under the pointer: its tip)
-        if let Some((slot, _)) = hovered_item
-            && self.menu.is_none()
-            && dragged.is_none()
-            && let Some(item) = by_slot.get(&slot)
-        {
-            egui::Area::new(egui::Id::unique("item-tip")).order(egui::Order::Tooltip).fixed_pos(pointer.unwrap_or_default() + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| crate::gear::tooltip(ui, item, stats, palette));
-            });
+        if right_beside {
+            if crate::gear::traced() {
+                eprintln!("items: the right button beside the items: what is in hand is put back");
+            }
+            crate::gear::put_down();
         }
+        // (the item under the pointer: its tip, FUN_10042193; not while an item is in hand or a menu is up)
+        let tipped = hovered_item.as_ref().filter(|_| self.menu.is_none() && dragged.is_none()).and_then(|(slot, _)| by_slot.get(slot));
+        let (title, text) = tipped.map_or_else(Default::default, |item| crate::gear::tip(item, stats));
+        let source = egui::Id::unique("item-tip");
+        crate::gui::tooltip::show(ctx, palette, source, tipped.map(|item| source.with(item.slot)), &title, &text);
         // (the item in hand can be set on a hotbar slot: the slots take a drag's load, which goes with every button let
         // go, so it is given again while the item is held)
         if let Some(item) = dragged.and_then(|from| by_slot.get(&from))
@@ -989,16 +970,15 @@ impl ItemWindows {
                 None => self.confirm = None,
             }
         }
-        // (a split asked for: how many of the stack; OK has that many in hand, to be put into an empty cell)
-        if let Some((place, typed)) = self.split_box.as_mut() {
-            let place = *place;
-            let count = by_slot.get(&place).map_or(0, |i| i.count as u32);
-            if let Some(answer) = split_dialog(ctx, palette, "split-stack", typed, count) {
-                if let Some(n) = answer {
-                    crate::gear::pick_up_split(place, n);
-                }
-                self.split_box = None;
-            }
+        // (the left button down with Ctrl on a stack of the backpack, nothing in hand: the split's count begins,
+        // FUN_10041926; the release's click takes the count, `events_of`)
+        if let Some((slot, _)) = hovered_item
+            && dragged.is_none()
+            && self.menu.is_none()
+            && ctx.input(|i| i.pointer.primary_pressed() && i.modifiers.ctrl)
+            && let Some(item) = by_slot.get(&slot).filter(|i| i.slot >= BACKPACK_FIRST && i.count > 1 && !crate::gear::locked(i.slot))
+        {
+            crate::gear::count_begin(ctx, None, i64::from(item.slot), item.count as u32);
         }
         events
     }
@@ -1006,7 +986,7 @@ impl ItemWindows {
     /// A grid's clicks: a click takes the item up (with one in hand already, `held`, the click is the one that puts
     /// that down); Shift+click shows its info; Ctrl+click on a stack of the backpack asks how many to split off it
     /// (`split_box`). A press that moves to another cell is nothing (the list tells of none).
-    fn events_of(tree: &mut Tree, list: Id, events: &mut Events, items: &[GearItem], held: Option<u32>, split_box: &mut Option<(u32, String)>) {
+    fn events_of(tree: &mut Tree, list: Id, events: &mut Events, items: &[GearItem], held: Option<u32>) {
         let Some(ctx) = tree.measure.ctx.clone() else { return };
         let (ctrl, shift) = ctx.input(|i| (i.modifiers.ctrl, i.modifiers.shift));
         multilist::click_only(tree, list);
@@ -1025,12 +1005,11 @@ impl ItemWindows {
                 // FUN_100cc6e8 and FUN_100cae1b)
                 Click::Split | Click::TakeUp if crate::gear::locked(item.slot) => {}
                 Click::Info => events.infos.push(format!("itemref://{}/{}/{}", item.item_id, item.high_id, item.quality)),
+                // (the release that ends a split: as many as the mouse counted are in hand, FUN_100419d5; one
+                // when the press was not seen as a split's)
                 Click::Split => {
-                    if crate::gear::traced() {
-                        eprintln!("items: a split of place {} asked for", item.slot);
-                    }
-                    // (the same box as `ask_split`'s)
-                    *split_box = Some((item.slot, "1".to_string()));
+                    let count = crate::gear::count_take(None, i64::from(item.slot)).unwrap_or(1).clamp(1, (item.count as u32).saturating_sub(1).max(1));
+                    crate::gear::pick_up_split(item.slot, count);
                 }
                 Click::TakeUp => {
                     crate::gear::pick_up(item.slot);
@@ -1102,16 +1081,19 @@ mod tests {
         assert_eq!(click(2, false, false, true, false), Click::Nothing);
         // (a stack is taken up whole by a plain click)
         assert_eq!(click(1, false, false, false, true), Click::TakeUp);
-        // (Shift: the item's info, whatever is in hand)
+        // (Shift: the item's info; not with something in hand, whose release is the letting go alone: FUN_1004141b
+        // raises only the drop signal for a drag object)
         assert_eq!(click(1, true, false, false, false), Click::Info);
-        assert_eq!(click(1, true, false, true, false), Click::Info);
-        assert_eq!(click(1, true, true, false, true), Click::Info);
-        // (Ctrl: nothing is taken up with it held, and a second click does no more: the trade takes an item by
-        // Ctrl + right click, FUN_100cae1b)
-        assert_eq!(click(1, false, true, false, false), Click::Nothing);
-        assert_eq!(click(2, false, true, false, false), Click::Nothing);
-        // (Ctrl+click on a stack asks for a split; not with something in hand, not by a drag)
+        assert_eq!(click(1, true, false, true, false), Click::Nothing);
+        assert_eq!(click(1, true, false, false, true), Click::Info);
+        // (Ctrl on a single item is a plain click: the release tests Shift alone, 0x1004153e; the trade takes an
+        // item by Ctrl + right click, FUN_100cae1b)
+        assert_eq!(click(1, false, true, false, false), Click::TakeUp);
+        assert_eq!(click(1, true, true, false, false), Click::Info);
+        // (Ctrl+click on a stack asks for a split, with Shift too (FUN_10041926 looks at Ctrl only); not with
+        // something in hand, and a second click does no more)
         assert_eq!(click(1, false, true, false, true), Click::Split);
+        assert_eq!(click(1, true, true, false, true), Click::Split);
         assert_eq!(click(1, false, true, true, true), Click::Nothing);
         assert_eq!(click(2, false, true, false, true), Click::Nothing);
     }

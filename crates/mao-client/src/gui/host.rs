@@ -35,6 +35,9 @@ pub enum Mouse {
     /// The button let go: over the view or not.
     Up { inside: bool },
     Move,
+    /// The button still down, told every frame while it is: for what acts on a held button (a list's pick-up after
+    /// `MouseButtonHoldDelay`).
+    Held,
 }
 
 /// What a view tells its window's code.
@@ -261,6 +264,13 @@ pub fn show(ui: &mut egui::Ui, tree: &mut Tree, root: Id, skin: Option<&crate::s
             if let Some(s) = tree.get_mut(v).control.mouse(Mouse::Move, p) {
                 push(tree, v, s);
             }
+        }
+        if !up && tree.get(v).control.wants_held() {
+            let p = at(tree, v);
+            if let Some(s) = tree.get_mut(v).control.mouse(Mouse::Held, p) {
+                push(tree, v, s);
+            }
+            ui.ctx().request_repaint();
         }
         if up {
             let p = at(tree, v);

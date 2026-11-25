@@ -83,12 +83,14 @@ impl Control for TextButton {
         true
     }
     fn mouse(&mut self, m: Mouse, _at: Point) -> Option<Signal> {
+        // (a toggle flips as the button goes down, a plain button is clicked when let go over it:
+        // `ButtonBase_c::MouseDown` 0x101298db, `MouseUp` 0x101294c9)
         match m {
-            Mouse::Up { inside: true } if self.toggle => {
+            Mouse::Down if self.toggle => {
                 self.on = !self.on;
                 Some(Signal::Toggled(self.on))
             }
-            Mouse::Up { inside: true } => Some(Signal::Clicked),
+            Mouse::Up { inside: true } if !self.toggle => Some(Signal::Clicked),
             _ => None,
         }
     }

@@ -207,9 +207,11 @@ impl PlayerCash {
 }
 
 /// How long after the last change of the typed credits they are sent: `TradeView_c`'s timer at +0x200, started once
-/// for 1,000,000 microseconds by the slot at GUI.dll 0x100e011c, which hangs on the signal the cash field's text
-/// renderer raises when its text is replaced (`TextRenderer_c::TextReplaced`, +0x84); FUN_100e0231 sends the field's
-/// number when it runs out.
+/// for 1,000,000 microseconds by the slot at GUI.dll 0x100e011c, which hangs on the field's signal at +0x84: a key
+/// let go in it (`WindowController_c::HandleKeyUp`, 0x1015744b; read again 2026-11-25: not `TextReplaced`, which is
+/// +0x19c). FUN_100e0231 sends the field's number when it runs out. Here the timer starts over when the text changes
+/// (a key that changes nothing does not start it: left so). Enter sends nothing: it only ends the typing
+/// (`TextInputView_c::SlotEnterPressed`, 0x1014896f); the number goes by the timer, or by Accept first.
 pub const CASH_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// A shop's pricing stats: 427 (what it sells at, in percent of the value), 426 (what it buys at) and 156 (its type).
@@ -623,7 +625,6 @@ impl ShopWindow {
         let dragged = crate::gear::DRAGGED.load(std::sync::atomic::Ordering::Relaxed);
         let mut is_open = self.open;
         let menu_up = self.popup.is_some();
-        let mut menu_at = None;
         // (the shop's name in the title too: the skins' `ShopTrade` views leave `PartnerName` out)
         let title = name.clone();
         let shift = ctx.input(|i| i.modifiers.shift);
@@ -659,15 +660,13 @@ impl ShopWindow {
                 // (a right click on a row: the list's click signal, unless the button was held for the menu's delay
                 // (`row_click`); beside the rows, the window's menu, FUN_100e03c7. The original's is the frame's menu
                 // button.)
-                if ui.input(|i| i.pointer.secondary_clicked()) && !menu_up {
-                    match hovered {
-                        Some(at) => {
-                            if row_click(true, shift, right_held) == RowClick::Act {
-                                right_act = Some(at);
-                            }
-                        }
-                        None => menu_at = pointer.filter(|p| response.rect.contains(*p)),
-                    }
+                // (beside the rows the right button does nothing, FUN_10041aa4; until 2026-11-25 it opened the menu)
+                if ui.input(|i| i.pointer.secondary_clicked())
+                    && !menu_up
+                    && let Some(at) = hovered
+                    && row_click(true, shift, right_held) == RowClick::Act
+                {
+                    right_act = Some(at);
                 }
                 // (an inventory item dropped on any of the three lists goes in: in shop mode FUN_100e121e gives each
                 // list's drop signal, +0x2dc, FUN_100e015f, which adds an "inventory/item" drag to the trade)
@@ -735,7 +734,7 @@ impl ShopWindow {
         // (the window's menu, FUN_100e03c7: "List Mode" with its mark, and "Auto Arrange" with FUN_10041637(0)'s sub-menu,
         // dead in list mode, for the list the config keeps; then the frame's own entry)
         if let Some(list) = lists[kept]
-            && let Some(at) = menu_at.or_else(|| crate::chrome::frame_menu("Shop"))
+            && let Some(at) = crate::chrome::frame_menu("Shop")
         {
             use crate::gui::popup::Entry;
             let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
@@ -770,6 +769,10 @@ impl ShopWindow {
         // (a player trade: the credits typed in, `OurCashView`'s text as a number)
         let typed = tree.find(root, "OurCashView").and_then(|id| crate::gui::textinput::text(tree, id)).map(|t| t.chars().filter(char::is_ascii_digit).collect::<String>().parse::<i64>().unwrap_or(0));
         let signals: Vec<(crate::gui::host::Signal, String)> = std::mem::take(&mut tree.signals).into_iter().map(|(id, signal)| (signal, tree.get(id).name.clone())).collect();
+        // (Enter in the credits field ends the typing, `TextInputView_c::SlotEnterPressed`)
+        if player && signals.iter().any(|(signal, name)| matches!(signal, crate::gui::host::Signal::Enter) && name == "OurCashView") {
+            crate::gui::host::set_focus(tree, None);
+        }
         for (signal, name) in signals {
             match (signal, name.as_str()) {
                 // (FUN_100e0622: the cash sent, then a player trade confirmed, a shop's accepted)
@@ -779,13 +782,9 @@ impl ShopWindow {
                 (crate::gui::host::Signal::Clicked, "DeclineButton") => is_open = false,
                 // (the typed credits changed: they go a second after the last change)
                 (crate::gui::host::Signal::Edited, "OurCashView") if player => self.cash_edited(std::time::Instant::now()),
-                (crate::gui::host::Signal::Enter, "OurCashView") if player => {
-                    self.cash_due = None;
-                    if let Some(credits) = typed.filter(|&c| c != self.credits_sent) {
-                        self.credits_sent = credits;
-                        command = Some(ShopCommand::Credits(credits));
-                    }
-                }
+                // (Enter in the field ends the typing and sends nothing, `TextInputView_c::SlotEnterPressed`: the
+                // credits go by the timer or by Accept. Until 2026-11-25 Enter sent them at once.)
+                (crate::gui::host::Signal::Enter, "OurCashView") if player => {}
                 _ => {}
             }
         }

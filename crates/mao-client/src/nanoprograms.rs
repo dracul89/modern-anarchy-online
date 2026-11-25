@@ -339,7 +339,6 @@ impl ProgramsWindow {
 
     /// Shows the window; returns the program to cast (a click).
     pub fn show(&mut self, ctx: &egui::Context, programs: &[Program], palette: &Palette) -> Option<hotbar::Action> {
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let mut cast = None;
         if self.views.is_none() {
             self.views = Some(Self::build(ctx));
@@ -466,6 +465,8 @@ impl ProgramsWindow {
         }
         let program = |id: i64| programs.iter().find(|p| p.id as i64 == id);
         let action = |p: &Program| hotbar::Action::Nano { id: p.id, name: p.name.clone(), icon: p.icon.as_ref().map(|i| i.id) };
+        // (a program is taken up by the button held on it, not by a press that moves: `multilist::hold_to_pick`)
+        crate::gui::multilist::hold_to_pick(tree, list);
         let events = crate::gui::multilist::take_events(tree);
         self.keeper.after("NanoViewConfig", tree, list, in_list);
         for (_, event) in events {
@@ -473,11 +474,16 @@ impl ProgramsWindow {
                 crate::gui::multilist::ItemEvent::Clicked(id, clicks) => {
                     // (a click casts: the list is not selectable, so FUN_1004141b's left click is the use signal -> FUN_100d44cd;
                     // not the click that lets a program in hand go)
+                    // (with Shift it is the qualifier signal instead, FUN_100d42ab: the program's info, and no cast)
                     let _ = clicks;
                     if !holding
                         && let Some(p) = program(id)
                     {
-                        cast = Some(action(p));
+                        if ctx.input(|i| i.modifiers.shift) {
+                            self.infos.extend(hotbar::info_url(&action(p), |_| None));
+                        } else {
+                            cast = Some(action(p));
+                        }
                     }
                 }
                 // (dragged out: onto a hotbar)
@@ -498,12 +504,12 @@ impl ProgramsWindow {
                 crate::layout::set_tab("NanoViewSchool", s);
             }
         }
-        // the right button: over a program its menu (FUN_100d49a0), elsewhere the window's (FUN_100d4f90); the frame's
-        // menu button (WndBorder's `SlotIconMenuOpening` 0x1015b34f) shows the window's too, with "Close Window" after
-        // it, as the inventory's does
+        // the right button: over a program its menu (FUN_100d49a0), elsewhere nothing (the list's FUN_10041aa4; until
+        // 2026-11-25 the window's menu, FUN_100d4f90, opened there). The window's menu is the frame's menu button's
+        // (WndBorder's `SlotIconMenuOpening` 0x1015b34f), with "Close Window" after it, as the inventory's
         let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
         let labels: Vec<(i32, String)> = crate::gui::multilist::columns(tree, list).into_iter().map(|c| (c.id, c.label)).collect();
-        let right = over.filter(|_| ctx.input(|i| i.pointer.secondary_clicked()));
+        let right = over.filter(|_| hovered.is_some() && ctx.input(|i| i.pointer.secondary_clicked()));
         let framed = crate::chrome::frame_menu("Nano programs").filter(|_| right.is_none());
         if let Some(at) = right.or(framed) {
             use crate::gui::popup::Entry;
@@ -570,29 +576,16 @@ impl ProgramsWindow {
         if self.popup.is_none() {
             self.menu = None;
         }
-        if let Some(id) = hovered.filter(|_| self.popup.is_none()) {
-            if let Some(p) = program(id as i64) {
-                let at = ctx.input(|i| i.pointer.hover_pos()).unwrap_or_default();
-                egui::Area::new(egui::Id::unique("program-tip")).order(egui::Order::Tooltip).fixed_pos(at + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.set_max_width(320.0);
-                        ui.label(egui::RichText::new(&p.name).strong().color(accent));
-                        if p.cost > 0 {
-                            ui.label(egui::RichText::new(format!("NCU {}", p.cost)).small());
-                        }
-                        if !p.description.is_empty() {
-                            ui.label(p.description.chars().take(420).collect::<String>().replace("\r\n", "\n"));
-                        }
-                        for &(stat, amount) in p.effects.iter().filter(|e| e.1 != 0).take(10) {
-                            ui.horizontal(|ui| {
-                                ui.label(crate::skills::stat_name(stat));
-                                let color = if amount > 0 { egui::Color32::from_rgb(120, 220, 120) } else { egui::Color32::from_rgb(230, 110, 110) };
-                                ui.label(egui::RichText::new(format!("{amount:+}")).color(color));
-                            });
-                        }
-                    });
-                });
-            }
+        // (a program's tip: the item lists' own, FUN_10042193 over a nano's identity: its name in its rarity's colour
+        // and its page as a tip has it, `iteminfo::nano_tip`. Until 2026-11-25 a tip of this client's layout: the
+        // name, "NCU n", 420 characters of the description and a list of what it changes (NAN-059).)
+        {
+            let tipped = hovered.filter(|_| self.popup.is_none()).and_then(|id| program(id as i64));
+            let (title, text) = tipped.map_or_else(Default::default, |p| {
+                crate::net::item_db().and_then(|db| crate::gear::with_reader(|stats| crate::gui::iteminfo::nano_tip(&db, p.id, stats))).unwrap_or_else(|| (p.name.clone(), String::new()))
+            });
+            let source = egui::Id::unique("program-tip");
+            crate::gui::tooltip::show(ctx, palette, source, tipped.map(|p| source.with(p.id)), &title, &text);
         }
         self.open = open;
         cast

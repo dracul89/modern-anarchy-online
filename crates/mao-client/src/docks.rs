@@ -47,6 +47,10 @@ pub const VIEWS: &[(&str, &str)] = &[
     ("nano_window", "Nano programs"),
     ("ncu_window", "NCU"),
     ("wear_window", "Wear"),
+    // (`FactionView_c` FUN_1005e3f5 and `StatView_c` FUN_1008057d are dockable views too, both in the rollup area
+    // by default; until 2026-11-25 they were docked here by a button of this client's)
+    ("faction_window", "Faction"),
+    ("stat_window", "Stats"),
 ];
 
 /// Whether the window is one of the original's dockable views.
@@ -369,6 +373,13 @@ pub fn close_others(area: &str, except: &str) {
     }
 }
 
+/// Escape: a carried tab or page is given up and stays where it was. `WindowController_c::BeginDrag` (GUI.dll
+/// 0x10157842) connects every drag object's `Cancel` to the Escape signal (FUN_10158eea), so this is the original's
+/// rule for anything in hand, not the client's own.
+pub fn cancel_carry() {
+    STATE.lock().unwrap_or_else(|e| e.into_inner()).carried = None;
+}
+
 /// A rollup page taken up by the right button (`RollupPage_c`'s FUN_100493f2): carried as a tab is, its picture its
 /// title, where it was taken hold of from the page's corner.
 pub fn carry(view: &str, title: &str, grab: egui::Vec2) {
@@ -404,16 +415,6 @@ pub fn drop_from_column(areas: &mut Vec<Area>, view: &str, target: Target) -> Dr
         a.selected = Some(view.to_string());
     }
     if matches!(target, Target::Nowhere) { Dropped::NewArea(area) } else { Dropped::Moved }
-}
-
-/// A view out of its area (docked into the rollup area instead).
-pub fn take_out(name: &str) {
-    let mut state = STATE.lock().unwrap();
-    load(&mut state);
-    if area_of(&state.areas, name).is_some() {
-        remove_view(&mut state.areas, name);
-        save(&state);
-    }
 }
 
 /// The end of a frame: the areas taken from the original's files once the character is known, and a carried tab drawn

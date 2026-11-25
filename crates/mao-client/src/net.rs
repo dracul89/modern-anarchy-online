@@ -1638,6 +1638,42 @@ impl World {
         None
     }
 
+    /// Why a use of one's own item is not sent, if it is not: the item's own check before a use (Gamecode FUN_10081767,
+    /// which `DummyItemBase_t`'s use asks before the use command goes out). An item that can be used (`Can` & 8) has
+    /// its use action's requirements, action 3, judged of the character (FUN_100816f6(3, ...)); short of them the
+    /// character's own client says `Feedback_UnableToPerformThisAction` and, below level 2 (stat 0x36),
+    /// `Feedback_IncreaseTheNecessarySkills`, and nothing is used. The user's Shiny Sword of 2026-11-24 (297289: a
+    /// mission is given by its use, once: MissionBits15, stat 686, must lack 0x1000) was sent and refused by the
+    /// server seventeen times without a word.
+    ///
+    /// Not here from FUN_10081767: whom the item goes on by its `Can` flags (0x800000 oneself, else
+    /// `Feedback_ItemMustBeAppliedOnSelf`; 0x200000 a friend, 0x400000 a foe, the sign bit the one fought, each with
+    /// its own lines), `Feedback_YouCantFightAtTheMoment`, `Feedback_NotInVehicle`, `Feedback_AlreadyUsingItem` while
+    /// the item timer runs, `Feedback_NoMoreCharges` (stat 0x1a at 0), `Feedback_YouCantDoThisWhileFalling` and
+    /// `Feedback_TargetIsOutsideRange` (stat 0x11f).
+    fn use_refusal(&self, entry: &inventory::Entry, db: &ResourceDatabase) -> Option<Vec<Say>> {
+        let actions = crate::derived::actions(db, entry);
+        let action = actions.iter().find(|a| a.kind == 3)?;
+        if crate::requirements::evaluate(&action.criteria, (crate::requirements::CHARACTER, self.own), self) != Ok(false) {
+            return None;
+        }
+        let mut says = vec![Say::Named("Feedback_UnableToPerformThisAction")];
+        if self.stats.get(&0x36).copied().unwrap_or(1) < 2 {
+            says.push(Say::Named("Feedback_IncreaseTheNecessarySkills"));
+        }
+        Some(says)
+    }
+
+    /// The stats an item's use requirements ask that the server has told nothing of: [`World::use_refusal`] judges
+    /// those as 0, where the original knows them.
+    fn use_untold(&self, entry: &inventory::Entry, db: &ResourceDatabase) -> Vec<u32> {
+        let actions = crate::derived::actions(db, entry);
+        let mut untold: Vec<u32> = actions.iter().filter(|a| a.kind == 3).flat_map(|a| a.criteria.iter().map(|c| c.0)).filter(|&s| s != 0 && !self.stats.contains_key(&s)).collect();
+        untold.sort_unstable();
+        untold.dedup();
+        untold
+    }
+
     /// Why the item at `from` is not moved to `to` by the client itself, if it is not: the equipment is locked, it may
     /// not come off, or it may not be worn there (the window's move, `N3Msg_IsItemPossibleToWear` before
     /// `N3Msg_MoveItemToInventory`, GUI.dll FUN_100e220f).
@@ -2675,6 +2711,18 @@ impl World {
             let word = |at: usize| u32::from_be_bytes(m.data[at..at + 4].try_into().unwrap());
             if word(1) == 1 && matches!(word(9), 3 | 5 | 0x20) && word(25) == 0x68 {
                 self.start_item_timer(word(29), word(9));
+            }
+            // (a plain use of an item of one's own that the server refuses, for the log. The client's own check let it
+            // through, [`World::use_refusal`]; where that check had to judge a stat the server never told of, the
+            // original, which knows the stat, would have said its line and sent nothing: the line is said here then.
+            // This client's own, for want of the stat.)
+            if word(1) == 2 && word(9) == 3 && word(25) == 0x68 {
+                let entry = self.worn.iter().find(|e| e.slot == word(29)).cloned();
+                let untold = entry.as_ref().zip(ITEM_DB.get()).map(|(e, db)| self.use_untold(e, db)).unwrap_or_default();
+                eprintln!("items: the server refused the use of place {} (item {:?}); stats its requirements ask that were never told: {untold:?}", word(29), entry.as_ref().map(|e| e.low_id));
+                if !untold.is_empty() {
+                    self.game_lines.push(Say::Named("Feedback_UnableToPerformThisAction").line());
+                }
             }
         }
         // (MAO_COMBAT_LOG: the fight's messages as they come)
@@ -5350,10 +5398,13 @@ impl World {
             self.last_move.insert(id, Instant::now());
             self.speeds.insert(id, speed);
             self.backing.insert(id, false);
+            // (it faces the way it goes, fighting or not. Until 2026-11-24 a creature that was fighting kept the facing it
+            // had: one sent after its target came up to it sideways or backwards, and with the server sending it on
+            // again every little while it never stood long enough for the fight's own turn, `Facing`, which waits for
+            // it to stand: the user's mini bulls that did not turn towards them. By this client's own reading; the
+            // original's steering of a followed path was not read for it.)
             let heading = dx.atan2(dz);
-            if !self.fighting.contains_key(&id) {
-                self.rotations.insert(id, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
-            }
+            self.rotations.insert(id, [0.0, (heading * 0.5).sin(), 0.0, (heading * 0.5).cos()]);
         }
     }
 
@@ -11614,7 +11665,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 // item that can go nowhere is left alone.)
                 let item = state.worn.iter().find(|e| e.slot == keys.fire.1 && !e.is_bag()).cloned();
                 let unusable = item.as_ref().is_some_and(|e| template_stat(e.low_id, 30).is_some_and(|can| can & 8 == 0));
-                if let (true, Some(e)) = (unusable, item) {
+                if let (true, Some(e)) = (unusable, item.clone()) {
                     let taken = |place: u32| state.worn.iter().any(|w| w.slot == place);
                     let to = if e.slot >= inventory::BACKPACK_FIRST {
                         // (the wear page from stat 76: 1 the weapons' places, 2 the clothes' sixteen on, 3 and 5 the implants'
@@ -11664,6 +11715,13 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                     match &refusal {
                         Some(says) => eprintln!("items: the use of place {} (item {}) is refused before any move: {says:?}", e.slot, e.low_id),
                         None => eprintln!("items: the use of place {} (item {}) is a move: {:?}", e.slot, e.low_id, wear_by_use),
+                    }
+                } else if let Some(says) = item.as_ref().and_then(|e| state.use_refusal(e, &gear_db)) {
+                    // (the item's own check before its use, Gamecode FUN_10081767: short of the use's requirements the
+                    // client says so and sends nothing)
+                    eprintln!("items: the use of place {} (item {:?}) is refused by its requirements: {says:?}", keys.fire.1, item.as_ref().map(|e| e.low_id));
+                    for say in &says {
+                        state.game_lines.push(say.line());
                     }
                 } else {
                     if crate::gear::traced() {
@@ -14589,6 +14647,52 @@ mod door_tests {
         assert_ne!(w.wear_refusal(&rifle, 6, &db, None), Some(Vec::new()));
     }
 
+    /// `MAO_GAME`: the user's Shiny Sword of 2026-11-24 (297289), whose use gives a mission once: its use action asks
+    /// that MissionBits15, stat 686, lacks 0x1000. With the bit set the client refuses the use itself with the
+    /// original's line, and with its second line for a character below level 2; without the bit the use goes out. A
+    /// server's refusal of a use the client let through is said only where a stat was never told.
+    #[test]
+    fn a_use_short_of_its_requirements_is_refused_with_the_originals_line() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = Arc::new(mao_formats::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap());
+        let _ = ITEM_DB.set(db.clone());
+        let sword = inventory::Entry { slot: 71, flags: 161, count: 1, container: (0, 0), low_id: 297289, high_id: 297289, quality: 1, extra: 0 };
+        let recharger = inventory::Entry { slot: 64, flags: 1, count: 30, container: (0, 0), low_id: 291082, high_id: 291082, quality: 1, extra: 0 };
+        let own = 7;
+        let mut w = World { own, worn: vec![sword.clone(), recharger.clone()], ..World::default() };
+        w.stats.insert(0x36, 5);
+        // (the stat never told: judged as 0, the use goes out, and the stat is named as untold)
+        assert_eq!(w.use_refusal(&sword, &db), None);
+        assert_eq!(w.use_untold(&sword, &db), vec![686]);
+        w.stats.insert(686, 0x0800);
+        assert_eq!((w.use_refusal(&sword, &db), w.use_untold(&sword, &db)), (None, Vec::new()));
+        // (the mission was given: the bit is set)
+        w.stats.insert(686, 0x1800);
+        assert_eq!(w.use_refusal(&sword, &db), Some(vec![Say::Named("Feedback_UnableToPerformThisAction")]));
+        // (the line is the game's own text of that name)
+        let texts = mao_formats::ldb::Texts::parse(&std::fs::read(std::path::Path::new(&game).join("cd_image/text/text.mdb")).unwrap()).unwrap();
+        assert_eq!(texts.named(mao_formats::ldb::FEEDBACK, "Feedback_UnableToPerformThisAction"), Some("You're unable to perform this action; please check the requirements of the item."));
+        assert!(texts.named(mao_formats::ldb::FEEDBACK, "Feedback_IncreaseTheNecessarySkills").is_some());
+        w.stats.insert(0x36, 1);
+        assert_eq!(w.use_refusal(&sword, &db), Some(vec![Say::Named("Feedback_UnableToPerformThisAction"), Say::Named("Feedback_IncreaseTheNecessarySkills")]));
+        w.stats.insert(0x36, 5);
+        // (the server's refusal of a plain use: said only where the client could not judge)
+        let refused = |place: u32| {
+            let mut data = vec![0u8];
+            for word in [2u32, 9, 3, 1, 0xc350, own, 0x68, place] {
+                data.extend_from_slice(&word.to_be_bytes());
+            }
+            Message { kind: 0x52526858, identity: (0xc350, own), data }.frame(1)
+        };
+        w.game_lines.clear();
+        w.add(&refused(71));
+        assert!(w.game_lines.is_empty());
+        w.stats.remove(&686);
+        w.add(&refused(71));
+        assert_eq!(w.game_lines.len(), 1);
+        assert!(w.game_lines[0].text.contains("check the requirements of the item"));
+    }
+
     /// `MAO_GAME`: the user's mission belt of 2026-11-18, a Belt Component Platform of quality 30 between the
     /// templates 36782 and 36777, which asks for Computer Literacy above 75 to be wielded. A character short of it is
     /// refused before anything moves, with the evaluator's line and no other; one who has it by what is trained, or
@@ -15301,6 +15405,29 @@ mod door_tests {
         w.add(&Message { kind: crate::spelllist::SPELL_LIST, identity: (0xc350, 0x7b1a6629), data: hex("00000007e20000cf2644fb183e0000000400000000000000010000000000000000000000000000a8e300000000000000000000000000000000000000000000000000000000000000000000c3507b1a6629000000000000000000") }.frame(1));
         w.add(&Message { kind: crate::spelllist::SPELL_LIST, identity: (0xc350, 0x7b1a6629), data: hex("00000007e20000cf2644fb183f0000000400000000000000010000000000000000000000000000a87100000000000000000000000000000000000000000000000000000000000000000000c3507b1a6629000000000000000000") }.frame(1));
         assert_eq!(w.spell_effects_made, vec![(0x7b1a6629, 0xa8e3, None), (0x7b1a6629, 0xa871, None)]);
+    }
+
+    /// A creature the server sends along a path faces the way it goes, one that is fighting too: sent after its target
+    /// while it faces away, it turns to its way as it sets off.
+    #[test]
+    fn a_fighting_creature_faces_the_way_it_is_sent() {
+        let (own, bull) = (7, 5);
+        let mut w = World { own, ..World::default() };
+        w.entities.insert(bull, ([0.0, 0.0, 0.0], 0));
+        // (facing +z, sent towards +x)
+        w.rotations.insert(bull, [0.0, 0.0, 0.0, 1.0]);
+        w.fighting.insert(bull, own);
+        w.paths.insert(bull, Route::Waypoints(vec![[10.0, 0.0, 0.0]]));
+        w.walk_paths(0.1, [20.0, 0.0, 0.0]);
+        let q = w.rotations.get(&bull).copied().unwrap();
+        assert!((2.0 * q[1].atan2(q[3]) - std::f32::consts::FRAC_PI_2).abs() < 1e-4, "{q:?}");
+        assert!(w.entities[&bull].0[0] > 0.0);
+        // (and after its target: towards where the target stands)
+        w.rotations.insert(bull, [0.0, 0.0, 0.0, 1.0]);
+        w.paths.insert(bull, Route::Chase(own));
+        w.walk_paths(0.1, [-20.0, 0.0, 0.0]);
+        let q = w.rotations.get(&bull).copied().unwrap();
+        assert!((2.0 * q[1].atan2(q[3]) + std::f32::consts::FRAC_PI_2).abs() < 1e-4, "{q:?}");
     }
 
     /// A spell list's stun on one's own character holds it still until the list ends it (state flags 2 and 4 of stat 224); a

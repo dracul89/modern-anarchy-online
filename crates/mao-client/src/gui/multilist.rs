@@ -253,6 +253,10 @@ pub struct Rows {
     /// The list tells of clicks only ([`click_only`]): a press that moves is no drag, and let go on the cell it went
     /// down on it is still a click.
     click_only: bool,
+    /// The list takes an item up when the button is held on it for [`HOLD`], not when the press moves
+    /// ([`hold_to_pick`]); and when the button went down.
+    hold_to_pick: bool,
+    pressed_when: Option<Instant>,
     /// The grid's picture's size, once drawn.
     picture: Shared<Option<egui::Vec2>>,
     /// The items that are locked (`InventoryListViewItem_c` +0xf0): the lock's picture in the cell's bottom right
@@ -264,7 +268,7 @@ pub struct Rows {
 
 impl Rows {
     fn new(grid: Option<GridMode>) -> Rows {
-        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, stash: None, last_click: None, pressed: None, dragged: false, click_only: false, picture: Shared::new(None), locked: Vec::new(), prices: Vec::new() }
+        Rows { columns: Vec::new(), items: Vec::new(), selected: None, grid, stash: None, last_click: None, pressed: None, dragged: false, click_only: false, hold_to_pick: false, pressed_when: None, picture: Shared::new(None), locked: Vec::new(), prices: Vec::new() }
     }
     fn step() -> f32 {
         ROW_HEIGHT + 1.0 + SPACE.y
@@ -487,6 +491,7 @@ impl Control for Rows {
         match m {
             Mouse::Down => {
                 self.pressed = self.at(at).map(|k| (k, at));
+                self.pressed_when = Some(Instant::now());
                 self.dragged = false;
                 None
             }
@@ -507,14 +512,27 @@ impl Control for Rows {
             }
             // (a press moved more than 3 away drags the item: `MultiListView_c`'s drag signal)
             Mouse::Move => match self.pressed {
-                _ if self.click_only => None,
+                _ if self.click_only || self.hold_to_pick => None,
                 Some((k, from)) if !self.dragged && ((at.x - from.x).abs() > 3.0 || (at.y - from.y).abs() > 3.0) => {
                     self.dragged = true;
                     Some(Signal::ItemDragged(self.items.get(k)?.id))
                 }
                 _ => None,
             },
+            // (the button held on an item for `MouseButtonHoldDelay` takes it up, moved or not, and its release
+            // is then no click: `ItemListViewBase_c`'s timer `+0x340`, FUN_1004213e, in the lists of the new
+            // mouse ([`hold_to_pick`]). A press let go sooner is a click, whatever the pointer did between.)
+            Mouse::Held => match (self.pressed, self.pressed_when) {
+                (Some((k, _)), Some(when)) if self.hold_to_pick && !self.dragged && held_long_enough(when.elapsed()) => {
+                    self.dragged = true;
+                    Some(Signal::ItemDragged(self.items.get(k)?.id))
+                }
+                _ => None,
+            },
         }
+    }
+    fn wants_held(&self) -> bool {
+        self.hold_to_pick && self.pressed.is_some() && !self.dragged
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -633,6 +651,7 @@ impl Control for Header {
                 }
                 None
             }
+            Mouse::Held => None,
             Mouse::Up { inside } => {
                 let press = std::mem::replace(&mut self.press, Press::None);
                 match press {
@@ -1096,6 +1115,27 @@ pub fn set_locked(tree: &mut Tree, id: Id, locked: Vec<i64>) {
 /// 0x10133d04) signals when the button comes up on the cell it went down on, however far the pointer went in
 /// between, and never for another cell; nothing is taken up by a press that moves (`ItemListViewBase_c`'s
 /// FUN_1004141b takes an item up on that click).
+/// `MouseButtonHoldDelay`: how long a button is held before the list acts on the hold (0.3 s as shipped,
+/// `LoginPrefs.xml`).
+pub const HOLD: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Whether a button down for `held` has been held long enough ([`HOLD`]).
+pub fn held_long_enough(held: std::time::Duration) -> bool {
+    held >= HOLD
+}
+
+/// The list's items are taken up by holding the left button on one for [`HOLD`], and a press let go sooner is a
+/// click wherever the pointer went meanwhile: the original's lists of the "new mouse" (`UseNewMouseFunc`, on as
+/// shipped, and the list's `+0x319`, which FUN_10041248 sets for the nano programs, the actions, the shortcut bars,
+/// the missions and the reference board): the left button going down starts the timer `+0x340`, whose end raises
+/// the pick-up signal (FUN_10041aa4 at 0x10041b90, FUN_1004213e), and the button coming up stops it.
+pub fn hold_to_pick(tree: &mut Tree, id: Id) {
+    let Some((_, _, rows)) = parts(tree, id) else { return };
+    if let Some(r) = tree.control_mut::<Rows>(rows) {
+        r.hold_to_pick = true;
+    }
+}
+
 pub fn click_only(tree: &mut Tree, id: Id) {
     let Some((_, _, rows)) = parts(tree, id) else { return };
     if let Some(r) = tree.control_mut::<Rows>(rows) {

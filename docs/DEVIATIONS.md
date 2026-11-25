@@ -351,8 +351,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - [x] `NAN-056` Nano landing glow: three widening rings, colour from stats or school **(done)**
 - [x] `NAN-057` Programs fade while a cast or recharge runs; locks from the client's own timing **(kept by decision)**
 - [x] `NAN-058` "Nano programs available." chat line **(done)**
-- [x] `NAN-059` Nano program and NCU tips are the client's own layout **(kept by decision)**
-- [x] `NAN-060` Right-click "Cancel this nano" entry is the client's own **(kept by decision)**
+- [x] `NAN-059` Nano program and NCU tips are the client's own layout **(removed 2026-11-25)**
+- [x] `NAN-060` Right-click "Cancel this nano" entry is the client's own **(removed 2026-11-25)**
 
 **Zoning and playfields**
 
@@ -408,7 +408,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - [x] `WIN-177` The client's own tool windows (damage meter, item finder, guide) **(kept by decision)**
 - [x] `WIN-178` Web pages: loading page and 8 s / 30 s proxy time-outs **(kept by decision)**
 - [x] `WIN-179` Window icon is the client's own emblem on a slate square **(kept by decision)**
-- [x] `WIN-180` Windows that can be docked include ones the original does not dock **(kept by decision)**
+- [x] `WIN-180` Windows that can be docked include ones the original does not dock **(removed 2026-11-25)**
 
 **Camera**
 
@@ -2047,6 +2047,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: it is opt-in, sends only the original's own QuestAlternative request at a pace no faster than a player clicking (1.2 s, capped count, stops when the server stops answering) and pays the same credits; it saves the tedium players used outside helpers for. (The original has no such helper: GUI.dll's mission window FUN_100d09cb sends one request per button press.)
 - Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
+- Asked again (2026-11-25, the click review's questions): the user answered "Yes, as the original" to a question that named five of the ten and not this one. NOT carried out: the helper is one of the user's own tools (2026-11-12) and asks nothing until its lists are filled. Removing it wants the user's own word.
+- Kept by decision (2026-11-25, the user): asked by name after the click review ("Keep the five extras you asked for earlier, which the original does not have?": the smart shortcut bars, the round map, auto-loot, the mission booth's helper, the chat's command list while typing), the answer was "Keep them". The helper stays.
 
 #### `NPC-040` Clicked NPC answer echoed locally; client line for rejected items
 
@@ -2140,9 +2142,10 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Ctrl+click opens a small "Split stack" window where the player types a number, then OK; that many go in hand.
 - A player notices: A different way of choosing how many to split off.
 - Where: `crates/mao-client/src/invwindows.rs:29`; `docs/CLIENT_UI.md:3633`
-- Decision: [ ] port  [x] leave
+- Decision: [x] port  [ ] leave
 - Kept by decision (2026-11-19, the user): the number box stays; the original's Ctrl-drag split mode is not ported.
 - Looked at, left (2026-11-19, overnight): The original's split mode (GUI.dll FUN_10041926 on Ctrl+left press over a stack of more than one; FUN_10041ca4 on each move) captures the mouse: it keeps putting the pointer back at the press point (WindowController_c +0x48), adds the sideways movement (FUN_10173b80) to the count kept at +0x308, clamped to 1..count-1, and shows it in a small window of its own (`Window` with style 0xd3c and a `TextView_c`); the release raises the pick-up with that count. Doing that here needs pointer warping and a borderless count window, which egui does not give without platform calls; the client's number box ends in the same split. Left as it is.
+- Done (2026-11-25, the click review's questions; the user: "Yes, as the original"): the split is counted by the mouse as the original's (GUI.dll FUN_10041926, FUN_10041ca4, FUN_100419d5): Ctrl + the left button down on a stack starts at one, the mouse's way sideways changes the count a pixel a unit between 1 and one fewer than the stack, the pointer is put back after every move (the viewer's `set_cursor_position`, which egui could not do by itself), the count stands at the pointer in yellow, and the release has that many in hand (`gear::count_begin`, `count_step`, `count_frame`, `count_take`). The number box is gone. Test: `gear::tests::a_split_counts_by_the_mouses_way_sideways`. Not tried live.
 
 #### `INV-009` Ctrl+double left click puts an item into the trade, instead of Ctrl+right click
 
@@ -2268,6 +2271,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Decision: [x] port  [ ] leave
 - Done (2026-11-19): The two pieces left are ported. GUI.dll FUN_100e220f asks `N3Msg_IsItemPossibleToWear` (with its lines) before it accepts the drop; refused, `DragObject_c::Accept` is not called and the item stays in hand: the wear window now keeps the item in hand (`gear::pick_up` again) when the check refuses the place, and still hands the move to the game loop, which asks the same check, tells its lines and sends nothing. FUN_100e1ded (the drag-over slot of the four wear pages, via FUN_100e1f3f..f84) sets the "no" pointer (`SetMousePointer(0, 5)`, the client's `CursorIcon::NotAllowed` = `GFX_GUI_POINTER_CANT_DROP`) with an item in hand: when a split is in hand, beside the cells, for an item whose stat 298 is 0 or none except over a cell holding an item (where it would be used on it), over a cell that is no place, or over a place the check (without lines) refuses (`invwindows::wear_pointer_refuses`). The check needs the character's state, so the game loop judges the held item at every wear place when it is taken up and twice a second while held (`World::refused_wear_places`, the very `World::move_refusal` the move uses; published by `gear::set_wear_verdict` / `gear::wear_refused`); until the first verdict the pointer is the plain one and a drop goes as before. Test `invwindows::tests::the_no_pointer_over_a_wear_page`.
 - Done in part (2026-11-19, overnight): The wear check before the move was already ported (`World::wear_refusal`, Gamecode `N3Msg_IsItemPossibleToWear` 0x10026c57, asked in net.rs before a move to a wear place is sent; a refusal is told and the window puts the item back). Ported now: an item let go on a cell of a wear page that is not a place goes to the item's own place on that page, its stat 0x58 (GUI.dll FUN_100e220f: FUN_100ce01d finds no place, then `N3Msg_GetSkill(item, 0x58)`); before, such a drop did nothing. `invwindows::wear_drop_place`, test `an_item_let_go_on_a_wear_cell`. Left: on a refusal the original leaves the item in hand (the drag is not accepted) and shows the "no" pointer over cells that cannot take it (FUN_100e1ded); both need the wear check in the window's own frame, while the client's check runs in the network thread with the character's state.
+- Corrected (2026-11-25, the click review): the item does NOT stay in hand in the original. FUN_100e220f returns on a refusal without accepting the drag, but each wear page's list has a second handler on the same drop signal, the container views' FUN_100cc855, and it runs after the page's (`SignalBase_c::_Connect` puts a slot at the head of the list and the page's was connected last): for a left button and an item of another container it calls `N3Msg_ContainerAddItem` for the page (no container: nothing happens) and accepts the drag, 0x100cccce..0x100cccfb. So a refused wear says its line and leaves the hand empty, the item back in its place. The client does that again (`invwindows.rs`, the wear drop); the "no" pointer stays. `docs/INTERACTIONS_ORIGINAL.md`, row W3.
 
 #### `INV-021` Loot windows keep the server's place order instead of sorting by name
 
@@ -2900,6 +2904,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Decision: [x] keep  [ ] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: an option, off by default (`auto_loot`), that changes nothing of the original's look or rules until the player turns it on; no auto loot was found in GUI.dll or Gamecode (no handler takes a container's items without a click).
 - Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
+- Asked again (2026-11-25, the click review's questions): the user answered "Yes, as the original" to a question that named five of the ten and not this one. NOT carried out: auto loot is a setting, off by default. Removing it wants the user's own word.
+- Kept by decision (2026-11-25, the user): asked by name after the click review ("Keep the five extras you asked for earlier, which the original does not have?": the smart shortcut bars, the round map, auto-loot, the mission booth's helper, the chat's command list while typing), the answer was "Keep them". Auto loot stays as the `auto_loot` setting, off by default.
 
 #### `INV-080` Container and overflow windows have a "Take all" button
 
@@ -3596,9 +3602,10 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: A hover tip with name, NCU (or "x of y left"), description (420 characters) and up to ten stat changes.
 - A player notices: Extra hover text.
 - Where: `crates/mao-client/src/nanoprograms.rs:450`; `crates/mao-client/src/ncu.rs:281`
-- Decision: [x] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP until the original's tooltip for nano programs is ported: the original shows its own tip from GUI.dll's item views, which was not read tonight; the client's layout only stands in for it.
 - Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
+- Done (2026-11-25, the click review's questions; the user: "Yes, as the original"): the original's tips were read (GUI.dll FUN_10042193 for the item lists, FUN_10045b79 for the NCU list, `UpdateToolTip` 0x10157adc and `MoveToMouse` 0x101550de for when and where) and ported: a nano program's tip is its page built for a tip under its name in its rarity's colour (`iteminfo::nano_tip`), a running nano's the type's word, "NCU usage", "Remaining" and "Modifies" (`ncu::tip`); both come after 500 ms, are placed once and go at a button (`gui/tooltip.rs`). The client's own layout is gone. Tests: `ncu::tests::a_running_nanos_tip`, `gui::tooltip::tests`. Not tried live.
 
 #### `NAN-060` Right-click "Cancel this nano" entry is the client's own
 
@@ -3607,9 +3614,11 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: Over a nano the menu has an extra entry that cancels it.
 - A player notices: Extra way to cancel a running nano.
 - Where: `crates/mao-client/src/ncu.rs:178`; `docs/GUI_DLL_PARITY.md:80`
-- Decision: [x] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: Gamecode has N3Msg_DeleteNano, so the original can take a running nano off, but no GUI.dll code calls it (its caller is presumably Interfaces.dll, not in the exports), so the original's own menu entry, if any, is unknown.
 - Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
+- Corrected (2026-11-25, the click review): the premise was wrong. GUI.dll does take a running nano off: a right click on it in the NCU window is the list's click signal, FUN_1004561f, which calls `N3Msg_RemoveBuff` (Gamecode 0x1001bee9: refused for a nano whose flags have 0x8000, 0x4000 or 0x100, else `CharacterAction` 0x41) and says "Deactivating friendly timed nanoprogram." or "Can't remove hostile timed nanoprogram."; the right button held 0.3 s opens a menu whose one entry is "LookAtNano" (FUN_100457d1). Both are ported (`ncu::right_click`, `ncu.rs`). The client's own entry is still there, under "Look at" in the held button's menu, since it was kept by decision: whether it should go now is a question put to the user in `docs/INTERACTIONS_ORIGINAL.md` (question 3).
+- Done (2026-11-25, the click review's questions; the user: "Yes, as the original"): the entry is gone; the held button's menu has "LookAtNano" alone, and a right click on the nano cancels it, as the original.
 
 ## Zoning and playfields
 
@@ -3935,6 +3944,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `crates/mao-client/src/chatwindow.rs:540`; `crates/mao-client/src/chatwindow.rs:3`; `docs/CLIENT_UI.md:364`; `docs/GUI_DLL_PARITY.md:75`
 - Decision: [x] port  [ ] leave
 - Done (2026-11-18): a chat tab is taken up by the right button let go on it (Tab FUN_10146ef3, as the decompile reads; not seen live), its picture follows the pointer, and the left button puts it before a tab of a strip, last on a strip, or into a window of its own at the pointer (not the only tab of a window); Escape lets go (the client's own). The menu entries stay as the client's own.
+- Corrected (2026-11-25, the click review): Escape giving a carried tab up is the original's rule, not the client's own (`WindowController_c::BeginDrag`, GUI.dll 0x10157842, connects every drag object's `Cancel` to the Escape signal). It also never worked with a real keyboard here (the key was asked of the interface library, which does not get it outside a text field); it does now, `Ui::close_with_escape`. Still different, and listed in `docs/INTERACTIONS_ORIGINAL.md` ("Left" 8): the original puts a carried tab down on any button's press over a tab or a tab strip and makes a new window only when a button comes up over no window at all; here a left click anywhere does.
+- Done (2026-11-25, the click review's questions; the user: "Yes, as the original"): the menu entries "Move to a window of its own" and "Move into the window of X" are gone; a tab is moved by carrying it. Also the original's: Alt+Enter while typing goes to the next chat window (`chatwindow::next_typing`), and Tab on an empty line or Ctrl+Tab opens the list of the groups the window can talk to (`open_channel_list`).
 
 #### `CHT-002` /help and /version show the client's own text
 
@@ -4298,8 +4309,9 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - A player notices: look and keys of the command list may differ
 - Where: `crates/mao-client/src/chatwindow.rs:1442`
 - Changed (2026-11-21, the user: "slash commands list should be selectable with a mouse and scrollable"): the list takes a click and scrolls, at most 15 rows on the bar; still the client's own list.
-- Decision: [ ] port  [ ] leave
+- Decision: [ ] port  [x] leave
 - Looked at, left (2026-11-19, overnight): FUN_100a44e8's command list is a GUI view whose look is judged by eye; the client's list is its own window. Left.
+- Kept by decision (2026-11-25, the user): asked by name after the click review ("Keep the five extras you asked for earlier, which the original does not have?": the smart shortcut bars, the round map, auto-loot, the mission booth's helper, the chat's command list while typing), the answer was "Keep them". The client's own command list stays; Tab on an empty line and Ctrl+Tab open the original's channel list since the same day.
 
 #### `CHT-036` Declined mail gets the client's own explanation
 
@@ -4800,6 +4812,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `crates/mao-client/src/ui.rs:1922`; `crates/mao-client/src/ui.rs:1962`; `crates/mao-client/src/settings.rs:255`; `docs/GUI_DLL_PARITY.md:84`; `docs/CLIENT_UI.md:2060`
 - Decision: [x] port  [ ] leave
 - Done (2026-11-18): the original's shortcut bars are the default (`shortcutbar.rs`): up to ten bars of ten slots over ten pages, a primary bar, the game's keys (1-0, Shift for the page, Alt for the primary), its art, moving, turning upright, the wheel, dropping and dragging out, the timer text and the first run's shortcuts. The smart hotbars stay as a setting. Not ported: reading the original's ShortcutBar_<n>.xml, Shift+click info, the red unusable fade, stack counts, new nanos put on the bar, the bars' close.
+- Asked again (2026-11-25, the click review's questions): the user answered "Yes, as the original" to a question that named five of the ten and not this one. NOT carried out: the smart hotbars are a setting, off by default, so the bars are the original's unless the player asks otherwise. Removing it wants the user's own word.
+- Kept by decision (2026-11-25, the user): asked by name after the click review ("Keep the five extras you asked for earlier, which the original does not have?": the smart shortcut bars, the round map, auto-loot, the mission booth's helper, the chat's command list while typing), the answer was "Keep them". The smart hotbars stay as the `smart_hotbar` setting, off by default.
 
 #### `WIN-002` Dark themes draw controls in the border colour instead of the skin's Default
 
@@ -6389,6 +6403,8 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Where: `crates/mao-client/src/automap.rs:708`; `docs/CLIENT_UI.md:1657`; `docs/CLIENT_UI.md:2048`; `docs/CLIENT_UI.md:2016`
 - Decision: [x] keep  [ ] remove
 - Done (2026-11-18): kept as a setting (own_map, off): the original's PF Map window is the default (AutoMap::pf_window): north up at one pixel a unit over black, following the character, dragged at 1.5 and back on release, land control and towers, characters by side as squares, its arrow, the pointer's place; map_window in the control center and WINDOW_MAP now open it. Not done: room floors, vendors and booths, the facing arrows of others, the mission square, the withheld maps.
+- Asked again (2026-11-25, the click review's questions): the user answered "Yes, as the original" to a question that named five of the ten and not this one. NOT carried out: the round map is a setting, off by default, so the map is the original's unless the player asks otherwise. Removing it wants the user's own word.
+- Kept by decision (2026-11-25, the user): asked by name after the click review ("Keep the five extras you asked for earlier, which the original does not have?": the smart shortcut bars, the round map, auto-loot, the mission booth's helper, the chat's command list while typing), the answer was "Keep them". The round map and its overlay stay as the `own_map` setting, off by default.
 
 #### `WIN-152` Smart hotbars with priority lists and queued presses
 
@@ -6704,9 +6720,10 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Client: also lets Friends, PetWindow, Stats, Missions and MissionView be docked
 - A player notices: more windows have a dock button
 - Where: `crates/mao-client/src/rollup.rs:23`
-- Decision: [x] keep  [ ] remove
+- Decision: [ ] keep  [x] remove
 - Recommendation (2026-11-19, overnight): Addition: recommend KEEP: docking more windows is an option a player chooses; the original's docked windows are docked by default as there.
 - Decided (2026-11-19): kept, as recommended (your answer: "Apply as recommended")
+- Done (2026-11-25, the click review's questions; the user: "Yes, as the original"): corrected and removed. The original docks by the mouse alone (a view's tab carried, FUN_1003c428; a rollup page taken up by the right button, FUN_100493f2; put down on the column, FUN_10049121): no button docks. Any `DockableView_c` can be a page, Faction, Stats, Friends and the mission windows among them, so docking those was no addition; the pet window is a plain window there and was one. The title's dock button is gone, Faction and Stats are dock views (`docks::VIEWS`: `faction_window`, `stat_window`), and a pet window kept as a page comes up free.
 
 ## Camera
 
@@ -6722,6 +6739,7 @@ Things the original does not have. "Port" has no meaning for these: the choice i
 - Decision: [x] port  [ ] leave
 - Done (2026-11-18): the WoW scheme had already given way to the original's ActionViewMouseHandler_c; now also its sensitivity (MouseTurnSensitivity / 1000 radians a count), the wheel's ZoomSpeed / 10 step, the look of the last button pressed ended by either release, and the turn keys strafing once any look moves. Not ported: the first-person head turn handed to the character at a look's end, the RMBMouseLook1st/3rd prefs, the default camera mode (Lock in the game, trail here). The middle-button reset is the client's own.
 - Done (2026-11-21, the tester's "can't turn sharply, character continues to drift"): the right drag's across movement turns the character only, never the camera (`N3Msg_MouseMovement` hands the camera `MouseCameraControl(0, up)`), and its up movement goes to the camera by `RMBMouseLook1st` / `RMBMouseLook3rd`; the press no longer turns the character to the camera. With a locked or rubber camera the old way turned the character twice over and left an offset that made the next drag drift.
+- Done (2026-11-25, the click review's questions; the user: "Yes, as the original"): the middle button does nothing, as the original (GUI.dll FUN_1002ce31 acts on buttons 1 and 2 only; no key of the default table is bound to it). The camera's reset keeps its key (`camera_reset`, numeric pad 5).
 
 #### `CAM-002` Camera mode comes from the client's setting; unknown names give rubber
 

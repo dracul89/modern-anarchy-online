@@ -167,6 +167,99 @@ pub fn split_count() -> u32 {
     if held().is_some() { SPLIT.load(std::sync::atomic::Ordering::Relaxed) } else { 0 }
 }
 
+/// A stack being split by the mouse (GUI.dll `ItemListViewBase_c`: MouseDown FUN_10041926, MouseMove FUN_10041ca4,
+/// MouseUp FUN_100419d5): the left button pressed with Ctrl on a stack of more than one starts it at one; while the
+/// button is down the count takes the mouse's way sideways, a pixel a unit, right for more, held between one and one
+/// fewer than the stack; the pointer is put back where it was pressed after every move, and from the first move the
+/// count stands there in yellow in a small window of its own; letting the button go takes that many in hand. Escape,
+/// the right button and Ctrl let go change nothing. Until 2026-11-25 Ctrl + click opened a box of this client's that
+/// asked for the number (INV-008).
+#[derive(Clone, Copy, Debug)]
+struct Counting {
+    /// The stack: its container's identity (none: the inventory) and its place.
+    key: (Option<(u32, u32)>, i64),
+    total: u32,
+    count: u32,
+    /// Where the button went down (points), and the pixels a point has.
+    anchor: egui::Pos2,
+    pixels: f32,
+    /// The mouse has moved since the press (the count's window is up), and moved this frame (the pointer goes back).
+    moved: bool,
+    hold: bool,
+    released: bool,
+}
+
+static COUNTING: std::sync::Mutex<Option<Counting>> = std::sync::Mutex::new(None);
+
+/// The count after the mouse went `dx` pixels sideways from where it is held (FUN_10041ca4, 0x10041cfb..0x10041d53):
+/// the whole pixels are added, then the count is no less than 1, then no more than one fewer than the stack.
+pub fn count_step(count: u32, dx: f32, total: u32) -> u32 {
+    let count = (i64::from(count) + dx.trunc() as i64).max(1);
+    if count >= i64::from(total) { total.saturating_sub(1).max(1) } else { count as u32 }
+}
+
+/// The left button went down with Ctrl on a stack of `total` (more than one) at `place` of `container` (none: the
+/// inventory): the split's count begins at one.
+pub fn count_begin(ctx: &egui::Context, container: Option<(u32, u32)>, place: i64, total: u32) {
+    let (Some(at), pixels) = ctx.input(|i| (i.pointer.interact_pos(), i.pixels_per_point)) else { return };
+    // (a whole pixel: the pointer is put back there)
+    let anchor = egui::pos2((at.x * pixels).round() / pixels, (at.y * pixels).round() / pixels);
+    if traced() {
+        eprintln!("items: a split of place {place} begun at {anchor:?}");
+    }
+    *COUNTING.lock().unwrap_or_else(|e| e.into_inner()) = Some(Counting { key: (container, place), total, count: 1, anchor, pixels, moved: false, hold: false, released: false });
+}
+
+/// Once a frame, before the windows: the count follows the mouse and is drawn; the button let go ends the counting
+/// (the stack's window takes the count this frame, [`count_take`]; untaken, it is forgotten the next).
+pub fn count_frame(ctx: &egui::Context) {
+    let mut counting = COUNTING.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(c) = counting.as_mut() else { return };
+    if c.released {
+        *counting = None;
+        return;
+    }
+    let (at, down) = ctx.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down()));
+    c.hold = false;
+    if let Some(at) = at {
+        let way = (at - c.anchor) * c.pixels;
+        if way.x.round() != 0.0 || way.y.round() != 0.0 {
+            c.count = count_step(c.count, way.x.round(), c.total);
+            (c.moved, c.hold) = (true, true);
+        }
+    }
+    if !down {
+        c.released = true;
+        return;
+    }
+    if c.moved {
+        // (`Window(.., 3, 0xd3c)` with one text view, moved to the press point: the count alone, in yellow)
+        let text = c.count.to_string();
+        egui::Area::new(egui::Id::unique("split-count")).order(egui::Order::Tooltip).fixed_pos(c.anchor).interactable(false).show(ctx, |ui| {
+            let galley = ui.painter().layout_no_wrap(text, crate::font::verdana(ui.ctx(), 13.0), egui::Color32::YELLOW);
+            let (rect, _) = ui.allocate_exact_size(galley.size() + egui::vec2(6.0, 4.0), egui::Sense::hover());
+            ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 0xc0));
+            ui.painter().galley(rect.min + egui::vec2(3.0, 2.0), galley, egui::Color32::YELLOW);
+        });
+        ctx.request_repaint();
+    }
+}
+
+/// The count of the split of this stack that just ended (the click of the release): taken once.
+pub fn count_take(container: Option<(u32, u32)>, place: i64) -> Option<u32> {
+    let mut counting = COUNTING.lock().unwrap_or_else(|e| e.into_inner());
+    let count = counting.filter(|c| c.key == (container, place)).map(|c| c.count)?;
+    *counting = None;
+    Some(count)
+}
+
+/// Where the pointer is to be put back to this frame, in the window's pixels (`WindowController_c::SetMousePosition`
+/// after every move of a split, 0x10041f67): asked by the viewer after the frame.
+pub fn count_hold() -> Option<(f64, f64)> {
+    let counting = COUNTING.lock().unwrap_or_else(|e| e.into_inner());
+    counting.filter(|c| c.hold && !c.released).map(|c| (f64::from((c.anchor.x * c.pixels).round()), f64::from((c.anchor.y * c.pixels).round())))
+}
+
 /// Takes `count` of the stack of an inventory place into the hand: a split, made when they are put into an empty cell.
 pub fn pick_up_split(place: u32, count: u32) {
     pick_up(place);
@@ -309,21 +402,33 @@ pub const TABS: &[(&str, &[(&str, Option<u32>)])] = &[
 /// colour, and under it the item's page as a tip shows it (`iteminfo::item_tip`: the info view's sections without the
 /// header and the description, and on some pages without the requirements). The original's `ItemDescriptionTooltips`
 /// preference (on in the shipped `LoginPrefs.xml`) is taken as on. Without the game's database, the name alone.
-pub fn tooltip(ui: &mut egui::Ui, item: &GearItem, stats: &std::collections::BTreeMap<u32, i64>, palette: &crate::theme::Palette) {
-    ui.set_max_width(320.0);
-    let font = crate::gui::font::FontId::NORMAL;
-    let colour = crate::chrome::rgb(palette.text);
-    match crate::net::item_db().and_then(|db| crate::gui::iteminfo::item_tip(&db, item.item_id, item.high_id, item.quality, stats)) {
-        Some((title, text)) => {
-            crate::gui::controls::markup(ui, palette, &title, font, colour);
-            if !text.is_empty() {
-                crate::gui::controls::markup(ui, palette, &text, font, colour);
-            }
+///
+/// Gives the tip's title and text; it is shown by the window controller's own tip (`gui::tooltip::show`: after the
+/// pointer has rested half a second, placed once). Until 2026-11-25 these tips were drawn at once in a frame of this
+/// client's that followed the pointer.
+pub fn tip(item: &GearItem, stats: &std::collections::BTreeMap<u32, i64>) -> (String, String) {
+    crate::net::item_db().and_then(|db| crate::gui::iteminfo::item_tip(&db, item.item_id, item.high_id, item.quality, stats)).unwrap_or_else(|| (item.name.clone(), String::new()))
+}
+
+thread_local! {
+    /// The character's stats as last shown ([`set_reader`]).
+    static READER: std::cell::RefCell<std::collections::BTreeMap<u32, i64>> = Default::default();
+}
+
+/// Keeps the character's stats for the tips of the windows that are not handed them (a backpack's, the nano programs',
+/// the shortcut bars'): told once a frame.
+pub fn set_reader(stats: &std::collections::BTreeMap<u32, i64>) {
+    READER.with(|r| {
+        let mut r = r.borrow_mut();
+        if *r != *stats {
+            *r = stats.clone();
         }
-        None => {
-            ui.label(egui::RichText::new(&item.name).strong());
-        }
-    }
+    });
+}
+
+/// Something done with the character's stats ([`set_reader`]).
+pub fn with_reader<R>(f: impl FnOnce(&std::collections::BTreeMap<u32, i64>) -> R) -> R {
+    READER.with(|r| f(&r.borrow()))
 }
 
 /// A placement's name, with its tab ("Weap: Right Hand").
@@ -462,9 +567,6 @@ impl GearWindow {
     }
 
     /// Opens the box that asks how many to split off the stack at a place, as Ctrl+click on it does (the previews use it).
-    pub fn ask_split(&mut self, place: u32) {
-        self.windows.ask_split(place);
-    }
 
     pub fn texture(&mut self, ctx: &egui::Context, icon: &Icon) -> egui::TextureId {
         self.textures
@@ -488,6 +590,19 @@ impl GearWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_10041ca4's count (0x10041cfb..0x10041d53): the mouse's whole pixels sideways are added, then the count is
+    /// held to one and to one fewer than the stack.
+    #[test]
+    fn a_split_counts_by_the_mouses_way_sideways() {
+        assert_eq!(count_step(1, 0.0, 200), 1);
+        assert_eq!(count_step(1, 7.0, 200), 8);
+        assert_eq!(count_step(8, -3.9, 200), 5);
+        assert_eq!(count_step(5, -40.0, 200), 1);
+        assert_eq!(count_step(150, 400.0, 200), 199);
+        // (a stack of two has only the one to give)
+        assert_eq!(count_step(1, 50.0, 2), 1);
+    }
 
     /// A right click over the world lets the item in hand go as a left click does (`WindowController_c::HandleMouseUp`);
     /// not the click that took it up, not a split, not with nothing in hand.

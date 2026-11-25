@@ -269,7 +269,11 @@ pub fn verdana_styled(ctx: &egui::Context, size: f32, bold: bool, italic: bool) 
     if !TRIED[style].swap(true, std::sync::atomic::Ordering::Relaxed) {
         if let Some(bytes) = verdana_files(style).into_iter().find_map(|p| std::fs::read(p).ok()) {
             let insert = egui::epaint::text::InsertFontFamily { family, priority: egui::epaint::text::FontPriority::Highest };
-            ctx.add_font(egui::epaint::text::FontInsert::new(name, egui::FontData::from_owned(bytes), vec![insert]));
+            // (drawn as GDI draws the original's: hinted to the pixel grid, each glyph at a whole pixel. egui's own way,
+            // a glyph at any of four places within a pixel, evens the spacing out and blurs the stems: the user found
+            // the client's text blurry and hard to read beside the original's, 2026-11-24)
+            let tweak = egui::FontTweak { hinting: Some(true), subpixel_binning: Some(false), ..Default::default() };
+            ctx.add_font(egui::epaint::text::FontInsert::new(name, egui::FontData::from_owned(bytes).tweak(tweak), vec![insert]));
         }
     }
     if style != 0 {

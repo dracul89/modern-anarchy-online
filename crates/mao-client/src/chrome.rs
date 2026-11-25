@@ -627,7 +627,7 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         let names: Vec<&str> = titles.iter().map(String::as_str).collect();
         let mut picked = selected;
         let mut hits = TabHits::default();
-        let result = tab_view_hits(ui, palette, &names, &mut picked, &mut hits, |ui, _| add(ui));
+        let result = title_tab_view_hits(ui, palette, &names, &mut picked, &mut hits, |ui, _| add(ui));
         crate::docks::after(&area, &views, picked, &hits, ui.input(|i| i.pointer.interact_pos()));
         result
     };
@@ -693,7 +693,14 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         // the frame goes under the content: its place in the paint list is kept, it is drawn once the size is known
         let under = painter.add(egui::Shape::Noop);
         let room = ui.max_rect().size();
+        // (the title row's room for a tab view that fills the window, [`title_tab_view_hits`]: from past the frame's
+        // menu button to short of the border's buttons)
+        let buttons = 2.0 + HELP_PAGES.iter().any(|h| h.0 == name) as u8 as f32;
+        let content = ui.max_rect();
+        let lead = skin.get("GFX_GUI_WINDOW_ICON_I").map_or(2.0, |icon| icon.size.x + 1.0);
+        let before = TITLE_ROOM.with(|r| r.replace(Some(TitleRoom { left: content.left() + lead, right: content.right() - 1.0 - 17.0 * buttons, content_left: content.left(), content_top: content.top(), tabs_right: 0.0, used: false })));
         let result = add(ui);
+        let title_tabs = TITLE_ROOM.with(|r| r.replace(before)).filter(|r| r.used).map(|r| r.tabs_right);
         // (the size kept: the room the window gives its content, and the frame)
         if sizable.get() {
             crate::layout::note_size(&win, room + egui::vec2((LEFT + RIGHT) as f32, (TOP + BOTTOM) as f32));
@@ -705,7 +712,8 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         painter.set(under, frame_shape(&skin, outer, panel, accent));
         // (the strip that moves the window, under the buttons and the frame menu made after it)
         if let (Some(tl), Some(tr), Some(top)) = (skin.get("GFX_GUI_WINDOW3_BORDER_TL"), skin.get("GFX_GUI_WINDOW3_BORDER_TR"), skin.get("GFX_GUI_WINDOW3_BORDER_TOP")) {
-            let strip = egui::Rect::from_min_max(egui::pos2(outer.left() + tl.size.x, outer.top() + top.size.y + 1.0), egui::pos2(outer.right() - tr.size.x, outer.top() + 18.0));
+            // (tabs in the title row are pressed themselves: the strip begins past the last of them)
+            let strip = egui::Rect::from_min_max(egui::pos2((outer.left() + tl.size.x).max(title_tabs.unwrap_or(f32::MIN)), outer.top() + top.size.y + 1.0), egui::pos2(outer.right() - tr.size.x, outer.top() + 18.0));
             if strip.is_positive() {
                 ui.interact(strip, id.with("move-strip"), egui::Sense::drag());
             }
@@ -715,7 +723,9 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         let mut title_left = outer.left() + 9.0;
         if let Some(icon) = skin.get("GFX_GUI_WINDOW_ICON_I") {
             let rect = egui::Rect::from_min_size(egui::pos2(outer.left() + 7.0, outer.top() + 5.0 + ((15.0 - icon.size.y) * 0.5).floor()), icon.size);
-            let response = ui.interact(rect.expand(1.0), id.with("frame-menu"), egui::Sense::click());
+            // (a toggle `BorderButton_c`, `WndBorder::CreateBorderIcons` 0x1015ae85: the menu opens as the button goes
+            // down, `SlotIconButton` 0x1015aa2f)
+            let response = on_press(ui.interact(rect.expand(1.0), id.with("frame-menu"), egui::Sense::click()));
             let up = FRAME_POPUP.with(|p| p.borrow().as_ref().is_some_and(|(n, _)| *n == name));
             let tint = if response.hovered() { hover } else if up { rgb(palette.text_selected) } else { accent };
             painter.image(icon.texture.id(), rect, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), tint);
@@ -748,38 +758,35 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         }
         // the title row (the title cut where the buttons begin: a narrow window's long title does not run under them)
         let mut x = outer.right() - RIGHT as f32 - 15.0;
-        // (a dockable window that is no dock area's view has a third button, this client's: into the rollup area down the
-        // right edge, `rollup.rs`; a dock area's view goes there as the original's does, its tab carried to the column)
-        let dockable = crate::rollup::DOCKABLE.contains(&name.as_str()) && !crate::docks::dockable(&name);
+        // (no button docks a window: the original docks by the mouse only, a view's tab or a rollup page carried to
+        // the column or out of it (FUN_1003c428, FUN_100493f2, FUN_10049121). This client's own "dock" button, for
+        // the windows that were no dock area's views here (Faction, Stats, the pet window), went on 2026-11-25:
+        // Faction and Stats are views now (`docks::VIEWS`), and the pet window is no dockable view in the original.)
         let help = HELP_PAGES.iter().find(|h| h.0 == name).map(|h| h.1);
-        let buttons_left = x - 17.0 * (1.0 + dockable as u8 as f32 + help.is_some() as u8 as f32) - 3.0;
+        let buttons_left = x - 17.0 * (1.0 + help.is_some() as u8 as f32) - 3.0;
         let title_room = egui::Rect::from_min_max(outer.min, egui::pos2(buttons_left.max(outer.left()), outer.bottom()));
-        crate::font::text(ctx, &painter.with_clip_rect(title_room.intersect(painter.clip_rect())), egui::pos2(title_left, outer.top() + 5.0), &title, 15.0, accent);
+        // (a window whose tabs are in its title row has no other title: FUN_1003c78b makes a dock area's with an empty one)
+        if title_tabs.is_none() {
+            crate::font::text(ctx, &painter.with_clip_rect(title_room.intersect(painter.clip_rect())), egui::pos2(title_left, outer.top() + 5.0), &title, 15.0, accent);
+        }
         // (`WndBorder::CreateBorderIcons`, 0x1015ae85: close, the pin and, for a window with a help page, the question mark)
-        for (button, what) in [("CLOSE_X", "close"), ("PIN", "pin"), ("QUESTIONMARK", "help"), ("ROLLUP_COLLAPSE", "dock")] {
-            if (what == "dock" && !dockable) || (what == "help" && help.is_none()) {
+        for (button, what) in [("CLOSE_X", "close"), ("PIN", "pin"), ("QUESTIONMARK", "help")] {
+            if what == "help" && help.is_none() {
                 continue;
             }
             let rect = egui::Rect::from_min_size(egui::pos2(x, outer.top() + 5.0), egui::vec2(15.0, 15.0));
+            // (the pin is a toggle and flips on the press; the close button is a plain one: the release over it)
             let response = ui.interact(rect, id.with(what), egui::Sense::click());
+            let (response, held) = if what == "pin" { (on_press(response), false) } else { on_release_inside(response) };
             let down = what == "pin" && pinned(&win);
-            let state = if response.is_pointer_button_down_on() || down { "_STATE3" } else if response.hovered() { "_STATE2" } else { "" };
+            let state = if held || down { "_STATE3" } else if response.hovered() { "_STATE2" } else { "" };
             let tint = if response.hovered() { hover } else if down { rgb(palette.text_selected) } else { accent };
-            let drawn = if what == "dock" {
-                skin.draw_in(&painter, &format!("GFX_GUI_{button}{}", if state.is_empty() { "_STATE1" } else { state }), rect, tint)
-            } else {
-                skin.draw_in(&painter, &format!("GFX_GUI_WINDOW_{button}{state}"), rect, tint)
-            };
-            if !drawn {
+            if !skin.draw_in(&painter, &format!("GFX_GUI_WINDOW_{button}{state}"), rect, tint) {
                 skin.draw_in(&painter, &format!("GFX_GUI_WINDOW_{button}"), rect, tint);
             }
             if response.clicked() {
                 match what {
                     "pin" => set_pinned(&win, !down),
-                    "dock" => {
-                        crate::docks::take_out(&name);
-                        crate::rollup::dock(&name);
-                    }
                     "help" => HELP_ASKED.lock().unwrap().extend(help.map(|page| format!("file://{page}"))),
                     _ => close = true,
                 }
@@ -787,7 +794,6 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
             response.on_hover_text(match what {
                 "pin" => crate::gui::xml::ldb_named(10000, "ToggleWindowFading", "Window fading on or off"),
                 "help" => crate::gui::xml::ldb_named(10000, "InfoAboutThisWindow", "About this window"),
-                "dock" => "Dock in the column at the right edge".to_string(),
                 _ => crate::gui::xml::ldb_named(10000, "Close", "Close"),
             });
             x -= 17.0;
@@ -1023,6 +1029,68 @@ pub fn button_size(label: egui::Vec2, left: f32, top: f32, right: f32, bottom: f
     egui::vec2(label.x + left + right + 10.0, label.y + top + bottom + 4.0)
 }
 
+/// The original's buttons are of two kinds (`ButtonBase_c`, GUI.dll; read 2026-11-25):
+///
+/// * A **toggle** (`SetToggleButton`: a `CheckBox_c`'s box, the frame's menu icon and pin, a rollup page's header
+///   buttons, a toolbar button) and a button told not to keep a state of its own (`SetModifyWhenClicked(false)`: a
+///   `RadioButton_c`, a perk line) act as the left button goes DOWN on them (`MouseDown` 0x101298db: `SetValue(!value,
+///   true)`, or `Invoke` and the click signal at once); letting go does nothing more (`MouseUp` 0x101294c9 skips
+///   toggles). [`on_press`] is that.
+/// * A **plain button** (`Button_c`, `TextButton_c`, a dialog's buttons, the frame's close button: `Initialize`
+///   0x10129bc7 sets `ModifyWhenClicked`, 0x10129bd0) only looks pressed while the button is down on it; moving off it
+///   takes the look away and moving back gives it again (`MouseMove` 0x10129a37), and the click is the RELEASE while
+///   it looks pressed (`MouseUp`: `SetValue(false, true)` raises `Invoke` and the click signal, 0x101295ab), however
+///   long the button was held and however far the pointer went meanwhile. [`on_release_inside`] is that; the
+///   interface library's own click is not (it wants the release within 0.8 s and 6 points of the press).
+///
+/// Neither kind is pressed by a key (`KeyDown` is `View::KeyDown`), and both take the left button only.
+///
+/// This one turns a widget's response round for a toggle: `clicked()` is true on the frame the left button goes down on
+/// it and not on the frame it comes up. (A press and its release inside one frame are the one click the interface
+/// library saw. The right button's click is left as it is.) Until 2026-11-25 every toggle here acted on the release.
+pub fn on_press(mut response: egui::Response) -> egui::Response {
+    use egui::response::Flags;
+    let (pressed, clicked) = response.ctx.input(|i| (i.pointer.primary_pressed(), i.pointer.button_clicked(egui::PointerButton::Primary)));
+    let clicked = clicked && response.flags.contains(Flags::CLICKED);
+    if pressed && response.enabled() && response.is_pointer_button_down_on() {
+        response.flags.insert(Flags::FAKE_PRIMARY_CLICKED);
+    } else if clicked && !pressed {
+        response.flags.remove(Flags::CLICKED);
+    }
+    response
+}
+
+/// A plain button's click, as the original's (see [`on_press`]): `clicked()` is true on the frame the left button comes
+/// up over the widget it went down on, whatever the time and the way between. Also whether it looks pressed now (the
+/// button down on it and the pointer over it).
+pub fn on_release_inside(mut response: egui::Response) -> (egui::Response, bool) {
+    use egui::response::Flags;
+    let ctx = response.ctx.clone();
+    let key = response.id.with("held-on");
+    let (pressed, released, down, clicked) = ctx.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.primary_down(), i.pointer.button_clicked(egui::PointerButton::Primary)));
+    if pressed && response.enabled() && response.is_pointer_button_down_on() {
+        ctx.data_mut(|d| d.insert_temp(key, true));
+    }
+    let held = ctx.data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
+    let over = response.contains_pointer() || response.is_pointer_button_down_on() && ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| response.interact_rect.contains(p));
+    // (down and up inside one frame: the interface library's click is the one there is)
+    let both = pressed && released && clicked && response.flags.contains(Flags::CLICKED);
+    if clicked {
+        response.flags.remove(Flags::CLICKED);
+    }
+    if released {
+        ctx.data_mut(|d| d.remove::<bool>(key));
+        // (the release frame: the pointer's place is asked of the rectangle, the button being up already)
+        let inside = ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| response.interact_rect.contains(p));
+        if (held && inside && response.enabled()) || both {
+            response.flags.insert(Flags::FAKE_PRIMARY_CLICKED);
+        }
+    } else if held && !down {
+        ctx.data_mut(|d| d.remove::<bool>(key));
+    }
+    (response, held && down && over)
+}
+
 /// A `Button_c` (GUI.dll 0x10129021) in the skin's art labelled `text`: `Initialize` (0x10128e46) makes it a `BorderView_c` of
 /// `GFX_GUI_BORDER01_*` in the theme's `Default` colour, its label in font 5 (Verdana 13) in the same colour and centred;
 /// `StateChanged` (0x101287ea) swaps in `GFX_GUI_BORDER04_*` in `Selected` (and the label in `Selected`) while it is pressed,
@@ -1030,13 +1098,15 @@ pub fn button_size(label: egui::Vec2, left: f32, top: f32, right: f32, bottom: f
 /// is disabled. Without the pictures it is egui's button.
 pub fn button(ui: &mut egui::Ui, palette: &Palette, text: &str, enabled: bool) -> egui::Response {
     let skin = crate::skin::skin(ui.ctx()).filter(|s| s.has("GFX_GUI_BORDER01_TL") && s.has("GFX_GUI_BORDER04_TL"));
-    let Some(skin) = skin else { return ui.add_enabled(enabled, egui::Button::new(text)) };
+    let Some(skin) = skin else { return on_release_inside(ui.add_enabled(enabled, egui::Button::new(text))).0 };
     let size = |name: &str| skin.get(name).map(|s| s.size).unwrap_or(egui::Vec2::ZERO);
     let font = crate::font::verdana(ui.ctx(), 13.0);
     let galley = ui.painter().layout_no_wrap(text.to_string(), font, egui::Color32::WHITE);
     let want = button_size(galley.size(), size("GFX_GUI_BORDER01_LEFT").x, size("GFX_GUI_BORDER01_TOP").y, size("GFX_GUI_BORDER01_RIGHT").x, size("GFX_GUI_BORDER01_BOTTOM").y);
     let (rect, response) = ui.allocate_exact_size(want, if enabled { egui::Sense::click() } else { egui::Sense::hover() });
-    let pressed = enabled && response.is_pointer_button_down_on();
+    // (the click is the release over the button it went down on; it looks pressed only while the pointer is on it)
+    let (response, pressed) = on_release_inside(response);
+    let pressed = enabled && pressed;
     let grey = |c: egui::Color32| if enabled { c } else { c * egui::Color32::from_rgb(0x90, 0x90, 0x90) };
     let colour = grey(rgb(if pressed { palette.selected } else { code1(palette) }));
     let painter = ui.painter();
@@ -1059,7 +1129,9 @@ pub fn checkbox(ui: &mut egui::Ui, palette: &Palette, on: &mut bool, text: &str)
     let font = crate::font::verdana(ui.ctx(), 13.0);
     let galley = ui.painter().layout_no_wrap(text.to_string(), font, egui::Color32::WHITE);
     let height = boxed.y.max(galley.size().y);
-    let (rect, mut response) = ui.allocate_exact_size(egui::vec2(boxed.x + 10.0 + galley.size().x, height), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(boxed.x + 10.0 + galley.size().x, height), egui::Sense::click());
+    // (a toggle: it flips as the button goes down, `ButtonBase_c::MouseDown`; until 2026-11-25 on the release)
+    let mut response = on_press(response);
     if response.clicked() {
         *on = !*on;
         response.mark_changed();
@@ -1094,10 +1166,16 @@ pub fn tabs_width(ui: &egui::Ui, names: &[&str]) -> f32 {
     tab_places(&widths, f32::MAX).last().map_or(40.0, |(x, w)| x + w + 2.0) + 2.0
 }
 
+/// The tabs' font: `FontSystem_t`'s NORMAL, 5, Verdana of a cell 13 high (`gui::font`). Until 2026-11-24 the tabs were
+/// set in Verdana of an em of 13, a fifth larger than the original's.
+fn tab_font(ctx: &egui::Context) -> egui::FontId {
+    crate::gui::font::Measure { ctx: Some(ctx.clone()) }.egui_font(crate::gui::font::FontId::NORMAL)
+}
+
 /// Each tab's least and own width (`Tab`'s preferred sizes, FUN_101463a4: its first character's width, or its whole text's,
 /// and a point and its 5 and 16 point margins).
 fn tab_widths(ui: &egui::Ui, names: &[&str]) -> Vec<(f32, f32)> {
-    let font = crate::font::verdana(ui.ctx(), 13.0);
+    let font = tab_font(ui.ctx());
     let width = |t: String| ui.painter().layout_no_wrap(t, font.clone(), egui::Color32::WHITE).size().x.ceil() + 1.0 + 5.0 + 16.0;
     names.iter().map(|n| (width(n.chars().next().map(String::from).unwrap_or_default()), width(n.to_string()))).collect()
 }
@@ -1197,8 +1275,41 @@ pub struct TabHits {
     pub right_released: Option<usize>,
 }
 
+/// The room a window's title row has for the tabs of a tab view that fills the window, as [`window`] tells it while its
+/// content is made: where the tabs may begin and must end, and where the content begins.
+#[derive(Clone, Copy)]
+struct TitleRoom {
+    left: f32,
+    right: f32,
+    content_left: f32,
+    content_top: f32,
+    /// Where the last tab drawn in the row ends.
+    tabs_right: f32,
+    used: bool,
+}
+
+thread_local! {
+    static TITLE_ROOM: std::cell::Cell<Option<TitleRoom>> = const { std::cell::Cell::new(None) };
+}
+
 /// [`tab_view`], telling where its strip and tabs are ([`TabHits`]).
 pub fn tab_view_hits<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selected: &mut usize, hits: &mut TabHits, add: impl FnOnce(&mut egui::Ui, usize) -> R) -> R {
+    tab_view_in(ui, palette, names, selected, hits, false, add)
+}
+
+/// [`tab_view_hits`] for the tab view that is all a window holds, a dock area's window and a chat window: its tabs stand
+/// in the window's title row, between the frame's menu button and the border's buttons, where another window has its
+/// title, and its body begins right under the row. The user's pictures of the original's chat, inventory and mission
+/// windows, 2026-11-24: until then the tabs had a row of their own under an empty title row. (By the pictures; how
+/// `DockWindow_c` and `ChatWindow_c` lay the tab view over the border was not read.) Where the window has no title row
+/// (a page of the rollup area, a window without the skin's frame) or this is not the first thing in it, it is a
+/// [`tab_view_hits`].
+pub fn title_tab_view_hits<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selected: &mut usize, hits: &mut TabHits, add: impl FnOnce(&mut egui::Ui, usize) -> R) -> R {
+    tab_view_in(ui, palette, names, selected, hits, true, add)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn tab_view_in<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], selected: &mut usize, hits: &mut TabHits, title: bool, add: impl FnOnce(&mut egui::Ui, usize) -> R) -> R {
     let skin = crate::skin::skin(ui.ctx()).filter(|s| s.has("GFX_GUI_TAB_ACTIVE_MIDDLE") && s.has("GFX_GUI_TAB_BORDER_LEFT"));
     let Some(skin) = skin else {
         let strip = ui.horizontal(|ui| {
@@ -1219,13 +1330,27 @@ pub fn tab_view_hits<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], se
     let tint = rgb(palette.accent);
     let size = |name: &str| skin.get(name).map(|s| s.size).unwrap_or(egui::vec2(1.0, 1.0));
     let height = size("GFX_GUI_TAB_ACTIVE_MIDDLE").y;
-    let font = crate::font::verdana(ui.ctx(), 13.0);
+    let font = tab_font(ui.ctx());
     let widths = tab_widths(ui, names);
-    let room = ui.available_width();
-    let places = tab_places(&widths, room.max(40.0));
-    let need = places.last().map(|(x, w)| x + w + 2.0).unwrap_or(40.0);
-    let (strip, _) = ui.allocate_exact_size(egui::vec2(need.min(room), height + 1.0), egui::Sense::hover());
-    hits.strip = Some(egui::Rect::from_min_max(strip.min, egui::pos2(strip.left() + room, strip.bottom())));
+    // (in the title row: the window's own room there, when this is the first thing in the window)
+    let in_title = title.then(|| TITLE_ROOM.with(|r| r.get())).flatten().filter(|t| !t.used && t.right - t.left >= 40.0 && (ui.cursor().top() - t.content_top).abs() < 1.5 && (ui.cursor().left() - t.content_left).abs() < 1.5);
+    let (strip, places, body_left) = match in_title {
+        Some(t) => {
+            let strip = egui::Rect::from_min_max(egui::pos2(t.left, t.content_top - (height + 1.0)), egui::pos2(t.right, t.content_top));
+            hits.strip = Some(strip);
+            let places = tab_places(&widths, strip.width());
+            TITLE_ROOM.with(|r| r.set(Some(TitleRoom { used: true, tabs_right: places.last().map_or(strip.left(), |(x, w)| strip.left() + x + w), ..t })));
+            (strip, places, t.content_left)
+        }
+        None => {
+            let room = ui.available_width();
+            let places = tab_places(&widths, room.max(40.0));
+            let need = places.last().map(|(x, w)| x + w + 2.0).unwrap_or(40.0);
+            let (strip, _) = ui.allocate_exact_size(egui::vec2(need.min(room), height + 1.0), egui::Sense::hover());
+            hits.strip = Some(egui::Rect::from_min_max(strip.min, egui::pos2(strip.left() + room, strip.bottom())));
+            (strip, places, strip.left())
+        }
+    };
     hits.tabs = places.iter().map(|&(x, w)| egui::Rect::from_min_size(egui::pos2(strip.left() + x, strip.top()), egui::vec2(w, height))).collect();
     let painter = ui.painter().clone();
     let under = painter.add(egui::Shape::Noop);
@@ -1255,7 +1380,7 @@ pub fn tab_view_hits<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], se
     let open = *selected;
     let inner = ui.scope(|ui| egui::Frame::NONE.inner_margin(egui::Margin { left: (left + 2.0) as i8, right: (right + 2.0) as i8, top: 2, bottom: (bottom + 2.0) as i8 }).show(ui, |ui| add(ui, open)).inner);
     let content = inner.response.rect;
-    let (l, r) = (strip.left(), content.right().max(strip.right()));
+    let (l, r) = (body_left, if in_title.is_some() { content.right() } else { content.right().max(strip.right()) });
     let piece = |shapes: &mut Vec<egui::Shape>, name: &str, rect: egui::Rect| {
         if let Some(s) = skin.get(name) {
             shapes.push(egui::Shape::image(s.texture.id(), rect, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), tint));
@@ -1286,6 +1411,55 @@ pub fn tab_view_hits<R>(ui: &mut egui::Ui, palette: &Palette, names: &[&str], se
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two kinds of `ButtonBase_c`: a toggle acts on the press (`MouseDown` 0x101298db) and its release is
+    /// nothing more; a plain button on the release over it (`MouseUp` 0x101294c9), however long it was held and
+    /// wherever the pointer went meanwhile, and not when let go beside it (`MouseMove` 0x10129a37 took the pressed
+    /// look away). Each frame gives (the interface library's click, the toggle's, the plain button's, its pressed look).
+    #[test]
+    fn a_toggle_acts_on_the_press_and_a_plain_button_on_the_release_over_it() {
+        let ctx = egui::Context::default();
+        let at = egui::pos2(30.0, 20.0);
+        let beside = egui::pos2(150.0, 80.0);
+        let clock = std::cell::Cell::new(0.0);
+        let frame = |events: Vec<egui::Event>| -> (bool, bool, bool, bool) {
+            clock.set(clock.get() + 0.05);
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 100.0))), time: Some(clock.get()), events, ..Default::default() };
+            let mut out = (false, false, false, false);
+            let _ = ctx.run_ui(raw, |ui| {
+                egui::Area::new(egui::Id::unique("press-test")).fixed_pos(egui::pos2(10.0, 10.0)).show(ui.ctx(), |ui| {
+                    let (_, plain) = ui.allocate_exact_size(egui::vec2(60.0, 20.0), egui::Sense::click());
+                    let (released, looks) = on_release_inside(plain.clone());
+                    out = (plain.clicked(), on_press(plain.clone()).clicked(), released.clicked(), looks);
+                });
+            });
+            out
+        };
+        let button = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(Vec::new());
+        frame(vec![egui::Event::PointerMoved(at)]);
+        assert_eq!(frame(vec![button(at, true)]), (false, true, false, true), "the press");
+        assert_eq!(frame(Vec::new()), (false, false, false, true), "held");
+        assert_eq!(frame(vec![button(at, false)]), (true, false, true, false), "the release");
+        // (down and up inside one frame: once each)
+        assert_eq!(frame(vec![button(at, true), button(at, false)]), (true, true, true, false));
+        assert_eq!(frame(Vec::new()), (false, false, false, false));
+        // (a press beside the button, let go on it: nothing)
+        frame(vec![egui::Event::PointerMoved(beside), button(beside, true)]);
+        frame(vec![egui::Event::PointerMoved(at)]);
+        assert_eq!(frame(vec![button(at, false)]), (false, false, false, false));
+        // (pressed on the button, moved off it: the look goes; let go there: nothing)
+        frame(vec![button(at, true)]);
+        assert_eq!(frame(vec![egui::Event::PointerMoved(beside)]).3, false);
+        assert_eq!(frame(vec![button(beside, false)]), (false, false, false, false));
+        // (pressed, moved off and back, held two seconds, let go on it: the plain button's click, which the
+        // interface library's own is not)
+        frame(vec![button(at, true)]);
+        frame(vec![egui::Event::PointerMoved(beside)]);
+        assert_eq!(frame(vec![egui::Event::PointerMoved(at + egui::vec2(20.0, 5.0))]).3, true);
+        clock.set(clock.get() + 2.0);
+        assert_eq!(frame(vec![button(at + egui::vec2(20.0, 5.0), false)]), (false, false, true, false));
+    }
 
     /// A normal window's `top_level_border` (`WndBorder::UpdateBorderSizes` 0x1015a279, `DoSetFrame` 0x10159b69): its
     /// client 3 in at the sides and bottom and 24 down (or the frame's icons and 10), grown by a point.

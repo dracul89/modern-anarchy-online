@@ -498,7 +498,15 @@ impl Item {
         // measure printable text that fills the rest of the record (the
         // description and the name; then the trailing tables).
         // The stats are pairs from word 4, so the length word sits at an even index.
-        for at in (6..words.len()).step_by(2) {
+        // The third pair is the stats' own head, 0x17 and their number plus one times 1009: the length word is looked
+        // for past them. (Looked for from word 6 on, a stat's own words were taken for it: the launcher ammunition
+        // box 302020 has stat 2 at 12500, read as a name two bytes long, 0xd4 and '0', which cut its stats short of
+        // its icon. The user's box without a picture, 2026-11-24.)
+        let first = match (words.get(6), words.get(7)) {
+            (Some(0x17), Some(&n)) if n >= 1009 && n % 1009 == 0 && 8 + 2 * (n as usize / 1009 - 1) < words.len() => 8 + 2 * (n as usize / 1009 - 1),
+            _ => 6,
+        };
+        for at in (first..words.len()).step_by(2) {
             let (name_len, description_len) = ((words[at] & 0xffff) as usize, (words[at] >> 16) as usize);
             let start = (at + 1) * 4;
             if name_len < 2 || name_len > 80 || description_len > 4000 || start + name_len + description_len > data.len() {
@@ -527,6 +535,34 @@ impl Item {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `MAO_GAME`: the launcher ammunition box 302020, whose stat 2 at 12500 was taken for the lengths of a name two
+    /// bytes long: it has its name, its fourteen stats and its icon. And over every item template, the stats' head
+    /// says how many there are: none is cut short of them or runs past them by more than the pair that follows.
+    #[test]
+    fn a_stat_is_not_taken_for_the_names_length() {
+        let Some(game) = std::env::var_os("MAO_GAME") else { return };
+        let db = crate::resource::ResourceDatabase::open_game(std::path::Path::new(&game)).unwrap();
+        let get = |n: u32| Item::parse(&db.get(crate::resource::Id { kind: TEMPLATE, instance: n }).unwrap().unwrap()).unwrap();
+        let (flame, launcher) = (get(302019), get(302020));
+        assert_eq!(flame.name, "Ammo: Box of Flamethrower Ammunition");
+        assert!(launcher.name.starts_with("Ammo: Box of Launche"), "{}", launcher.name);
+        assert!(launcher.stats.contains(&(2, 12500)) && launcher.icon() == Some(26692), "{:?}", launcher.stats);
+        assert_eq!(launcher.stats.len(), flame.stats.len());
+        let (mut seen, mut odd) = (0usize, Vec::new());
+        for id in db.ids().unwrap().into_iter().flatten().filter(|i| i.kind == TEMPLATE) {
+            let Some(item) = db.get(id).ok().flatten().as_deref().and_then(Item::parse) else { continue };
+            seen += 1;
+            if let Some(&(0x17, n)) = item.stats.get(1) {
+                let told = (n / 1009) as usize;
+                if n % 1009 == 0 && told >= 1 && !(told + 1..=told + 2).contains(&item.stats.len()) {
+                    odd.push((id.instance, told, item.stats.len()));
+                }
+            }
+        }
+        assert!(seen > 100_000, "{seen}");
+        assert!(odd.is_empty(), "{} templates with stats beside their head: {:?}", odd.len(), &odd[..odd.len().min(8)]);
+    }
 
     /// Only the wear list counts, and only what reaches the wearer.
     #[test]
@@ -594,8 +630,9 @@ mod tests {
     }
 
     /// Item 0x4321c, "Dream Mesh Circuit", as the game's database holds it.
+    /// (the stats' head, 0x17, tells the three stats that follow as their number plus one times 1009)
     fn circuit() -> Vec<u8> {
-        let mut words: Vec<u32> = vec![TEMPLATE, 0x4321c, 1_000_000, 0xc74e, 4, 0xf, 0x17, 0x333d, 0x4a, 1, 0x4f, 0x249b2, 0xd3, 0x1b58, 0x15, 0x21];
+        let mut words: Vec<u32> = vec![TEMPLATE, 0x4321c, 1_000_000, 0xc74e, 4, 0xf, 0x17, 4 * 1009, 0x4a, 1, 0x4f, 0x249b2, 0xd3, 0x1b58, 0x15, 0x21];
         let (name, description) = ("Dream Mesh Circuit", "This circuit board is woven with the pulsing ether.");
         words.push(name.len() as u32 | (description.len() as u32) << 16);
         let mut bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();

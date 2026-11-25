@@ -1465,3 +1465,148 @@ steps run, a fight).
   program, drop an item on the knowledge board, move and size the corner map, and tick "Do not show this tip
   again" on a tip; a second character has none of that (only what all shared before). Disabling all tips on one
   character disables them on the other too (the account's).
+
+## Clicks and held keys (2026-11-25): to try by hand, with a real keyboard and mouse
+
+From the review of every click against the original (`docs/INTERACTIONS_ORIGINAL.md`). **A script cannot stand in
+here**: the scripted steps `sclick@`, `cclick@` and the picture's `MAO_CLICK_KEYS` hand the held key to the
+interface themselves, which is how the keyboard's Shift and Ctrl went unseen until 2026-11-24. Every Shift or Ctrl
+click noted above as tried by script is untried for a real keyboard and is listed again here. One character is
+enough unless said.
+
+**Items (inventory, wear window, bags, bank)**
+- [ ] **1** Shift + click on an item in the inventory, on a worn item, on an item in an open bag and in the bank:
+  its info page each time, and the item is not taken up. Shift + click on the same item again: the info window
+  closes. A third time: it shows again.
+- [ ] **1** Ctrl + click on a single item (not a stack): it is taken up like a plain click. Ctrl + click on a stack
+  without moving the mouse: one of it is in hand (the split; see "The ten questions" below for the count by the
+  mouse). Ctrl + Shift + click on a stack: the same.
+- [ ] **1** Take an item up, then Shift + click on an empty cell: the item is put there and no info page opens.
+- [ ] **1** Take an item up, then right click on an empty cell of the inventory, beside the cells of a wear page,
+  and on an empty cell of a bag: each time the item is back in its place and no menu opens.
+- [ ] **1** Take up something that cannot be worn in the right hand (a ring, a tool) and click the Right Hand place:
+  the refusal's line is said and the hand is empty, the item back in the inventory.
+- [ ] **1** In a bag: take an item up and right click another item of the same bag (a tool on what it works on):
+  the one is used on the other; with Shift held the item only goes back.
+- [ ] **1** With an item in hand (from the inventory, then from a bag), press Escape: it is back in its place.
+- [ ] **1** Hold the right button on an item for a third of a second: its menu (Look At, Create Reference, Delete;
+  Lock on a worn item). A short right click uses or wears it. Shift + right click is a plain use too.
+- [ ] **1** With an item in hand: right click on another item (used on it), Shift + right click on another item of
+  the inventory (the tradeskill combine).
+- [ ] **2** With a trade open: Ctrl + right click on an inventory item puts it into the trade.
+- [ ] **2** Inspect another character: Shift + click on one of their items shows its info; a plain click does not.
+
+**Nano programs, NCU, actions, shortcut bars**
+- [ ] **1** Shift + click on a nano program: its info, and nothing is cast. A plain click casts.
+- [ ] **1** Hold the left button on a nano program without moving for a third of a second: it is in hand; let go
+  over a bar's slot and it is a shortcut there. A quick press that slides a few pixels casts instead of dragging.
+- [ ] **1** The same two for an action in the Actions window (Shift + click: info; a hold takes it up).
+- [ ] **1** On a shortcut bar: a click uses the slot, Shift + click shows the info (nothing for a macro), a hold of a
+  third of a second takes the shortcut up; with the bars locked the hold does nothing and the click still works.
+- [ ] **1** Right click on a bar's end strip (where the page number is): the bar turns upright, again and it lies
+  flat; not while the bars are locked. A double click on the strip does nothing. A locked bar still moves when
+  dragged by the strip.
+- [ ] **1** Drop a nano on a filled slot of a locked bar: the shortcut that was there is in hand.
+- [ ] **1** NCU window: right click on one of your own running nanos: "Deactivating friendly timed nanoprogram." and
+  the nano goes. On a hostile one (get debuffed by a monster): "Can't remove hostile timed nanoprogram." and it
+  stays. Hold the right button on a nano: a menu with "Look at". A plain left click does nothing; Shift + click
+  shows the nano's info.
+- [ ] **1** With `/setoption ShowNanoTargetNCU on`: in the target's NCU window a plain click does nothing and
+  Shift + click shows the info.
+
+**Info window, missions**
+- [ ] **1** In the mission journal click a mission: its page; click the same one again: the info window closes.
+- [ ] **1** In the info window follow a link, then the same link again from the page (back, and click it): the
+  window stays open (only a request from outside closes it).
+- [ ] **1** At a mission terminal: click an offer (selected, its place marked on the map), click it again (not
+  selected, the mark gone, Accept dead); Shift + click an offer: its page, the selection unchanged.
+
+**Tabs and Escape**
+- [ ] **1** Take a tab up by the right button (a dock window's, a chat window's) and press Escape: it stays where it
+  was.
+- [ ] **1** Escape with windows open and an item in hand: the item goes back and the windows that close by Escape
+  close in the same press.
+
+**The world** (these read the keys on their own and did see a real keyboard; listed to be sure)
+- [ ] **1** Shift + left click on a character and on a terminal: the info page. Ctrl + left click on a monster while
+  fighting another: the fight goes to it.
+
+## The ten questions settled as the original has them (2026-11-25): to try by hand
+
+After the user's answer ("Yes, as the original") to the click review's questions. Nothing of this was tried in the
+game; none of it can be tried by a script (the pointer is moved by the client itself in the first, and the others
+are about real key and button timing). One character unless said.
+
+**Splitting a stack**
+- [ ] **1** Hold Ctrl and press the left button on a stack in the inventory (do not let go): nothing shows yet. Move
+  the mouse a little to the right: a yellow number stands where the button went down and the pointer stays there;
+  the number goes up about one for each pixel moved, down again to the left, never under 1 and never over one fewer
+  than the stack. Let go: that many are in hand; put them on an empty cell: a new stack of that many.
+- [ ] **1** The same on a stack in an open backpack. On a stack of two: the number stays 1.
+- [ ] **1** During the count let go of Ctrl, then of the button: the split still happens. Press Escape during the
+  count: nothing changes (the original has no way out but the release; with the split in hand Escape puts it back).
+- [ ] **1** If the pointer runs away from the stack while counting instead of staying put, say so: the client asks
+  the window system to put it back after every move.
+
+**Menus**
+- [ ] **1** Right click on an empty cell of the inventory, beside the cells of the wear window and of the Inspect
+  window, on an empty cell of a bag and of the bank, beside the programs in the nano programs window, beside the
+  nanos in the NCU window, beside the rows of a shop's lists, on the Stats window, on the target's NCU window and
+  on the playfield map: nothing opens anywhere.
+- [ ] **1** The menu button at the left end of each of those windows' titles opens the window's own menu (List Mode
+  and Auto Arrange, Labels On Top, the Stats bars, List Mode and Hostile Only, Show buttons), with "Close Window"
+  last. For a window docked in the column, the menu button of its header does.
+- [ ] **1** NCU window: hold the right button on a nano: the menu has "Look at" only.
+- [ ] **1** Chat window's menu: it ends at "New Window"; no "Move to ..." entries. A chat tab still moves by the
+  right button let go on it, then a click where it is to go.
+
+**Docking**
+- [ ] **1** No window has a dock button in its title. Open Stats and Faction as free windows: each has its tab in
+  the title row; take the tab up with the right button and put it down on the column at the right edge: it is a
+  page there. Hold the right button on the page and put it down in the open: a free window again.
+- [ ] **1** A pet window that was docked before this change comes up as a free window.
+
+**Tips**
+- [ ] **1** Rest the pointer on an inventory item: after about half a second its tip, right of and under the pointer
+  (left of it in the right half of the screen, over it in the lower half). Move within the item: the tip stays
+  where it is. Press a button: it goes, and comes back only after the pointer has moved and rested again.
+- [ ] **1** The same tip on an item in a bag, in the bank and on a corpse: the name in its rarity's colour, then the
+  item's values (no "QL n" line and cut description as before).
+- [ ] **1** Nano programs window: a program's tip is its info page's body (nano cost, NCU, duration, what it
+  changes, the description) without its name line, "Skill to use" and requirements.
+- [ ] **1** NCU window: a running nano's tip: its name; "Friendly" (or "Hostile" in red, "Team" in green); "NCU
+  usage: n"; "Remaining: hh:mm:ss"; "Modifies:" and what it changes. The time in the tip moves on about once a
+  second while the pointer rests.
+- [ ] **1** Shortcut bar: a slot's tip is the name alone (in the rarity's colour for an item), a macro's its name
+  with its command under it.
+- [ ] **1** An item with a nano it casts (a nano crystal, a stim): its tip has no "Cast ..." line, its info page has.
+
+**Chat keys**
+- [ ] **1** Not typing, Alt+Enter: the chat's input line opens, as with Enter. The window does not change its mode;
+  F11 does, and the options window (F10) and the launcher's page.
+- [ ] **1** With two chat windows that take text: type in one, press Alt+Enter: the typing is in the other (the next
+  by its name); Alt+Shift+Enter goes back. What was typed stays with its window when the two are separate windows.
+- [ ] **1** In an empty input line press Tab: a list of the channels the window can talk to opens over the line, the
+  current one ticked; pick another and the next line goes there. Ctrl+Tab opens it with text in the line too. Tab
+  never moves the typing out of the line.
+- [ ] **1** Type "/" and some letters: the client's own list of commands still shows (kept; see the review's head).
+
+**World and maps**
+- [ ] **1** Middle button on the world: nothing (the camera stays). Numeric pad 5 resets the camera.
+- [ ] **1** Planet map: turn the wheel: the map moves up and down a little and does not zoom; nothing when the whole
+  level fits the window. Double left click on a town: one level closer with that town in the middle. Double right
+  click: one level further. "Zoom in" at the closest level and "Zoom out" at the furthest are greyed. After a
+  button's zoom the character is in the middle. No coordinates are written at the lower left.
+- [ ] **1** Drag the planet map with the left, then the right button: it moves faster than the mouse (1.5 times).
+- [ ] **1** Playfield map: a right click on it opens nothing; "Show buttons" is on the title's menu button.
+
+**Buttons**
+- [ ] **1** Press a check box (options window, any window with one) and hold: it flips as the button goes down, not
+  when it comes up. The same for a radio button, the pin in a window's title, the title's menu button (the menu
+  opens on the press) and a column page's roll and close buttons.
+- [ ] **1** Press an ordinary button (Accept in a trade's window is NOT to be pressed in a test: use Close or a
+  dialog's Cancel), hold it for two seconds, let go on it: it acts. Press it, move off it and let go: nothing, and
+  the button stops looking pressed while the pointer is off it. Press, move off, move back, let go: it acts.
+- [ ] **1** Perk window: a perk line's button acts as the mouse button goes down.
+- [ ] **2** Player trade: type credits and press Enter: the typing ends and nothing is sent at once; the other side
+  sees the amount about a second after the last key. Press Accept right after typing: the amount goes first.

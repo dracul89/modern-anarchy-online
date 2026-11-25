@@ -2,7 +2,10 @@
 //! LARGE 8, HUGE 9, TT_MIN12 10, ITALIC 11, CHAT 12; anything else NORMAL) and `FontSystem_t`'s table of them (0x10272df0,
 //! read by its constructor 0x1012eef1): 0 and 1 the bitmap `FontTooltip9.fnt`, 2 and 3 `FontGameShell12.fnt`, then Verdana
 //! (`CreateTTFont` 0x1012ed48, `CreateFontA` with the cell height) 4 bold 20, 5 13, 6 bold 13, 7 12, 8 16, 9 bold 24, 10 14,
-//! 11 italic 16.
+//! 11 italic 16. CHAT (12) is no entry of the table: the constructor makes it last (0x1012f19a on), `CreateTTFont(12, ...)`
+//! with the preferences' `ChatFontName`, `ChatFontStyle` and a tenth of `ChatFontSize` for its cell height (`MainPrefs.xml`:
+//! Verdana, Regular, 140, between 50 and 480). Until 2026-11-24 the chat's lines were drawn in the bitmap `FontChat9.fnt`,
+//! which the original's chat does not use: the user's picture of the original's chat beside this client's.
 //!
 //! The table's byte at +0x10 asks for bold, the one at +0x11 for italic (the constructor's "Bold" / "Regular" plus
 //! "italic" style, which `CreateTTFont` turns into weight 700 and the italic flag): entries 4, 6 and 9 are bold, 11 italic.
@@ -13,7 +16,8 @@
 //! the height is the egui screen's, in the points the views are laid out in.
 //!
 //! Departures: the TrueType fonts are egui's Verdana (the system's regular, bold or italic face) at the size whose ascent
-//! plus descent is the cell height (Verdana's 2489/2048 of its em); CHAT (12, empty in the table) is the chat bitmap font.
+//! plus descent is the cell height (Verdana's 2489/2048 of its em); CHAT is Verdana whatever `ChatFontName` and
+//! `ChatFontStyle` say.
 
 use super::geom::Point;
 
@@ -34,7 +38,6 @@ impl FontId {
         match self.0 {
             0 | 1 => Some("tooltip"),
             2 | 3 => Some("shell"),
-            12 => Some("chat"),
             _ => None,
         }
     }
@@ -57,9 +60,10 @@ impl FontId {
         (table as f64 * scale as f64).trunc() as f32
     }
 
-    /// A TrueType entry's cell height in the table.
+    /// A TrueType entry's cell height in the table; CHAT's from the preferences ([`chat_cell`]).
     fn cell(self) -> f32 {
         match self.0 {
+            12 => chat_cell(crate::prefs::get("ChatFontSize")),
             4 => 20.0,
             7 => 12.0,
             8 | 11 => 16.0,
@@ -68,6 +72,12 @@ impl FontId {
             _ => 13.0,
         }
     }
+}
+
+/// The chat font's cell height: a tenth of `ChatFontSize`, cut to a whole number (`FontSystem_t`'s constructor,
+/// 0x1012f1c0: `AsInt32() / 10`); 140 where the preference is not there, and never under the preference's least, 50.
+pub fn chat_cell(size: Option<f64>) -> f32 {
+    ((size.unwrap_or(140.0) as i32).clamp(50, 480) / 10) as f32
 }
 
 /// Text measuring for the views' preferred sizes: with an egui context the real fonts, without (tests) a fixed
@@ -150,9 +160,17 @@ mod tests {
         assert_eq!(FontId::named("CC17").style(), (true, false));
         assert_eq!(FontId::named("HUGE").style(), (true, false));
         assert_eq!(FontId::named("ITALIC").style(), (false, true));
-        for n in ["NORMAL", "SMALL", "LARGE", "TT_MIN12"] {
+        for n in ["NORMAL", "SMALL", "LARGE", "TT_MIN12", "CHAT"] {
             assert_eq!(FontId::named(n).style(), (false, false), "{n}");
         }
+    }
+
+    /// CHAT is a TrueType font of the preferences' size, a tenth of `ChatFontSize` cut to a whole number: 14 by the
+    /// game's own `MainPrefs.xml`, within the preference's 50 to 480.
+    #[test]
+    fn the_chat_font_is_the_preferences_size() {
+        assert_eq!([chat_cell(None), chat_cell(Some(140.0)), chat_cell(Some(165.0)), chat_cell(Some(10.0)), chat_cell(Some(900.0))], [14.0, 14.0, 16.0, 5.0, 48.0]);
+        assert!(FontId::named("CHAT").bitmap().is_none());
     }
 
     /// WIN-027: CC17 by the height over 768, TT_MIN12 by 1 + 0.4 of the height over 480 less one, cut to whole

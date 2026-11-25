@@ -811,16 +811,20 @@ impl AutoMap {
                 response.clone().on_hover_text(format!("{}
 {:.1}x{:.1}", crate::gui::xml::ldb_named(10000, "PointerPosition", "Pointer at"), world[0], world[1]));
             }
-            if response.secondary_clicked() {
-                let at = response.interact_pointer_pos().unwrap_or(rect.center());
-                self.pf_menu = Some(crate::chrome::menu_marked(ctx, at, &[("Buttons".to_string(), true, Some(self.pf_buttons))]));
-            }
             if self.pf_buttons {
                 self.control_bar(ui, egui::pos2(rect.left(), rect.bottom() + 3.0), notum_wars, palette);
             }
         });
-        if crate::chrome::menu(ctx, palette, "pf-map-menu", &mut self.pf_menu) == Some(0) {
-            self.pf_buttons = !self.pf_buttons;
+        // (the view's menu, `PlayfieldMapView_c`'s 0x100ec16b: "Show buttons" with its mark, from the frame's menu
+        // button, the frame's own entry after it. Until 2026-11-25 a right click on the map opened it; the original's
+        // right button grabs the map as the left one does.)
+        if let Some(at) = crate::chrome::frame_menu("map_window") {
+            self.pf_menu = Some(crate::chrome::menu_marked(ctx, at, &[(crate::gui::xml::ldb_named(10000, "ShowButtons", "Show buttons"), true, Some(self.pf_buttons)), (crate::chrome::close_entry(), true, None)]));
+        }
+        match crate::chrome::menu(ctx, palette, "pf-map-menu", &mut self.pf_menu) {
+            Some(0) => self.pf_buttons = !self.pf_buttons,
+            Some(_) => crate::chrome::close_next("map_window"),
+            None => {}
         }
         self.pf_open = open;
     }

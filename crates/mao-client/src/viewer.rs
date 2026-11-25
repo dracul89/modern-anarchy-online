@@ -1458,6 +1458,8 @@ impl ApplicationHandler for App {
                 WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Right, .. } => self.buttons[1],
                 _ => false,
             };
+            // (the keys held, Shift, Ctrl and Alt: the interface is told of them and takes nothing by it)
+            ui.held_keys(&w.window, &event);
             let taken = !capturing && !matches!(event, WindowEvent::RedrawRequested | WindowEvent::ModifiersChanged(_) | WindowEvent::CloseRequested | WindowEvent::Resized(_)) && ui.event(&w.window, &event);
             if taken && !world_release {
                 // (MAO_MOUSE_LOG=1: where the buttons go and what the mouse picks)
@@ -1495,10 +1497,9 @@ impl ApplicationHandler for App {
             // one turns the character (`N3Msg_MouseMovement`; with Ctrl the camera only). A click without
             // moving the mouse (its mouse-up FUN_1002cfac): the left button selects what is under the pointer, the
             // right one uses it (a character's default action, `N3Msg_DefaultActionOnDynel`; anything else
-            // `N3Msg_UseItem`). The middle button resets the camera, its wheel zooms.
-            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Middle, .. } if self.live.is_some() => {
-                self.cam_reset = true;
-            }
+            // `N3Msg_UseItem`). The middle button does nothing (FUN_1002ce31 acts on buttons 1 and 2 only, and no key
+            // of the default table is bound to it; the client's own camera reset on it went on 2026-11-25: the
+            // reset keeps its key, `Action::CameraReset`). The wheel zooms.
             WindowEvent::MouseInput { state, button: button @ (MouseButton::Left | MouseButton::Right), .. } if self.live.is_some() => {
                 if state == ElementState::Pressed && !self.buttons[0] && !self.buttons[1] {
                     self.moved = 0.0;
@@ -3588,6 +3589,11 @@ impl ApplicationHandler for App {
                     }
                     if let Some(preset) = requests.preset {
                         preset.apply(&mut self.settings);
+                    }
+                    // (a stack being split by the mouse: the pointer goes back to where the button went down after every
+                    // move, `WindowController_c::SetMousePosition` in FUN_10041ca4)
+                    if let Some((x, y)) = crate::gear::count_hold() {
+                        let _ = w.window.set_cursor_position(winit::dpi::PhysicalPosition::new(x, y));
                     }
                     if let Some(mode) = requests.mode {
                         self.settings.mode = mode;

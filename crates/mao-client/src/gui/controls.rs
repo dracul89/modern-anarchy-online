@@ -266,26 +266,25 @@ impl Control for Button {
     fn takes_mouse(&self) -> bool {
         true
     }
-    /// `ButtonBase_c::MouseDown` (0x101298db) / `MouseUp` (0x101294c9): clicked when let go over it; a toggle button
-    /// changes state.
+    /// `ButtonBase_c::MouseDown` (0x101298db) / `MouseUp` (0x101294c9): a toggle button (a check box's, a radio
+    /// button's) changes state as the button goes DOWN on it, and its release is nothing more; a plain button only
+    /// looks pressed then, and is clicked when let go over it (see `chrome::on_press`). Until 2026-11-25 a toggle
+    /// changed on the release.
     fn mouse(&mut self, m: Mouse, _at: Point) -> Option<Signal> {
         match m {
             Mouse::Down => {
                 self.held = true;
-                None
-            }
-            Mouse::Up { inside } => {
-                self.held = false;
-                if !inside {
-                    return None;
-                }
                 if self.toggle {
                     self.on = !self.on;
                     return Some(Signal::Toggled(self.on));
                 }
-                Some(Signal::Clicked)
+                None
             }
-            Mouse::Move => None,
+            Mouse::Up { inside } => {
+                self.held = false;
+                (inside && !self.toggle).then_some(Signal::Clicked)
+            }
+            Mouse::Move | Mouse::Held => None,
         }
     }
     any!();
@@ -465,6 +464,7 @@ impl Control for Slider {
                 }
                 None
             }
+            Mouse::Held => None,
             Mouse::Move => {
                 if let Some(g) = self.grab {
                     let span = (self.width.get() - self.knob_size.get().x).max(1.0);
@@ -781,7 +781,10 @@ pub fn markup_click(ui: &mut egui::Ui, palette: &Palette, text: &str, font: Font
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     let secondary = response.secondary_clicked();
-    let click = over.filter(|_| response.clicked() || secondary).map(|link| LinkClick {
+    // (a link acts as the left button goes down on it, `TextRenderer_c::MouseDown` 0x10163bcd; until 2026-11-25 on
+    // the release)
+    let pressed = crate::chrome::on_press(response.clone()).clicked();
+    let click = over.filter(|_| pressed || secondary).map(|link| LinkClick {
         link,
         secondary,
         qualified: ui.input(|i| qualified(i.modifiers)),

@@ -204,7 +204,7 @@ impl Control for TreeList {
                 self.pressed = None;
                 None
             }
-            Mouse::Move => None,
+            Mouse::Move | Mouse::Held => None,
         }
     }
     fn as_any(&self) -> &dyn std::any::Any {

@@ -156,10 +156,8 @@ impl StatsWindow {
         let shown = crate::layout::tab("StatViewConfig").unwrap_or(0);
         let tip = |key: &str, own: &str| crate::gui::xml::ldb_named(10000, key, own);
         let mut open = self.open;
-        let mut menu_at = None;
         crate::chrome::window(ctx, palette, "Stats", "Stats", &mut open, |w| w.resizable(false).default_pos(crate::layout::pos("Stats", egui::pos2(40.0, 120.0))), |ui| {
             ui.set_width(210.0);
-            let area = ui.max_rect();
             let get = |s: u32| stats.get(&s).copied();
             let pair = |ui: &mut egui::Ui, word: &str, value: String| {
                 ui.spacing_mut().item_spacing.x = 4.0;
@@ -216,19 +214,21 @@ impl StatsWindow {
                 });
                 hover(row.response.interact(egui::Sense::hover()), label, parts.get(number), accent);
             }
-            if ui.input(|i| i.pointer.secondary_clicked())
-                && let Some(at) = ui.input(|i| i.pointer.interact_pos()).filter(|p| area.contains(*p))
-            {
-                menu_at = Some(at);
-            }
         });
-        // (the bars to show: a ticked entry each)
-        if let Some(at) = menu_at {
-            let entries: Vec<(String, bool, Option<bool>)> = OPTIONAL.iter().enumerate().map(|(k, (key, own, _))| (tip(key, own), true, Some(shown & (1 << k) != 0))).collect();
+        // (the bars to show, a ticked entry each: the view's menu, `StatView_c`'s 0x10082d23, which the frame's menu
+        // button opens (and the page's in the rollup column), with the frame's own entry after it. Until 2026-11-25
+        // a right click on the window opened it, where the original does nothing.)
+        if let Some(at) = crate::chrome::frame_menu("Stats") {
+            let mut entries: Vec<(String, bool, Option<bool>)> = OPTIONAL.iter().enumerate().map(|(k, (key, own, _))| (tip(key, own), true, Some(shown & (1 << k) != 0))).collect();
+            entries.push((crate::chrome::close_entry(), true, None));
             self.popup = Some(crate::chrome::menu_marked(ctx, at, &entries));
         }
         if let Some(k) = crate::chrome::menu(ctx, palette, "stats-menu", &mut self.popup) {
-            crate::layout::set_tab("StatViewConfig", shown ^ (1 << k));
+            if k < OPTIONAL.len() {
+                crate::layout::set_tab("StatViewConfig", shown ^ (1 << k));
+            } else {
+                crate::chrome::close_next("Stats");
+            }
         }
         self.open = open;
     }

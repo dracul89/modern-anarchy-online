@@ -374,6 +374,18 @@ fn popup_entries(nodes: &[Node]) -> Vec<crate::gui::popup::Entry> {
     nodes.iter().map(|n| n.entry.clone()).collect()
 }
 
+/// The chat window the typing goes to from window `current` on Alt+Enter while typing (`forward`; with Shift the
+/// other way): GUI.dll FUN_10094a78 / FUN_10094c27 put the windows that are the current one or take text
+/// (`is_textinput_enabled`) in the order of their names and, under one name, of their places among their frame's
+/// tabs, and go one on from the current, round to the first after the last. `windows` gives each window's name, its
+/// place among its frame's tabs, and whether it takes text.
+pub fn next_typing(windows: &[(String, usize, bool)], current: usize, forward: bool) -> usize {
+    let mut round: Vec<usize> = (0..windows.len()).filter(|k| *k == current || windows[*k].2).collect();
+    round.sort_by(|a, b| (&windows[*a].0, windows[*a].1).cmp(&(&windows[*b].0, windows[*b].1)));
+    let Some(at) = round.iter().position(|k| *k == current) else { return current };
+    round[if forward { (at + 1) % round.len() } else { (at + round.len() - 1) % round.len() }]
+}
+
 /// The entry at a place through the sub-menus.
 fn node_at<'a>(nodes: &'a [Node], path: &[usize]) -> Option<&'a Node> {
     let (&k, rest) = path.split_first()?;
@@ -565,9 +577,13 @@ fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std:
         heights.clear();
     }
     let text = |name: &str, (r, g, b): (u8, u8, u8)| palette.text(name).map_or(egui::Color32::from_rgb(r, g, b), |c| egui::Color32::from_rgb(c[0], c[1], c[2]));
-    let chat_font = if crate::font::enabled() { crate::font::chat(ui.ctx()) } else { None };
+    // (the chat's own font, `FontSystem_t`'s CHAT: `gui::font`)
+    let font = crate::gui::font::FontId::named("CHAT");
     let stamps = pane.is_some_and(|p| p.timestamps);
     crate::chrome::scroll(ui, palette, egui::ScrollArea::vertical().max_height(height).min_scrolled_height(height).auto_shrink([false, false]).stick_to_bottom(true), |ui| {
+        // (a line right under the one before, the font's cell apart: the original's chat of Verdana 14 has its lines
+        // 14 apart, by the user's pictures of 2026-11-24; egui's own gap between widgets made them 17)
+        ui.spacing_mut().item_spacing.y = 0.0;
         let shown: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| line_shows(l, pane, only)).map(|(k, _)| k).collect();
         for &k in &shown[shown.len().saturating_sub(VIEW_LINES)..] {
             let line = &lines[k];
@@ -595,7 +611,6 @@ fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std:
                 Kind::Combat => text("CCMeHitOtherColor", (240, 170, 130)),
             };
             if let Some(m) = &line.markup {
-                let font = if chat_font.is_some() { crate::gui::font::FontId::named("CHAT") } else { crate::gui::font::FontId::NORMAL };
                 let shown = format!("{stamp}{m}");
                 let key = {
                     use std::hash::{Hash, Hasher};
@@ -610,14 +625,7 @@ fn draw_lines(ui: &mut egui::Ui, palette: &Palette, lines: &[Line], born: &[std:
                 continue;
             }
             let shown = format!("{stamp}{}", line.text);
-            match &chat_font {
-                Some(font) => {
-                    font.label(ui, &shown, color);
-                }
-                None => {
-                    ui.label(egui::RichText::new(&shown).color(color));
-                }
-            }
+            ui.label(egui::RichText::new(&shown).color(color).font(crate::gui::font::Measure { ctx: Some(ui.ctx().clone()) }.egui_font(font)));
         }
     });
     ui.ctx().data_mut(|d| d.insert_temp(heights_id, heights));
@@ -726,8 +734,6 @@ fn menu_text(name: &str) -> String {
         "RenameX" => "Rename %s",
         "DeleteX" => "Delete %s",
         "CloneX" => "Copy %s",
-        "own:detach" => "Move to a window of its own",
-        "own:attach" => "Move into the window of %s",
         _ => name,
     };
     crate::gui::xml::ldb_named(10001, name, own)
@@ -815,6 +821,37 @@ impl ChatWindow {
         self.menu_name = (name.to_string(), frame);
     }
 
+    /// The groups window `pane` can talk to, sorted, the one it talks to now marked (FUN_1009aae8's list: "Talk to
+    /// Channel" in the window's menu, and the list Tab opens on an empty line).
+    fn talk_nodes(&self, pane: usize) -> Vec<Node> {
+        use crate::gui::popup::Entry;
+        let Some(pane) = self.panes.get(pane) else { return Vec::new() };
+        let mut groups: std::collections::BTreeSet<String> = chatgroups::BUILTIN.iter().map(|g| g.1.to_string()).collect();
+        groups.extend(chatgroups::server_groups());
+        groups.extend(pane.known.iter().cloned());
+        let output = if pane.output.is_empty() { chatgroups::VICINITY } else { pane.output.as_str() };
+        groups.iter().filter(|g| pane.selected.contains(*g) && chatgroups::talkable(g)).map(|g| Node::leaf(Menu::Talk, g, Entry::marked(g.clone(), true, g == output))).collect()
+    }
+
+    /// Tab on an empty input line, or Ctrl+Tab (the input bar's key handler, GUI.dll 0x100902ac key 0xf, raising the
+    /// signal FUN_1009aae8 answers): the list of the groups the window can talk to, the one it talks to now marked and
+    /// highlighted, its foot 8 above the field's top left corner; a pick makes it the group the window talks to.
+    /// Nothing when there is no such group.
+    fn open_channel_list(&mut self, ctx: &egui::Context, pane: usize, field: egui::Rect) {
+        let nodes = self.talk_nodes(pane);
+        if nodes.is_empty() {
+            return;
+        }
+        let output = self.panes.get(pane).map_or(String::new(), |p| if p.output.is_empty() { chatgroups::VICINITY.to_string() } else { p.output.clone() });
+        let highlighted = nodes.iter().position(|n| n.key == output);
+        let row = crate::gui::font::Measure { ctx: Some(ctx.clone()) }.height(crate::gui::font::FontId::NORMAL);
+        let height = crate::gui::popup::stack(&vec![row; nodes.len()]).1 + 12.0;
+        let at = egui::pos2(field.left(), (field.top() - 8.0 - height).max(0.0));
+        self.popup = Some(crate::gui::popup::PopupMenu::new(popup_entries(&nodes), at, highlighted, ctx.cumulative_frame_nr()));
+        self.menu = Some((nodes, at));
+        self.menu_pane = pane;
+    }
+
     /// The window's menu (FUN_100abb98 under FUN_10097a40's "Visual"), its sub-menus inside it.
     fn menu_tree(&self) -> Vec<Node> {
         use crate::gui::popup::Entry;
@@ -851,8 +888,7 @@ impl ChatWindow {
         visual.push(Node::leaf(Menu::Visual, "behind", Entry::marked(menu_text("ChatWindowMenu_Style_AlwaysBehind"), true, look.layer < 0)));
         visual.push(Node::leaf(Menu::Visual, "top", Entry::marked(menu_text("ChatWindowMenu_Style_AlwaysOnTop"), true, look.layer > 0)));
 
-        let output = if pane.output.is_empty() { chatgroups::VICINITY } else { pane.output.as_str() };
-        let mut talk: Vec<Node> = groups.iter().filter(|g| pane.selected.contains(*g) && chatgroups::talkable(g)).map(|g| Node::leaf(Menu::Talk, g, Entry::marked(g.clone(), true, g == output))).collect();
+        let mut talk = self.talk_nodes(self.menu_pane);
         if talk.is_empty() {
             talk.push(Node::leaf(Menu::Talk, "", Entry::text(menu_text("NoSelectableGroups"), false)));
         }
@@ -860,7 +896,9 @@ impl ChatWindow {
         let kind = |combat: bool| -> Vec<Node> { groups.iter().filter(|g| chatgroups::is_combat(g) == combat).map(|g| Node::leaf(Menu::Groups { combat }, g, Entry::marked(g.clone(), true, pane.selected.contains(g)))).collect() };
         let subscribe = vec![Node::parent(Menu::Subscribe, "public", "Public Groups".to_string(), true, kind(false)), Node::parent(Menu::Subscribe, "combat", "Combat Messages".to_string(), true, kind(true))];
 
-        let mut main = vec![
+        // (the client's own "Move to a window of its own" / "Move into the window of X" entries (CHT-001) went on
+        // 2026-11-25: a tab is carried by the mouse, as in the original, and the original's menu ends at "New Window")
+        vec![
             Node::parent(Menu::Main, "visual", menu_text("ChatWindowMenu_Visual"), true, visual),
             Node::separator(Menu::Main),
             Node::parent(Menu::Main, "talk", menu_text("ChatWindowMenu_TalkToChannel"), true, talk),
@@ -873,22 +911,7 @@ impl ChatWindow {
             Node::leaf(Menu::Main, "rename", Entry::text(menu_text("RenameWindow"), true)),
             Node::leaf(Menu::Main, "delete", Entry::text(menu_text("DeleteWindow"), self.panes.len() > 1)),
             Node::leaf(Menu::Main, "new", Entry::text(menu_text("NewWindow"), true)),
-        ];
-        // (this client's own, in place of dragging the tab: out into a window of its own when it shares its frame,
-        // or into another frame, named by its first window)
-        let mut own = Vec::new();
-        if chatgroups::members(&self.panes, &pane.frame).len() > 1 {
-            own.push(Node::leaf(Menu::Main, "detach", Entry::text(menu_text("own:detach"), true)));
-        }
-        for f in chatgroups::frames(&self.panes).into_iter().filter(|f| *f != pane.frame) {
-            let first = self.panes.iter().find(|p| p.frame == f).map_or(f.clone(), |p| p.name.clone());
-            own.push(Node::leaf(Menu::Main, &format!("attach:{f}"), Entry::text(menu_text("own:attach").replace("%s", &first), true)));
-        }
-        if !own.is_empty() {
-            main.push(Node::separator(Menu::Main));
-            main.extend(own);
-        }
-        main
+        ]
     }
 
     /// The chat windows' names, in their order (the friends list's "Chat Windows").
@@ -1003,17 +1026,6 @@ impl ChatWindow {
             (Menu::Main, "delete") if self.panes.len() > 1 => {
                 self.panes.remove(tab);
                 self.tab = self.tab.min(self.panes.len() - 1);
-            }
-            (Menu::Main, "detach") => {
-                let frame = chatgroups::free_name(&self.panes);
-                if let Some(pane) = self.panes.get_mut(tab) {
-                    pane.frame = frame;
-                }
-            }
-            (Menu::Main, key) if key.starts_with("attach:") => {
-                if let Some(pane) = self.panes.get_mut(tab) {
-                    pane.frame = key["attach:".len()..].to_string();
-                }
             }
             (_, _) => {
                 let Some(pane) = self.panes.get_mut(tab) else { return };
@@ -1843,6 +1855,35 @@ impl ChatWindow {
         }
         let suggestions = chat_commands::suggest_with(&self.input, &crate::scripts::names());
         let has_focus = ctx.memory(|m| m.has_focus(input_id));
+        // (Alt+Enter while typing: the typing goes to the next chat window, with Shift to the one before; the line
+        // typed so far stays with its window. GUI.dll 0x100902ac key 0x18 with the qualifiers' 0x30, FUN_10094a78 /
+        // FUN_10094c27. Until 2026-11-25 Alt+Enter was this client's window mode key.)
+        // (Tab on an empty line, or Ctrl+Tab: the list of the groups the window can talk to, key 0xf.)
+        let (mut round, mut channels) = (None, false);
+        if has_focus && pane < self.panes.len() {
+            ctx.input_mut(|i| {
+                if i.consume_key(egui::Modifiers::ALT | egui::Modifiers::SHIFT, egui::Key::Enter) {
+                    round = Some(false);
+                } else if i.consume_key(egui::Modifiers::ALT, egui::Key::Enter) {
+                    round = Some(true);
+                }
+                channels = i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab) || (self.input.is_empty() && i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+            });
+        }
+        if let Some(forward) = round {
+            let windows: Vec<(String, usize, bool)> = (0..self.panes.len()).map(|k| (self.panes[k].name.clone(), chatgroups::members(&self.panes, &self.panes[k].frame).iter().position(|m| *m == k).unwrap_or(0), self.panes[k].look.input)).collect();
+            let to = next_typing(&windows, pane, forward);
+            if to != pane {
+                let to_frame = self.panes[to].frame.clone();
+                if chatgroups::frames(&self.panes).first() == Some(&to_frame) {
+                    self.tab = to;
+                    self.focus_next = true;
+                } else {
+                    self.shown.insert(to_frame.clone(), to);
+                    self.focus_frame = Some(to_frame);
+                }
+            }
+        }
         // The list's keys are taken before the field sees them.
         let (mut up, mut down, mut take) = (false, false, false);
         if has_focus && !suggestions.is_empty() {
@@ -1872,7 +1913,12 @@ impl ChatWindow {
         if down && self.selected + 1 < suggestions.len() {
             self.selected += 1;
         }
-        let response = ui.add(egui::TextEdit::singleline(&mut self.input).id(input_id).desired_width(f32::INFINITY).hint_text("Type to speak, / for commands"));
+        // (Tab does not leave the line: the original's field keeps the keys, and nothing is put in for it)
+        let response = ui.add(egui::TextEdit::singleline(&mut self.input).id(input_id).desired_width(f32::INFINITY).lock_focus(true).hint_text("Type to speak, / for commands"));
+        if channels {
+            self.open_channel_list(ctx, pane, response.rect);
+            response.request_focus();
+        }
         if response.changed() {
             self.selected = 0;
             self.keep_list = false;
@@ -1983,7 +2029,8 @@ impl ChatWindow {
             let names: Vec<&str> = names.iter().map(String::as_str).collect();
             let mut tab = members.iter().position(|k| *k == shown).unwrap_or(0);
             let mut hits = crate::chrome::TabHits::default();
-            crate::chrome::tab_view_hits(ui, palette, &names, &mut tab, &mut hits, |ui, tab| {
+            // (the tabs in the window's title row, as the original's chat windows have them)
+            crate::chrome::title_tab_view_hits(ui, palette, &names, &mut tab, &mut hits, |ui, tab| {
                 shown = members.get(tab).copied().unwrap_or(lead);
                 let height = (ui.available_height() - below).max(40.0);
                 draw_lines(ui, palette, &self.lines, &self.born, self.panes.get(shown), None, height, fade, &mut pressed);
@@ -2033,13 +2080,20 @@ impl ChatWindow {
         out
     }
 
+    /// Escape: a carried tab is given up and stays where it was. Called from the game's own Escape, since the key
+    /// never reaches the interface library outside a text field.
+    pub fn cancel_carry(&mut self) {
+        self.carried = None;
+    }
+
     /// A tab carried (taken up by the right button on it): its picture follows the pointer, held where it was taken
     /// (`DragObject_c::StartDragging`, 0x1012ba1c), until the left button puts it down:
     /// - on a tab of a frame's strip, before that tab; on the strip past the tabs, last (FUN_10098038 with
     ///   `TabView::SlotItemDropped` 0x10145a95); a frame left without tabs is gone;
     /// - anywhere else, into a window of its own whose corner is there (FUN_100984c2), but not the only tab of its frame.
     ///
-    /// Escape lets go of it (this client's own: how the original drops a drag otherwise was not read). Which button
+    /// Escape lets go of it, as of anything carried in the original (`WindowController_c::BeginDrag`, GUI.dll
+    /// 0x10157842, makes each drag object's `Cancel` a slot of the Escape signal): [`ChatWindow::cancel_carry`]. Which button
     /// takes a tab up is as the decompile reads (`Tab` FUN_10146ef3 begins on the second button let go on it), not seen live.
     fn carry(&mut self, ctx: &egui::Context, palette: &Palette) {
         let strips = std::mem::take(&mut self.strips);
@@ -2339,6 +2393,26 @@ impl ChatWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_10094a78 / FUN_10094c27: Alt+Enter while typing goes round the windows that take text, by name.
+    #[test]
+    fn alt_enter_goes_round_the_windows_that_take_text() {
+        let w = |name: &str, tab: usize, input: bool| (name.to_string(), tab, input);
+        // (in the order made: Default, Combat, Team (no typing in it), Alpha)
+        let windows = vec![w("Default", 0, true), w("Combat", 1, true), w("Team", 0, false), w("Alpha", 0, true)];
+        // (by name: Alpha, Combat, Default; Team is left out)
+        assert_eq!(next_typing(&windows, 0, true), 3);
+        assert_eq!(next_typing(&windows, 3, true), 1);
+        assert_eq!(next_typing(&windows, 1, true), 0);
+        assert_eq!(next_typing(&windows, 0, false), 1);
+        assert_eq!(next_typing(&windows, 3, false), 0);
+        // (the window typed in is in the round though it takes no text; alone, it stays)
+        assert_eq!(next_typing(&windows, 2, true), 3);
+        assert_eq!(next_typing(&[w("Only", 0, true)], 0, true), 0);
+        // (two of one name: by their tabs' places)
+        let twins = vec![w("Same", 1, true), w("Same", 0, true)];
+        assert_eq!((next_typing(&twins, 1, true), next_typing(&twins, 0, true)), (0, 1));
+    }
 
     /// FUN_100971a3 / FUN_1009829a / FUN_100b243e: the default chat window across the screen's foot 224 in from each side
     /// and 3 above the bottom; another chat window a 400 by 200 client, a tell window a 389 by 219 one, in the middle.

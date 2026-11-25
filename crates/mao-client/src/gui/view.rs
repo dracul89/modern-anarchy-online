@@ -73,6 +73,10 @@ pub trait Control: Any {
     fn takes_mouse(&self) -> bool {
         false
     }
+    /// Whether the view is to be told of the button still held on it, every frame (`Mouse::Held`).
+    fn wants_held(&self) -> bool {
+        false
+    }
     /// `MouseDown` / `MouseUp` / `MouseMove` at a point in the view's bounds; a signal for the window's code.
     fn mouse(&mut self, _m: Mouse, _at: Point) -> Option<Signal> {
         None

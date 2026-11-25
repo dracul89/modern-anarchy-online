@@ -126,8 +126,15 @@ The drag object lives until a mouse-up. A mouse-up over a list emits its drop si
   true -> `N3Msg_MoveItemToInventory(item, inventory id, slot)` (7 weapons, 3 clothes +0x10, 8 implants +0x20, 0xe social +0x30
   **[V GC 10027bac]**), accept.
 - While hovering, FUN_100e1ded (signal `+0x12c`) turns the pointer into the "no" shape over a cell the held item cannot be worn in **[V 100e1ded, 100e2cee]**.
-- FUN_100cc855 also runs first and calls `N3Msg_ContainerAddItem({page type, 0}, item)`, which finds no such container list and
+- FUN_100cc855 also runs and calls `N3Msg_ContainerAddItem({page type, 0}, item)`, which finds no such container list and
   returns **[V GC 10028433: `N3Msg_GetContainerInventoryList` null -> out]**.
+- **Corrected 2026-11-25** (the click review, `docs/INTERACTIONS_ORIGINAL.md`): FUN_100cc855 runs AFTER FUN_100e220f, not first
+  (`SignalBase_c::_Connect` puts a slot at the list's head, and an emission runs from the head), and after its
+  `ContainerAddItem` it calls `Accept(2)` on the drag whatever came of it **[V 100cccce..100cccfb]**. So a wear place that refuses
+  the item does not leave it in hand: the drag ends and the item is back in its place. The line above ("nothing at all: the item
+  stays in hand") is true of FUN_100e220f alone. Also corrected there: the bank's "own" flag is 1 (a left click takes a bank item
+  up; the right click's take-out is FUN_100cae1b's own test for `0xdead`), and Shift + right click is the click signal like any
+  right click (the up handler tests no key for button 2).
 
 ### Elsewhere
 

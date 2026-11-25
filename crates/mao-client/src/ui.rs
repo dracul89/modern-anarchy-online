@@ -202,6 +202,8 @@ pub struct TargetBar {
 
 #[derive(Default)]
 pub struct Requests {
+    /// Info pages asked for by the shortcut bars (Shift + click on a shortcut).
+    pub info_urls: Vec<String>,
     /// An item let go over the world (not over a window): its identity and where (physical pixels), to be used on what is there.
     pub use_on: Option<((u32, u32), (f32, f32))>,
     /// An item to put on the ground (the drop question's Yes): its identity and the place (x, height, z).
@@ -683,6 +685,17 @@ impl Ui {
 
     /// Gives the interface a window event; true when it used the event (the
     /// pointer is over one of its windows) and the game should not.
+    /// The keys held with a click or a key, Shift, Ctrl and Alt, as the window tells of them: the interface is told,
+    /// and takes nothing by it. Until 2026-11-24 it was never told: the window's event for them was kept from it, and
+    /// a key press reaches it only while a text field is typed in, so no Shift+click or Ctrl+click of a real keyboard
+    /// was ever one to the interface (the user's Shift+click on an item, which took the item up where it should show
+    /// its info). The scripted clicks of the live tests hand their keys over themselves, which hid it.
+    pub fn held_keys(&mut self, window: &Window, event: &WindowEvent) {
+        if matches!(event, WindowEvent::ModifiersChanged(_)) {
+            let _ = self.state.on_window_event(window, event);
+        }
+    }
+
     pub fn event(&mut self, window: &Window, event: &WindowEvent) -> bool {
         // (a key is the interface's only while a text field is typed in: egui takes the keyboard whenever any widget has
         // the focus, and its Tab moves the focus to the first button, after which every game key went to the interface)
@@ -728,6 +741,16 @@ impl Ui {
     /// Escape: closes the windows that ask for it ([`escape_closes`]), each as its close button would the next time it is drawn
     /// (`chrome::close_soon`), and the tip window. A window whose pin is down stays, as in the original.
     pub fn close_with_escape(&mut self) {
+        // (whatever is in hand goes back: an item, a split, a carried tab or rollup page. Every drag object's
+        // `Cancel` is a slot of the Escape signal, `WindowController_c::BeginDrag` 0x10157842 / FUN_10158eea. The
+        // key is the game's here and never the interface library's, so until 2026-11-25 the interface's own test
+        // for it saw nothing from a real keyboard.)
+        crate::gear::put_down();
+        for window in self.bag_windows.values_mut() {
+            window.put_back();
+        }
+        crate::docks::cancel_carry();
+        self.chat.cancel_carry();
         let store = self.control_center.as_ref().map(|cc| &cc.store);
         let esc = |name: &str| match store.and_then(|s| s.get(name)) {
             Some(_) => store.is_some_and(|s| s.get_bool(name)),
@@ -1189,6 +1212,10 @@ impl Ui {
             let auto_afk = control_center.as_ref().and_then(|cc| cc.store.get("AutoAFK")).is_none_or(|v| v.as_bool());
             let game_master = hud.stats.get(&215).is_some_and(|v| *v != 0);
             chat_window.away_input(&ctx, auto_afk, game_master);
+            // (the character's stats, for the tips of the windows that are not handed them)
+            crate::gear::set_reader(&hud.stats);
+            // (a stack being split by the mouse: its count follows the mouse, before the windows look)
+            crate::gear::count_frame(&ctx);
             // (the macros pressed and the running script's next line, carried out as if typed)
             chat_window.script_frame(ctx.input(|i| i.stable_dt));
             let hud_started = std::time::Instant::now();
@@ -1299,7 +1326,7 @@ impl Ui {
             if settings.smart_hotbar {
                 hotbar_layer(&ctx, hotbars, gear, &hud.gear, &*actions, clock_now, palette, &mut requests);
             } else if shortcut_bars_shown {
-                shortcut_layer(&ctx, shortcut_bars, settings.hotbars as usize, settings.lock_hotbars, gear, &hud.gear, &*actions, &mut requests);
+                shortcut_layer(&ctx, shortcut_bars, settings.hotbars as usize, settings.lock_hotbars, gear, &hud.gear, &*actions, palette, &mut requests);
             }
             wt = crate::prof::lap("ui-w-cc", wt);
             if stats_window.open {
@@ -1335,6 +1362,9 @@ impl Ui {
             for url in crate::chrome::take_help() {
                 info_view.show_url(&url);
             }
+            for url in requests.info_urls.drain(..) {
+                info_view.show_url(&url);
+            }
             for url in chat_window.links.drain(..) {
                 info_view.show_url(&url);
             }
@@ -1363,6 +1393,12 @@ impl Ui {
                 if let Some((from, place)) = window.used_on.take() {
                     let onto = if view.identity.0 == crate::loot::BANK { (0x69, place) } else { (0x6b, view.handle << 16 | (place & 0xffff)) };
                     requests.item_use_ons.push((mao_net::inventory::place_identity(from), onto));
+                }
+                // (an item of the container in hand right-clicked on another of it: used on it, each named as the
+                // container's items are)
+                if let Some((from, place)) = window.used_within.take() {
+                    let named = |place: u32| if view.identity.0 == crate::loot::BANK { (0x69, place) } else { (0x6b, view.handle << 16 | (place & 0xffff)) };
+                    requests.item_use_ons.push((named(from), named(place)));
                 }
                 if let (Some(place), Some(at)) = (window.dropped_out.take(), ctx.input(|i| i.pointer.interact_pos())) {
                     let k = ctx.pixels_per_point();
@@ -1448,6 +1484,10 @@ impl Ui {
                 if let Some(url) = ncu_window.info_url.take() {
                     info_view.show_url(&url);
                 }
+                // (what a right click on a nano says: taken off, or a hostile one that stays)
+                for line in ncu_window.lines.drain(..) {
+                    chat_window.push(crate::chatwindow::Line::new(crate::chatwindow::Kind::System, line.to_string()));
+                }
             }
             // (the equipment's lock, a value of the original's: the game loop asks it before a move,
             // `net::equipment_locked`)
@@ -1530,6 +1570,9 @@ impl Ui {
                 actions.show(&ctx, gear, &hud.perk_actions, hud.specials.as_deref(), palette);
                 if let Some(a) = actions.clicked.take() {
                     requests.action = Some(a);
+                }
+                for url in actions.infos.drain(..) {
+                    info_view.show_url(&url);
                 }
             }
             if *whompah_open {
@@ -1869,10 +1912,6 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     if let Ok(places) = std::env::var("MAO_CITY_LOCKS") {
         crate::gear::set_city_locks(places.split(',').filter_map(|p| p.trim().parse().ok()).collect());
     }
-    // (MAO_SPLIT=<place>: the box that asks how many to split off the stack at that place, as Ctrl+click opens it)
-    if let Some(place) = std::env::var("MAO_SPLIT").ok().and_then(|p| p.parse().ok()) {
-        gear.ask_split(place);
-    }
     let mut hotbars = hud.preview_hotbars.clone();
     let mut preview_mission = hud.mission_preview.lock().ok().and_then(|mut m| m.take());
     let mut preview_mail = hud.mail_preview.lock().ok().and_then(|mut m| m.take());
@@ -1997,6 +2036,15 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
     for frame in 0..(12usize).max(4 + 5 * clicks + 4).max(if drag.is_some() { drag_start + 10 } else { 0 }) {
         // MAO_HOVER=x,y puts the pointer there (pixels) so a tooltip shows in the picture.
         let mut events: Vec<egui::Event> = std::env::var("MAO_HOVER").ok().and_then(|v| { let (x, y) = v.split_once(',')?; Some(egui::Event::PointerMoved(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?))) }).into_iter().collect();
+        // (MAO_CLICK_KEYS=shift|ctrl: the key held through MAO_CLICK's clicks, for a picture of what Shift+click opens)
+        let held_keys = match std::env::var("MAO_CLICK_KEYS").as_deref() {
+            Ok("shift") => egui::Modifiers::SHIFT,
+            Ok("ctrl") => egui::Modifiers::CTRL,
+            _ => egui::Modifiers::NONE,
+        };
+        if frame == 0 && held_keys != egui::Modifiers::NONE {
+            events.push(egui::Event::ModifiersChanged(held_keys));
+        }
         // MAO_CLICK=x,y[;x,y...] clicks there (pixels), one click every fifth frame from the fourth (frames between for what
         // it opened to appear and take the mouse), to open menus for a picture.
         if let Ok(v) = std::env::var("MAO_CLICK") {
@@ -2005,7 +2053,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 if let Some(&pos) = clicks.get((frame - 4) / 5) {
                     let pressed = (frame - 4) % 5 == 0;
                     events.push(egui::Event::PointerMoved(pos));
-                    events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+                    events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: held_keys });
                 }
             }
         }
@@ -2038,6 +2086,8 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
         }
         let output = ctx.run_ui(raw, |ui| {
             let ctx = ui.ctx().clone();
+            crate::gear::set_reader(&hud.stats);
+            crate::gear::count_frame(&ctx);
             hud_layer(&ctx, hud, project, 60.0, settings.mode, &palette);
             notification_layer(&ctx, preview_cc.as_ref().map(|cc| &cc.store), &palette);
             if preview_cc.is_none() && crate::skin::skin(&ctx).is_some() {
@@ -2065,7 +2115,7 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
                 bars.bars[1].page = 3;
                 let count = std::env::var("MAO_HOTBARS").ok().and_then(|n| n.parse().ok()).unwrap_or(1);
                 let actions = preview_actions.take().unwrap_or_default();
-                shortcut_layer(&ctx, &mut bars, count, false, &mut gear, &hud.gear, &actions, &mut requests);
+                shortcut_layer(&ctx, &mut bars, count, false, &mut gear, &hud.gear, &actions, &palette, &mut requests);
                 preview_actions = Some(actions);
             } else {
                 hotbar_layer(&ctx, &mut hotbars, &mut gear, &hud.gear, &crate::actions::ActionsWindow::default(), 1.5, &palette, &mut requests);
@@ -2263,6 +2313,9 @@ pub fn paint_headless(gpu: &Gpu, target: &wgpu::TextureView, format: wgpu::Textu
             if open {
                 options_window(&ctx, &mut open, &mut rebinding, settings, &mut requests, &palette, &themes);
             }
+            // (the dock areas' frame, as the game's frames end with it: without it a dock area's window, the inventory's
+            // for one, was drawn in the first frame only and never in the picture)
+            crate::docks::end_frame(&ctx, &palette);
         });
         // (the item in hand as the game's frames end: put down by the click after the one that took it up, so that
         // MAO_CLICK can place an item by hand for a picture)
@@ -2351,11 +2404,13 @@ fn shortcut_texture(ctx: &egui::Context, action: &hotbar::Action, gear: &mut Gea
 /// locked); a click does it. Which page button goes which way is not known (their functions are not exported): here the
 /// upper one goes back, as the wheel turned up does.
 #[allow(clippy::too_many_arguments)]
-fn shortcut_layer(ctx: &egui::Context, bars: &mut crate::shortcutbar::ShortcutBars, count: usize, locked: bool, gear: &mut GearWindow, items: &[GearItem], actions: &crate::actions::ActionsWindow, requests: &mut Requests) {
+fn shortcut_layer(ctx: &egui::Context, bars: &mut crate::shortcutbar::ShortcutBars, count: usize, locked: bool, gear: &mut GearWindow, items: &[GearItem], actions: &crate::actions::ActionsWindow, palette: &Palette, requests: &mut Requests) {
     use crate::shortcutbar::{BARS, SLOTS};
     let skin = crate::skin::skin(ctx);
     let screen = ctx.content_rect();
     let yellow = egui::Color32::from_rgb(255, 255, 0);
+    // (the shortcut under the pointer and its tip's two texts)
+    let mut tipped: Option<((usize, usize), (String, String))> = None;
     for b in 0..count.clamp(1, BARS) {
         let vertical = bars.bars[b].vertical;
         // (the strip, the toggle and the grid laid along the bar: 11 + 32 + 2 + 10 cells 36 apart less the last's spacing + 2)
@@ -2410,18 +2465,19 @@ fn shortcut_layer(ctx: &egui::Context, bars: &mut crate::shortcutbar::ShortcutBa
                 }
             }
             painter.text(strip.center(), egui::Align2::CENTER_CENTER, format!("{}", (bars.bars[b].page + 1) % 10), egui::FontId::proportional(11.0), yellow);
-            if !locked {
-                if strip_response.dragged() {
-                    let moved = at + strip_response.drag_delta();
-                    bars.bars[b].pos = Some([moved.x, moved.y]);
-                }
-                if strip_response.drag_stopped() {
-                    requests.shortcuts_changed = true;
-                }
-                if strip_response.double_clicked() {
-                    bars.bars[b].vertical = !vertical;
-                    requests.shortcuts_changed = true;
-                }
+            // (the strip's mouse, FUN_100dbe17: the left button pressed on it moves the bar, locked or not; the right
+            // button pressed on it turns the bar upright or flat, FUN_100db477, unless `LockHotbars`. Until
+            // 2026-11-25 a double click turned it and a locked bar could not be moved.)
+            if strip_response.dragged() {
+                let moved = at + strip_response.drag_delta();
+                bars.bars[b].pos = Some([moved.x, moved.y]);
+            }
+            if strip_response.drag_stopped() {
+                requests.shortcuts_changed = true;
+            }
+            if strip_turns(strip_response.hovered() && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)), locked) {
+                bars.bars[b].vertical = !vertical;
+                requests.shortcuts_changed = true;
             }
             // (the wheel over the bar turns its pages)
             if ui.rect_contains_pointer(rect) {
@@ -2476,7 +2532,25 @@ fn shortcut_layer(ctx: &egui::Context, bars: &mut crate::shortcutbar::ShortcutBa
                     if let Some((left, _)) = lock.filter(|l| l.0 > 0.0) {
                         painter.text(cell.center(), egui::Align2::CENTER_CENTER, crate::shortcutbar::timer_text(left), egui::FontId::proportional(11.0), yellow);
                     }
-                    response.clone().on_hover_text(action.name());
+                    // (the bar's tip: the item lists' own, short as shipped, `hotbar::tip`. Until 2026-11-25 the
+                    // interface library's own tip with the plain name.)
+                    if response.hovered() {
+                        tipped = Some(((b, slot), hotbar::tip(
+                            &action,
+                            |id| crate::macros::get(id).map(|m| (m.name, m.command)),
+                            |action| {
+                                let db = crate::net::item_db()?;
+                                crate::gear::with_reader(|stats| match action {
+                                    hotbar::Action::Nano { id, .. } => crate::gui::iteminfo::nano_tip(&db, *id, stats).map(|t| t.0),
+                                    hotbar::Action::Item { id, .. } => {
+                                        let (high, ql) = items.iter().find(|i| i.item_id == *id).map_or((*id, 1), |i| (i.high_id, i.quality));
+                                        crate::gui::iteminfo::item_title(&db, *id, high, ql, stats)
+                                    }
+                                    _ => None,
+                                })
+                            },
+                        )));
+                    }
                 }
                 if response.dnd_hover_payload::<hotbar::Action>().is_some() {
                     painter.rect_stroke(cell, 2.0, egui::Stroke::new(1.5, yellow), egui::StrokeKind::Inside);
@@ -2484,26 +2558,76 @@ fn shortcut_layer(ctx: &egui::Context, bars: &mut crate::shortcutbar::ShortcutBa
                 // (a shortcut dropped on the cell takes it; the one it held goes into the hand, FUN_100d89bd and FUN_100d8837)
                 if let Some(payload) = response.dnd_release_payload::<hotbar::Action>() {
                     if let Some(place) = bars.shown_mut(b, slot) {
+                        // (the one pushed out is in hand next, on a locked bar as well: the drop handler,
+                        // FUN_100d89bd, does not look at `LockHotbars`; only taking one up by the mouse does,
+                        // FUN_100d8837)
                         let before = place.replace((*payload).clone());
-                        if let Some(before) = before.filter(|_| !locked) {
+                        if let Some(before) = before {
                             egui::DragAndDrop::set_payload(ctx, before);
                         }
                         requests.shortcuts_changed = true;
                     }
-                } else if response.drag_started() && !locked {
-                    // (taken up: it leaves the cell, and is gone unless it is let go over a cell, FUN_100d8045)
-                    if let Some(taken) = bars.shown_mut(b, slot).and_then(Option::take) {
-                        egui::DragAndDrop::set_payload(ctx, taken);
-                        requests.shortcuts_changed = true;
+                } else {
+                    // (the left button on a shortcut, `shortcutbar::cell_mouse`: held for `MouseButtonHoldDelay` it
+                    // takes the shortcut up, moved or not; let go sooner it is a click, however the pointer moved
+                    // meanwhile. Until 2026-11-25 the first movement took the shortcut up, so a flick of the mouse
+                    // on a slot dragged it away where the original uses it.)
+                    let press_id = egui::Id::unique("shortcut-cell-press");
+                    let (now, pressed, released) = ui.input(|i| (i.time, i.pointer.primary_pressed(), i.pointer.primary_released()));
+                    if pressed && response.is_pointer_button_down_on() && held.is_some() {
+                        ctx.data_mut(|d| d.insert_temp(press_id, (b, slot, now, false)));
                     }
-                } else if response.clicked() {
-                    if let Some(action) = held {
-                        requests.action = Some(action);
+                    if let Some((pb, ps, since, done)) = ctx.data(|d| d.get_temp::<(usize, usize, f64, bool)>(press_id))
+                        && (pb, ps) == (b, slot)
+                    {
+                        let what = if done { crate::shortcutbar::CellMouse::Nothing } else { crate::shortcutbar::cell_mouse(std::time::Duration::from_secs_f64((now - since).max(0.0)), released, response.contains_pointer(), locked) };
+                        match what {
+                            // (taken up: it leaves the cell, and is gone unless it is let go over a cell, FUN_100d8045)
+                            crate::shortcutbar::CellMouse::PickUp => {
+                                if let Some(taken) = bars.shown_mut(b, slot).and_then(Option::take) {
+                                    egui::DragAndDrop::set_payload(ctx, taken);
+                                    requests.shortcuts_changed = true;
+                                }
+                                ctx.data_mut(|d| d.insert_temp(press_id, (b, slot, since, true)));
+                            }
+                            crate::shortcutbar::CellMouse::Click => {
+                                if let Some(action) = held {
+                                    // (with Shift the click shows the shortcut's info and does not use it: the list's
+                                    // qualifier signal, FUN_100d7fd3; a macro has no page and nothing happens)
+                                    if ctx.input(|i| i.modifiers.shift) {
+                                        requests.info_urls.extend(hotbar::info_url(&action, |id| items.iter().find(|i| i.item_id == id).map(|i| (i.high_id, i.quality))));
+                                    } else {
+                                        requests.action = Some(action);
+                                    }
+                                }
+                            }
+                            crate::shortcutbar::CellMouse::Nothing => {}
+                        }
+                        if released {
+                            ctx.data_mut(|d| d.remove::<(usize, usize, f64, bool)>(press_id));
+                        } else {
+                            ctx.request_repaint();
+                        }
                     }
                 }
             }
+            // (a press on a cell of this bar ends with the button, whatever took its release: a thing in hand let
+            // go on the cell goes the drop's way above, and the press must not be left to count as a held one)
+            let press_id = egui::Id::unique("shortcut-cell-press");
+            if ui.input(|i| i.pointer.primary_released() || !i.pointer.primary_down()) && ctx.data(|d| d.get_temp::<(usize, usize, f64, bool)>(press_id)).is_some_and(|press| press.0 == b) {
+                ctx.data_mut(|d| d.remove::<(usize, usize, f64, bool)>(press_id));
+            }
         });
     }
+    let source = egui::Id::unique("shortcut-tip");
+    let (title, text) = tipped.as_ref().map_or(("", ""), |(_, (title, text))| (title.as_str(), text.as_str()));
+    crate::gui::tooltip::show(ctx, palette, source, tipped.as_ref().map(|(cell, _)| source.with(cell)), title, text);
+}
+
+/// Whether a shortcut bar turns between flat and upright: the right button pressed on its control strip, unless the
+/// bars are locked (GUI.dll FUN_100dbe17: button 2 and not `LockHotbars`).
+pub fn strip_turns(right_pressed_on_strip: bool, locked: bool) -> bool {
+    right_pressed_on_strip && !locked
 }
 
 /// The hotbar: tabs for the six bars and ten slots. A slot shows the action that would fire (its icon,

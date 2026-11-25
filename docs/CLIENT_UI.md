@@ -8965,3 +8965,139 @@ writes the client's own field anew with `FormatNumeric` and takes its editing aw
 Enter in the field still sends at once, which the original leaves to the timer. Whether 549,977,999 was the
 number typed is not known: nothing in the log said what the client sent. It does now (`trade: credits N sent`),
 and each side's Complete writes `trade complete (own side): credits A -> B`, to check a live trade by.
+
+2026-11-24, title-row tabs and the chat's font, from the user's pictures of the original's chat, inventory and mission windows beside this client's (`scrn0084.png` and a crop of the chat). (1) A dock area's window and a chat window have their tab view's tabs in the title row, between the frame's menu button and the border's buttons, and the body right under it: `chrome::title_tab_view_hits`, with the row's room told by `chrome::window` while its content is made (`TITLE_ROOM`); the strip that moves the window begins past the last tab. By the pictures: how `DockWindow_c` and `ChatWindow_c` lay the tab view over the border was not read, and the open chat tab's `[output group]` after its name and an unread tab's red name are not done. A page of the rollup area keeps its tabs under its own header, as the original's. (2) CHAT, font 12, is a TrueType font: `FontSystem_t`'s constructor makes it last, `CreateTTFont(12)` with `ChatFontName`, `ChatFontStyle` and `ChatFontSize / 10` (0x1012f19a on; `MainPrefs.xml`: Verdana, Regular, 140, 50 to 480). The client had drawn the chat in the bitmap `FontChat9.fnt` (`original_font`, which no longer changes the chat). Here it is Verdana whatever the name and style say, at the size's cell (`gui::font::chat_cell`), its lines the cell apart. (3) Verdana is drawn hinted with each glyph at a whole pixel (`FontTweak`: hinting on, sub-pixel binning off), nearer GDI's than egui's own; the tabs' font is NORMAL's cell of 13, not an em of 13. (4) The offscreen preview ends its frames with `docks::end_frame`: without it no dock area's window was in a picture. Pictures: `MAO_UI_PREVIEW=chat` (`MAO_CLICK=375,532` opens the second tab), `MAO_UI_PREVIEW=gear MAO_ENTRIES=...`, `MAO_UI_PREVIEW=loot MAO_LOOT_OWN=1`. Not seen live.
+
+## Clicks brought in line with the original (2026-11-25)
+
+The user, after Shift + click on an item took it up (2026-11-24, the held keys that never reached the interface):
+"I think we need to [review] how all the clicks / interface interactions work. I'm not looking to deviate from the
+original on that." The review is `docs/INTERACTIONS_ORIGINAL.md`: 634 interactions in ten groups of windows, each
+with the original's handler and its address, read by ten readers and checked by hand where a change rests on it.
+What was changed that day, and where each rule is in the original:
+
+- **The item lists' release** (`invwindows::click`, `loot::container_click`). `ItemListViewBase_c`'s up handler,
+  FUN_1004141b, handed a drag object raises only the drop signal: with something in hand a click is the letting go
+  and nothing else, so Shift shows no info then. Without one, the left button tests Shift alone (`& 3`,
+  0x1004153e): Ctrl on a single item is a plain click and takes it up. The press handler, FUN_10041926, tests Ctrl
+  alone for a split, so Ctrl + Shift on a stack is the split.
+- **The right button beside the items with something in hand** gives the drag up (`right_beside` in
+  `invwindows.rs`; the container windows' menu test in `loot.rs`): FUN_100cc855's button 2 on a cell without an
+  item, 0x100ccc5f, and the wear pages' FUN_100e220f at 0x100e230f.
+- **A refused wear empties the hand.** Each wear page's list has two handlers on its drop signal: the page's
+  FUN_100e220f, connected last, and the container views' FUN_100cc855. `SignalBase_c::_Connect` puts a slot at the
+  head of the list (the Utils drop-in's `signal.rs`), so the page's runs first; on a refusal it returns, and
+  FUN_100cc855 then calls `N3Msg_ContainerAddItem` for the page, which is no container, and accepts the drag
+  (0x100cccce..0x100cccfb). The note of 2026-11-19 (INV-020) had read the first handler alone and kept the item
+  in hand.
+- **A container's own item in hand right-clicked on another of it** is `UseItemOnItem` with both named as the
+  container's items (`loot::held_item_right_click`, `LootWindow::used_within`; the bank's `(0x69, place)`, a
+  bag's `(0x6b, handle << 16 | place)`). With Shift, or a split, the drag only ends.
+- **The Inspect window**: Shift + click is the info (`invwindows::inspect_click_shows`): the read-only view leaves
+  the pick-up, drop and click signals unconnected but not the qualifier's, 0x100ccee8.
+- **Escape and what is in hand.** `WindowController_c::BeginDrag` (0x10157842) connects each drag object's
+  `Cancel` to the Escape signal (FUN_10158eea). The client asked the interface library for the key
+  (`key_pressed(Escape)` in `ui.rs`, `docks.rs`, `chatwindow.rs`), which gets no key outside a text field, so a
+  real keyboard's Escape never put anything back. `Ui::close_with_escape`, the game's own Escape, now does it:
+  `gear::put_down`, `LootWindow::put_back`, `docks::cancel_carry`, `ChatWindow::cancel_carry`. A third such dead
+  test is left: Space on the playfield map's overlay (`automap.rs`), the client's own key.
+- **The info window's toggle** (`gui/infoview.rs` `asked`, `show_url` against `follow`):
+  `InfoViewModule_c::ShowURL` (0x100efa86) emits the URL with a flag; with it FUN_100ee973 compares the URL with
+  the one kept at `+0x1a0` and on a match calls the window's close, 0x100ee9b6..0x100ee9d4 (a text page is kept
+  as `text://<sum of its bytes>`, 0x100ef1d0). A link followed inside a page comes without the flag. Not read:
+  whether closing destroys the view; taken as yes (a window that was shut keeps no URL).
+- **The NCU window** (`ncu.rs`). Its list is the item lists' old scheme (FUN_10045d42): a left click raises the
+  pick-up signal, which nothing listens to; Shift + click the qualifier, FUN_10045259 (the info); a right click
+  the click signal, FUN_1004561f: `N3Msg_RemoveBuff` and one of two lines that are in GUI.dll itself. Gamecode
+  0x1001bee9 refuses a nano whose flags (stat 0) have any of `0xc100` and else sends `CharacterAction` 0x41,
+  which is the message `n3::cancel_nano` already built. The right button held is the menu, FUN_100457d1, one
+  entry, "LookAtNano". `Columns::stays`, `ncu::right_click`, `ncu::left_click_shows`. NAN-060's "no GUI.dll code
+  cancels a nano" was wrong.
+- **Shift + click on a nano program, an action, a shortcut** is the list's qualifier signal: FUN_100d42ab,
+  FUN_100dc3ae, FUN_100d7fd3, each `ShowURL("itemid://%d/%d")` of the tile's identity (not for a macro, the bar's
+  type 7). `hotbar::info_url`: a nano's `itemid://53019/<id>`, an action's and an item's page by template.
+- **Taking a tile up by a held button** (`multilist::hold_to_pick`, `Mouse::Held` in `gui/host.rs`,
+  `shortcutbar::cell_mouse`). These lists run the "new mouse" (`UseNewMouseFunc` and the list's `+0x319`): the
+  left button going down starts `MouseButtonHoldDelay` (0.3 s), whose end raises the pick-up signal (FUN_10041aa4
+  at 0x10041b90, FUN_1004213e); coming up sooner it is the click. The item lists of the inventory keep their own
+  rule (a click takes up).
+- **A shortcut bar's strip** (`ui::strip_turns`): FUN_100dbe17: the right button, when `LockHotbars` is off, turns
+  the bar (FUN_100db477); the left button moves it, locked or not. The drop handler, FUN_100d89bd, does not look
+  at the lock: the shortcut pushed out goes into hand.
+- **The mission booth's offers** (`mission::offer_click`): the list has the selection flags 0x40, so the up
+  handler turns the offer's selection round (0x1004154c) and FUN_100d0704 takes the waypoint away when none is
+  selected; Shift is the qualifier, FUN_100d03c2, the offer's page.
+
+Also found and written down, not changed: every button of the original acts as the left button goes down
+(`ButtonBase_c::MouseDown`, 0x101298db), and the double-click time is Windows' own (the window class has
+`CS_DBLCLKS`, exe 0x00405d74). What is left, with the reason for each, and ten questions for the user are in the
+document's head. Nothing of this was tried live; what to try by hand is in `docs/LIVE_TEST_LIST.md`, "Clicks and
+held keys (2026-11-25)". Pictures after the change: the inventory, the NCU window and the shortcut bars
+(`MAO_UI_PREVIEW=gear|ncu|shortcutbar`); Ctrl + click on a single item and a click-click swap were run through the
+inventory's picture (`MAO_CLICK`, `MAO_CLICK_KEYS=ctrl`, `MAO_ITEM_TRACE=1`).
+
+## The click review's ten questions settled as the original has them (2026-11-25)
+
+The user's answer to the ten open questions of `docs/INTERACTIONS_ORIGINAL.md`: "Yes, as the original". Four more
+readings of the decompile went before the changes (the buttons; how a window's menu opens and how windows dock; the
+tips; the chat's keys and the split). Not tried live; the hand checks are in `docs/LIVE_TEST_LIST.md`, "The ten
+questions settled as the original has them".
+
+**The split by the mouse** (`gear.rs`: `count_begin`, `count_step`, `count_frame`, `count_take`, `count_hold`).
+`ItemListViewBase_c`'s MouseDown FUN_10041926 starts a split on the left button with Ctrl over a stack of more than
+one (Shift and Alt are not looked at) and does not hand the press on; MouseMove FUN_10041ca4 adds the whole pixels
+between the pointer and the press point to the count (0x10041cfb), holds it to 1 and to one fewer than the stack,
+shows it as `<font color=yellow>%d</font>` in a window of its own at the press point (made at the first move), and
+puts the pointer back (`SetMousePosition`, 0x10041f67); MouseUp FUN_100419d5 raises the pick-up with the count.
+Here the window under the pointer calls `count_begin` on the press (inventory: `InventoryWindows::show`; a
+backpack: `LootWindow::show`), `count_frame` runs once a frame before the windows (`Ui`), the viewer puts the
+pointer back after the frame when it moved (`count_hold`, `set_cursor_position`), and the list's click at the
+release (`Click::Split`, `ContainerClick::Split`) takes the count (`count_take`) and has that many in hand
+(`gear::pick_up_split`, the container's `dragging` / `split`). The box (`split_dialog`, `ask_split`, `MAO_SPLIT`)
+is gone. A scripted Ctrl + click (`cclick@`) is a split of one now.
+
+**Buttons** (`chrome.rs`: `on_press`, `on_release_inside`). `ButtonBase_c` is two kinds. A plain button
+(`Initialize` 0x10129bc7 sets `ModifyWhenClicked`) looks pressed from `MouseDown` (0x101298db), loses the look when
+the pointer leaves and gets it back when it returns (`MouseMove` 0x10129a37), and raises its click in `MouseUp`
+(0x101294c9) while it looks pressed. A toggle flips in `MouseDown`; a button told `SetModifyWhenClicked(false)`
+raises its click there. `chrome::button` (the skin's and the plain one), the title's close and help buttons:
+`on_release_inside` (the interface library's own click wanted the release within 0.8 s and 6 points). `on_press`:
+`chrome::checkbox`, the frame's menu icon and pin, a rollup page's three header buttons (`rollup.rs`), a perk
+line's button (`perks.rs`), a text's link (`controls::markup_click`). In the view tree a toggle `Button` (a check
+box's, a radio button's) and a toggle `TextButton` flip on `Mouse::Down`; plain ones were already the release
+inside. Left as they were: the interface library's own widgets in the client's own windows (the launcher, the
+client's options window, the damage meter and the other tools), the scroll bars' missing repeat.
+
+**A window's menu** is the frame's menu button's alone (and the rollup page's): the right click beside the items
+that also opened it is gone from the inventory, the wear and Inspect windows (`invwindows.rs`), a container
+(`loot.rs`), the nano programs (`nanoprograms.rs`), the NCU and the target NCU windows (`ncu.rs`), the shop
+(`shop.rs`), Stats (`stats.rs`) and the playfield map (`automap.rs`); the last five took `chrome::frame_menu` for
+the first time (the NCU's "List Mode" was reachable by the right click only). The NCU's held-button menu is "Look
+at" alone.
+
+**Docking.** `chrome::window` draws no dock button; `rollup::DOCKABLE` and `rollup::dock` are gone
+(`rollup::may_dock` = `docks::dockable`); `docks::VIEWS` has `faction_window` and `stat_window` (`FactionView_c`
+FUN_1005e3f5, `StatView_c` FUN_1008057d), so both are carried like the other views; a page of `rollup.ini` that is
+no dockable view (the pet window) is dropped at the load.
+
+**Tips** (`gui/tooltip.rs`: `rest`, `place`, `show`; `gear::tip`, `iteminfo::nano_tip`, `nano_modifies`,
+`item_title`, `ncu::tip`, `hotbar::tip`, `spells::convert_in_tip`). The window controller's rule: 500 ms
+(`UpdateToolTip` 0x10157adc), placed once by `MoveToMouse` (0x101550de), gone at a button down or up, back only
+after a move; the same thing with other texts starts the wait again with the old tip still up. The inventory's,
+wear's and Inspect's item tips, a container's, a nano program's, a running nano's and a shortcut's go through
+`tooltip::show`; they were frames of the client's own that came at once and followed the pointer. `gear::set_reader`
+keeps the character's stats for the windows that are not handed them. The Actions window's tile tip is as it was.
+
+**The chat** (`chatwindow.rs`). `next_typing` and the Alt+Enter keys in `input_bar`; `talk_nodes` and
+`open_channel_list` (Tab on an empty line, Ctrl+Tab; the list is the window menu's "Talk to Channel" as a pop-up
+over the field); the input line keeps Tab (`lock_focus`). `settings.rs`: `chat_input` has Alt+Enter,
+`cycle_window_mode` has no key, and `alt_enter_moves` passes over the two lines of a settings file written before.
+The menu's "Move to ..." entries are gone.
+
+**The planet map** (`planetwindow.rs`): `wheeled`, `aimed`, `on_character`, the `aim` kept from a double click,
+`zoom` as `SetLevel` (FUN_1004c2e2). **The middle button** (`viewer.rs`): no arm for it. **A player trade's
+credits** (`shop.rs`): Enter only ends the typing.
+
+**Not carried out** (features the user asked for by name, off or out of the way until asked for): the smart
+shortcut bars and the round map (settings, off), auto-loot (a setting, off), the mission booth's helper, the chat's
+command list while a command is typed.

@@ -109,6 +109,19 @@ pub struct Reward {
     pub high: u32,
 }
 
+/// A left click on the offer at `slot` with `selected` selected: the selection after it, and whether the offer's
+/// info page is asked for. The offers' list has the selection flags 0x40 (FUN_100d1468), so its up handler turns
+/// the offer's selection round at each click, and a second click on the selected offer leaves none selected (the
+/// waypoint then goes and Accept is dead, FUN_100d0704); with Shift it raises the qualifier signal instead,
+/// FUN_100d03c2: the offer's page, the selection as it was (GUI.dll FUN_1004141b, 0x10041537..0x10041566).
+pub fn offer_click(selected: Option<usize>, slot: usize, shift: bool) -> (Option<usize>, bool) {
+    match (shift, selected == Some(slot)) {
+        (true, _) => (selected, true),
+        (false, true) => (None, false),
+        (false, false) => (Some(slot), false),
+    }
+}
+
 /// One offered mission.
 pub struct Offer {
     pub id: (u32, u32),
@@ -521,7 +534,11 @@ impl MissionWindow {
                             ui.painter().rect_stroke(rect.shrink(2.0), 4.0, egui::Stroke::new(2.0, fitting), egui::StrokeKind::Inside);
                         }
                         if response.clicked() {
-                            self.selected = Some(slot);
+                            let (selected, info) = offer_click(self.selected, slot, ui.input(|i| i.modifiers.shift));
+                            self.selected = selected;
+                            if info && let Some(offer) = self.offers.get(slot) {
+                                self.info_url = Some(format!("itemid://{}/{}", offer.id.0, offer.id.1));
+                            }
                         }
                         // (the right button: the offer's menu, FUN_100d0f79 — "Look at Mission", and "Upload to map"
                         // when `N3Msg_GetQuestWorldPos` finds its place)
@@ -710,6 +727,17 @@ mod helper_tests {
     }
 
     /// A click on an offer uploads its place, another offer's replaces it, and the waypoint is taken away when no
+    /// FUN_1004141b on a list with the selection flags: a click selects, a second click on the same offer
+    /// deselects, Shift + click asks for the page and leaves the selection.
+    #[test]
+    fn a_click_on_an_offer_turns_its_selection_round() {
+        assert_eq!(offer_click(None, 2, false), (Some(2), false));
+        assert_eq!(offer_click(Some(2), 2, false), (None, false));
+        assert_eq!(offer_click(Some(1), 2, false), (Some(2), false));
+        assert_eq!(offer_click(Some(1), 2, true), (Some(1), true));
+        assert_eq!(offer_click(None, 2, true), (None, true));
+    }
+
     /// offer is selected or the window goes (GUI.dll FUN_100d0704, FUN_100d04fe).
     #[test]
     fn a_selected_offer_marks_the_map() {

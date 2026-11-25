@@ -7,6 +7,12 @@
 //! the game's side ([`InfoView::take_requests`]) and come back through [`InfoView::show_page`]. A URL's
 //! `?section=<n>` shows only the n-th `<section>` of its text (FUN_100ee39b). A new page drops the pages after the
 //! current one; showing the current URL again replaces its text.
+//!
+//! Asked from outside for the URL it was last asked for, the window closes instead: `InfoViewModule_c::ShowURL`
+//! (0x100efa86) hands the slot a flag, and with it FUN_100ee973 compares the URL with the one kept at `+0x1a0` and
+//! on a match calls the window's close (vtable `+0xfc`, FUN_100393eb), 0x100ee9b6..0x100ee9d4. So a second
+//! Shift+click on an item, or a second click on a mission, puts the page away. A link followed inside a page comes
+//! without the flag and never closes.
 
 use super::controls::TextView;
 use super::host::Signal;
@@ -26,6 +32,32 @@ pub struct InfoView {
     at: usize,
     requests: Vec<String>,
     commands: Vec<String>,
+    /// The URL last asked for (`+0x1a0`; a text page's is `text://<sum of its bytes>`), while the window is up.
+    last: String,
+}
+
+/// What asking for `url` does with the URL kept from the last time (`last`) on a window that is `open`: `None`
+/// closes the window (the same URL asked for again from outside, `toggles`), else the URL to keep. FUN_100ee973:
+/// the string compared is the URL itself, a text page's its `text://<sum>` key; nothing is kept for a
+/// `charref://` URL here (its own branch keeps the part before the name, not ported: the client has no such
+/// pages). A window that was shut starts with nothing kept, as a newly made view does.
+pub fn asked(url: &str, last: &str, open: bool, toggles: bool) -> Option<String> {
+    let key = match url.strip_prefix("text://") {
+        Some(markup) => format!("text://{}", text_key(markup)),
+        None => url.to_string(),
+    };
+    if url.starts_with("charref://") {
+        return Some(last.to_string());
+    }
+    if toggles && open && key == last {
+        return None;
+    }
+    Some(key)
+}
+
+/// The number a text page is kept under: the sum of its bytes, each taken as a signed char.
+fn text_key(markup: &str) -> u32 {
+    markup.bytes().map(|b| b as i8 as i32 as u32).fold(0u32, u32::wrapping_add)
 }
 
 /// FUN_100ee39b's `?section=<n>`: the n-th `<section>`...`</section>` of the text (counted from 0), or all of it.
@@ -55,13 +87,30 @@ pub fn section(url: &str, text: &str) -> String {
 }
 
 impl InfoView {
-    /// `InfoViewModule_c::ShowURL`: opens the window on a URL.
+    /// `InfoViewModule_c::ShowURL`: opens the window on a URL, or closes it when it is the URL last asked for.
     pub fn show_url(&mut self, url: &str) {
+        self.open_url(url, true);
+    }
+
+    /// A link followed inside a page (the slot without `ShowURL`'s flag): never closes the window.
+    fn follow(&mut self, url: &str) {
+        self.open_url(url, false);
+    }
+
+    fn open_url(&mut self, url: &str, toggles: bool) {
+        match asked(url, &self.last, self.open, toggles) {
+            Some(kept) => self.last = kept,
+            None => {
+                self.open = false;
+                self.last.clear();
+                return;
+            }
+        }
         self.open = true;
         let lower = url.to_ascii_lowercase();
         if let Some(markup) = url.strip_prefix("text://") {
             // (the history keys a text page by the sum of its bytes)
-            let key: u32 = markup.bytes().map(|b| b as i8 as i32 as u32).fold(0u32, u32::wrapping_add);
+            let key = text_key(markup);
             self.show_page(&format!("text://{key}"), markup);
         } else if lower.starts_with("file://") {
             let path = url[7..].split('?').next().unwrap_or("").to_string();
@@ -148,6 +197,8 @@ impl InfoView {
 
     pub fn show(&mut self, ctx: &egui::Context, palette: &crate::theme::Palette) {
         if !self.open {
+            // (a window that is shut keeps no URL: the next asking shows its page whatever it is)
+            self.last.clear();
             return;
         }
         if self.window.is_none() {
@@ -174,7 +225,7 @@ impl InfoView {
                     self.at += 1;
                     self.refresh();
                 }
-                Signal::Link(url) => self.show_url(&url),
+                Signal::Link(url) => self.follow(&url),
                 _ => {}
             }
         }
@@ -196,6 +247,30 @@ mod tests {
         v.show_page("c", "4");
         assert_eq!(v.pages.len(), 2);
         assert_eq!(v.pages[1].text, "4");
+    }
+
+    /// FUN_100ee973 with `ShowURL`'s flag: the URL last asked for, asked for again, closes the window; a link
+    /// inside a page does not; a window that was shut shows the page again.
+    #[test]
+    fn the_same_url_again_closes_the_window() {
+        let url = "itemref://1/2/3";
+        assert_eq!(asked(url, "", false, true).as_deref(), Some(url));
+        assert_eq!(asked(url, url, true, true), None);
+        assert_eq!(asked(url, url, true, false).as_deref(), Some(url));
+        assert_eq!(asked(url, "itemref://1/2/4", true, true).as_deref(), Some(url));
+        assert_eq!(asked(url, url, false, true).as_deref(), Some(url));
+        // (a text page is known by the sum of its bytes)
+        assert_eq!(asked("text://ab", "", true, true).as_deref(), Some("text://195"));
+        assert_eq!(asked("text://ba", "text://195", true, true), None);
+        let mut v = InfoView::default();
+        v.show_url("text://hello");
+        assert!(v.open);
+        v.show_url("text://hello");
+        assert!(!v.open);
+        v.show_url("text://hello");
+        assert!(v.open);
+        v.follow("text://hello");
+        assert!(v.open);
     }
 
     #[test]

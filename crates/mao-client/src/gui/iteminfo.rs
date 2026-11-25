@@ -237,15 +237,17 @@ impl Ctx<'_> {
         if names.is_empty() { names } else { section(&text("Loc"), &names, 0) }
     }
 
-    /// FUN_10032c1d: the modifiers, `N3Msg_GetModifierString` of the worn list (14) and the used one (0).
-    fn modifiers(&self) -> String {
+    /// FUN_10032c1d: the modifiers, `N3Msg_GetModifierString` of the worn list (14) and the used one (0). `tip` is
+    /// the page's own flag, handed on for the used list only (0x10032c45..0x10032c8d: the first call pushes 0, the
+    /// second the flag): a tip has no cast lines and no criteria there (`spells::convert_in_tip`).
+    fn modifiers(&self, tip: bool) -> String {
         let lists = mao_formats::spell::lists(&self.data);
         let db = self.db;
         let nano_name = |id: u32| nano_name(db, id);
         let mut m = String::new();
         for list in [14, 0] {
             for (_, spells) in lists.iter().filter(|(l, _)| *l == list) {
-                m += &self.convert(spells, &nano_name);
+                m += &self.convert(spells, &nano_name, tip && list == 0);
             }
         }
         if m.is_empty() { m } else { section(&text("Modifier"), &m, 0) }
@@ -267,13 +269,14 @@ impl Ctx<'_> {
 
     /// A spell list as `N3Msg_ConvertSpellList` writes it for this reader: a nano program's spells with the reader's own
     /// figures (its stats 535 and 536; 100, no change, when they were never told).
-    fn convert(&self, spells: &[mao_formats::spell::Spell], nano_name: &dyn Fn(u32) -> Option<String>) -> String {
+    fn convert(&self, spells: &[mao_formats::spell::Spell], nano_name: &dyn Fn(u32) -> Option<String>, tip: bool) -> String {
         let skill_lock = self.player(382) as i32;
-        if self.nano {
-            let own = |k: u32| self.player.get(&k).copied().unwrap_or(100) as i32;
-            super::spells::convert_nano(spells, self.level, skill_lock, nano_name, (own(535), own(536)))
-        } else {
-            super::spells::convert(spells, self.level, skill_lock, nano_name)
+        let own = |k: u32| self.player.get(&k).copied().unwrap_or(100) as i32;
+        let own = self.nano.then(|| (own(535), own(536)));
+        match (tip, own) {
+            (true, own) => super::spells::convert_in_tip(spells, self.level, skill_lock, nano_name, own),
+            (false, Some(own)) => super::spells::convert_nano(spells, self.level, skill_lock, nano_name, own),
+            (false, None) => super::spells::convert(spells, self.level, skill_lock, nano_name),
         }
     }
 
@@ -503,7 +506,7 @@ impl Ctx<'_> {
         let lists = mao_formats::spell::lists(&self.data);
         let db = self.db;
         let nano_name = |id: u32| nano_name(db, id);
-        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| self.convert(spells, &nano_name)).collect();
+        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| self.convert(spells, &nano_name, false)).collect();
         if m.is_empty() { m } else { section(&text(label), &m, 0) }
     }
 
@@ -512,7 +515,7 @@ impl Ctx<'_> {
         let lists = mao_formats::spell::lists(&self.data);
         let db = self.db;
         let nano_name = |id: u32| nano_name(db, id);
-        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| self.convert(spells, &nano_name)).collect();
+        let m: String = lists.iter().filter(|(l, _)| *l == list).map(|(_, spells)| self.convert(spells, &nano_name, false)).collect();
         if m.is_empty() { m } else { section(&text(label), &format!("\n{m}"), 0) }
     }
 
@@ -622,19 +625,39 @@ fn cost_modifier(player: &BTreeMap<u32, i64>) -> i64 {
 
 /// The page of a nano program (FUN_1003683d).
 pub fn nano_page(db: &ResourceDatabase, id: u32, player: &BTreeMap<u32, i64>) -> Option<String> {
+    Some(nano_ctx(db, id, player)?.nano_parts(false))
+}
+
+fn nano_ctx<'a>(db: &'a ResourceDatabase, id: u32, player: &'a BTreeMap<u32, i64>) -> Option<Ctx<'a>> {
     let data = db.get(Id { kind: item::NANO_TEMPLATE, instance: id }).ok().flatten()?;
     let it = Item::parse(&data)?;
     let actions = item::actions(&data);
     let level = player.get(&crate::stats::stat::LEVEL).copied().unwrap_or(1).max(1) as u32;
-    let c = Ctx { db, it, data, actions, low: id, ql: 0, level, nano: true, player, shop_price: None };
-    let mut parts = vec![c.header(), c.nano_cost(player), c.ncu(), c.school(), c.stacking_order()];
-    parts.extend([75, 546, 547, 548, 549, 550].map(|s| c.nanoline(s)));
-    parts.extend([
-        c.duration(), c.range(), c.damage(), c.speed(), c.local_cooldown(), c.nanoline_cooldowns(), c.skills(12, "AtkSkills"),
-        c.skills(13, "DefSkills"), c.modifiers(), c.spell_list(20, "OnDeath"), c.spell_list(28, "OnCancel"), c.skill_to_use(),
-        c.requirements(), c.description(),
-    ]);
-    Some(parts.concat())
+    Some(Ctx { db, it, data, actions, low: id, ql: 0, level, nano: true, player, shop_price: None })
+}
+
+/// A nano program's tip (GUI.dll FUN_10042193 over a nano's identity, as the nano programs' window and a shortcut
+/// have it): the title, its name in its rarity's colour (a nano carries no rarity: `CCItemUnknown`), and the text, its
+/// page built for a tip (FUN_1003683d with its flag set: no header (0x1003686e), no "skill to use" and no
+/// requirements (0x10036f1b skips both), the modifiers as a tip has them; the description stays).
+pub fn nano_tip(db: &ResourceDatabase, id: u32, player: &BTreeMap<u32, i64>) -> Option<(String, String)> {
+    let c = nano_ctx(db, id, player)?;
+    Some((format!("<font color={}>{}</font>", c.rarity_colour(), c.it.name), c.nano_parts(true)))
+}
+
+/// What a running nano changes, for the NCU window's tip (FUN_10045b79: `N3Msg_GetModifierString(nano, 0, .., 0)`,
+/// the used list as a page has it, cast lines and criteria and all); empty when it changes nothing.
+pub fn nano_modifies(db: &ResourceDatabase, id: u32, player: &BTreeMap<u32, i64>) -> String {
+    let Some(c) = nano_ctx(db, id, player) else { return String::new() };
+    let nano_name = |id: u32| nano_name(db, id);
+    mao_formats::spell::lists(&c.data).iter().filter(|(l, _)| *l == 0).map(|(_, spells)| c.convert(spells, &nano_name, false)).collect()
+}
+
+/// The title of an item's tip alone (a shortcut's tip while `ShortcutShortTooltips` is on, as shipped: FUN_100d8129
+/// clears the list's +0x368 and FUN_10042193 leaves the text empty).
+pub fn item_title(db: &ResourceDatabase, low: u32, high: u32, ql: u32, player: &BTreeMap<u32, i64>) -> Option<String> {
+    let c = item_ctx(db, low, high, ql, player)?;
+    Some(format!("<font color={}>{}</font>", c.rarity_colour(), c.it.name))
 }
 
 /// The page of an item at a quality (FUN_10038f6b by item class, stat 76): a weapon's (1, FUN_1003732c), armour's (2,
@@ -666,6 +689,20 @@ fn item_ctx<'a>(db: &'a ResourceDatabase, low: u32, high: u32, ql: u32, player: 
 }
 
 impl Ctx<'_> {
+    /// FUN_1003683d's sections in their order; `tip` its flag.
+    fn nano_parts(&self, tip: bool) -> String {
+        let c = self;
+        let unless_tip = |s: String| if tip { String::new() } else { s };
+        let mut parts = vec![unless_tip(c.header()), c.nano_cost(c.player), c.ncu(), c.school(), c.stacking_order()];
+        parts.extend([75, 546, 547, 548, 549, 550].map(|s| c.nanoline(s)));
+        parts.extend([
+            c.duration(), c.range(), c.damage(), c.speed(), c.local_cooldown(), c.nanoline_cooldowns(), c.skills(12, "AtkSkills"),
+            c.skills(13, "DefSkills"), c.modifiers(tip), c.spell_list(20, "OnDeath"), c.spell_list(28, "OnCancel"), unless_tip(c.skill_to_use()),
+            unless_tip(c.requirements()), c.description(),
+        ]);
+        parts.concat()
+    }
+
     /// FUN_10038f6b's item pages; `tip` its fourth argument (FUN_10042193's 1), which drops the sections each page
     /// tests it for.
     fn page(&self, tip: bool) -> String {
@@ -676,16 +713,16 @@ impl Ctx<'_> {
             vec![
                 unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.ammo(), c.rarity(), c.price(), c.requirements(), c.ammo_type(), c.damage(), c.dps(), c.speed(),
                 c.equip_delay(), c.initiative(), c.location(), c.range(), c.dual_wield(), c.specials(), c.max_beneficial(),
-                c.skills(12, "AtkSkills"), c.skills(13, "DefSkills"), c.modifiers(), c.skill_to_use(), c.damage_type(), unless_tip(c.description()),
+                c.skills(12, "AtkSkills"), c.skills(13, "DefSkills"), c.modifiers(tip), c.skill_to_use(), c.damage_type(), unless_tip(c.description()),
             ]
         } else if c.stat(76) == Some(2) {
             // (armour FUN_1003826b: no charges, the skills it is used with after the modifiers; "Fabric" only in a
             // debug input mode; the header and the description not in a tip)
-            vec![unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.price(), c.fixture(), c.requirements(), c.location(), c.modifiers(), c.skill_to_use(), unless_tip(c.description())]
+            vec![unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.price(), c.fixture(), c.requirements(), c.location(), c.modifiers(tip), c.skill_to_use(), unless_tip(c.description())]
         } else if matches!(c.stat(76), Some(3) | Some(5)) {
             // (implants FUN_10038586: as armour's, but in a tip without the header, the requirements and the skills to
             // use; the description is there)
-            vec![unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.price(), unless_tip(c.requirements()), c.location(), c.modifiers(), unless_tip(c.skill_to_use()), c.description()]
+            vec![unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.price(), unless_tip(c.requirements()), c.location(), c.modifiers(tip), unless_tip(c.skill_to_use()), c.description()]
         } else {
             // (FUN_1003882b: the shop's price and the fixture after the rarity, the insurance cost before the modifiers;
             // after them a building's upkeep and size, the vicinity and personal modifier lists (24, 25, 26: FUN_10032f25,
@@ -695,7 +732,7 @@ impl Ctx<'_> {
             let crystal = c.crystal_nano();
             vec![
                 unless_tip(c.header()), c.flags(), c.temporary(), c.pvp(), c.rarity(), c.price(), c.fixture(), unless_tip(c.requirements()), c.location(),
-                c.insurance(), c.modifiers(), c.building(), c.modifier_list(24, "VicinityFriendModifier"), c.modifier_list(25, "VicinityHostileModifier"),
+                c.insurance(), c.modifiers(tip), c.building(), c.modifier_list(24, "VicinityFriendModifier"), c.modifier_list(25, "VicinityHostileModifier"),
                 c.modifier_list(26, "PersonalModifier"), c.tower(), unless_tip(c.skill_to_use()), c.charges(),
                 if tip && crystal.is_none() { String::new() } else { c.description() },
                 c.formula(crystal),

@@ -250,8 +250,45 @@ pub fn timer_text(left: f32) -> String {
     if s <= 60 { format!("{s:2}s") } else { format!("{:2}m", s / 60) }
 }
 
+/// What the left button does on a filled cell of a bar.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum CellMouse {
+    Nothing,
+    /// Use the shortcut (with Shift: its info).
+    Click,
+    /// Take it up.
+    PickUp,
+}
+
+/// The left button on a shortcut, down for `held`: still down (`released` false) or just let go, `over` the cell or
+/// not. The bars' list is one of the "new mouse" (`ShortcutBarView`, FUN_100d9588, sets `+0x319`): the button going
+/// down starts `MouseButtonHoldDelay`'s timer, at whose end the shortcut is taken up, moved or not (FUN_1004213e ->
+/// FUN_100d8837, which does nothing while `LockHotbars`); the button coming up before that is the click
+/// (FUN_1004141b), and after it nothing more.
+pub fn cell_mouse(held: std::time::Duration, released: bool, over: bool, locked: bool) -> CellMouse {
+    match (released, crate::gui::multilist::held_long_enough(held)) {
+        (false, true) if !locked => CellMouse::PickUp,
+        (true, false) if over => CellMouse::Click,
+        _ => CellMouse::Nothing,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// A press let go within the hold delay is a click; held past it the shortcut is taken up, unless the bars are
+    /// locked; a release after the delay does nothing more.
+    #[test]
+    fn a_held_button_takes_a_shortcut_up() {
+        use std::time::Duration as D;
+        assert_eq!(super::cell_mouse(D::from_millis(120), true, true, false), super::CellMouse::Click);
+        assert_eq!(super::cell_mouse(D::from_millis(120), true, false, false), super::CellMouse::Nothing);
+        assert_eq!(super::cell_mouse(D::from_millis(120), false, true, false), super::CellMouse::Nothing);
+        assert_eq!(super::cell_mouse(D::from_millis(300), false, true, false), super::CellMouse::PickUp);
+        assert_eq!(super::cell_mouse(D::from_millis(300), false, true, true), super::CellMouse::Nothing);
+        assert_eq!(super::cell_mouse(D::from_millis(450), true, true, false), super::CellMouse::Nothing);
+        assert_eq!(super::cell_mouse(D::from_millis(120), true, true, true), super::CellMouse::Click);
+    }
+
     use super::*;
 
     /// The keys: 1 to 0 press the primary bar's shown page, Shift picks its page, Alt the primary (only a bar there is).

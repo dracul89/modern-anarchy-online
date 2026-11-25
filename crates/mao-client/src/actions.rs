@@ -361,6 +361,8 @@ pub struct ActionsWindow {
     loaded: bool,
     /// What a click asked for: sent to the network thread by the viewer.
     pub clicked: Option<hotbar::Action>,
+    /// Info pages asked for (Shift + click on a tile).
+    pub infos: Vec<String>,
     views: Option<(crate::gui::view::Tree, crate::gui::view::Id, crate::gui::view::Id)>,
     /// The other halves of the pairs the catalogue does not have (end combat, sit, run, stop sneaking, disrupt, stop
     /// crawling): named and pictured by their templates.
@@ -369,7 +371,7 @@ pub struct ActionsWindow {
 
 impl Default for ActionsWindow {
     fn default() -> Self {
-        ActionsWindow { open: false, icons: HashMap::new(), loaded: false, clicked: None, views: None, pair_looks: HashMap::new() }
+        ActionsWindow { open: false, icons: HashMap::new(), loaded: false, clicked: None, infos: Vec::new(), views: None, pair_looks: HashMap::new() }
     }
 }
 
@@ -498,6 +500,9 @@ impl ActionsWindow {
                 hovered = crate::gui::multilist::item_at(tree, list, response.rect.min, at).map(|k| (k as usize, at));
             }
         });
+        // (a tile is taken up by the button held on it, not by a press that moves: `multilist::hold_to_pick`,
+        // FUN_100dc1ab on the list's pick-up signal)
+        crate::gui::multilist::hold_to_pick(tree, list);
         for (_, event) in crate::gui::multilist::take_events(tree) {
             match event {
                 crate::gui::multilist::ItemEvent::Clicked(k, _) => {
@@ -505,8 +510,14 @@ impl ActionsWindow {
                     // the wait line of what locks it and sends nothing. The network thread says it: a perk's
                     // `UnableToPerformActionPerk`, a skill's `UnableToPerformActionSkill`. Until 2026-11-18 the click
                     // was dropped here without a word.)
+                    // (with Shift the click shows the action's info and does not perform it: the list's qualifier
+                    // signal, FUN_100dc3ae)
                     if let Some((a, ..)) = actions.get(k as usize) {
-                        self.clicked = Some(a.clone());
+                        if ctx.input(|i| i.modifiers.shift) {
+                            self.infos.extend(hotbar::info_url(a, |_| None));
+                        } else {
+                            self.clicked = Some(a.clone());
+                        }
                     }
                 }
                 crate::gui::multilist::ItemEvent::Dragged(k) => {

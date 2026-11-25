@@ -17,6 +17,46 @@ use crate::theme::Palette;
 const NANO: u32 = 0xfde85;
 const DURATION: u32 = 8;
 
+/// How long the right button is held on a nano before its menu opens (`MouseButtonHoldDelay`, 0.3 s).
+const HOLD: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Whether a left click on a running nano shows its info: with Shift only (GUI.dll FUN_10045259 on the list's
+/// qualifier signal; a plain click's pick-up signal has no listener, FUN_10045d42).
+pub fn left_click_shows(shift: bool) -> bool {
+    shift
+}
+
+/// A running nano's tip in the NCU window (GUI.dll FUN_10045b79, which takes the place of the item lists' own tip
+/// there): the title is the nano's name as it is; the text is its type in a colour of its own (FUN_1003d5a5: 1
+/// "Friendly" white, 2 "Hostile" red, 3 "Self" yellow, 4 "Team" green, else "Unknown"), "NCU usage:" with the nano's
+/// raw stat 54, "Remaining:" with the time left as hours, minutes and seconds of two digits each
+/// (`N3Msg_GetBuffCurrentTime` gives hundredths of a second), and, when the nano changes anything, "Modifies:" with
+/// its modifier string (`N3Msg_GetModifierString(nano, 0, .., 0)`). The words are in GUI.dll itself. No description.
+pub fn tip(name: &str, kind: u8, ncu: u32, left_ms: u32, modifies: &str) -> (String, String) {
+    let kind = match kind {
+        1 => "<font color=\"white\">Friendly</font>",
+        2 => "<font color=\"red\">Hostile</font>",
+        3 => "<font color=\"yellow\">Self</font>",
+        4 => "<font color=\"green\">Team</font>",
+        _ => "Unknown",
+    };
+    let seconds = left_ms / 1000;
+    let minutes = seconds / 60;
+    let mut text = format!("{kind}<br>NCU usage:&nbsp;{ncu}<br>Remaining:&nbsp;{:02}:{:02}:{:02}", minutes / 60, minutes % 60, seconds % 60);
+    if !modifies.is_empty() {
+        text += "<br>Modifies:<br>";
+        text += modifies;
+    }
+    (name.to_string(), text)
+}
+
+/// A right click on one of one's own running nanos (GUI.dll FUN_1004561f): whether it is taken off, and the line said.
+/// `N3Msg_RemoveBuff` (Gamecode 0x1001bee9) refuses a nano whose flags have one of 0x8000, 0x4000 and 0x100
+/// (`stays`) and asks the server to end any other (`CharacterAction` 0x41). The words are in GUI.dll itself.
+pub fn right_click(stays: bool) -> (bool, &'static str) {
+    if stays { (false, "Can't remove hostile timed nanoprogram.") } else { (true, "Deactivating friendly timed nanoprogram.") }
+}
+
 /// One running nano, ready to show.
 pub struct NanoInfo {
     pub id: u32,
@@ -51,6 +91,9 @@ pub struct Columns {
     pub attack_delay: u32,
     pub recharge_delay: u32,
     pub hidden: bool,
+    /// The player cannot take it off: its flags have one of 0x8000 (hostile), 0x4000 and 0x100
+    /// (`N3Msg_RemoveBuff`, Gamecode 0x1001bee9: `GetSkill(nano, 0) & 0xc100`).
+    pub stays: bool,
 }
 
 /// The spell function a team nano carries (`N3Msg_IsTeamNano`: FUN_10002483(0, 0xcf4a)).
@@ -64,6 +107,7 @@ impl Columns {
         let value = |n: u32| stat(n).filter(|v| *v != 1_234_567_890).unwrap_or(0);
         Columns {
             kind: if flags & 0x8000 != 0 { 2 } else if team { 4 } else if self_only { 3 } else { 1 },
+            stays: flags & 0xc100 != 0,
             nano_cost: value(407),
             ncu: stat(54).unwrap_or(0),
             range: value(287),
@@ -196,8 +240,7 @@ pub fn clock(ms: u32) -> String {
 ///
 /// The right button opens the window's menu (FUN_100d758a): "List Mode" turns the grid into the list (`SetLayoutMode`,
 /// kept as `listview_mode`): the eleven columns of [`COLUMNS`] under their header, a nano a row with its icon, sorted by
-/// the time left until a label is pressed, a hostile nano's row in red. Over a nano the menu also has this client's own
-/// entry that cancels it. The menu's second entry is "Auto Arrange" (dead in list mode), the sub-menu of FUN_10041637(0):
+/// the time left until a label is pressed, a hostile nano's row in red. The menu's second entry is "Auto Arrange" (dead in list mode), the sub-menu of FUN_10041637(0):
 /// "By <label>" for each column but the icon's and "Sort Ascending" ([`crate::nanoprograms::arrange_menu`]); the grid's
 /// sort chosen there is kept (`grid_sort_column`, `grid_sort_order`; here `NCUWindowGridSort`). Nanos whose flags have
 /// 0x1000000 are in neither (FUN_100458b0). The radius is the original's `---`: `N3Msg_GetFormularRadius` (Gamecode
@@ -217,6 +260,10 @@ pub struct NcuWindow {
     /// List mode (`listview_mode`) and the grid's sort (column and order); not set until the kept choices are read.
     pub list: Option<bool>,
     pub grid_sort: Option<(i32, i32)>,
+    /// The nano the right button went down on, and when: held there, its menu opens ([`HOLD`]).
+    right_held: Option<(u32, Instant)>,
+    /// What the game says of a nano taken off or not (the original's own words, not from the texts' file).
+    pub lines: Vec<&'static str>,
     /// A preview's: the two target windows to show with the same nanos.
     pub target_preview: Option<[TargetNcu; 2]>,
     /// Where the window starts and its size (the original's 160 by 160; a preview's are its own).
@@ -225,7 +272,7 @@ pub struct NcuWindow {
 
 impl Default for NcuWindow {
     fn default() -> NcuWindow {
-        NcuWindow { open: false, textures: HashMap::new(), views: None, keeper: Default::default(), info_url: None, menu: None, popup: None, list: None, grid_sort: None, target_preview: None, start: (egui::pos2(560.0, 90.0), egui::vec2(160.0, 160.0)) }
+        NcuWindow { open: false, textures: HashMap::new(), views: None, keeper: Default::default(), info_url: None, menu: None, popup: None, list: None, grid_sort: None, right_held: None, lines: Vec::new(), target_preview: None, start: (egui::pos2(560.0, 90.0), egui::vec2(160.0, 160.0)) }
     }
 }
 
@@ -247,10 +294,9 @@ impl NcuWindow {
         (tree, root, list)
     }
 
-    /// Shows the window; returns the program the player chose to cancel (the client's right-click menu).
+    /// Shows the window; returns the program the player takes off (a right click on it).
     pub fn show(&mut self, ctx: &egui::Context, nanos: &[NanoInfo], stats: &std::collections::BTreeMap<u32, i64>, palette: &Palette) -> Option<u32> {
         let mut cancel = None;
-        let accent = egui::Color32::from_rgb(palette.accent[0], palette.accent[1], palette.accent[2]);
         let now = Instant::now();
         if self.views.is_none() {
             self.views = Some(Self::build(ctx));
@@ -292,56 +338,75 @@ impl NcuWindow {
         if !nanos.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
+        // (the list's mouse is the item lists' own (`ItemListViewBase_c` without `+0x319`, FUN_10045d42): a left click
+        // raises the pick-up signal, which nothing here listens to, so a plain click does nothing; with Shift it is
+        // the qualifier signal, FUN_10045259: the nano's info. Until 2026-11-25 any click showed the info.)
+        let shift = ctx.input(|i| i.modifiers.shift);
         for (_, event) in crate::gui::multilist::take_events(tree) {
-            if let crate::gui::multilist::ItemEvent::Clicked(id, _) = event {
+            if let crate::gui::multilist::ItemEvent::Clicked(id, _) = event
+                && left_click_shows(shift)
+            {
                 self.info_url = Some(format!("itemid://{}/{}", crate::gui::iteminfo::NANO_IDENTITY, id));
             }
         }
         self.keeper.after("NCUWindowConfig", tree, list, in_list);
         tree.signals.clear();
-        // (the window's menu, FUN_100d758a: "List Mode" with its mark and "Auto Arrange" with its sub-menu, dead in list
-        // mode; over a nano, this client's own entry too)
-        let labels: Vec<(i32, String)> = crate::gui::multilist::columns(tree, list).into_iter().map(|c| (c.id, c.label)).collect();
-        if let Some(at) = over
-            && ctx.input(|i| i.pointer.secondary_clicked())
-        {
-            use crate::gui::popup::Entry;
-            let nano = hovered.map(|h| h.0);
-            let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
-            let (arrange_keys, arrange) = crate::nanoprograms::arrange_menu(&labels, Some(grid_sort), false);
-            let mut keys = vec![vec!["list".to_string()], arrange_keys];
-            let mut entries = vec![Entry::marked(text("ListMode", "As a list"), true, in_list), Entry::submenu(text("AutoArrange", "Order"), !in_list, arrange)];
-            if nano.is_some() {
-                keys.push(vec!["cancel".to_string()]);
-                entries.push(Entry::text("Cancel this nano", true));
-            }
-            self.menu = Some((nano, keys));
-            self.popup = Some(crate::chrome::menu_of(ctx, at, entries));
+        let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
+        // (the right button held on a nano for `MouseButtonHoldDelay`: its menu, FUN_100457d1, whose one entry is
+        // "LookAtNano" (FUN_100452c2: the info). Letting go then does nothing more. The client's own "Cancel this
+        // nano" entry (NAN-060) went on 2026-11-25: the right click below is the original's cancel.)
+        if ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+            self.right_held = hovered.map(|h| (h.0, Instant::now()));
         }
-        // (a nano's tip: its name, time left, description and what it changes)
-        if let Some((id, at)) = hovered.filter(|_| self.menu.is_none())
+        if !ctx.input(|i| i.pointer.secondary_down()) && !ctx.input(|i| i.pointer.button_released(egui::PointerButton::Secondary)) {
+            self.right_held = None;
+        }
+        if let Some((nano, since)) = self.right_held {
+            ctx.request_repaint();
+            if since.elapsed() >= HOLD
+                && self.popup.is_none()
+                && let Some(at) = ctx.input(|i| i.pointer.interact_pos())
+            {
+                self.menu = Some((Some(nano), vec![vec!["look".to_string()]]));
+                self.popup = Some(crate::chrome::menu_at(ctx, at, &[(text("LookAtNano", "Look at"), true)]));
+                self.right_held = None;
+            }
+        }
+        // (the right button let go on a nano before that: the list's click signal, FUN_1004561f, which takes the
+        // nano off: `N3Msg_RemoveBuff`, and a line either way. No key is looked at.)
+        if let Some((id, _)) = hovered
+            && self.popup.is_none()
+            && ctx.input(|i| i.pointer.secondary_clicked())
             && let Some(nano) = nanos.iter().find(|n| n.id == id)
         {
-            let left = nano.left(now);
-            egui::Area::new(egui::Id::unique("nano-tip")).order(egui::Order::Tooltip).fixed_pos(at + egui::vec2(16.0, 16.0)).interactable(false).show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_max_width(320.0);
-                    ui.label(egui::RichText::new(&nano.name).strong().color(accent));
-                    if nano.total_ms > 0 {
-                        ui.label(egui::RichText::new(format!("{} of {} left", clock(left), clock(nano.total_ms))).small());
-                    }
-                    if !nano.description.is_empty() {
-                        ui.label(nano.description.chars().take(420).collect::<String>().replace("\r\n", "\n"));
-                    }
-                    for &(stat, amount) in nano.effects.iter().filter(|e| e.1 != 0).take(10) {
-                        ui.horizontal(|ui| {
-                            ui.label(crate::skills::stat_name(stat));
-                            let color = if amount > 0 { egui::Color32::from_rgb(120, 220, 120) } else { egui::Color32::from_rgb(230, 110, 110) };
-                            ui.label(egui::RichText::new(format!("{amount:+}")).color(color));
-                        });
-                    }
-                });
+            let (taken_off, line) = right_click(nano.columns.stays);
+            self.lines.push(line);
+            if taken_off {
+                cancel = Some(id);
+            }
+        }
+        // (the window's menu, FUN_100d758a: "List Mode" with its mark and "Auto Arrange" with its sub-menu, dead in list
+        // mode, then the frame's own entry: the frame's menu button, or the page's in the rollup column. Until
+        // 2026-11-25 the right button beside the nanos opened it, where the original's list does nothing, FUN_10041aa4.)
+        let labels: Vec<(i32, String)> = crate::gui::multilist::columns(tree, list).into_iter().map(|c| (c.id, c.label)).collect();
+        if let Some(at) = crate::chrome::frame_menu("NCU") {
+            use crate::gui::popup::Entry;
+            let (arrange_keys, arrange) = crate::nanoprograms::arrange_menu(&labels, Some(grid_sort), false);
+            let keys = vec![vec!["list".to_string()], arrange_keys, vec!["close".to_string()]];
+            let entries = vec![Entry::marked(text("ListMode", "As a list"), true, in_list), Entry::submenu(text("AutoArrange", "Order"), !in_list, arrange), Entry::text(crate::chrome::close_entry(), true)];
+            self.menu = Some((None, keys));
+            self.popup = Some(crate::chrome::menu_of(ctx, at, entries));
+        }
+        // (a running nano's tip: the NCU list's own, FUN_10045b79, [`tip`]. Until 2026-11-25 a tip of this client's
+        // layout: the name, "x of y left", the description and a list of what it changes (NAN-059).)
+        {
+            let tipped = hovered.filter(|_| self.menu.is_none()).and_then(|(id, _)| nanos.iter().find(|n| n.id == id));
+            let (title, text) = tipped.map_or_else(Default::default, |nano| {
+                let modifies = crate::net::item_db().map_or_else(String::new, |db| crate::gui::iteminfo::nano_modifies(&db, nano.id, stats));
+                tip(&nano.name, nano.columns.kind, nano.columns.ncu, nano.left(now), &modifies)
             });
+            let source = egui::Id::unique("nano-tip");
+            crate::gui::tooltip::show(ctx, palette, source, tipped.map(|nano| source.with(nano.id)), &title, &text);
         }
         if let Some(crate::chrome::Picked::Entry(path)) = crate::chrome::menu_path(ctx, palette, "nano-menu", &mut self.popup)
             && let Some((nano, keys)) = self.menu.take()
@@ -352,7 +417,8 @@ impl NcuWindow {
                     self.list = Some(!in_list);
                     crate::layout::set_tab("NCUWindowConfig", usize::from(!in_list));
                 }
-                "cancel" => cancel = nano.filter(|id| nanos.iter().any(|n| n.id == *id)),
+                "look" => self.info_url = nano.map(|id| format!("itemid://{}/{}", crate::gui::iteminfo::NANO_IDENTITY, id)),
+                "close" => crate::chrome::close_next("NCU"),
                 // (FUN_10041303 / FUN_10041331: a column not marked yet, keeping the order; the order turned round)
                 _ => {
                     if let Some(Some(sort)) = crate::loot::arrange_choice(key, Some(grid_sort)) {
@@ -492,25 +558,37 @@ impl TargetNcu {
         if !order.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
+        // (the same list as the NCU window's, FUN_100dda60 builds FUN_10045d42: the info with Shift only)
+        let shift = ctx.input(|i| i.modifiers.shift);
         for (_, event) in crate::gui::multilist::take_events(tree) {
-            if let crate::gui::multilist::ItemEvent::Clicked(id, _) = event {
+            if let crate::gui::multilist::ItemEvent::Clicked(id, _) = event
+                && left_click_shows(shift)
+            {
                 self.info_url = Some(format!("itemid://{}/{}", crate::gui::iteminfo::NANO_IDENTITY, id));
             }
         }
         self.keeper.after(config, tree, list, in_list);
         tree.signals.clear();
-        if let Some(at) = over
-            && ctx.input(|i| i.pointer.secondary_clicked())
-        {
-            let entries = [(crate::gui::xml::ldb_named(10000, "ListMode", "As a list"), true, Some(in_list)), (crate::gui::xml::ldb_named(10000, "HostileOnly", "Hostile nanos only"), true, Some(hostile_only))];
+        // (the window's menu, FUN_100dd94d, is put into the frame's icon menu (`GetIconMenu`, 0x100de008): the frame's
+        // menu button opens it, with the frame's own entry after it. Until 2026-11-25 a right click on the window did.)
+        if let Some(at) = crate::chrome::frame_menu(name) {
+            let entries = [
+                (crate::gui::xml::ldb_named(10000, "ListMode", "As a list"), true, Some(in_list)),
+                (crate::gui::xml::ldb_named(10000, "HostileOnly", "Hostile nanos only"), true, Some(hostile_only)),
+                (crate::chrome::close_entry(), true, None),
+            ];
             self.menu = Some(at);
             self.popup = Some(crate::chrome::menu_marked(ctx, at, &entries));
         }
-        if let Some(chosen) = crate::chrome::menu(ctx, palette, if self.fight { "fight-ncu-menu" } else { "nano-ncu-menu" }, &mut self.popup) {
-            let (list_now, hostile_now) = if chosen == 0 { (!in_list, hostile_only) } else { (in_list, !hostile_only) };
-            self.list = Some(list_now);
-            self.hostile_only = Some(hostile_now);
-            crate::layout::set_tab(config, usize::from(list_now) | usize::from(hostile_now) << 1);
+        match crate::chrome::menu(ctx, palette, if self.fight { "fight-ncu-menu" } else { "nano-ncu-menu" }, &mut self.popup) {
+            Some(chosen @ (0 | 1)) => {
+                let (list_now, hostile_now) = if chosen == 0 { (!in_list, hostile_only) } else { (in_list, !hostile_only) };
+                self.list = Some(list_now);
+                self.hostile_only = Some(hostile_now);
+                crate::layout::set_tab(config, usize::from(list_now) | usize::from(hostile_now) << 1);
+            }
+            Some(_) => crate::chrome::close_next(name),
+            None => {}
         }
         if self.popup.is_none() {
             self.menu = None;
@@ -522,6 +600,35 @@ impl TargetNcu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FUN_10045b79: the type's word, the NCU, the time left as hh:mm:ss, and what the nano changes when it changes
+    /// anything.
+    #[test]
+    fn a_running_nanos_tip() {
+        assert_eq!(
+            tip("Essence", 1, 25, 3_725_900, ""),
+            ("Essence".to_string(), "<font color=\"white\">Friendly</font><br>NCU usage:&nbsp;25<br>Remaining:&nbsp;01:02:05".to_string())
+        );
+        let (_, text) = tip("Root", 2, 999, 0, "  Run speed -500\n");
+        assert_eq!(text, "<font color=\"red\">Hostile</font><br>NCU usage:&nbsp;999<br>Remaining:&nbsp;00:00:00<br>Modifies:<br>  Run speed -500\n");
+        assert!(tip("x", 3, 1, 0, "").1.starts_with("<font color=\"yellow\">Self</font>"));
+        assert!(tip("x", 4, 1, 0, "").1.starts_with("<font color=\"green\">Team</font>"));
+        assert!(tip("x", 0, 1, 0, "").1.starts_with("Unknown<br>"));
+        // (more than a day: the hours go on)
+        assert!(tip("x", 1, 1, 100 * 3_600_000, "").1.ends_with("Remaining:&nbsp;100:00:00"));
+    }
+
+    /// FUN_1004561f and `N3Msg_RemoveBuff`: a right click takes a friendly nano off and says so; one whose flags
+    /// have 0x8000, 0x4000 or 0x100 stays, with the other line. FUN_10045259: the info by Shift + click only.
+    #[test]
+    fn a_right_click_takes_a_friendly_nano_off() {
+        let stats = |flags: u32| move |n: u32| (n == 0).then_some(flags);
+        assert_eq!(right_click(Columns::of(stats(0x10000), false, false).stays), (true, "Deactivating friendly timed nanoprogram."));
+        for flags in [0x8000, 0x4000, 0x100] {
+            assert_eq!(right_click(Columns::of(stats(flags), false, false).stays), (false, "Can't remove hostile timed nanoprogram."));
+        }
+        assert!(left_click_shows(true) && !left_click_shows(false));
+    }
 
     /// NAN-004: the running nanos that count for the NCU in use (FUN_100517f3 at 0x100518a7, FUN_10051041 at 0x1005131b):
     /// flag 0x10000 and none of 0x4000, 0x8000, 0x100; their stat 54. A heal (0x80000002) or a hostile nano (0x8000) counts nothing.
@@ -550,7 +657,7 @@ mod tests {
             294 => Some(150),
             _ => None,
         };
-        assert_eq!(Columns::of(stats(0), false, false), Columns { kind: 1, nano_cost: 310, ncu: 42, range: 0, attack_delay: 150, recharge_delay: 0, hidden: false });
+        assert_eq!(Columns::of(stats(0), false, false), Columns { kind: 1, nano_cost: 310, ncu: 42, range: 0, attack_delay: 150, recharge_delay: 0, hidden: false, stays: false });
         assert_eq!((Columns::of(stats(0x8000), true, true).kind, Columns::of(stats(0), true, true).kind, Columns::of(stats(0x0100_0000), false, false).hidden), (2, 4, true));
         // (NAN-045: FUN_1003f4cf's type 3, self only, after hostile and team)
         assert_eq!(Columns::of(stats(0), false, true).kind, 3);

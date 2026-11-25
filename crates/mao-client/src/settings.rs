@@ -315,16 +315,19 @@ pub const ACTIONS: &[(Action, &str, &str)] = &[
     (Action::Quick(10), "action_aimed_shot", "O"),
     (Action::Quick(11), "action_bow_special_attack", "Period"),
     // The chat.
-    // (GUI.dll's key table: `COMMAND_TEXT_INPUT_START_TEXT_INPUT` on Enter, Shift+Enter and Alt+Enter, the last
-    // left to this client's window mode; `COMMAND_START_CHAT_CMD_INPUT` on Slash and the numeric pad's divide)
-    (Action::ChatInput, "chat_input", "Enter, Shift+Enter"),
+    // (GUI.dll's key table: `COMMAND_TEXT_INPUT_START_TEXT_INPUT` on Enter, Shift+Enter and Alt+Enter;
+    // `COMMAND_START_CHAT_CMD_INPUT` on Slash and the numeric pad's divide. Until 2026-11-25 Alt+Enter was this
+    // client's window mode key.)
+    (Action::ChatInput, "chat_input", "Enter, Shift+Enter, Alt+Enter"),
     (Action::ChatCommand, "chat_command", "Slash, NumpadDivide"),
     (Action::ChatReply, "chat_reply", "Shift+R"),
     (Action::ChatPageUp, "chat_history_page_up", "PageUp"),
     (Action::ChatPageDown, "chat_history_page_down", "PageDown"),
     // This client.
     (Action::CloseWindows, "close_windows", "Escape"),
-    (Action::CycleWindowMode, "cycle_window_mode", "Alt+Enter"),
+    // (no key of its own since 2026-11-25: Alt+Enter is the original's chat key. The window mode is changed by
+    // F11, in the client settings' window and on the launcher's page; a player can still give this action a key.)
+    (Action::CycleWindowMode, "cycle_window_mode", ""),
     (Action::ToggleFullscreen, "toggle_fullscreen", "F11"),
     (Action::ToggleOptions, "options", "F10"),
     (Action::Quit, "quit", "Ctrl+Q"),
@@ -475,6 +478,14 @@ pub fn parse_binding(text: &str) -> Option<Binding> {
     }
     binding.key = key?;
     Some(binding)
+}
+
+/// Whether a `[keys]` line is one left from when Alt+Enter was this client's window mode key (until 2026-11-25):
+/// the window mode's line with just that key, or the chat's line with just its two old keys. Such a line is passed
+/// over, so the action has today's default (GUI.dll's key table: Alt+Enter starts typing).
+pub fn alt_enter_moves(action: Action, value: &str) -> bool {
+    let keys = |text: &str| -> Vec<Binding> { text.split(',').filter_map(parse_binding).collect() };
+    (action == Action::CycleWindowMode && keys(value) == keys("Alt+Enter")) || (action == Action::ChatInput && keys(value) == keys("Enter, Shift+Enter"))
 }
 
 /// The text of a binding (the inverse of [`parse_binding`]).
@@ -969,6 +980,11 @@ impl Settings {
                         if action == Action::MapOverlay && value.trim().eq_ignore_ascii_case("Ctrl+6") {
                             continue;
                         }
+                        // (Alt+Enter was the window mode's key until 2026-11-25; it is the chat's, as in the
+                        // original: a file written before that gives it back)
+                        if alt_enter_moves(action, &value) {
+                            continue;
+                        }
                         settings.keymap.set(action, &value);
                     }
                     None => eprintln!("settings line {}: unknown action {name:?}", n + 1),
@@ -1322,7 +1338,15 @@ log_messages = on
         assert_eq!(keymap.action(KeyCode::ArrowLeft, ModifiersState::empty()), Some(Action::TurnLeft));
         assert_eq!(keymap.action(KeyCode::Tab, ModifiersState::SHIFT), Some(Action::PrevHostileTarget));
         assert_eq!(keymap.action(KeyCode::Tab, ModifiersState::empty()), Some(Action::NextHostileTarget));
-        assert_eq!(keymap.action(KeyCode::Enter, ModifiersState::ALT), Some(Action::CycleWindowMode));
+        // (Alt+Enter starts typing, as GUI.dll's key table has it; the window mode has no key of its own)
+        assert_eq!(keymap.action(KeyCode::Enter, ModifiersState::ALT), Some(Action::ChatInput));
+        assert!(keymap.bindings_of(Action::CycleWindowMode).is_empty());
+        // (a file from when Alt+Enter was the window mode's key gives it back; a key the player chose is kept)
+        let old = Settings::from_text(&format!("[keys]\nversion = {KEYMAP_VERSION}\ncycle_window_mode = Alt+Enter\nchat_input = Enter, Shift+Enter\n")).keymap;
+        assert_eq!(old.action(KeyCode::Enter, ModifiersState::ALT), Some(Action::ChatInput));
+        let chosen = Settings::from_text(&format!("[keys]\nversion = {KEYMAP_VERSION}\ncycle_window_mode = F9\nchat_input = Enter\n")).keymap;
+        assert_eq!(chosen.action(KeyCode::F9, ModifiersState::empty()), Some(Action::CycleWindowMode));
+        assert_eq!(chosen.action(KeyCode::Enter, ModifiersState::ALT), None);
         assert_eq!(keymap.action(KeyCode::Enter, ModifiersState::empty()), Some(Action::ChatInput));
         // (GUI.dll's key table: the chat's second keys)
         assert_eq!(keymap.action(KeyCode::Enter, ModifiersState::SHIFT), Some(Action::ChatInput));

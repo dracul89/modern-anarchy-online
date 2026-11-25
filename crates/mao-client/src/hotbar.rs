@@ -30,6 +30,20 @@ pub enum Action {
     Macro { id: i32, name: String },
 }
 
+/// A shortcut's tip on the original's bars (GUI.dll FUN_10042193 over the bar's list, whose +0x368 the shipped
+/// `ShortcutShortTooltips` clears, FUN_100d8129): the title alone, the name in its rarity's colour; a macro's (item
+/// kind 7) is its name with its command line as the text, and "Broken macro" when the macro is gone. `title_of` gives
+/// the coloured title of an item or a nano program from the game's records.
+pub fn tip(action: &Action, a_macro: impl Fn(i32) -> Option<(String, String)>, title_of: impl Fn(&Action) -> Option<String>) -> (String, String) {
+    match action {
+        Action::Macro { id, .. } => a_macro(*id).unwrap_or_else(|| ("Broken macro".to_string(), String::new())),
+        // (an action carries no rarity: `N3Msg_GetRarityColor` gives `CCItemUnknown`)
+        Action::Special { name, .. } => (format!("<font color=CCItemUnknown>{name}</font>"), String::new()),
+        Action::Item { name, .. } | Action::Nano { name, .. } => (title_of(action).unwrap_or_else(|| name.clone()), String::new()),
+        other => (other.name().to_string(), String::new()),
+    }
+}
+
 impl Action {
     pub fn name(&self) -> &str {
         match self {
@@ -37,6 +51,24 @@ impl Action {
             Action::Attack => "Attack",
             Action::Special { name, .. } | Action::Social { name, .. } | Action::Nano { name, .. } | Action::Macro { name, .. } => name,
         }
+    }
+}
+
+/// The info page a click with Shift on a shortcut or an action's tile asks for, in place of using it: the
+/// original's lists raise their qualifier signal then, and the shortcut bar's and the Actions window's handlers
+/// (GUI.dll FUN_100d7fd3, FUN_100dc3ae) show `itemid://<type>/<instance>` of the tile's identity; not for a text
+/// macro (the bar's item type 7), which has no page. Here an item's page is by its template and quality (`worn`
+/// gives the high template and quality of the item carried, when one is), an action's by its template, a nano
+/// program's by its number.
+pub fn info_url(action: &Action, worn: impl Fn(u32) -> Option<(u32, u32)>) -> Option<String> {
+    match action {
+        Action::Item { id, .. } => {
+            let (high, quality) = worn(*id).unwrap_or((*id, 1));
+            Some(format!("itemref://{id}/{high}/{quality}"))
+        }
+        Action::Special { id, .. } => Some(format!("itemref://{id}/{id}/1")),
+        Action::Nano { id, .. } => Some(format!("itemid://{}/{id}", crate::gui::iteminfo::NANO_IDENTITY)),
+        Action::Attack | Action::Social { .. } | Action::Macro { .. } => None,
     }
 }
 
@@ -289,7 +321,32 @@ pub fn save(bars: &Hotbars) {
 
 #[cfg(test)]
 mod tests {
+    /// FUN_100d7fd3 / FUN_100dc3ae: Shift + click shows the page of what the tile stands for; a macro has none.
+    #[test]
+    fn a_shortcuts_info_page() {
+        let none = |_: u32| None;
+        assert_eq!(super::info_url(&super::Action::Nano { id: 95000, name: String::new(), icon: None }, none).as_deref(), Some("itemid://53019/95000"));
+        assert_eq!(super::info_url(&super::Action::Special { id: 82210, name: String::new(), icon: None }, none).as_deref(), Some("itemref://82210/82210/1"));
+        assert_eq!(super::info_url(&super::Action::Item { id: 100, name: String::new(), icon: None }, |_| Some((101, 57))).as_deref(), Some("itemref://100/101/57"));
+        assert_eq!(super::info_url(&super::Action::Item { id: 100, name: String::new(), icon: None }, none).as_deref(), Some("itemref://100/100/1"));
+        assert_eq!(super::info_url(&super::Action::Macro { id: 1, name: String::new() }, none), None);
+    }
+
     use super::*;
+
+    /// FUN_10042193 over a shortcut bar's list with `ShortcutShortTooltips` on.
+    #[test]
+    fn a_shortcuts_tip_is_its_name_and_a_macros_its_command() {
+        let none = |_: i32| None;
+        let title = |a: &Action| matches!(a, Action::Item { id: 7, .. }).then(|| "<font color=CCItemNormal>Kit</font>".to_string());
+        assert_eq!(tip(&Action::Item { id: 7, name: "Kit".into(), icon: None }, none, title), ("<font color=CCItemNormal>Kit</font>".to_string(), String::new()));
+        // (no record at hand: the plain name)
+        assert_eq!(tip(&Action::Nano { id: 9, name: "Heal".into(), icon: None }, none, title), ("Heal".to_string(), String::new()));
+        assert_eq!(tip(&Action::Special { id: 3, name: "Brawl".into(), icon: None }, none, title).0, "<font color=CCItemUnknown>Brawl</font>");
+        let macros = |id: i32| (id == 4).then(|| ("Hi".to_string(), "/say hello".to_string()));
+        assert_eq!(tip(&Action::Macro { id: 4, name: "Hi".into() }, macros, title), ("Hi".to_string(), "/say hello".to_string()));
+        assert_eq!(tip(&Action::Macro { id: 5, name: "Gone".into() }, macros, title), ("Broken macro".to_string(), String::new()));
+    }
 
     fn item(name: &str) -> Action {
         Action::Item { id: 1, name: name.into(), icon: None }

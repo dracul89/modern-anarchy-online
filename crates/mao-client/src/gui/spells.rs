@@ -327,19 +327,31 @@ fn spell_text_of(s: &Spell, level: u32, skill_lock: i32, nano_name: &dyn Fn(u32)
 
 /// `N3Msg_ConvertSpellList` over one list: the spells' lines.
 pub fn convert(spells: &[Spell], level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>) -> String {
-    convert_of(spells, level, skill_lock, nano_name, None)
+    convert_of(spells, level, skill_lock, nano_name, None, false)
+}
+
+/// [`convert`] (or, with `own`, [`convert_nano`]) as a tip has the list: `N3Msg_GetModifierString`'s last argument
+/// (Gamecode 0x10023876), which GUI.dll's FUN_10032c1d sets for the used list (0) of a page built for a tip. With it
+/// `N3Msg_ConvertSpellList` (0x100213ec) writes no line for the nano casts (0xcf3b at 0x10021a51; 0xcf4a, 0xcf5f and
+/// 0xcf61), and `N3Msg_FormatModifierString` (0x100203d7) is told to leave the " if" and the criteria out
+/// (0x10022ef4: its bool is the flag turned round).
+pub fn convert_in_tip(spells: &[Spell], level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>, own: Option<(i32, i32)>) -> String {
+    convert_of(spells, level, skill_lock, nano_name, own, true)
 }
 
 /// [`convert`] over a nano program's list, whose spells all have the flag 0x100 (NanoItem_t's FUN_10086774): `own` the
 /// reader's stats 535 and 536.
 pub fn convert_nano(spells: &[Spell], level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>, own: (i32, i32)) -> String {
-    convert_of(spells, level, skill_lock, nano_name, Some(own))
+    convert_of(spells, level, skill_lock, nano_name, Some(own), false)
 }
 
-fn convert_of(spells: &[Spell], level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>, own: Option<(i32, i32)>) -> String {
+fn convert_of(spells: &[Spell], level: u32, skill_lock: i32, nano_name: &dyn Fn(u32) -> Option<String>, own: Option<(i32, i32)>, tip: bool) -> String {
     let mut out = String::new();
     let mut last_target = -1;
     for s in spells {
+        if tip && matches!(s.kind, 0xcf3b | 0xcf4a | 0xcf5f | 0xcf61) {
+            continue;
+        }
         let Some(line) = spell_text_of(s, level, skill_lock, nano_name, own) else { continue };
         let target = s.stat(0x20);
         let mut heading = String::new();
@@ -347,7 +359,7 @@ fn convert_of(spells: &[Spell], level: u32, skill_lock: i32, nano_name: &dyn Fn(
             last_target = target;
             heading = crate::feedback::texts().and_then(|t| t.get(506, target)).map(str::to_string).unwrap_or_default();
         }
-        let criteria = if s.criteria.is_empty() { String::new() } else { super::criteria::list_to_string(&s.criteria) };
+        let criteria = if s.criteria.is_empty() || tip { String::new() } else { super::criteria::list_to_string(&s.criteria) };
         // (a repeating spell: its hits and delay)
         let (hits, delay) = (s.stat(3), s.stat(4));
         let repeat = if delay > 0 && hits > 1 { format!(", {hits} hits, {:.1}s delay", delay as f32 / 100.0) } else { String::new() };
@@ -377,6 +389,21 @@ pub fn format_modifier(heading: &str, criteria: &str, line: &str, repeat: &str) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A tip's spell list (`N3Msg_ConvertSpellList` with its flag, 0x10021a51 and 0x10022ef4): no line for a nano
+    /// cast, and none of the other lines' criteria.
+    #[test]
+    fn a_tips_list_has_no_casts() {
+        let cast = Spell { kind: 0xcf3b, stats: vec![(39, 7)], ..Default::default() };
+        let area = Spell { kind: 0xcf5f, stats: vec![(88, 7), (11, 20)], ..Default::default() };
+        let set = Spell { kind: 0xcf22, stats: vec![(0, 1), (39, 5)], ..Default::default() };
+        let name = |_: u32| Some("Heal".to_string());
+        let page = convert(&[cast.clone(), area.clone(), set.clone()], 1, 0, &name);
+        let tip = convert_in_tip(&[cast, area, set], 1, 0, &name, None);
+        assert!(page.contains("Cast ") && page.contains("AOE 20m ") && page.contains("Set "), "{page}");
+        assert!(!tip.contains("Cast ") && !tip.contains("AOE") && tip.contains("Set "), "{tip}");
+        assert_eq!(tip.lines().count(), 1);
+    }
 
     /// A width pads the number as C does.
     #[test]

@@ -365,10 +365,6 @@ impl Chosen {
     }
 }
 
-/// The split asked for by Ctrl+click on a stack of a backpack: the backpack, the stack's place and the count being
-/// typed (one box for all the backpacks' windows).
-static SPLIT_BOX: Mutex<Option<((u32, u32), u32, String)>> = Mutex::new(None);
-
 #[derive(Default)]
 pub struct LootWindow {
     pub open: bool,
@@ -390,6 +386,9 @@ pub struct LootWindow {
     pub dropped_out: Option<u32>,
     /// An inventory item in hand right-clicked on an item here, to be used on it: (its place, the place here).
     pub used_on: Option<(u32, u32)>,
+    /// An item of this container in hand right-clicked on another of it: `(the one in hand, the one clicked)`, both
+    /// places of the container.
+    pub used_within: Option<(u32, u32)>,
     /// The handle and opening the window was last shown for: a backpack or a container opened again shows again.
     pub handle_seen: Option<(u32, u32)>,
     /// A container window's number (`TempContainer_%u`), while it is up.
@@ -478,6 +477,12 @@ impl LootWindow {
     /// Whether an item of this window is in hand.
     pub fn holds_item(&self) -> bool {
         self.open && self.dragging.is_some()
+    }
+
+    /// The item of this window in hand, or the split of one, goes back to its place (Escape: the drag's `Cancel`).
+    pub fn put_back(&mut self) {
+        self.dragging = None;
+        self.split = 0;
     }
 }
 
@@ -727,20 +732,11 @@ impl LootWindow {
         let name = window_name(view, self.temp);
         let title = if view.own { bag_name(view.identity).unwrap_or_else(|| view.title.clone()) } else { view.title.clone() };
         let at = if view.own { egui::pos2(420.0 + (view.identity.1 % 5) as f32 * 30.0, 160.0 + (view.identity.1 % 4) as f32 * 30.0) } else { egui::pos2(380.0 + self.temp.unwrap_or(0) as f32 * 30.0, 140.0 + self.temp.unwrap_or(0) as f32 * 30.0) };
-        let mut menu_at = None;
         let mut used_on = None;
-        let tip = |item: &GearItem| {
-            // (an item's tip: its name, quality and description)
-            let mut tip = item.name.clone();
-            if item.quality > 1 {
-                tip.push_str(&format!("\nQL {}", item.quality));
-            }
-            if !item.description.is_empty() {
-                tip.push_str("\n\n");
-                tip.push_str(&item.description.chars().take(300).collect::<String>());
-            }
-            tip
-        };
+        let mut used_within = None;
+        // (the item under the pointer, for its tip: the same list's as the inventory's, FUN_10042193. Until
+        // 2026-11-25 the name, the quality and 300 characters of the description.)
+        let mut tipped: Option<(i64, (String, String))> = None;
         let shown = crate::chrome::window(ctx, palette, &name, &title, &mut open, |w| w.default_pos(crate::layout::pos(&name, at)).default_size(size).resizable(true), |ui| {
             // (the views over the whole window, laid out from the bottom so the window does not grow)
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
@@ -791,6 +787,19 @@ impl LootWindow {
                     && ui.input(|i| i.pointer.secondary_clicked())
                 {
                     match crate::gear::held() {
+                        // (an item of this window in hand: it is used on the one clicked, FUN_100cc855's button 2
+                        // on a cell with an item, and the drag ends; with Shift, which is the inventory's combine,
+                        // or on itself, or with a split in hand, the drag only ends. Until 2026-11-25 the right
+                        // click acted on the item clicked as if nothing were in hand, and the other stayed there.)
+                        None if self.dragging.is_some() => {
+                            let (from, split) = (self.dragging.take().unwrap_or(0), std::mem::take(&mut self.split));
+                            if held_item_right_click(from, slot as u32, split, ui.input(|i| i.modifiers.shift)) {
+                                used_within = Some((from, slot as u32));
+                            }
+                            if crate::gear::traced() {
+                                eprintln!("items: the container's place {from} in hand, a right click on place {slot}: {}", if used_within.is_some() { "used on it" } else { "put back" });
+                            }
+                        }
                         // (in one's own backpack the item is used where it is, a key opening its door from the bag;
                         // until 2026-11-23 it was taken out instead)
                         None => {
@@ -812,16 +821,21 @@ impl LootWindow {
                         }
                     }
                 }
-                // (the window's menu, FUN_100cbace: the right button beside the items. The original's is the frame's
-                // menu button.)
+                // (the right button beside the items: with something in hand the drag is given up and the item is
+                // back in its place, FUN_100cc855's button 2 on a cell without an item, 0x100ccc5f; with nothing in
+                // hand it does nothing, FUN_10041aa4. The window's menu, FUN_100cbace, is the frame's menu button's;
+                // until 2026-11-25 that click opened it here too.)
                 if hovered.is_none()
                     && ui.input(|i| i.pointer.secondary_clicked())
-                    && let Some(at) = ui.input(|i| i.pointer.interact_pos()).filter(|at| response.rect.contains(*at))
+                    && ui.input(|i| i.pointer.interact_pos()).is_some_and(|at| response.rect.contains(at))
+                    && (self.dragging.is_some() || crate::gear::held().is_some())
                 {
-                    menu_at = Some(at);
+                    self.dragging = None;
+                    self.split = 0;
+                    crate::gear::put_down();
                 }
                 if let Some(item) = hovered.and_then(|slot| view.items.iter().find(|i| i.slot as i64 == slot)) {
-                    response.on_hover_text(tip(item));
+                    tipped = Some((item.slot as i64, crate::gear::with_reader(|stats| crate::gear::tip(item, stats))));
                 }
             });
         });
@@ -829,10 +843,24 @@ impl LootWindow {
         if used_on.is_some() {
             self.used_on = used_on;
         }
+        if used_within.is_some() {
+            self.used_within = used_within;
+        }
         // (a click: with Shift the item's info; in one's own backpack or the bank it takes the item up; in a corpse
         // or chest it takes the item into the inventory. A press that moves is nothing.)
         let (shift, ctrl) = ctx.input(|i| (i.modifiers.shift, i.modifiers.ctrl));
         let hands_free = self.dragging.is_none() && crate::gear::held().is_none();
+        // (the left button down with Ctrl on a stack of one's own backpack, nothing in hand: the split's count
+        // begins, FUN_10041926; the release's click below takes it)
+        if ctrl
+            && view.own
+            && hands_free
+            && self.popup.is_none()
+            && ctx.input(|i| i.pointer.primary_pressed())
+            && let Some(item) = hovered_item.and_then(|slot| view.items.iter().find(|i| i.slot == slot && i.count > 1))
+        {
+            crate::gear::count_begin(ctx, Some(view.identity), i64::from(item.slot), item.count as u32);
+        }
         crate::gui::multilist::click_only(tree, list);
         for (_, event) in crate::gui::multilist::take_events(tree) {
             let crate::gui::multilist::ItemEvent::Clicked(slot, _) = event else { continue };
@@ -854,11 +882,16 @@ impl LootWindow {
                     }
                 }
                 ContainerClick::Take => take = Some(Take::One { handle: view.handle, place: slot as u32 }),
+                // (the release that ends a split: as many as the mouse counted are in hand, FUN_100419d5)
                 ContainerClick::Split => {
+                    let total = view.items.iter().find(|i| i.slot as i64 == slot).map_or(2, |i| i.count as u32);
+                    let n = crate::gear::count_take(Some(view.identity), slot).unwrap_or(1).clamp(1, total.saturating_sub(1).max(1));
+                    self.dragging = Some(slot as u32);
+                    self.split = n;
+                    self.taken_up = ctx.cumulative_frame_nr();
                     if crate::gear::traced() {
-                        eprintln!("items: a split of the container's place {slot} asked for");
+                        eprintln!("items: {n} of the container's place {slot} in hand, to be split off");
                     }
-                    *SPLIT_BOX.lock().unwrap_or_else(|e| e.into_inner()) = Some((view.identity, slot as u32, "1".to_string()));
                 }
                 ContainerClick::Nothing => {}
             }
@@ -1047,13 +1080,19 @@ impl LootWindow {
                 self.confirm = None;
             }
         }
+        {
+            let source = egui::Id::unique(("container-tip", &name));
+            let tipped = tipped.filter(|_| self.popup.is_none() && self.dragging.is_none() && crate::gear::held().is_none());
+            let (title, text) = tipped.as_ref().map_or(("", ""), |(_, (title, text))| (title.as_str(), text.as_str()));
+            crate::gui::tooltip::show(ctx, palette, source, tipped.as_ref().map(|(slot, _)| source.with(slot)), title, text);
+        }
         // a backpack's menu and its rename box ("Enter backpack name.", FUN_100cb852: OK, back to its own name, or not)
         let text = |name: &str, own: &str| crate::gui::xml::ldb_named(10000, name, own);
         // (FUN_100cbace: List Mode with its mark, Auto Arrange with its sub-menu, dead in list mode, and for one's own
         // backpack Rename)
         // (`MAO_LOOT_MENU=1`: the menu with its sub-menu up, for a picture)
         let pictured = std::env::var_os("MAO_LOOT_MENU").is_some() && self.popup.is_none() && ctx.cumulative_frame_nr() < 3;
-        if let Some(at) = menu_at.or_else(|| crate::chrome::frame_menu(&name)).or(pictured.then_some(egui::pos2(520.0, 200.0))) {
+        if let Some(at) = crate::chrome::frame_menu(&name).or(pictured.then_some(egui::pos2(520.0, 200.0))) {
             use crate::gui::popup::Entry;
             let kind = if view.placed() { Arrange::Own } else { Arrange::Other };
             let (arrange_keys, arrange) = arrange_menu(arranged, kind);
@@ -1131,26 +1170,6 @@ impl LootWindow {
                 self.renaming = None;
             }
         }
-        // (a split asked for by Ctrl+click: how many of the stack; OK has that many in hand, to be put into an empty
-        // cell of this backpack)
-        {
-            let mut asked = SPLIT_BOX.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some((_, place, typed)) = asked.as_mut().filter(|b| b.0 == view.identity) {
-                let place = *place;
-                let count = view.items.iter().find(|i| i.slot == place).map_or(0, |i| i.count as u32);
-                if let Some(answer) = crate::invwindows::split_dialog(ctx, palette, "split-stack-bag", typed, count) {
-                    if let Some(n) = answer {
-                        self.dragging = Some(place);
-                        self.split = n;
-                        self.taken_up = ctx.cumulative_frame_nr();
-                        if crate::gear::traced() {
-                            eprintln!("items: {n} of the container's place {place} in hand, to be split off");
-                        }
-                    }
-                    *asked = None;
-                }
-            }
-        }
         self.open = open;
         // (an organization's contract is only looked at here: what the original does with a click on one of its
         // items, or with an item dropped on it, was not read)
@@ -1171,18 +1190,28 @@ pub enum ContainerClick {
     Nothing,
 }
 
+/// Whether a right click on the item at `onto` with the container's own item of `from` in hand uses the one on the
+/// other (GUI.dll FUN_100cc855, button 2 on a cell with an item: `UseItemOnItem(held, target)` without Shift; with
+/// Shift the tradeskill combine, which only the inventory's own view makes, so in a container the drag is given
+/// up; a split is used on nothing; an item on itself is not sent, Gamecode 0x1002695c). The hand is empty after
+/// either way.
+pub fn held_item_right_click(from: u32, onto: u32, split: u32, shift: bool) -> bool {
+    from != onto && split == 0 && !shift
+}
+
 /// A click's meaning: by Shift, by whether the container is one's own (a backpack, the bank), by whether nothing is
 /// in hand yet, and by `split`: Ctrl held on a stack of more than one of one's own backpack (the list's
-/// FUN_10041926: a split, and nothing is taken up). There is no drag: the list tells of a click only
-/// (`MultiListView_c::MouseUp`, GUI.dll 0x10133d04).
+/// FUN_10041926: a split, and nothing is taken up; it looks at Ctrl alone, so Shift held with it changes nothing).
+/// There is no drag: the list tells of a click only (`MultiListView_c::MouseUp`, GUI.dll 0x10133d04). With
+/// something in hand the release is that thing's letting go and no click at all, Shift or not: the list's up
+/// handler raises only its drop signal for a drag object (FUN_1004141b's last branch).
 pub fn container_click(shift: bool, own: bool, hands_free: bool, split: bool) -> ContainerClick {
-    match (shift, own) {
-        (true, _) => ContainerClick::Info,
-        (false, _) if split && hands_free => ContainerClick::Split,
-        (false, _) if split => ContainerClick::Nothing,
-        (false, true) if hands_free => ContainerClick::TakeUp,
-        (false, false) if hands_free => ContainerClick::Take,
-        _ => ContainerClick::Nothing,
+    match (hands_free, split, shift, own) {
+        (false, ..) => ContainerClick::Nothing,
+        (true, true, ..) => ContainerClick::Split,
+        (true, false, true, _) => ContainerClick::Info,
+        (true, false, false, true) => ContainerClick::TakeUp,
+        (true, false, false, false) => ContainerClick::Take,
     }
 }
 
@@ -1290,14 +1319,28 @@ mod tests {
         assert_eq!(container_click(false, true, true, false), ContainerClick::TakeUp);
         assert_eq!(container_click(false, false, true, false), ContainerClick::Take);
         assert_eq!(container_click(true, true, true, false), ContainerClick::Info);
-        assert_eq!(container_click(true, false, false, false), ContainerClick::Info);
-        // (nothing with something in hand already, which the click puts down)
+        assert_eq!(container_click(true, false, true, false), ContainerClick::Info);
+        // (nothing with something in hand already, which the click puts down; with Shift too: the release of a
+        // drag raises only the list's drop signal, FUN_1004141b)
         assert_eq!(container_click(false, true, false, false), ContainerClick::Nothing);
         assert_eq!(container_click(false, false, false, false), ContainerClick::Nothing);
-        // (Ctrl on a stack of one's own backpack: the split box, with free hands only; Shift still shows the info)
+        assert_eq!(container_click(true, true, false, false), ContainerClick::Nothing);
+        assert_eq!(container_click(true, false, false, false), ContainerClick::Nothing);
+        // (Ctrl on a stack of one's own backpack: the split box, with free hands only; with Shift too, which the
+        // press does not look at, FUN_10041926)
         assert_eq!(container_click(false, true, true, true), ContainerClick::Split);
         assert_eq!(container_click(false, true, false, true), ContainerClick::Nothing);
-        assert_eq!(container_click(true, true, true, true), ContainerClick::Info);
+        assert_eq!(container_click(true, true, true, true), ContainerClick::Split);
+    }
+
+    /// FUN_100cc855's right button with a container's own item in hand: used on the one clicked, but not with
+    /// Shift, not a split, and not on itself.
+    #[test]
+    fn a_right_click_with_a_container_item_in_hand() {
+        assert!(held_item_right_click(3, 7, 0, false));
+        assert!(!held_item_right_click(3, 7, 0, true));
+        assert!(!held_item_right_click(3, 7, 5, false));
+        assert!(!held_item_right_click(3, 3, 0, false));
     }
 
     /// An item's menu by its container: look at, reference and delete everywhere but the organization's contract

@@ -46,9 +46,12 @@ use crate::theme::Palette;
 /// The windows the original docks in the rollup area by default (their `chrome::window` names), in the original's order.
 pub const DEFAULT: &[&str] = &["Wear", "NCU", "Nano programs", "Team", "Faction"];
 
-/// The windows that may be docked (the dock button shows in the title bar of those that are not `docks.rs` views,
-/// whose tabs are carried to the column instead).
-pub const DOCKABLE: &[&str] = &["Wear", "NCU", "Nano programs", "Team", "Faction", "Friends", "PetWindow", "Stats", "Missions", "MissionView"];
+/// Whether a window can be a page of the column: one of the original's dockable views (`docks::dockable`; any
+/// `DockableView_c` can be carried there). The pet window, which a button of this client's docked until 2026-11-25,
+/// is a plain window in the original and no page.
+pub fn may_dock(name: &str) -> bool {
+    crate::docks::dockable(name)
+}
 
 /// The column's width: `RollupController_c`'s 191 (FUN_100486cb, 0x101b0d88), in pixels.
 pub const WIDTH: f32 = 192.0;
@@ -169,7 +172,9 @@ fn load(state: &mut Rollup) {
     state.scroll = text.as_deref().and_then(parse_scroll).unwrap_or(0.0).max(0.0);
     let list = text.map(|t| parse(&t));
     state.seeded = disabled() || list.is_some();
-    let list = list.unwrap_or_else(|| DEFAULT.iter().map(|n| Line { name: n.to_string(), expanded: true, height: None }).collect());
+    let mut list = list.unwrap_or_else(|| DEFAULT.iter().map(|n| Line { name: n.to_string(), expanded: true, height: None }).collect());
+    // (a page kept from when this client docked windows that are no dockable views: a free window again)
+    list.retain(|l| may_dock(&l.name));
     state.pages = list.into_iter().map(|l| Page { height: l.height.unwrap_or_else(|| default_height(&l.name)), name: l.name, expanded: l.expanded, width: WIDTH, shown: 0 }).collect();
 }
 
@@ -192,17 +197,6 @@ pub fn docked(name: &str) -> bool {
 /// kept size less the frame's 24 above and 10 below), else this client's starting height for it.
 fn coming_height(name: &str) -> f32 {
     crate::layout::saved_size(name).map_or_else(|| default_height(name), |s| (s.y - 34.0).max(0.0))
-}
-
-/// Puts a window at the end of the column (the title bar's dock button).
-pub fn dock(name: &str) {
-    let height = coming_height(name);
-    let mut state = STATE.lock().unwrap();
-    load(&mut state);
-    if !state.pages.iter().any(|p| p.name == name) {
-        state.pages.push(Page { name: name.to_string(), expanded: true, height, width: WIDTH, shown: 0 });
-        save(&state);
-    }
 }
 
 /// Makes a page a free window again.
@@ -480,7 +474,8 @@ pub fn page<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str, 
         let roll = egui::Rect::from_min_size(egui::pos2(close_rect.left() - 2.0 - roll_size.x, strip.top() + 2.0), roll_size);
         let mut on_button = false;
         for (what, rect) in [("menu", icon), ("roll", roll), ("close", close_rect)] {
-            let r = ui.interact(rect, id.with(what), egui::Sense::click());
+            // (`PageHeaderView_c`'s three buttons are toggles, FUN_1004a740: they act as the button goes down)
+            let r = crate::chrome::on_press(ui.interact(rect, id.with(what), egui::Sense::click()));
             on_button |= r.hovered();
             let down = r.is_pointer_button_down_on();
             let sprite = match what {

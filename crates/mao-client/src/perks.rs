@@ -492,7 +492,9 @@ impl PerksWindow {
                                 ui.spacing_mut().item_spacing.y = 1.0;
                                 for (k, line) in lines.iter().enumerate() {
                                     let alien = state.catalog.records[line[0]].flags & 2 != 0;
-                                    if perk_button(ui, skin.as_deref(), palette, &font, egui::vec2(line_width, row), &model.name(line, 0, false), model.status(line[0]), alien, k == chosen).clicked() {
+                                    // (a perk line's button acts on the press: `PerkLineView_c` FUN_1005f134 is a toggle told not
+                                    // to keep its own state, `SetModifyWhenClicked(false)`)
+                                    if crate::chrome::on_press(perk_button(ui, skin.as_deref(), palette, &font, egui::vec2(line_width, row), &model.name(line, 0, false), model.status(line[0]), alien, k == chosen)).clicked() {
                                         self.chosen[tab] = Some(state.catalog.records[line[0]].id);
                                     }
                                 }
