@@ -6,12 +6,34 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+## 0.1.12 (2026-11-25)
+
+A mission tracker, the pet window as the original's with a nano bar, and fixes for what was met in play.
+
+### Missions
+
 - New, this client's own: the mission tracker (`/tracker`, or "Mission Tracker" under "Mission" in the AOU skins' Team menu). Pick one of the missions you hold from its list and its place is uploaded to the map; under the list it says where the mission is, the time left, its steps and what it pays, and has the mission's text.
 - For a mission that wants an item brought back, the mission terminal to bring it to is marked in blue on the compass, the planet map, the corner map and the area map while the mission's waypoint is up, and the chat says so when the place is uploaded.
-- The time left on a locked item counts down in the inventory, in bags and on the nano programs. It stood still at the number it had when the window's items last changed (a recharger said "15s" for good), and so did the icon's fade. Items in bags show the time and the fade now too.
+
+### Pets
+
 - With a pet out, the Pets menu and its "Pet Info" entry, which opens the pet window, are in the control center's menus again. The menu is shown while the character has pets, and the client never counted them, so it was never there.
 - The pet window looks like the original's: its "Pets" tab stands in the title row with the window's own menu button, the pets are listed from the top, and the row under a pet's bar shows its empty program cells across the window.
 - New in the pet window, not in the original: a pet's nano pool as a thin blue bar along the bottom of its health bar, under the name. It is full until the server tells the pet's nano, and its full length is the most the pet was seen to have, since the server never tells the pool's size.
+
+### Items
+
+- The time left on a locked item counts down in the inventory, in bags and on the nano programs. It stood still at the number it had when the window's items last changed (a recharger said "15s" for good), and so did the icon's fade. Items in bags show the time and the fade now too.
+
+### Not yet seen in a live game
+
+Seen in a live game: "Pet Info" in the menu with a pet out, the pet window, a locked recharger's time counting down
+in the inventory, the mission tracker and its entry in the Team menu. The game's log showed the server telling a
+healing pet's nano after its heal and at each step back up. Tried offline or by test only: the tracker's lines for
+the missions that want an item found, a person found or a thing repaired (no recording has one; only a kill and a
+bring-back mission were read), the blue marker of the terminal on the compass and the maps, whether the server takes
+the item at that terminal only, the nano bar's moving with a pet's casting, and a locked item's time in a bag and on
+the nano programs.
 
 ## 0.1.11 (2026-11-25)
 
@@ -66,11 +88,13 @@ tabs in the title row, and a chat that is easier to read.
 
 ### Not yet seen in a live game
 
-Seen in a live game: Shift + click on an item of the inventory showing its info, and the line an item says that
-cannot be used. Everything else here was read from the original client and tried offline or by test only: the other
-clicks and keys (the split of a stack by the mouse, the tips, the planet map and docking by carrying a tab above
-all), the tabs in the title row, the chat's font, the looks options, the 535 items and the creatures' facing. The windows not gone
-through yet are the skills, options, mail, organization and city, pet, tradeskill, vehicle, help and login windows.
+Seen in a live game: Shift + click on an item of the inventory showing its info, the line an item says that
+cannot be used, and "Helmet visible" taking the helmet off and putting it back. Everything else here was read from
+the original client and tried offline or by test only: the other clicks and keys (the split of a stack by the mouse,
+the tips, the planet map and docking by carrying a tab above all), the tabs in the title row, the chat's font, the
+other looks options (shoulder pads, social tab, PvP title), the 535 items and the creatures' facing. The windows not
+gone through yet are the skills, options, mail, organization and city, pet, tradeskill, vehicle, help and login
+windows.
 
 ## 0.1.10 (2026-11-24)
 
