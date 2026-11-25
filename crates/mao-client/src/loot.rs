@@ -710,6 +710,14 @@ impl LootWindow {
             crate::gui::multilist::set_items(tree, list, rows);
             self.shown = now;
         }
+        // (an item whose use is locked, as in the inventory: faded and its time written, as it stands this frame)
+        let running = crate::actions::locks_running();
+        if crate::gui::multilist::set_lock_states(tree, list, |slot| match items.iter().find(|i| running && i.slot as i64 == slot) {
+            Some(i) => crate::actions::item_lock_state(i.item_id),
+            None => (None, String::new()),
+        }) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
         // (the slots are counted along the rows of the grid's columns, no fewer than the items' cells reach)
         let grid_columns = crate::gui::multilist::grid_columns(tree, list).unwrap_or(3).max(1);
         let mut hovered_cell: Option<crate::places::Cell> = None;

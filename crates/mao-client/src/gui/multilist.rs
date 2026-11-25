@@ -164,11 +164,19 @@ pub struct GridMode {
     /// The columns the items' own cells reach (`RecalcUsedSlotExtents` 0x10134009, `+0x2c8`): without auto arrange the
     /// grid is no narrower (`RecalcVirtualSize` 0x10134944), so a cell keeps its column in a narrower window.
     pub used_columns: usize,
+    /// The rows of the view whose every cell shows its slot, items in them or not. A grid without a most
+    /// (`max_items` -1) has a slot in every cell its view shows (`UpdateBackgroundSurfaces` 0x101340ff: the rows in
+    /// view times the columns); only the pet window's lists ask for it here so far (one row), the other grids
+    /// show their items' cells only.
+    pub fill_rows: usize,
+    /// The first column the border in from the left, as the original has it (`GridPosToViewPos`), where this
+    /// client stands the columns in the middle of the width ([`GridMode::left`]).
+    pub left_edge: bool,
 }
 
 impl GridMode {
     pub fn new(max_items: i32, columns: usize) -> GridMode {
-        GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items, spacing: (grid::SPACING, grid::SPACING), columns: None, labels: Vec::new(), labels_on_top: true, auto_arrange: true, background: None, cell: (grid::CELL, grid::CELL), slot: grid::SLOT.to_string(), scale: 1.0, used_columns: 0 }
+        GridMode { width: columns as f32 * grid::STEP + 2.0 * grid::BORDER, max_items, spacing: (grid::SPACING, grid::SPACING), columns: None, labels: Vec::new(), labels_on_top: true, auto_arrange: true, background: None, cell: (grid::CELL, grid::CELL), slot: grid::SLOT.to_string(), scale: 1.0, used_columns: 0, fill_rows: 0, left_edge: false }
     }
 
     /// `SetGridIconSize`.
@@ -207,7 +215,7 @@ impl GridMode {
     /// empty edge on one side only (the user, 2026-11-11: too much padding at the right of the inventory and the bags).
     /// Here the columns that fill a width by themselves stand in its middle; this client's own.
     fn left(&self) -> f32 {
-        if self.columns.is_some() {
+        if self.columns.is_some() || self.left_edge {
             return self.border();
         }
         let across = self.cols() as f32 * self.step().0 - (self.step().0 - self.cell_px().0);
@@ -275,7 +283,8 @@ impl Rows {
     }
     /// The cells a grid shows (a slot each).
     fn cells(&self, g: &GridMode) -> usize {
-        if g.max_items >= 0 { (g.max_items as usize).max(self.items.len()) } else { self.items.len() }
+        let held = if g.max_items >= 0 { (g.max_items as usize).max(self.items.len()) } else { self.items.len() };
+        held.max(g.fill_rows * g.cols())
     }
     /// An item's cell.
     fn item_cell(&self, g: &GridMode, k: usize) -> (usize, usize) {
@@ -1102,6 +1111,23 @@ pub fn order(tree: &Tree, id: Id) -> Vec<i64> {
 }
 
 /// The grid's locked items ([`Rows::locked`]).
+/// Each item's lock as it stands now, asked by the item's id: the share of it that is gone (`Item::left`, the icon's
+/// fade) and the time written over the icon (`Item::timer`). The items themselves stay as they are, in their order.
+/// A window calls it every frame: the items are made anew only when they change, and a lock's time set then stood
+/// still (the user's inventory, 2026-11-25: "15s" on the rechargers for good). Returns whether any item has a lock.
+pub fn set_lock_states(tree: &mut Tree, id: Id, state: impl Fn(i64) -> (Option<f32>, String)) -> bool {
+    let Some((_, _, rows)) = parts(tree, id) else { return false };
+    let Some(r) = tree.control_mut::<Rows>(rows) else { return false };
+    let mut any = false;
+    for item in &mut r.items {
+        let (left, timer) = state(item.id);
+        any |= left.is_some() || !timer.is_empty();
+        item.left = left;
+        item.timer = timer;
+    }
+    any
+}
+
 pub fn set_locked(tree: &mut Tree, id: Id, locked: Vec<i64>) {
     let Some((_, _, rows)) = parts(tree, id) else { return };
     if let Some(r) = tree.control_mut::<Rows>(rows)

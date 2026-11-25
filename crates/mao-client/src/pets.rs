@@ -59,11 +59,13 @@ pub struct Pet {
     pub pet_type: Option<u16>,
     /// The view's flash counter (+0x140, -1 when not flashing: `flash_value`).
     pub flash: i32,
+    /// Its nano pool, when the server has told it: (now, the most seen). This client's own bar ([`nano_fill`]).
+    pub nano: Option<(i64, i64)>,
 }
 
 impl Default for Pet {
     fn default() -> Pet {
-        Pet { id: (0, 0), name: String::new(), health: (0, 0), in_play: false, selected: false, family: None, pet_type: None, flash: -1 }
+        Pet { id: (0, 0), name: String::new(), health: (0, 0), in_play: false, selected: false, family: None, pet_type: None, flash: -1, nano: None }
     }
 }
 
@@ -239,6 +241,33 @@ pub fn fill(pet: &Pet) -> f32 {
     }
 }
 
+/// The nano bar's fill, for a pet in the playfield (none for one that is away: no bar is drawn): the pet's nano over
+/// the most it was seen to have, and full while the server has told nothing of it. The original's window has no
+/// such bar. The server tells a character's nano (stat 214) when it changes and never its most (stat 221), so a pool
+/// nothing was told of is taken as untouched, and the bar's full length is the largest number seen for the pet:
+/// one first heard of with a part of its pool shows full until it has more, which is one cast's worth off until the
+/// pet has stood full once. (Until the user's word of 2026-11-25, "metaphysicist pets use nano for
+/// attacks/mezzes/and heals it more important for them to have nano in the bar", an untold pool had no bar.)
+pub fn nano_fill(pet: &Pet) -> Option<f32> {
+    if !pet.in_play {
+        return None;
+    }
+    Some(match pet.nano {
+        Some((now, most)) if most > 0 => (now as f32 / most as f32).clamp(0.0, 1.0),
+        _ => 1.0,
+    })
+}
+
+/// The nano bar's height in the health bar's place and how much taller the bar is for it: 6 along the bottom of
+/// a bar of the original's size, so the health keeps 9 of its 15 above it and the name stands across both (the
+/// user, 2026-11-25: "maybe 10 pixels tall it can look like it's behind the name", and of three pictures, 10 in a
+/// bar 5 taller, 10 in the original's and this, chose this). `MAO_PET_NANO_BAR=<height>,<taller>` tries others
+/// in a picture.
+fn nano_bar() -> (f32, f32) {
+    static BAR: std::sync::OnceLock<(f32, f32)> = std::sync::OnceLock::new();
+    *BAR.get_or_init(|| std::env::var("MAO_PET_NANO_BAR").ok().and_then(|v| { let (h, g) = v.split_once(',')?; Some((h.trim().parse().ok()?, g.trim().parse().ok()?)) }).unwrap_or((6.0, 0.0)))
+}
+
 /// The pet list's views: a `PetView_c` for each pet.
 fn view_xml(pets: &[Pet]) -> String {
     let mut views = String::new();
@@ -258,7 +287,8 @@ fn view_xml(pets: &[Pet]) -> String {
             button("wait", "ButtonPetWait", "TooltipPetWait"),
         );
     }
-    format!("<View view_layout=\"vertical\">{views}</View>")
+    // (the pets from the top, what the window has beyond them left under the last: the user's picture of the original)
+    format!("<View view_layout=\"vertical\">{views}<VLayoutSpacer/></View>")
 }
 
 fn set_text(tree: &mut crate::gui::view::Tree, root: crate::gui::view::Id, name: &str, text: &str) {
@@ -344,11 +374,24 @@ impl PetWindow {
                 for k in 0..pets.len() {
                     let Some(bar) = tree.find(root, &format!("hp{k}")) else { continue };
                     tree.get_mut(bar).layout = crate::gui::view::Layout::Horizontal;
+                    if let Some(b) = tree.control_mut::<crate::gui::powerbar::PowerBar>(bar) {
+                        b.grow = nano_bar().1;
+                    }
                     for e in &crate::gui::xml::parse(&format!("<HLayoutSpacer/><TextView name=\"name{k}\" value=\"\"/><HLayoutSpacer/>")) {
                         if let Some(id) = crate::gui::create(&mut tree, e) {
                             tree.add_child(bar, id);
                         }
                     }
+                }
+                // (this client's own: every row's first button as wide as the widest, so a healing pet's row, whose
+                // "Heal" is narrower than "Attack", has its bar and buttons under the others'. The rows' two spacers
+                // share what the window has beyond a row's views, and a narrower button moved its row's bar and
+                // buttons right: the user's picture, 2026-11-25, "that's not right". Whether the original's rows
+                // stand so in a window wider than they need was not seen.)
+                let firsts: Vec<crate::gui::view::Id> = (0..pets.len()).filter_map(|k| tree.find(root, &format!("act{k}"))).collect();
+                let widest = firsts.iter().map(|&b| tree.preferred(b, false).x).fold(0.0, f32::max);
+                for &b in &firsts {
+                    tree.get_mut(b).min_size.x = widest;
                 }
                 // (under each pet's row its `NCUListView_c`: FUN_1007d817 from 0x1007e06c on)
                 self.lists.clear();
@@ -358,6 +401,9 @@ impl PetWindow {
                     crate::gui::multilist::set_grid(&mut tree, list, |g| {
                         g.set_icon_size(3);
                         g.spacing = (7.0, 7.0);
+                        // (a slot in every cell of the row, from the left edge: the picture's thirteen cells)
+                        g.fill_rows = 1;
+                        g.left_edge = true;
                     });
                     crate::gui::multilist::add_column(&mut tree, list, 12, &crate::gui::xml::ldb_named(10000, "MultiviewRemaining", "Remaining"), 55.0, 0xe);
                     crate::gui::multilist::set_sort(&mut tree, list, 12, 0);
@@ -404,6 +450,9 @@ impl PetWindow {
             set_text(tree, root, &format!("name{k}"), &format!("<font color={}>{name}</font>", name_colour(pet)));
             if let Some(id) = tree.find(root, &format!("hp{k}")) {
                 crate::gui::powerbar::set_value(tree, id, fill(pet));
+                if let Some(b) = tree.control_mut::<crate::gui::powerbar::PowerBar>(id) {
+                    b.second = nano_fill(pet).map(|value| crate::gui::powerbar::Second { full: "GFX_GUI_HOR_BAR_BLUE".to_string(), value, height: nano_bar().0 });
+                }
             }
             for b in ["act", "follow", "wait"] {
                 show_view(tree, root, &format!("{b}{k}"), self.show_buttons, pet.in_play);
@@ -412,8 +461,13 @@ impl PetWindow {
         let skin = crate::skin::skin(ctx);
         let mut open = self.open;
         let title = text("PetWindow");
+        // (its one tab, "Pets", in the title row: `Window::AppendTab` in FUN_1007e9d7, the window's own title empty)
+        let tab_name = crate::gui::xml::ldb_named(10000, "Pets", "Pets");
         crate::chrome::window(ctx, palette, "PetWindow", &title, &mut open, |w| w.default_pos(crate::layout::pos("PetWindow", ctx.content_rect().center() - egui::vec2(200.0, 100.0))).default_size(egui::vec2(400.0, 200.0)), |ui| {
-            crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+            let (mut tab, mut hits) = (0, crate::chrome::TabHits::default());
+            crate::chrome::title_tab_view_hits(ui, palette, &[tab_name.as_str()], &mut tab, &mut hits, |ui, _| {
+                crate::gui::host::show(ui, tree, root, skin.as_deref(), palette);
+            });
         });
         // (the frame's icon menu, made each time it opens (FUN_1007e9d7 hands FUN_1007e75e to `GetIconMenu`): three
         // ticked entries for `ShowButtons`, `EnableFixedPetButtons` and `AutoPetRenaming`; the frame's "Close Window" after
@@ -455,7 +509,7 @@ mod tests {
 
     #[test]
     fn colours_buttons_and_fill_as_the_original() {
-        let mut pet = Pet { id: (0xc350, 0x7b1e6d64), name: "Ravening M-60".into(), health: (100, 400), in_play: true, selected: false, family: Some(0x5f), pet_type: Some(12), flash: -1 };
+        let mut pet = Pet { id: (0xc350, 0x7b1e6d64), name: "Ravening M-60".into(), health: (100, 400), in_play: true, selected: false, family: Some(0x5f), pet_type: Some(12), flash: -1, nano: None };
         assert_eq!((name_colour(&pet), fill(&pet), first_button(&pet).2), ("#bbbbbb", 0.25, ATTACK));
         pet.selected = true;
         assert_eq!(name_colour(&pet), "#ffffff");
@@ -463,6 +517,24 @@ mod tests {
         assert_eq!(first_button(&pet).2, HEAL);
         pet.in_play = false;
         assert_eq!((name_colour(&pet), fill(&pet)), ("#808080", 0.0));
+    }
+
+    /// The nano bar: the pet's nano over the most seen, full while nothing was told, none for a pet that is away.
+    #[test]
+    fn the_nano_bar_shows_what_the_server_told() {
+        let mut pet = Pet { in_play: true, ..Pet::default() };
+        assert_eq!(nano_fill(&pet), Some(1.0));
+        pet.nano = Some((150, 600));
+        assert_eq!(nano_fill(&pet), Some(0.25));
+        pet.nano = Some((700, 600));
+        assert_eq!(nano_fill(&pet), Some(1.0));
+        pet.nano = Some((0, 600));
+        assert_eq!(nano_fill(&pet), Some(0.0));
+        pet.nano = Some((0, 0));
+        assert_eq!(nano_fill(&pet), Some(1.0));
+        pet.nano = Some((150, 600));
+        pet.in_play = false;
+        assert_eq!(nano_fill(&pet), None);
     }
 
     /// A pet's place by its type (`PetTypeToLocation`), which the fixed order follows; the kept names by character

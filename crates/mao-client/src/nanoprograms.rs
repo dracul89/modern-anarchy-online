@@ -421,6 +421,12 @@ impl ProgramsWindow {
         };
         if ids(crate::gui::multilist::items(tree, list)) != ids(&rows) {
             crate::gui::multilist::set_items(tree, list, rows);
+        } else {
+            // (the same programs: their locks as they stand this frame)
+            let states: std::collections::HashMap<i64, (Option<f32>, String)> = rows.into_iter().map(|r| (r.id, (r.left, r.timer))).collect();
+            if crate::gui::multilist::set_lock_states(tree, list, |id| states.get(&id).cloned().unwrap_or((None, String::new()))) {
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            }
         }
         crate::gui::multilist::update(tree, list);
         let skin = crate::skin::skin(ctx);

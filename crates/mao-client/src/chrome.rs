@@ -543,6 +543,16 @@ pub fn rgb(c: [u8; 3]) -> egui::Color32 {
     egui::Color32::from_rgb(c[0], c[1], c[2])
 }
 
+/// The windows whose frame menu button has a picture of its own (`Window::SetIcon`: the pet window's constructor
+/// FUN_1007e9d7 sets 0x1cc, the chevron of the user's picture of the original, 2026-11-25); the others have the
+/// border's `GFX_GUI_WINDOW_ICON_I`. (The skins also have ones named for the NCU, map, faction and perk windows:
+/// not looked at.)
+const FRAME_ICONS: &[(&str, &str)] = &[("PetWindow", "GFX_GUI_WINDOW_ICON_PET")];
+
+fn frame_icon(skin: &crate::skin::Skin, name: &str) -> Option<crate::skin::Sprite> {
+    FRAME_ICONS.iter().find(|i| i.0 == name).and_then(|i| skin.get(i.1)).or_else(|| skin.get("GFX_GUI_WINDOW_ICON_I"))
+}
+
 /// The frame's margins: the title row at the top, the border pieces around.
 const LEFT: i8 = 7;
 const RIGHT: i8 = 7;
@@ -697,7 +707,7 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         // menu button to short of the border's buttons)
         let buttons = 2.0 + HELP_PAGES.iter().any(|h| h.0 == name) as u8 as f32;
         let content = ui.max_rect();
-        let lead = skin.get("GFX_GUI_WINDOW_ICON_I").map_or(2.0, |icon| icon.size.x + 1.0);
+        let lead = frame_icon(&skin, &name).map_or(2.0, |icon| icon.size.x + 1.0);
         let before = TITLE_ROOM.with(|r| r.replace(Some(TitleRoom { left: content.left() + lead, right: content.right() - 1.0 - 17.0 * buttons, content_left: content.left(), content_top: content.top(), tabs_right: 0.0, used: false })));
         let result = add(ui);
         let title_tabs = TITLE_ROOM.with(|r| r.replace(before)).filter(|r| r.used).map(|r| r.tabs_right);
@@ -721,7 +731,7 @@ pub fn window<R>(ctx: &egui::Context, palette: &Palette, name: &str, title: &str
         // (the frame's menu button at the title's left end, which moves the title right: `AddBorderView` in the
         // border's first place)
         let mut title_left = outer.left() + 9.0;
-        if let Some(icon) = skin.get("GFX_GUI_WINDOW_ICON_I") {
+        if let Some(icon) = frame_icon(&skin, &name) {
             let rect = egui::Rect::from_min_size(egui::pos2(outer.left() + 7.0, outer.top() + 5.0 + ((15.0 - icon.size.y) * 0.5).floor()), icon.size);
             // (a toggle `BorderButton_c`, `WndBorder::CreateBorderIcons` 0x1015ae85: the menu opens as the button goes
             // down, `SlotIconButton` 0x1015aa2f)

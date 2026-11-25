@@ -160,6 +160,18 @@ pub fn skill_lock_left(stat: u32) -> Option<(f32, f32)> {
     Some((until.saturating_duration_since(std::time::Instant::now()).as_secs_f32(), total)).filter(|l| l.0 > 0.0)
 }
 
+/// Whether the server has any skill locked now.
+pub fn locks_running() -> bool {
+    let now = std::time::Instant::now();
+    LOCKS.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|l| l.1 > now)
+}
+
+/// An item's lock as a list view shows it now: the share gone, for the icon's fade, and the time written over it.
+pub fn item_lock_state(template: u32) -> (Option<f32>, String) {
+    let lock = item_lock_left(template);
+    (lock_share(lock), timer_text(lock))
+}
+
 /// What is left of an item's lock: the longest of the locks on the skills its use locks (`net::lock_skills`: a
 /// stim's use locks First Aid, and the server refuses the stim for as long: "Unable to perform action, First Aid
 /// skill is locked"). The inventory and the hotbars fade such an item for that time.
@@ -610,8 +622,10 @@ mod tests {
         assert_eq!(item_lock_left(291043), None);
         set_lock(123, 40.0);
         assert!(item_lock_left(291043).is_some_and(|l| l.0 > 39.0));
+        assert!(locks_running() && item_lock_state(291043).1 == "40s");
         set_lock(123, 0.0);
         assert_eq!(item_lock_left(291043), None);
+        assert_eq!(item_lock_state(291043), (None, String::new()));
     }
 
     /// WIN-022: the window lists the character's nine actions first, then the specials as given, then the perks; nothing

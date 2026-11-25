@@ -333,6 +333,9 @@ struct World {
     /// in the first free place from 1, `GetFreePetSlot` 0x1007ee0d), from the server's `AddPet` and `RemovePet`; a new
     /// playfield starts the list again, as the original's new client character does (its pets come again after it).
     pets: BTreeMap<u32, (u32, u32)>,
+    /// The most nano each pet was seen to have (`pet_nanos`), the pet window's nano bar's full length, and the
+    /// number last seen (for the log's line on a change).
+    pet_nano_most: BTreeMap<u32, (i64, i64)>,
     /// The pets whose names flash red in the pet window, with how many times and since when: `PetToMaster` (`0d381f02`,
     /// `PetToMasterIIR_c`: read FUN_10076917, apply FUN_1007699d) to one's own character, command 1 with its count (the
     /// captures' 0x0a, with "Your pet is out of range") or command 2 with none, raises global signal +0x40 (FUN_10011fa1) with
@@ -1874,6 +1877,27 @@ impl World {
         if self.stats.insert(458, count) != Some(count) {
             self.stats_changed = true;
         }
+    }
+
+    /// Each pet's nano pool as the server's `Stat` messages told it (stat 214, which it sends of another character
+    /// when it changes; the 2026-10-31 capture's two robots never had one): now, and the most it had, by stat 221
+    /// if that was ever told (no capture has it of another character), else the largest number seen. The pet
+    /// window's nano bar, this client's own.
+    fn pet_nanos(&mut self) -> BTreeMap<u32, (i64, i64)> {
+        let mut out = BTreeMap::new();
+        for pet in self.pets.values() {
+            let Some(stats) = self.others_stats.get(&pet.1) else { continue };
+            let Some(&now) = stats.get(&214) else { continue };
+            let seen = self.pet_nano_most.entry(pet.1).or_insert((now, i64::MIN));
+            seen.0 = seen.0.max(now);
+            // (`MAO_PET_NANO_LOG=1`: each change told, for the log; what the server tells of a pet's nano was in no capture)
+            if seen.1 != now && std::env::var_os("MAO_PET_NANO_LOG").is_some() {
+                eprintln!("pet nano: {} {:x} has {now} (most seen {}, stat 221 {:?})", self.names.get(&pet.1).map_or("?", |n| n.0.as_str()), pet.1, seen.0, stats.get(&221));
+            }
+            seen.1 = now;
+            out.insert(pet.1, (now, stats.get(&221).copied().filter(|m| *m > 0).unwrap_or(seen.0)));
+        }
+        out
     }
 
     /// The place a pet has by its kind (`pets::place`: `PetTypeToLocation`), 0 for none or for one not announced.
@@ -4180,6 +4204,7 @@ impl World {
         if let Some((added, pet)) = mao_net::n3::pet_change(&m) {
             if !added {
                 self.pets.retain(|_, p| *p != pet);
+                self.pet_nano_most.remove(&pet.1);
             } else if !self.pets.values().any(|p| *p == pet) {
                 let slot = (1..).find(|k| !self.pets.contains_key(k)).unwrap_or(1);
                 self.pets.insert(slot, pet);
@@ -10079,6 +10104,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
             // The pet window: the pets as they are now, and its buttons' commands to one pet (`N3Msg_SendPetCommand`).
             // (the team's and the raid's members that are here, for the corpse's Looter menu)
             crate::team::set_present(crate::team::with(|t| t.members.iter().chain(t.others.iter().flatten()).map(|m| m.id).filter(|id| *id == own || state.entities.contains_key(id)).collect()));
+            let pet_nanos = state.pet_nanos();
             crate::pets::set(state.pets.values().map(|&pet| crate::pets::Pet {
                 id: pet,
                 name: state.names.get(&pet.1).map(|n| n.0.clone()).unwrap_or_default(),
@@ -10088,6 +10114,7 @@ fn live(game: &str, playfield: u32, mut connection: Connection, mut state: World
                 family: state.infos.get(&pet.1).and_then(|i| i.family),
                 pet_type: state.infos.get(&pet.1).and_then(|i| i.pet_type),
                 flash: state.pet_flashes.get(&pet.1).map_or(-1, |&(count, since)| crate::pets::flash_value(count, since.elapsed())),
+                nano: pet_nanos.get(&pet.1).copied(),
             }).collect());
             // The tradeskill window's source, target and Build (`CharacterAction` 0xdc, 0xdd, 0xde).
             // The research window's request (`3115534d`) and its sliders' and goals' `SetStat`s (263 to 266).

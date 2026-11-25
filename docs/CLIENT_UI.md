@@ -5634,6 +5634,18 @@ Test: `a_death_is_told_by_the_message_that_carries_its_reason`.
 Tests: `a_pet_has_its_place_and_its_kept_name`, `a_pets_name_is_kept_and_given_back`,
 `a_pet_command_carries_its_pets_and_its_text`.
 
+**A locked item's time stood still (2026-11-25).** The inventory makes its grid's items only when their places,
+counts or icons change (`invwindows::fill`), and the lock's fade and time text (`Item::left`, `Item::timer`,
+CMB-023) were worked out there: a recharger used showed the time its lock had when its count changed, "15s" in
+the user's picture, until something else changed. The nano programs window did the same; a bag showed no lock
+at all. `multilist::set_lock_states` sets every item's fade and time each frame without making the items anew,
+asked by `actions::item_lock_state` (nothing is looked up while no skill is locked, `locks_running`), and the
+window asks for a repaint every 250 ms while any runs. The inventory, the bags and the nano programs call it;
+the Actions window made its rows each frame already, and the shortcut bars draw theirs themselves. Seen in a
+picture (`MAO_UI_PREVIEW=gear MAO_ENTRIES=docs/live_entries_arctangent.txt MAO_LOCKS=123:40`: the stim reads
+"39s" a few frames after its 40), and live by the user the same day in the inventory ("recharger timer works
+now"); a bag and the nano programs were not reported.
+
 **The Pets menu was never shown (2026-11-25).** The skins show the Pets menu, and with it "Pet Info"
 (`pet_window`), by `s:npcnumpets!=0` (`CommandMenu.xml`; the AOU skins' `Menu_Other.xml` has it on both the menu
 and the entry): the character's own stat 458, `NPCNumPets`. Nothing the server sent set it here (the user's menu was missing with a pet out, 2026-11-25). Gamecode's `NpcHolder_t`
@@ -5644,6 +5656,47 @@ playfield. Seen in a picture (`MAO_UI_PREVIEW=pets MAO_CLICK=56,714`, which coun
 Other menu has "Pets" and "Pet Info"; without pets it has neither. Seen live by the user the same day ("pet info
 button works now"); the entry's going with the pet was not reported. Test:
 `the_pets_are_counted_in_their_stat`.
+
+**The pet window as the user's picture of the original has it (2026-11-25).** One pet, the window made small: a
+"Pets" tab in the title row, the chevron menu button, the bar row and right under it a row of thirteen program
+cells, the first one holding the pet's one program.
+- **The tab in the title row.** `PetWindow_c` (FUN_1007e9d7) makes a `Window` with an empty title and gives it its
+  list by `Window::AppendTab`; the window was drawn with the title "Pet Window" and no tab. It is a
+  `chrome::title_tab_view_hits` of one tab now, named text.mdb 10000's "Pets".
+- **The menu button's picture.** The constructor calls `Window::SetIcon(0x1cc)`: `GFX_GUI_WINDOW_ICON_PET`, the
+  chevron. `chrome::FRAME_ICONS` names the windows with a picture of their own; only the pet window is there. (The
+  skins also have `_NCU`, `_MAP`, `_FACTIONS` and `_PERKS`: those windows' `SetIcon` calls were not read.)
+- **The pets from the top.** The list's views shared the window's height between them; a spacer after the last
+  takes what is left. (By the picture; `PetListView_c`'s `VLayoutNode` was not read further.)
+- **The empty cells.** `MultiListView_c::UpdateBackgroundSurfaces` (0x101340ff) makes a slot for every cell in
+  view when the list has no most (`+0x234` is -1): the rows in view times the columns. Here a grid showed slots
+  for its items only. `GridMode::fill_rows` asks for the slots of so many whole rows, and `left_edge` puts the
+  first column the border in from the left, as `GridPosToViewPos` does; the pet window's lists set both (one
+  row). **The other grids without a most (NCU, nano programs, actions) still show their items' cells only.**
+- **The nano bar, this client's own** (the user: "in the same area as health add a nano pool bar maybe 10 pixels
+  tall it can look like it's behind the name"). `PowerBar::second`: `GFX_GUI_HOR_BAR_BLUE` 6 tall along the
+  bottom of the health bar's place, the bar of the original's size, so the health keeps 9 of its 15 above it,
+  the name across both. The user chose it from three pictures (10 tall in a bar 5 taller, `PowerBar::grow`; 10
+  in the original's size; this). `MAO_PET_NANO_BAR=<height>,<taller>` tries other measures in a picture. **What it can show:** the server tells another character's
+  nano (stat 214) in `Stat` messages when it changes, and never its most (stat 221): in the 2026-10-31 capture
+  other characters had their nano told 2,595 times (creatures and players alike) and the two robot pets never. So the bar is full
+  while nothing was told of the pet (a pool untouched; at first no bar was drawn then, and the user's
+  Meta-Physicist pets, which attack, mezz and heal by their nano, stood without one), and its full length is the
+  largest number seen for the pet (`World::pet_nanos`): a pet first heard of with part of its pool shows full
+  until it has more. `MAO_PET_NANO_LOG=1` writes each number told into the log. **What the server told
+  in the user's game of 2026-11-25** (a Meta-Physicist's two pets, the log): of the healing pet, Medinos, after
+  its heal 395, then 398, 401, 404, 407, 410, 413, 414, each regeneration step, and no more once it stood at 414;
+  of the attack pet, Rage Materialization, nothing, through a fight. So a pet's nano is told when it changes, the
+  way back up included, and the most seen settles on the pool's size once the pet has stood full. The pets'
+  answers to `/pet report` (command 14) agree: their text has the health and the nano as percentages, 100 and 95
+  for Medinos right after the heal (395 of 414), 97 later, 100 at the end, and 100 and 100 for the attack pet
+  each time. (That answer could set the full length exactly; not done.)
+- **Rows in line, this client's own.** Each row's first button is as wide as the widest of them: "Heal" is
+  narrower than "Attack", the row's two spacers share what the window has beyond its views, and a healing pet's
+  bar and buttons stood right of the others' (the user's picture: "that's not right"). Whether the original's
+  rows do the same in a window wider than they need was not seen.
+Seen in a picture beside the user's (`MAO_UI_PREVIEW=pets MAO_NANOS=29240:60000`; the sample's first pet has a
+made-up pool). Tests: `the_nano_bar_shows_what_the_server_told`.
 
 ## Popup menus like the original, and options that did nothing (2026-11-18)
 

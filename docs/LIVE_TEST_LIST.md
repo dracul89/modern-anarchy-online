@@ -1629,3 +1629,19 @@ are about real key and button timing). One character unless said.
 - [x] **1** (the user, 2026-11-25) Make a pet (an engineer's or a bureaucrat's): the control center's menu (the Actions menu in the
   original's skin, the Other menu in the AOU skins) gets "Pets", and in it "Pet Info" opens the pet window.
 - [ ] **2** Terminate the pet, or let it die: the entry goes. Zone with a pet out: it is still there after.
+- [ ] **1** The pet window beside the original's: the "Pets" tab in the title row, the chevron button (its menu:
+  Show buttons, Fixed Pet Buttons, Remember Pet Names), the pets from the top, a row of empty cells under a
+  pet that has a program running, the window sized small.
+- [ ] **2** (the log, 2026-11-25: the server told the healing pet's nano after its heal and at each step back
+  up; whether the bar was seen to move was not said) The nano bar: with a pet that casts (a meta-physicist's or
+  a bureaucrat's), does the thin blue bar under its name fall and rise with the pet's casting? It is full until the server tells the pet's nano; with an
+  engineer's robot it may stay full for good (the server told nothing of the robots' nano in the capture).
+  `MAO_PET_NANO_LOG=1` writes each number told into `game-log.txt` (`pet nano: ...`).
+- [ ] **2** A healing pet's row stands under an attack pet's: bars and buttons in line.
+
+## A locked item's time (2026-11-25)
+
+- [x] **1** (the user, 2026-11-25, the inventory) Use a recharger or a stim with the inventory open: the yellow
+  time on its stack counts down each second and goes at nothing, the icon's fade running with it.
+- [ ] **1** The same on a recharger in an open bag.
+- [ ] **2** Cast a program with the nano programs window open: the time on the programs counts down.

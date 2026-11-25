@@ -262,6 +262,14 @@ fn fill(view: &mut GridView, items: &[(&GearItem, Option<(usize, usize)>)], text
         multilist::set_items(&mut view.tree, view.list, rows);
         view.shown = now;
     }
+    // (the locks as they stand this frame: the items above are made only when they change)
+    let running = crate::actions::locks_running();
+    if multilist::set_lock_states(&mut view.tree, view.list, |slot| match items.iter().find(|(i, _)| running && i.slot as i64 == slot) {
+        Some((i, _)) => crate::actions::item_lock_state(i.item_id),
+        None => (None, String::new()),
+    }) {
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
     // (the items that wait on the city controller's map and the worn ones locked by their menu: the lock's picture on
     // them, FUN_10040bda. Not in the inspect window, whose places are another character's.)
     multilist::set_locked(&mut view.tree, view.list, items.iter().filter(|(i, _)| own && crate::gear::locked(i.slot)).map(|(i, _)| i.slot as i64).collect());

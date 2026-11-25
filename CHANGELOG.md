@@ -6,7 +6,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+- The time left on a locked item counts down in the inventory, in bags and on the nano programs. It stood still at the number it had when the window's items last changed (a recharger said "15s" for good), and so did the icon's fade. Items in bags show the time and the fade now too.
 - With a pet out, the Pets menu and its "Pet Info" entry, which opens the pet window, are in the control center's menus again. The menu is shown while the character has pets, and the client never counted them, so it was never there.
+- The pet window looks like the original's: its "Pets" tab stands in the title row with the window's own menu button, the pets are listed from the top, and the row under a pet's bar shows its empty program cells across the window.
+- New in the pet window, not in the original: a pet's nano pool as a thin blue bar along the bottom of its health bar, under the name. It is full until the server tells the pet's nano, and its full length is the most the pet was seen to have, since the server never tells the pool's size.
 
 ## 0.1.11 (2026-11-25)
 

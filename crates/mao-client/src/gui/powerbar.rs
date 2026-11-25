@@ -45,6 +45,20 @@ pub struct PowerBar {
     pub colour: egui::Color32,
     /// The text views over the bar (`SetLabel`, `SetLabels`).
     pub labels: Labels,
+    /// This client's own: a second fill over the lower part of the bar ([`Second`]).
+    pub second: Option<Second>,
+    /// This client's own: how much taller than its pictures the bar is (the background stretched, the fill at the
+    /// top, the second fill at the bottom).
+    pub grow: f32,
+}
+
+/// A second fill of a bar going right: its picture drawn `height` tall along the bottom of the fill's place, as
+/// wide as the first, cut to its own value. The pet window's nano pool under the pet's name (the user, 2026-11-25).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Second {
+    pub full: String,
+    pub value: f32,
+    pub height: f32,
 }
 
 /// What a bar has written over it.
@@ -123,7 +137,7 @@ impl Control for PowerBar {
         let body = size_of(m, &self.background).or_else(|| size_of(m, &self.full)).unwrap_or(egui::vec2(1.0, 1.0));
         let caps = [&self.start_cap, &self.end_cap].iter().filter_map(|c| size_of(m, c)).map(|s| if self.direction.across() { s.x } else { s.y }).sum::<f32>();
         let s = if self.direction.across() { body + egui::vec2(caps, 0.0) } else { body + egui::vec2(0.0, caps) };
-        Some(Point::new(s.x - 1.0, s.y - 1.0))
+        Some(Point::new(s.x - 1.0, s.y - 1.0 + self.grow))
     }
     fn paint(&self, p: &Paint) {
         let Some(skin) = p.env.skin else { return };
@@ -158,12 +172,22 @@ impl Control for PowerBar {
         let bg = size_of(m, &self.background).unwrap_or(full.size);
         let offset = egui::vec2(((bg.x - full.size.x) * 0.5).floor(), ((bg.y - full.size.y) * 0.5).floor());
         let kept = self.kept(full.size);
-        if kept.width() <= 0.0 || kept.height() <= 0.0 {
-            self.paint_labels(p);
-            return;
+        if kept.width() > 0.0 && kept.height() > 0.0 {
+            let uv = egui::Rect::from_min_max(egui::pos2(kept.left() / full.size.x, kept.top() / full.size.y), egui::pos2(kept.right() / full.size.x, kept.bottom() / full.size.y));
+            // (a taller bar's fill is drawn as much taller)
+            let mut at = kept.translate(body.min.to_vec2() + offset);
+            at.max.y += self.grow;
+            p.painter.image(full.texture.id(), at, uv, self.colour);
         }
-        let uv = egui::Rect::from_min_max(egui::pos2(kept.left() / full.size.x, kept.top() / full.size.y), egui::pos2(kept.right() / full.size.x, kept.bottom() / full.size.y));
-        p.painter.image(full.texture.id(), kept.translate(body.min.to_vec2() + offset), uv, self.colour);
+        // (the second fill: along the bottom of the first one's place, over it)
+        if let Some((second, picture)) = self.second.as_ref().and_then(|s| Some((s, skin.get(&s.full)?))) {
+            let place = egui::Rect::from_min_size(body.min + offset, full.size + egui::vec2(0.0, self.grow));
+            let width = (((place.width() - 1.0) * second.value.clamp(0.0, 1.0)).floor() + 1.0).min(place.width());
+            if second.value > 0.0 && second.height > 0.0 {
+                let at = egui::Rect::from_min_max(egui::pos2(place.left(), place.bottom() - second.height.min(place.height())), egui::pos2(place.left() + width, place.bottom()));
+                p.painter.image(picture.texture.id(), at, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(width / place.width(), 1.0)), egui::Color32::WHITE);
+            }
+        }
         self.paint_labels(p);
     }
     fn as_any(&self) -> &dyn std::any::Any {
@@ -193,6 +217,8 @@ pub fn create(tree: &mut Tree, e: &Element) -> Id {
         value: 1.0,
         colour: egui::Color32::WHITE,
         labels: labels_of(&e.text("label", ""), &e.text("left_label", ""), &e.text("right_label", "")),
+        second: None,
+        grow: 0.0,
     };
     tree.add(Node::from_element(e, 4, Box::new(bar)))
 }
@@ -221,7 +247,7 @@ mod tests {
         assert_eq!(b.kept(egui::vec2(101.0, 10.0)).right(), 26.0);
         set_value(&mut tree, id, 7.0);
         assert_eq!(tree.control::<PowerBar>(id).unwrap().value, 1.0);
-        let up = PowerBar { direction: Direction::Up, background: None, full: None, start_cap: None, end_cap: None, value: 0.5, colour: egui::Color32::WHITE, labels: Labels::None };
+        let up = PowerBar { direction: Direction::Up, background: None, full: None, start_cap: None, end_cap: None, value: 0.5, colour: egui::Color32::WHITE, labels: Labels::None, second: None, grow: 0.0 };
         assert_eq!(up.kept(egui::vec2(10.0, 21.0)).top(), 10.0);
     }
 
