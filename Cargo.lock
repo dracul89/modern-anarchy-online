@@ -2769,7 +2769,7 @@ dependencies = [
  "mao-install",
  "mao-net",
  "mao-render",
- "objc2-app-kit 0.2.2",
+ "objc2-app-kit 0.3.2",
  "objc2-foundation 0.2.2",
  "pollster 1.0.1",
  "rfd",
