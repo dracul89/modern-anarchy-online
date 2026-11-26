@@ -295,7 +295,7 @@ jobs:
             awk -v v="$VERSION" '/^## / { on = ($2 == v); next } on' ../changelog.md > ../changes.md || true
             # (what stands above the notes GitHub writes from the commits since the last release)
             {
-              echo "A client for Anarchy Online: it needs an installed copy of the game and an account. On Windows run the -setup.exe (an installer with a Start menu entry; not signed, so SmartScreen asks first: More info, Run anyway), or unpack the .zip anywhere and see README.txt in it."
+              echo "A client for Anarchy Online: it needs the game's own files and an account. With no Anarchy Online on the machine, its launcher downloads Funcom's installer and installs the game from it. On Windows run the -setup.exe (an installer with a Start menu entry; not signed, so SmartScreen asks first: More info, Run anyway), or unpack the .zip anywhere and see README.txt in it."
               if ls ModernAnarchyOnline-*-windows-arm64* > /dev/null 2>&1; then
                 echo
                 echo "The windows-arm64 files are for Windows on ARM64 processors (Snapdragon X and the like); every other Windows machine takes windows-x64. The ARM64 build has not been played."
