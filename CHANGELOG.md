@@ -8,6 +8,19 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 - Links in the chat work again: an item's link, a name, a channel's name. Since 0.1.11, when links were made to act as the mouse button goes down, a press on one did nothing.
 
+### The game's files, without Funcom's installer and patcher
+
+- New: the launcher can get the game itself, for a machine that has no Anarchy Online on it or cannot run Funcom's Windows installer (Linux, macOS). When it finds no Anarchy Online folder it opens on a window with two ways on: "Choose its folder" for a game that is installed, or "Download and install" into a folder you name (`C:\Funcom\Anarchy Online` on Windows and `Games/Anarchy Online` in your home folder elsewhere, unless you name another). PLAY's place holds INSTALL, which opens the window again.
+- The install fetches Funcom's own installer from Funcom's servers (2.1 GB), shows Funcom's licence and asks, unpacks the game from the installer without running it (3 GB), and patches the game to the version the servers run. It needs about 5 GB while it works; the downloaded installer is deleted at the end. When the game is in, the launcher starts again with PLAY.
+- PATCH now patches the game in the launcher's own window, and turns into PLAY when the patch is in. The launcher used to close and start Funcom's patcher, which only Windows can run and which asks for an administrator's rights.
+- On Windows Funcom's patcher is still there: "Patch with Funcom's patcher (AnarchyPatcher.exe)" on the settings' Connection page, and a "Use Funcom's patcher" button if the client's own patch fails. A game under Program Files needs it, since the client's patcher does not ask Windows for an administrator's rights.
+- An install or a patch can be stopped at any time, by its Stop button or by closing the launcher, and goes on from where it stopped the next time. A patch step that has begun to change the game's files is finished first, so the launcher may stay a few seconds after it is closed.
+- Changed: with no game found, the launcher used to open on its settings. The game folder's field is where it was (SETTINGS, the GUI page), and "Choose its folder" in the new window opens it.
+- The same two as commands, for a machine without a screen or for a script: `mao-client install <folder>` and `mao-client patch <folder>` (`docs/INSTALL_WITHOUT_WINDOWS.md`).
+- One record of a game as Funcom's installer leaves it could not be read: its entry in the resource database's index has a stray number in it, which the original ignores and this client now ignores too. A freshly installed game has that entry.
+
+Tried on Windows: an install by the command and two through the launcher's window, a patch through the launcher from the installer's version (18.8.50) to the servers' (18.8.62), a patch closed in the middle and taken up again, Stop in the unpacking. The folders that came out have the files Funcom's own signed list names, and their database is record for record that of a game Funcom's installer and patcher made. Not tried: any of it on Linux or macOS with the real game (the code is built and its tests run there with every change, without game files), starting Funcom's patcher from the new box or button, and a game under Program Files.
+
 ## 0.1.12 (2026-11-25)
 
 A mission tracker, the pet window as the original's with a nano bar, and fixes for what was met in play.
