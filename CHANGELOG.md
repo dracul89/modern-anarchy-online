@@ -6,7 +6,10 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
-- Links in the chat work again: an item's link, a name, a channel's name. Since 0.1.11, when links were made to act as the mouse button goes down, a press on one did nothing.
+## 0.1.13 (2026-11-25)
+
+The launcher installs and patches the game itself, so a machine that cannot run Funcom's Windows installer and
+patcher can get it; and the chat's links can be pressed again.
 
 ### The game's files, without Funcom's installer and patcher
 
@@ -19,6 +22,13 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 - The same two as commands, for a machine without a screen or for a script: `mao-client install <folder>` and `mao-client patch <folder>` (`docs/INSTALL_WITHOUT_WINDOWS.md`).
 - One record of a game as Funcom's installer leaves it could not be read: its entry in the resource database's index has a stray number in it, which the original ignores and this client now ignores too. A freshly installed game has that entry.
 
+### Chat
+
+- Links in the chat work again: an item's link, a name, a channel's name. Since 0.1.11, when links were made to act as the mouse button goes down, a press on one did nothing.
+
+### Not yet seen in a live game
+
+Seen in a live game: the chat's links. No character was logged in from a game the launcher installed or patched.
 Tried on Windows: an install by the command and two through the launcher's window, a patch through the launcher from the installer's version (18.8.50) to the servers' (18.8.62), a patch closed in the middle and taken up again, Stop in the unpacking. The folders that came out have the files Funcom's own signed list names, and their database is record for record that of a game Funcom's installer and patcher made. Not tried: any of it on Linux or macOS with the real game (the code is built and its tests run there with every change, without game files), starting Funcom's patcher from the new box or button, and a game under Program Files.
 
 ## 0.1.12 (2026-11-25)

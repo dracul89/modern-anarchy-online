@@ -13,12 +13,20 @@ Windows:      run mao-client.exe (the launcher: pick the dimension, set the game
               straight to the login.
 Linux, macOS: ./play.sh "<game folder>"   (or set MAO_GAME to the folder)
 
+No Anarchy Online on the machine: the launcher (mao-client started alone) opens on a window
+that downloads Funcom's installer from Funcom's servers (2.1 GB), unpacks the game from it and
+patches it; about 5 GB are needed while it works. The same as a command (Linux and macOS;
+the packaged Windows program has no console to print its progress to):
+      ./mao-client install "<folder>"
+PATCH in the launcher, or ./mao-client patch "<game folder>", brings an installed game to the
+servers' version. New, and not yet run on Linux or macOS with the real game.
+
 Keep mao-client and the assets folder together: the client looks for assets beside itself.
 
 What it needs
 -------------
 
-- An installed Anarchy Online and an account for it.
+- An installed Anarchy Online (the launcher can install it, above) and an account for it.
 - A graphics card with Direct3D 12 or Vulkan (Windows), Vulkan (Linux) or Metal (macOS).
 - Windows: the WebView2 runtime for the launcher's news page and the in-game web pages
   (item store, daily rewards). Windows 11 has it; for Windows 10 it is Microsoft's
