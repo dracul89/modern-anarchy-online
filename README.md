@@ -76,6 +76,8 @@ with `set -a; . ./.env; set +a`). `MAO_SERVER=host:port` overrides Rubi-Ka.
 ```
 mao-client                                        the launcher, with the game folder its settings keep
 mao-client <game> launch                          the launcher: news page, dimensions, settings, PLAY
+mao-client install <folder>                       the game itself, from Funcom's servers: download, unpack, patch
+mao-client patch <folder>                         an installed game brought to the servers' version
 mao-client <game> play                            the login: login form, character list, Play
 mao-client net <game> chars                       the account's characters
 mao-client net <game> enter <name> --live         the live window: walk the world

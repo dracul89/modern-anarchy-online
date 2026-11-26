@@ -22,6 +22,8 @@ egui-winit = { version = "0.37", default-features = false, features = ["x11", "w
 image.workspace = true
 mao-formats.workspace = true
 mao-help = { path = "../mao-help" }
+# (the game's files without Funcom's installer and patcher: `install`, `patch`)
+mao-install = { path = "../mao-install" }
 mao-net.workspace = true
 mao-render.workspace = true
 # (the description inside a binary glTF file: `meshswap`, the stand-in meshes read from files)

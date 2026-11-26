@@ -56,6 +56,11 @@
 //!   it, as the original's does (it may be among what a patch replaces); a patcher that could not be started is told in a
 //!   box of the system's once the launcher is gone (the original only wrote a line in Anarchy.err). (The page of an
 //!   error code, `ERRORURL`, is the login's: `launcher.rs`.)
+//! - That is PATCH with Funcom's patcher, which only Windows can run and which the launcher's `patcher` setting
+//!   asks for (`patcher = funcom`). Without that setting, and everywhere else, PATCH patches the game here, in a
+//!   window of the launcher's, and PLAY comes when the patch is in (the user's choice, 2026-11-25). With no game
+//!   folder at all PLAY's place holds INSTALL, which has the game downloaded from Funcom's servers. Both are
+//!   `launchinstall.rs`.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -239,6 +244,11 @@ fn usual_game_dirs() -> Vec<PathBuf> {
             out.push(base.join("Funcom").join("Anarchy Online"));
             out.push(base.join("Steam").join("steamapps").join("common").join("Anarchy Online"));
         }
+    }
+    // (where the launcher's own install puts the game unless told otherwise)
+    let own = crate::launchinstall::default_folder();
+    if !out.contains(&own) {
+        out.push(own);
     }
     out
 }
@@ -721,6 +731,15 @@ impl Dialog {
                 });
             }
         });
+        // (only Windows can run Funcom's patcher: elsewhere the client's own is all there is)
+        if cfg!(windows) {
+            ui.group(|ui| {
+                ui.set_width(ui.available_width());
+                ui.strong("Patching");
+                ui.checkbox(&mut self.prefs.funcom_patcher, "Patch with Funcom's patcher (AnarchyPatcher.exe)");
+                ui.weak("Off: PATCH patches the game here, in the launcher's window, from Funcom's servers. On: PATCH starts Funcom's own patcher, as the original's launcher does (Windows asks for an administrator's rights, which a game under the program folders needs).");
+            });
+        }
     }
 
     fn show(&mut self, ctx: &egui::Context) -> Option<Closed> {
@@ -830,11 +849,30 @@ struct Launch {
     patcher: Option<Receiver<Result<(), String>>>,
     /// Why the patcher could not be started: told in a box of the system's once the launcher's window is gone.
     patch_failed: Option<String>,
+    /// The launcher's own install and patch (`launchinstall.rs`): their windows and the work behind them.
+    getting: crate::launchinstall::Getting,
 }
 
 impl Launch {
     fn dimension(&self) -> Option<&Dimension> {
         self.dimensions.get(self.selected)
+    }
+
+    /// PATCH with Funcom's patcher: the game's AnarchyPatcher.exe, opened in the game's folder with the dimension's
+    /// version and the game's expansion mark, and the launcher closes, as Cancel closes it: Anarchy.exe 0x40c13d,
+    /// 0x407d37 ShellExecuteEx "open", mfc100 ordinal 8137 EndDialog(2). The original closes on a failure too, with
+    /// only a line in Anarchy.err; here the failure is also told in a box once the launcher is gone, since a window
+    /// that just goes looks like a crash. Started off the window's thread: Windows' box asking for the
+    /// administrator's rights waits for an answer.
+    fn start_funcom_patcher(&mut self) {
+        let argument = dimensions::patcher_argument(self.dimension().map_or("", |d| d.version.as_str()), self.episode);
+        let folder = PathBuf::from(&self.game);
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(start_patcher(&folder, &argument));
+        });
+        self.patcher = Some(rx);
+        self.status = "Starting the patcher (Windows asks for permission)...".into();
     }
 
     fn set_list(&mut self, text: &str) {
@@ -903,8 +941,11 @@ impl Launch {
         let k = screen.width() / WIDTH;
         let at = |r: [f32; 4]| egui::Rect::from_min_size(screen.min + egui::vec2(r[0], r[1]) * k, egui::vec2(r[2], r[3]) * k);
         let whole = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        let enabled = self.dialog.is_none() && self.eula.is_none();
+        let enabled = self.dialog.is_none() && self.eula.is_none() && !self.getting.busy();
         let mut open_settings = false;
+        // (`MAO_LAUNCH_PATCH`: PATCH presses itself, once the dimensions are there)
+        let press_patch = enabled && self.list.is_none() && self.getting.patch_due(self.started.elapsed().as_secs_f32());
+        let no_pictures = ButtonPictures::default();
         egui::Area::new(egui::Id::unique("launcher")).order(egui::Order::Background).fixed_pos(screen.min).show(ctx, |ui| {
             ui.set_min_size(screen.size());
             let painter = ui.painter().clone();
@@ -960,26 +1001,26 @@ impl Launch {
             // (PLAY is PATCH while the dimension needs a patch, and starts the patcher; an older server is refused, as the
             // original's click check 0x40b60f does)
             let state = self.dimension().map_or(dimensions::VersionState::Same, |d| dimensions::version_state(&self.local_version, &d.version));
-            let (faces, label) = if state == dimensions::VersionState::NeedPatch { (&pictures.patch, "PATCH") } else { (&pictures.play, "PLAY") };
-            if button(ui, "launcher-play", PLAY_BUTTON, faces, enabled && self.game_ok && self.dimension().is_some() && self.patcher.is_none(), label) {
+            // (with no game folder PLAY's place holds INSTALL, a plain button: the pictures are the game's)
+            let (faces, label) = if !self.game_ok {
+                (&no_pictures, "INSTALL")
+            } else if state == dimensions::VersionState::NeedPatch {
+                (&pictures.patch, "PATCH")
+            } else {
+                (&pictures.play, "PLAY")
+            };
+            let on = if self.game_ok { enabled && self.dimension().is_some() && self.patcher.is_none() } else { enabled };
+            let pressed = button(ui, "launcher-play", PLAY_BUTTON, faces, on, label);
+            if !self.game_ok {
+                if pressed {
+                    self.getting.offer(&self.settings.game_dir);
+                }
+            } else if pressed || (press_patch && on && state == dimensions::VersionState::NeedPatch) {
                 match state {
                     dimensions::VersionState::Same => self.play = true,
-                    dimensions::VersionState::NeedPatch => {
-                        // (the game's AnarchyPatcher.exe, opened in the game's folder with the dimension's version and
-                        // the game's expansion mark, and the launcher closes, as Cancel closes it: Anarchy.exe 0x40c13d,
-                        // 0x407d37 ShellExecuteEx "open", mfc100 ordinal 8137 EndDialog(2). The original closes on a
-                        // failure too, with only a line in Anarchy.err; here the failure is also told in a box once the
-                        // launcher is gone, since a window that just goes looks like a crash. Started off the window's
-                        // thread: Windows' box asking for the administrator's rights waits for an answer)
-                        let argument = dimensions::patcher_argument(self.dimension().map_or("", |d| d.version.as_str()), self.episode);
-                        let folder = PathBuf::from(&self.game);
-                        let (tx, rx) = channel();
-                        std::thread::spawn(move || {
-                            let _ = tx.send(start_patcher(&folder, &argument));
-                        });
-                        self.patcher = Some(rx);
-                        self.status = "Starting the patcher (Windows asks for permission)...".into();
-                    }
+                    // (the client's own patcher, unless Funcom's is asked for where it can be run)
+                    dimensions::VersionState::NeedPatch if crate::launchinstall::own_patcher(&self.prefs) => self.getting.patch(Path::new(&self.game)),
+                    dimensions::VersionState::NeedPatch => self.start_funcom_patcher(),
                     dimensions::VersionState::OldServer => {
                         self.status = format!("{} runs an older version ({}) than this game folder ({}).", self.dimension().map_or("", |d| d.name.as_str()), self.dimension().map_or("", |d| d.version.as_str()), self.local_version);
                     }
@@ -1060,12 +1101,43 @@ impl Launch {
                 None => {}
             }
         }
+        // (the launcher's own install and patch: `launchinstall.rs`)
+        if self.dialog.is_none() && self.eula.is_none() {
+            use crate::launchinstall::Outcome;
+            match self.getting.show(ctx) {
+                Some(Outcome::ChooseFolder) => {
+                    let mut dialog = Dialog::new(&self.settings, &self.prefs, monitor());
+                    dialog.tab = 1;
+                    self.dialog = Some(dialog);
+                }
+                Some(Outcome::Began(folder)) => {
+                    self.settings.game_dir = folder;
+                    self.settings.save();
+                    self.status.clear();
+                }
+                // (the launcher starts again with the folder, as after another was chosen in the settings)
+                Some(Outcome::Use { folder, licence }) => {
+                    self.settings.game_dir = folder;
+                    self.settings.save();
+                    self.prefs.eula |= licence;
+                    self.restart = true;
+                }
+                Some(Outcome::Patched(version)) => {
+                    self.local_version = version.split('_').next().unwrap_or("").to_string();
+                    self.episode = dimensions::episode(&version);
+                    self.status = format!("The game is patched to version {}.", self.local_version);
+                }
+                Some(Outcome::FuncomPatcher) => self.start_funcom_patcher(),
+                Some(Outcome::Said(text)) => self.status = text,
+                None => {}
+            }
+        }
         if let Some(name) = self.dimension().map(|d| d.name.clone()).filter(|n| *n != self.prefs.dimension) {
             self.prefs.dimension = name;
         }
         // (the page is a window of its own over the top: away while the settings are open over it, and when the
         // launcher's settings leave it out)
-        self.dialog.is_none() && self.eula.is_none() && self.prefs.page
+        self.dialog.is_none() && self.eula.is_none() && self.prefs.page && !self.getting.busy()
     }
 }
 
@@ -1253,7 +1325,9 @@ impl Launch {
                 if self.play_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) && self.list.is_none() && self.game_ok {
                     self.play = true;
                 }
-                if self.play || self.restart || self.declined || self.patching || self.quit_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) {
+                // (a patch step that is writing is waited for: `Getting::may_close`)
+                let quit = self.quit_after.is_some_and(|s| self.started.elapsed().as_secs_f32() > s) && self.getting.may_close();
+                if self.play || self.restart || self.declined || self.patching || quit || self.getting.closed() {
                     gfx.window.set_visible(false);
                     event_loop.exit();
                 } else {
@@ -1315,6 +1389,9 @@ impl ApplicationHandler for Launch {
         let Some(mut gfx) = self.gfx.take() else { return };
         let consumed = gfx.ui.event(&gfx.window, &event);
         match event {
+            // (an install or a patch at work is told to stop; a patch step that is writing is waited for, and the
+            // window goes when it is in: `launchinstall.rs`)
+            WindowEvent::CloseRequested if !self.getting.may_close() => {}
             WindowEvent::CloseRequested => {
                 // (off the screen first: the page, taken down, is a white sheet for a moment)
                 gfx.window.set_visible(false);
@@ -1394,6 +1471,7 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
         patching: false,
         patcher: None,
         patch_failed: None,
+        getting: crate::launchinstall::Getting::new(),
     };
     // (the list kept from before until the server's comes; with neither, the one dimension the client knows itself, at
     // the game's own version, as it is not known: the original has no such dimension, and an empty version would need
@@ -1412,12 +1490,11 @@ pub fn run(named: Option<&str>) -> Result<(), String> {
             let _ = tx.send(dimensions::download(&address, timeout));
         });
     }
-    // (no game: the settings open on the page with the folders)
+    // (no game: a window that says so and offers the two ways on, its folder named in the settings or the game
+    // downloaded from Funcom; it is INSTALL's when it was closed)
     if !game_ok {
-        launch.status = "Choose the game's folder in the settings.".into();
-        let mut dialog = Dialog::new(&launch.settings, &launch.prefs, Screens::default());
-        dialog.tab = 1;
-        launch.dialog = Some(dialog);
+        launch.status = "Choose the game's folder in the settings, or INSTALL.".into();
+        launch.getting.offer(&launch.settings.game_dir);
     }
     // (MAO_LAUNCH_DEMO=patch-failed: the launcher closes at once and tells a patcher that could not be started, for
     // pictures of the box)

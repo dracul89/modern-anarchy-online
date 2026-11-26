@@ -1,0 +1,17 @@
+[package]
+name = "mao-install"
+description = "Getting Anarchy Online's files without Funcom's Windows installer: unpacking the installer and applying the patches."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+flate2 = "1.1.10"
+ureq = { version = "=2.12.1", default-features = false }
+
+[dev-dependencies]
+mao-formats.workspace = true

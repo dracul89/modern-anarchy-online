@@ -25,6 +25,10 @@ The client needs an installed Anarchy Online folder, the one holding `cd_image` 
 resource database, sounds, music, GUI files, FXS scripts and the rest from it; nothing is bundled. On Linux or macOS that
 folder comes from:
 
+- the launcher's INSTALL (it opens on it when it finds no game) or `mao-client install <folder>`: Funcom's installer
+  downloaded from Funcom's servers, unpacked and patched by the client itself, with nothing of Funcom's run; the
+  launcher's PATCH keeps the game at the servers' version the same way (`docs/INSTALL_WITHOUT_WINDOWS.md`; tried on
+  Windows only so far),
 - a Windows install copied over (the whole folder; only `cd_image`, `Setupf` and `version.id` are read),
 - Steam with Proton (`~/.steam/steam/steamapps/common/Anarchy Online`, the Flatpak Steam's
   `~/.var/app/com.valvesoftware.Steam/.local/share/Steam/...`), or Wine / CrossOver (`drive_c/Funcom/Anarchy Online`).

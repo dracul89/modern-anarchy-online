@@ -116,12 +116,16 @@ pub struct Prefs {
     /// The game's licence (`anarchy.eula`) was accepted (the client's own rule: the original's place for this was not
     /// found, so the launcher asks once).
     pub eula: bool,
+    /// PATCH starts Funcom's `AnarchyPatcher.exe`, as the original's launcher does, and does not patch the game
+    /// with the client's own patcher (`mao-install`), which is the default: `patcher = funcom`. Only Windows has
+    /// the choice: nothing else can run Funcom's.
+    pub funcom_patcher: bool,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
         // (the original's own defaults: its Connection page, `GeneralNetworkTimeout` and `DimensionNetworkTimeout`)
-        Prefs { dimension: String::new(), network_timeout: 90, dimension_timeout: 30, background: crate::launchskin::GAME.into(), page: true, eula: false }
+        Prefs { dimension: String::new(), network_timeout: 90, dimension_timeout: 30, background: crate::launchskin::GAME.into(), page: true, eula: false, funcom_patcher: false }
     }
 }
 
@@ -157,6 +161,7 @@ impl Prefs {
                 "background" if !value.is_empty() => p.background = value.to_string(),
                 "page" => p.page = !matches!(value.to_ascii_lowercase().as_str(), "off" | "false" | "no" | "0"),
                 "eula" => p.eula = matches!(value.to_ascii_lowercase().as_str(), "accepted" | "on" | "yes" | "1"),
+                "patcher" => p.funcom_patcher = value.eq_ignore_ascii_case("funcom"),
                 _ => {}
             }
         }
@@ -167,6 +172,9 @@ impl Prefs {
         let mut text = format!("dimension = {}\nnetwork_timeout = {}\ndimension_timeout = {}\nbackground = {}\npage = {}\n", self.dimension, self.network_timeout, self.dimension_timeout, self.background, if self.page { "on" } else { "off" });
         if self.eula {
             text.push_str("eula = accepted\n");
+        }
+        if self.funcom_patcher {
+            text.push_str("patcher = funcom\n");
         }
         text
     }
@@ -321,6 +329,11 @@ mod tests {
         p.eula = true;
         assert!(Prefs::from_text(&p.to_text()).eula);
         assert!(!Prefs::from_text(&Prefs::default().to_text()).eula);
+        // (the patcher: the client's own unless the file says Funcom's)
+        assert!(!Prefs::from_text(&p.to_text()).funcom_patcher);
+        p.funcom_patcher = true;
+        assert!(p.to_text().contains("patcher = funcom\n") && Prefs::from_text(&p.to_text()).funcom_patcher);
+        assert!(!Prefs::from_text("patcher = own\n").funcom_patcher);
     }
 
     #[test]
@@ -353,7 +366,7 @@ mod tests {
 
     #[test]
     fn the_launchers_file_keeps_the_dimension_and_the_time_outs() {
-        let p = Prefs { dimension: "Second World".into(), network_timeout: 120, dimension_timeout: 10, background: "stars".into(), page: false, eula: false };
+        let p = Prefs { dimension: "Second World".into(), network_timeout: 120, dimension_timeout: 10, background: "stars".into(), page: false, eula: false, funcom_patcher: false };
         assert_eq!(Prefs::from_text(&p.to_text()), p);
         // (a picture's path with a drive's colon and spaces in it is kept whole; the page is on unless it says off)
         let own = Prefs::from_text("background = D:/My Pictures/sky one.png\npage = on\n");

@@ -48,6 +48,8 @@ mod craftguide;
 mod ccscene;
 mod charcreate;
 mod launchwindow;
+mod installcmd;
+mod launchinstall;
 mod launchskin;
 mod shotnotes;
 mod hall;
@@ -1137,6 +1139,10 @@ fn run(args: &[String]) -> Result<(), String> {
     // No arguments, or `launch` alone: the launcher with the game folder its settings keep (or one of the usual places).
     if args.is_empty() || matches!(args, [word] if word == "launch") {
         return launchwindow::run(None);
+    }
+    // `install <folder>`, `patch <folder>`: the game's files from Funcom's servers (installcmd.rs).
+    if let Some(result) = installcmd::run(args) {
+        return result;
     }
     if let [word, rest @ ..] = args {
         if word == "net" {

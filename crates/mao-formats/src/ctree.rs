@@ -372,6 +372,14 @@ impl Database {
     /// Checks the record at `position` is the one for `key` by reading only
     /// its header and key words; its length.
     pub fn check(&self, key: &[u8; 8], position: Position) -> Result<u32> {
+        match self.check_at(key, position) {
+            // (the low word alone, as the original reads it: see `record`)
+            Err(_) if position >> 32 != 0 && self.check_at(key, position & 0xffff_ffff).is_ok() => self.check_at(key, position & 0xffff_ffff),
+            checked => checked,
+        }
+    }
+
+    fn check_at(&self, key: &[u8; 8], position: Position) -> Result<u32> {
         let mut head = [0; RECORD_HEADER + 8];
         self.data.read(position, &mut head)?;
         if u16::from_le_bytes([head[0], head[1]]) != RECORD_MARKER {
@@ -385,12 +393,27 @@ impl Database {
 
     /// The record with `key`, whole (its header excluded): the type and
     /// instance words, and the rest.
+    ///
+    /// The original never reads an index entry's high word, and Funcom's own database has an entry whose high word
+    /// is not zero though its record is where the low word says (the last key of the database the 18.8.50 installer
+    /// brings, 0xfde97:305696: high word 1 in a data file of 2.3 GB). So when the full position holds no record of
+    /// the key, the low word alone is tried.
     pub fn record(&self, key: &[u8; 8]) -> Result<Vec<u8>> {
         let position = self.index.find(key)?.ok_or(Error::NotFound)?;
-        let record = self.record_at(position)?;
-        if record.len() < 8 || key != &self::key(word(&record, 0), word(&record, 4)) {
-            return Err(Error::Format("the record at the index's position holds another key"));
+        let holds = |record: &Vec<u8>| record.len() >= 8 && key == &self::key(word(record, 0), word(record, 4));
+        match self.record_at(position) {
+            Ok(record) if holds(&record) => Ok(record),
+            first => {
+                if position >> 32 != 0 {
+                    if let Ok(record) = self.record_at(position & 0xffff_ffff) {
+                        if holds(&record) {
+                            return Ok(record);
+                        }
+                    }
+                }
+                first?;
+                Err(Error::Format("the record at the index's position holds another key"))
+            }
         }
-        Ok(record)
     }
 }

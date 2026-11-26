@@ -2766,6 +2766,7 @@ dependencies = [
  "image",
  "mao-formats",
  "mao-help",
+ "mao-install",
  "mao-net",
  "mao-render",
  "objc2-app-kit 0.2.2",
@@ -2804,6 +2805,15 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "tokenizers",
+]
+
+[[package]]
+name = "mao-install"
+version = "0.1.12"
+dependencies = [
+ "flate2",
+ "mao-formats",
+ "ureq",
 ]
 
 [[package]]
