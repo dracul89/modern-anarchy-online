@@ -6,6 +6,23 @@ notes (`docs/RELEASING.md`). Releases before 0.1.4 have their notes on the Relea
 
 ## Unreleased
 
+### The damage meter
+
+- New: a "Damage" entry in the menus opens the damage meter, under "Stats": in the View menu of the AOU skins, and in the command menu of the game's own skin. `/damage` works as before.
+- A fight is now your own: it is made of those who hit one another, so what other players near you do to creatures of their own is a fight of theirs. It used to be one fight for everything near, which never ended in a busy place and made your damage a second too low. Two fights become one when someone of the one hits someone of the other.
+- New: "My fights only" (ticked at first). "Latest fight", "All fights" and the list of fights are then of the fights you or a pet of yours have a part in. Unticked, the others' fights are there too.
+- New: a third list narrows the rows to one other: "On <a creature>" for the damage done to it alone, "From <someone>" for the damage that one did, "To <someone>" for the healing that one had. The damage a second is then over the time from the first such blow to the last.
+- A click on a row now says whom the damage was done to under what it was done with, and works for damage taken (what did it, and who) and healing (with what, and whom) as well. A click on a name there narrows the rows to that one.
+- In "All fights" a row's damage a second is over the fights that row has a part in, not over everyone's.
+- The window no longer grows down the screen while no row is chosen.
+- New: the fights are kept from one run to the next, each character its own. The window opens on your last fight, marked with how long ago it was ("Rollerrat, 3 hours ago"), and the earlier ones are in the list until Reset or until 40 newer ones have come.
+- New: the window's choices are kept too, each character its own: damage done, taken or healing, the latest fight or all, and the three ticks.
+- A loss of health the server gives the character itself as the source of is no longer counted as damage that character did; it is in its damage taken.
+
+### Not yet seen in a live game
+
+Seen in a live game: the "Damage" menu entry, one's own fight kept apart from other players' and creatures' fights going on beside it, "My fights only", the fights and the window's choices back after the game was left and started again, the last fight marked with how long ago it was, Reset. By test and by pictures of made-up fights only: the list that narrows the rows to one other and the click on a name, pets, healing, two fights becoming one, a second character's own fights. The "Damage" menu entry was pressed in a live game with an AOU skin; with the game's own skin it was seen in a picture of the menu only.
+
 ## 0.1.13 (2026-11-25)
 
 The launcher installs and patches the game itself, so a machine that cannot run Funcom's Windows installer and

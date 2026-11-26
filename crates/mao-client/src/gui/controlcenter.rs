@@ -34,10 +34,12 @@ pub const WINDOWS: &[(&str, &str)] = &[
     ("skill_window", "skills"),
     ("perk_window", "perks"),
     ("stat_window", "stats"),
+    // (this client's own damage meter, whose entry `menu::own_entry` puts after a written "Stats")
+    (super::menu::DAMAGE_WINDOW, "damage"),
     ("nano_window", "programs"),
     ("ncu_window", "ncu"),
     ("mission_window", "missions"),
-    // (this client's own mission tracker, whose entry `menu::tracker_entry` puts after a written "Mission")
+    // (this client's own mission tracker, whose entry `menu::own_entry` puts after a written "Mission")
     (super::menu::TRACKER_WINDOW, "tracker"),
     ("friends_window", "friends"),
     ("faction_window", "factions"),

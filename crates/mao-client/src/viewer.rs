@@ -1267,6 +1267,8 @@ impl ApplicationHandler for App {
         if let (Some(_), Some(view)) = (self.live.as_ref(), self.state.as_ref()) {
             keep_place(&view.window);
         }
+        // (the damage meter's fights are the character's at its next start)
+        crate::damage::save();
     }
 
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
@@ -2359,7 +2361,7 @@ impl ApplicationHandler for App {
                                     // (the damage meter's figures, for a test of a fight)
                                     eprintln!("damage meter (all fights, pets apart):
 {}taken:
-{}", crate::damage::with(|m| m.report(crate::damage::View::All, crate::damage::Mode::Dealt, false, false)), crate::damage::with(|m| m.report(crate::damage::View::All, crate::damage::Mode::Taken, false, false)));
+{}", crate::damage::with(|m| m.report(&crate::damage::Query { view: crate::damage::View::All, ..Default::default() })), crate::damage::with(|m| m.report(&crate::damage::Query { view: crate::damage::View::All, mode: crate::damage::Mode::Taken, ..Default::default() })));
                                     let (e, t) = (w.camera.eye(), w.camera.target);
                                     eprintln!("camera: eye ({:.2}, {:.2}, {:.2}) target ({:.2}, {:.2}, {:.2}) look {:?} feet ({px:.2}, {y:.2}, {pz:.2}) {} own casters {:?}", e.x, e.z, e.y, t.x, t.z, t.y, self.look_target.local, self.steering.debug(), self.casters.iter().filter(|c| c.own).map(|c| (c.translation, c.attractors.iter().map(|(n, m)| (n.clone(), [m[12], m[13], m[14]])).collect::<Vec<_>>())).collect::<Vec<_>>());
                                     let nearest = self.falls.as_ref().and_then(|(_, feet, _)| feet.iter().map(|f| ((f[0] - e.x).powi(2) + (f[1] - e.y).powi(2) + (f[2] - e.z).powi(2)).sqrt()).fold(None, |m: Option<f32>, d| Some(m.map_or(d, |m| m.min(d)))));

@@ -1996,15 +1996,13 @@ fn run(args: &[String]) -> Result<(), String> {
                             *hud.loot_preview.lock().unwrap() = Some(window);
                         }
                     }
-                    // MAO_UI_PREVIEW=damage: the damage meter with a sample fight (MAO_DAMAGE_ROW=<n>: that row's sources).
+                    // MAO_UI_PREVIEW=damage: the damage meter with sample fights (MAO_DAMAGE_ROW=<n>: that row's detail; `DamageWindow::preview` has the rest).
                     if preview.as_deref() == Some("damage") {
                         damage::with(|m| *m = damage::sample());
                         damage::set_own(1);
                         let mut tools = extras::Extras::default();
                         tools.damage.open = true;
-                        if let Some(row) = std::env::var("MAO_DAMAGE_ROW").ok().and_then(|v| v.parse().ok()) {
-                            tools.damage.select(row);
-                        }
+                        tools.damage.preview();
                         *hud.extras_preview.lock().unwrap() = Some(tools);
                     }
                     // MAO_UI_PREVIEW=find (MAO_FIND=<text>): the item finder over two sample characters.

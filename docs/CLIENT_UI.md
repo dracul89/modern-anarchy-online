@@ -5659,7 +5659,7 @@ as a blue marker on the compass and map (for return item only)").
   character's playfield), the time left, the steps, what it pays (credits, experience, the items with their icons,
   a click for an item's page) and the mission's text without its markup. It opens on the picked mission, else the
   active one, else the first. Plain egui controls, as the client's other own tools.
-- **Its menu entry** (the user: "can we add a button for mission tracker"). `menu::tracker_entry`: wherever a
+- **Its menu entry** (the user: "can we add a button for mission tracker"). `menu::own_entry` (`tracker_entry` until 2026-11-26): wherever a
   skin's menu has the mission window as a written entry (the AOU skins' "Mission" in their Team menu), an entry
   "Mission Tracker" follows it, made from that entry: its label's look, its actions turned to the tracker's own
   value `mission_tracker_window` (`controlcenter::WINDOWS`). No skin file is changed. The game's own skin has the
@@ -9232,3 +9232,105 @@ credits** (`shop.rs`): Enter only ends the typing.
 **Not carried out** (features the user asked for by name, off or out of the way until asked for): the smart
 shortcut bars and the round map (settings, off), auto-loot (a setting, off), the mission booth's helper, the chat's
 command list while a command is typed.
+
+## The damage meter: fights of their own, and the rows by one other (2026-11-26, the user: "Fights and targets")
+
+The meter of 2026-11-12 (`damage.rs`, this client's own) had one fight for everything the server told: any hit by
+anyone near kept the same fight going, it was named for the first creature anyone hit, and a row's damage a second
+was over that whole length. Beside other players' fights one's own figure fell and the fights never ended. It also
+kept only sums per fighter (done, taken, healed, the sources of the damage done), so it could not say what was done
+to one creature or who had hurt whom.
+
+**A fight is those who hit one another** (`Meter::add`). A hit belongs to the fight going on (nothing hit for 12 s
+ends one, as before) that its attacker or its victim is in, or the owner or a pet of either (`kin`); with none it
+begins a fight. Two fights at once stay apart until someone of the one hits someone of the other; then the later is
+joined to the earlier (`Fight::join`), which keeps its number. A heal is of the fight the one healed is in, else of
+the healer's, joins no fights and lengthens none. A fight has a number of its own (`Fight::id`: `View::Fight` is by
+it, the places change), and of the 40 kept the one that ended longest ago goes first, which was the oldest begun.
+
+**Blows, not sums.** A fight counts by `Blow`: who did it (0 when the client does not know), to whom, a heal or
+not, with what; each with its tally and the time of its first and its last. The rows are read from those
+(`Meter::rows` by a `Query`): the row is the one who did it (damage done, healing done) or the one it was done to
+(damage taken), the other party is `Row::others`. `Query::other` narrows the rows to what passed with one other: the
+damage done to one creature, the damage one creature did, the healing one character had. `Meter::others` lists the
+others of a view with their points, whichever is chosen.
+
+**The time a row is measured over.** A row's damage a second is over the fights it has a part in (`rows`' `here`),
+not over all the fights of the view: in "All fights" a stranger's fights no longer count against one's own figure.
+With one other chosen it is the time from the first to the last blow that passed with that other (`Meter::span`), so
+a creature's figures are over the time it was being hit. Within a fight a late joiner still has the lower figure, as
+in a raid's parse.
+
+**The window.** A third list under the first two: "On everyone" (damage done), "From everyone" (damage taken),
+"To everyone" (healing done), with the others of the view and their points. "My fights only" (ticked at first): the
+latest fight and "All fights" are of the fights the client's own character or a pet of its has a part in, and the
+list of fights has those alone; unticked, the latest is the fight something happened in last, anyone's. A click on a
+row shows its detail in all three counts now (it was the damage done's alone): what it was done with, and under it
+the others ("Whom it was done to", "Who did it", "Who was healed"); a click on one of those narrows the rows to it,
+and a click on it again widens them. Copy's heading names the one chosen ("Damage on Reet: ..."). "1 hit" is no
+longer "1 hits". A fault of the first window found by the pictures: with no row chosen the rows' area took all the
+height but 30 points and the buttons under it need more, so the window grew a little with every frame, down to the
+screen's edge; the buttons' row is kept free now (`FOOT`).
+
+**Whether a blow is counted twice (checked against the captures, 2026-11-26).** A weapon's hit is counted from
+`AttackInfo` and every loss of health with a source from `HealthDamage`; were both sent for one blow it would be
+counted twice. They are not: the three captures with fights (`arete-20261030-1655`, `arete-20261031-0842`,
+`arete-20261031-1505`) have 1,491 hits told by `AttackInfo`, `SpecialAttackInfo` and the two shield messages and 92
+losses told by `HealthDamage` (a nano program's damage; its `Stat` is the damage type's armour stat, 90 to 97), and
+only two of the 92 have a hit on the same victim for the same amount within 2 s. In both the victim's health
+(`Stat` 27 between them) goes down by each in turn, 119 to 101 to 83 and 74 to 30 to 0: two blows of the same
+size. Four of the 92 name the victim itself as the source; the meter counted those as damage that character did,
+and now counts them as damage it took, from itself (`Query::parties`).
+
+**Kept from one run to the next (2026-11-26, the user: "Remember between runs").** Two files in the character's
+folder (`chars/<character id>/`, `charprefs.rs`), written by `damage.rs` itself and not seeded from a shared one.
+`damage.ini` has the window's choices (`DamageWindow::choices`: what is counted, the latest fight or all, the three
+ticks), read when the window is first shown and written when one changes; one fight chosen from the list is not kept,
+the latest is shown at the next start. `damagefights.txt` has the fights kept (`Meter::to_text`: a heading, then a
+`fight` line and its `actor`, `pet` and `blow` lines, each blow with its tally and the times of its first and last),
+written when the game ends (`viewer.rs`' `exiting`), at Reset, and as a new fight begins when the last writing is
+30 s old (`record`; the text is made with the meter held and the file written without it); read by `set_own` when
+the character is known (`Meter::restore`), in place of whatever the meter had, which also ends one character's
+fights showing for another. The times written are the clock's (seconds since 1970): read back they lie before the
+run's start, so a fight of an earlier run is over whoever hits whom next, and where the clock went back since, the
+fights read are moved back until they are. A fight of an earlier run says how long ago it was, in the list and over
+the rows ("Rollerrat, 3 hours ago": `earlier`, by `itemindex::ago`). A pet's owner is now kept with the fight
+(`Fight::pets`, taken as the pet fights) and the rows go by that, not by the pets the meter knows now: a pet's
+number may be another creature's in a later run. A game that is killed keeps what was last written, so at most the
+fights since. Tests `the_fights_are_kept_as_text` (the text read by a later run gives the same rows for five
+questions, is written back the same, a torn file) and `the_windows_choices_are_kept_as_lines`. The tests and the
+previews leave the player's files alone (`charprefs::detached`). Picture: `MAO_DAMAGE_AGO=<seconds>` makes the
+sample's fights an earlier run's.
+
+**Tried live (2026-11-26, Maotesttwo in Arete Landing, three runs, each left by `MAO_QUIT_AFTER`, the settings in a
+scratch folder by `MAO_SETTINGS`).** Run one stood beside others' fights and left: `damagefights.txt` had three
+fights, a dockworker's with a burning cleaning robot, another player's with three cleaning robots and the
+dockworker's with a second robot, the last two going on at the same time and apart. Run two printed the meter 12 s
+after its start (the script's `log`): the three fights were there with a fourth just begun; `damage.ini`, written by
+hand before with "Damage taken" and "My fights only" off, showed so in the window. The character then fought a waste
+collector and a garbage flea (its own fight, one fight, the flea's hits on it in it) and left. Run three opened on
+that fight with "My fights only" ticked by a click: "Waste Collector, just now" and 3 s later "Waste Collector,
+2 minutes ago" (`itemindex::ago` turns at 90 s), its rows those of the file; the click was in `damage.ini`
+afterwards; Reset by a click emptied the window, and the file at the end held only a fight begun after it. The window
+kept its height with no row chosen. Not tried live: the list of others and the click on a name in a row's detail, a
+pet, healing, two fights becoming one, another character's own files, a game that is killed.
+
+**Its menu entry (2026-11-26, the user: "add a damage button to the UI").** As the mission tracker's the day
+before: `menu::own_entry` (the tracker's `tracker_entry` made general, by the table `OWN_ENTRIES`) puts an entry
+"Damage" after a skin's written entry for the stats window, made from that entry (its label's "Stats" made
+"Damage" in the same look, its actions turned to the value `damage_window`, which `controlcenter::WINDOWS` names
+the client's `damage` window). In the AOU skins that is under "Stats" in the View menu (the first of the control
+center's small pictures); in the game's own skin under "Stats" in the command menu (the wing's first picture). No
+skin file is changed. Where to put it was this client's choice: the meter's figures sit best beside the character's
+own. Seen in pictures of both menus opened by a click (`MAO_CLICK=8,714` with the AOU skin, `MAO_THEME=original
+MAO_CLICK=44,679` with the game's own, at 960x720); a click on the entry closes the menu, and the offline picture
+shows no window after it, as it shows none for "Stats" or "Mission Tracker" either, so the window's opening by the
+entry was not seen there. Test `the_damage_meter_follows_a_written_stats_entry` (the entry, its actions, and that
+the value means the damage window). Tried live by the user the same day ("button works").
+
+Not done: a team mate's fight one has no part in is not "mine" (the meter does not know the team); another player's
+pet is still a creature to it (the owner is not told); what a fight is called is still the first creature hit.
+Tests: `damage::tests` (two fights at once, the joining, a pet's fight, the rows by one other). Pictures by
+`MAO_UI_PREVIEW=damage` with `DamageWindow::preview`'s choices (`MAO_DAMAGE_MODE=taken|healed`,
+`MAO_DAMAGE_VIEW=all`, `MAO_DAMAGE_MINE=0`, `MAO_DAMAGE_OTHER=<n>`, `MAO_DAMAGE_ROW=<n>`): the six states were
+looked at. Not seen in a live game.

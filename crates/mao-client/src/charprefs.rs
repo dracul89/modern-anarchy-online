@@ -30,7 +30,8 @@
 //! `TextMacro.bin`; the player's wish); the chat filter (`ChatFilterRules` is a `MainPrefs.xml` value, the
 //! install's), the planet maps chosen, the mouse, the sounds and tips on or off (`LoginPrefs.xml` values, the
 //! account's); what the client learned of the world (`whompah.ini`) and its own tools' files (the mission helper,
-//! the tradeskill guide, the help window).
+//! the tradeskill guide, the help window). The damage meter's two are the character's, written by `damage.rs`
+//! itself into the character's folder: `damage.ini` (the window's choices) and `damagefights.txt` (the fights kept).
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -70,7 +71,7 @@ pub const FILES: &[&str] = &[
 static CHARACTER: Mutex<Option<u32>> = Mutex::new(None);
 
 /// Whether the player's files are left alone (the tests and the offline previews).
-fn detached() -> bool {
+pub fn detached() -> bool {
     cfg!(test) || std::env::var_os("MAO_UI_PREVIEW").is_some()
 }
 

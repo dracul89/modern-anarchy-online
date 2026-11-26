@@ -601,6 +601,17 @@ can see the box:
   damage comes as a health message with the program's name).
 - A second fight after a pause: "Latest fight" changes, the first stays in the list; "All fights" adds them.
 - Copy, then paste into a chat line: the rows as text.
+- (2026-11-26) Beside another player's fight: one's own fight ends 12 s after one's own last hit, whatever the other
+  does, and the other's fight is in the list only with "My fights only" unticked. Then hit the other's creature: the
+  two fights become one.
+- (2026-11-26) Two creatures in one fight: "On <the one>" shows the damage on it alone, with the time from its first
+  hit to its last; "Damage taken" and a click on one's own row says who did it; a click on a name there narrows the
+  rows to that one.
+- (2026-11-26) "Damage" under "Stats" in the game's own skin's command menu opens the Damage window. (In the AOU
+  skin's View menu the user saw it work the same day.)
+- (2026-11-26) Another character has its own fights and choices in the Damage window. (Seen live the same day with
+  one character: the fights and the choices back after a restart, the last own fight marked "... ago", Reset
+  emptying the file, others' fights near by kept apart from one's own, the window's height.)
 
 ## Mission terminals (2026-11-12)
 

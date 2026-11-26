@@ -137,12 +137,12 @@ fn actions(e: &Element) -> Vec<Actions> {
     out
 }
 
-/// FUN_10071a6e: the entries of a `<Menu>` element's children. This client's own entry for the mission tracker
-/// follows a written "Mission" entry ([`tracker_entry`]).
+/// FUN_10071a6e: the entries of a `<Menu>` element's children. This client's own entries follow the written
+/// entries they are made from ([`own_entry`]): the mission tracker's a "Mission", the damage meter's a "Stats".
 pub fn entries(children: &[Element]) -> Vec<Entry> {
     let mut out = Vec::new();
     for entry in children.iter().filter(|c| c.name.eq_ignore_ascii_case("menu") || c.name.eq_ignore_ascii_case("menuentry")).map(Entry::from_element) {
-        let own = tracker_entry(&entry);
+        let own = own_entry(&entry);
         out.push(entry);
         out.extend(own);
     }
@@ -151,25 +151,38 @@ pub fn entries(children: &[Element]) -> Vec<Entry> {
 
 /// The value of this client's own mission tracker window (`missionlog.rs`), as the menus' entries name theirs.
 pub const TRACKER_WINDOW: &str = "mission_tracker_window";
+/// The value of this client's own damage meter window (`damage.rs`).
+pub const DAMAGE_WINDOW: &str = "damage_window";
 
-/// This client's own menu entry for the mission tracker (the user, 2026-11-25: "can we add a button for mission
-/// tracker"): the skin's entry for the mission window, when it is a written one (the AOU skins' "Mission" in their
-/// Team menu; the game's own skin has the mission window as a picture in a row of pictures, which gets none), with
-/// its label's "Mission" made "Mission Tracker" and its actions turned to the tracker's value. No skin file is changed.
-pub fn tracker_entry(mission: &Entry) -> Option<Entry> {
-    if mission.name != "mission_window" || !mission.icon.is_empty() || mission.sub.is_some() || mission.label.is_empty() {
+/// This client's own menu entries: the value of the written entry each follows, its own value, the word of that
+/// entry's label that its own label stands in place of, its own label (and tip), and its tip's body.
+const OWN_ENTRIES: &[(&str, &str, &str, &str, &str)] = &[
+    ("mission_window", TRACKER_WINDOW, "Mission", "Mission Tracker", "Pick one of the missions you hold: its place goes to the map, and the window says its steps and what it pays."),
+    ("stat_window", DAMAGE_WINDOW, "Stats", "Damage", "The damage meter: who did how much damage in your fights, to whom and with what."),
+];
+
+/// This client's own menu entry after a skin's (the user, 2026-11-25: "can we add a button for mission tracker";
+/// 2026-11-26: "add a damage button to the UI"): where a skin's menu has the mission window or the stats window as a
+/// written entry (the AOU skins' "Mission" in their Team menu and "Stats" in their View menu; the game's own skin's
+/// "Stats" in its command menu), an entry of this client's own follows it, made from that entry: its label's word
+/// made the own one ("Mission Tracker", "Damage") in the same look, its actions turned to the own window's value.
+/// An entry that is a picture in a row of pictures (the game's own skin's mission window) gets none. No skin file
+/// is changed.
+pub fn own_entry(written: &Entry) -> Option<Entry> {
+    let &(theirs, value, word, label, body) = OWN_ENTRIES.iter().find(|o| o.0 == written.name)?;
+    if !written.icon.is_empty() || written.sub.is_some() || written.label.is_empty() {
         return None;
     }
-    let mut own = mission.clone();
-    own.name = TRACKER_WINDOW.to_string();
-    own.label = if mission.label.contains("Mission") { mission.label.replacen("Mission", "Mission Tracker", 1) } else { "Mission Tracker".to_string() };
-    own.tooltip = "Mission Tracker".to_string();
-    own.tooltip_body = "Pick one of the missions you hold: its place goes to the map, and the window says its steps and what it pays.".to_string();
+    let mut own = written.clone();
+    own.name = value.to_string();
+    own.label = if written.label.contains(word) { written.label.replacen(word, label, 1) } else { label.to_string() };
+    own.tooltip = label.to_string();
+    own.tooltip_body = body.to_string();
     for block in &mut own.actions {
         for action in &mut block.actions {
-            if let Action::SetValue { name, value } = action {
-                *name = name.replace("mission_window", TRACKER_WINDOW);
-                *value = value.replace("mission_window", TRACKER_WINDOW);
+            if let Action::SetValue { name, value: to } = action {
+                *name = name.replace(theirs, value);
+                *to = to.replace(theirs, value);
             }
         }
     }
@@ -215,6 +228,31 @@ mod tests {
         assert!(matches!(&own.actions[0].actions[..], [Action::CloseMenu, Action::SetValue { name, value }] if name == TRACKER_WINDOW && value == "dvalue:mission_tracker_window==false"));
         // (the skin's own entry is as it was)
         assert!(matches!(&list[0].actions[0].actions[1], Action::SetValue { name, value } if name == "mission_window" && value == "dvalue:mission_window==false"));
+    }
+
+    /// A written "Stats" entry is followed by this client's own for the damage meter: the AOU skins' in their View
+    /// menu, and the game's own skin's in its command menu (a button, its label a text of the game's).
+    #[test]
+    fn the_damage_meter_follows_a_written_stats_entry() {
+        let doc = crate::gui::xml::parse(
+            r#"<Menu>
+	<MenuEntry label="&lt;font color=#FFBE96&gt;Stats&lt;/font&gt;" name="stat_window" tooltip="Stats">
+		<Actions event="on_invoke"><CloseMenu /><SetValue name="stat_window" value="dvalue:stat_window==false" /></Actions>
+	</MenuEntry>
+	<MenuEntry button_mode="button" label="Statistik" name="stat_window"><Actions event="on_invoke"><CloseMenu/><SetValue name="stat_window" value="dvalue:stat_window==false"/></Actions></MenuEntry>
+	<MenuEntry bgicon="id:GFX_GUI_CC_ICONS_STATS" label="Stats" name="stat_window"/>
+</Menu>"#,
+        );
+        let list = entries(&doc[0].children);
+        assert_eq!(list.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["stat_window", DAMAGE_WINDOW, "stat_window", DAMAGE_WINDOW, "stat_window"]);
+        let own = &list[1];
+        assert_eq!((own.label.as_str(), own.tooltip.as_str(), own.mode), ("<font color=#FFBE96>Damage</font>", "Damage", Mode::Toggle));
+        assert!(matches!(&own.actions[0].actions[..], [Action::CloseMenu, Action::SetValue { name, value }] if name == DAMAGE_WINDOW && value == "dvalue:damage_window==false"));
+        // (a label without the word: the plain one; the button stays a button)
+        assert_eq!((list[3].label.as_str(), list[3].mode), ("Damage", Mode::Button));
+        // (the window the value means is the damage meter's)
+        assert!(crate::gui::controlcenter::WINDOWS.contains(&(DAMAGE_WINDOW, "damage")));
+        assert!(crate::extras::Extras::default().window("damage").is_some());
     }
 
     #[test]
